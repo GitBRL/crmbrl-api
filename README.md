@@ -25,6 +25,22 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Documentação
+
+- [Arquitetura](docs/ARQUITETURA.md) — contexto, endpoints, inventário e decisões
+- [Histórico](docs/HISTORICO.md) — o que foi feito, execução por execução
+
+Para atualizar depois de mexer no código:
+
+```bash
+bun run docs --nota "o que foi feito"
+```
+
+Sem a nota (`bun run docs`) o histórico se vira sozinho com os commits novos.
+
+Pelo Claude Code: `/atualizar-docs <o que foi feito>`. Detalhes em
+[`tools/doc-updater/README.md`](tools/doc-updater/README.md).
+
 ## Project setup
 
 ```bash

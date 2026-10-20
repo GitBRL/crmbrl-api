@@ -1,0 +1,118 @@
+{
+  "atualizadoEm": "2026-10-20T17:19:26.776Z",
+  "commit": "b28fd4cba88209492d6ccaf100eb334f63bf93ea",
+  "commitCurto": "b28fd4c",
+  "inventario": {
+    "nome": "crmbrl-api",
+    "versao": "0.0.1",
+    "framework": {
+      "nome": "NestJS",
+      "versao": "^12.0.1",
+      "tipo": "api"
+    },
+    "gerenciadorDePacotes": "bun",
+    "scripts": {
+      "build": "nest build",
+      "deploy": "nest deploy",
+      "docs": "node tools/doc-updater/index.mjs",
+      "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+      "start": "nest start",
+      "start:dev": "nest start --watch",
+      "start:debug": "nest start --debug --watch",
+      "start:prod": "node dist/main",
+      "lint": "oxlint --type-aware src/ test/",
+      "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+      "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
+      "test:cov": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
+      "test:debug": "node --inspect-brk --experimental-vm-modules -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+      "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
+    },
+    "dependencias": {
+      "@nestjs/common": "^12.0.1",
+      "@nestjs/core": "^12.0.1",
+      "@nestjs/observe": "^0.3.0",
+      "@nestjs/platform-express": "^12.0.1",
+      "reflect-metadata": "^0.2.2",
+      "rxjs": "^7.8.1"
+    },
+    "dependenciasDev": {
+      "@nestjs/cli": "^12.0.0",
+      "@nestjs/mau": "^0.2.6",
+      "@nestjs/schematics": "^12.0.0",
+      "@nestjs/testing": "^12.0.1",
+      "@types/express": "^5.0.0",
+      "@types/jest": "^30.0.0",
+      "@types/node": "^24.0.0",
+      "@types/supertest": "^7.0.0",
+      "jest": "^30.0.0",
+      "oxlint": "^1.58.0",
+      "oxlint-tsgolint": "^7.0.2001",
+      "prettier": "^3.4.2",
+      "source-map-support": "^0.5.21",
+      "supertest": "^7.0.0",
+      "ts-jest": "^29.4.0",
+      "ts-loader": "^9.5.2",
+      "ts-node": "^10.9.2",
+      "tsconfig-paths": "^4.2.0",
+      "typescript": "^6.0.2"
+    },
+    "totalDeArquivos": 18,
+    "linhasDeCodigo": 139,
+    "porExtensao": {
+      "": 3,
+      ".json": 6,
+      ".lock": 1,
+      ".ts": 7,
+      ".md": 1
+    },
+    "modulos": [
+      {
+        "classe": "AppModule",
+        "arquivo": "src/app.module.ts"
+      }
+    ],
+    "controllers": [
+      {
+        "classe": "AppController",
+        "arquivo": "src/app.controller.ts",
+        "prefixo": ""
+      }
+    ],
+    "servicos": [
+      {
+        "classe": "AppService",
+        "arquivo": "src/app.service.ts"
+      }
+    ],
+    "componentes": [],
+    "diretivas": [],
+    "pipes": [],
+    "rotasHttp": [
+      {
+        "metodo": "GET",
+        "caminho": "/",
+        "handler": "getHello",
+        "controller": "AppController",
+        "arquivo": "src/app.controller.ts"
+      }
+    ],
+    "rotasFront": [],
+    "chamadasHttp": [],
+    "variaveisDeAmbiente": [
+      "PORT"
+    ],
+    "testes": [
+      "src/app.controller.spec.ts",
+      "test/app.e2e-spec.ts"
+    ],
+    "git": {
+      "repositorio": true,
+      "head": "b28fd4cba88209492d6ccaf100eb334f63bf93ea",
+      "headCurto": "b28fd4c",
+      "branch": "dev",
+      "remoto": "https://github.com/GitBRL/crmbrl-api.git",
+      "sujo": true,
+      "totalDeCommits": 1
+    }
+  }
+}

@@ -8,6 +8,7 @@
   "scripts": {
     "build": "nest build",
     "deploy": "nest deploy",
+    "docs": "node tools/doc-updater/index.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
