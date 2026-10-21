@@ -14,9 +14,14 @@ const PASTAS_IGNORADAS = new Set([
   '.nx', '.cache', '.vscode', '.idea', 'tmp',
   // a propria documentacao gerada nao entra no inventario de codigo
   'docs',
+  // codigo gerado por ferramenta e fora do git (ex.: Prisma Client em src/generated)
+  'generated',
 ]);
 
 const EXTENSOES_CODIGO = new Set(['.ts', '.tsx', '.js', '.mjs', '.html', '.scss', '.css']);
+
+// artefatos de build que ficam soltos na raiz e nunca vao para o git
+const ARQUIVOS_IGNORADOS = [/\.tsbuildinfo$/];
 
 /** Caminha a arvore devolvendo caminhos relativos a `raiz`, em estilo posix. */
 export function listarArquivos(raiz, { ignorar = [] } = {}, dir = raiz, acumulador = []) {
@@ -26,7 +31,7 @@ export function listarArquivos(raiz, { ignorar = [] } = {}, dir = raiz, acumulad
     const relativo = relative(raiz, caminho).split('\\').join('/');
     if (ignorar.some((alvo) => relativo === alvo || relativo.startsWith(alvo + '/'))) continue;
     if (entrada.isDirectory()) listarArquivos(raiz, { ignorar }, caminho, acumulador);
-    else acumulador.push(relativo);
+    else if (!ARQUIVOS_IGNORADOS.some((padrao) => padrao.test(entrada.name))) acumulador.push(relativo);
   }
   return acumulador;
 }
@@ -63,7 +68,7 @@ function extrairClassesDecoradas(conteudo) {
   let m;
   while ((m = re.exec(conteudo)) !== null) {
     const [, decorador, argumentos, classe] = m;
-    achados.push({ decorador, classe, argumentos });
+    achados.push({ decorador, classe, argumentos, inicio: m.index });
   }
   return achados;
 }
@@ -78,14 +83,46 @@ function primeiroLiteral(texto) {
   return m ? m[1] : null;
 }
 
+/**
+ * Posicao logo depois do `)` que fecha o `(` em `inicio`, pulando strings —
+ * decorators como `@ApiOperation({ summary: 'Lista (paginada)' })` ou
+ * `@Papeis(...PAPEIS_ADMIN)` tem parenteses dentro dos argumentos.
+ */
+function depoisDosParenteses(texto, inicio) {
+  let nivel = 0;
+  for (let i = inicio; i < texto.length; i++) {
+    const c = texto[i];
+    if (c === "'" || c === '"' || c === '`') {
+      const fim = texto.indexOf(c, i + 1);
+      if (fim === -1) return -1;
+      i = fim;
+    } else if (c === '(') nivel++;
+    else if (c === ')' && --nivel === 0) return i + 1;
+  }
+  return -1;
+}
+
 /** Rotas HTTP de um controller NestJS. */
 function extrairRotasNest(conteudo, prefixo) {
   const rotas = [];
-  const re =
-    /@(Get|Post|Put|Patch|Delete|Options|Head|All)\(([^)]*)\)\s*(?:@[\w.]+\([^)]*\)\s*)*(?:async\s+)?(\w+)\s*\(/g;
+  const re = /@(Get|Post|Put|Patch|Delete|Options|Head|All)\(/g;
   let m;
   while ((m = re.exec(conteudo)) !== null) {
-    const [, metodo, argumentos, handler] = m;
+    const [inicioDoDecorador, metodo] = m;
+    const abre = m.index + inicioDoDecorador.length - 1;
+    let fim = depoisDosParenteses(conteudo, abre);
+    if (fim === -1) continue;
+    const argumentos = conteudo.slice(abre + 1, fim - 1);
+    // Decorators seguintes (`@HttpCode(...)`, `@ApiOperation({...})`...) ate o metodo.
+    let outro;
+    while ((outro = /^\s*@[\w.]+\(/.exec(conteudo.slice(fim))) !== null) {
+      const proximo = depoisDosParenteses(conteudo, fim + outro[0].length - 1);
+      if (proximo === -1) break;
+      fim = proximo;
+    }
+    const assinatura = /^\s*(?:async\s+)?(\w+)\s*\(/.exec(conteudo.slice(fim));
+    if (!assinatura) continue;
+    const handler = assinatura[1];
     const sufixo = primeiroLiteral(argumentos) ?? '';
     const caminho = ('/' + [prefixo, sufixo].filter(Boolean).join('/')).replace(/\/+/g, '/');
     rotas.push({ metodo: metodo.toUpperCase(), caminho, handler });
@@ -216,7 +253,11 @@ export function escanearProjeto(diretorio, opcoes = {}) {
       }
     }
 
-    for (const { decorador, classe, argumentos } of extrairClassesDecoradas(conteudo)) {
+    // Apoio de teste (ex.: um controller so dos testes em test/) nao e parte da arquitetura.
+    const ehApoioDeTeste = arquivoRelativo.startsWith('test/');
+    const decoradas = ehApoioDeTeste ? [] : extrairClassesDecoradas(conteudo);
+    const inicioDosControllers = decoradas.filter((d) => d.decorador === 'Controller').map((d) => d.inicio);
+    for (const { decorador, classe, argumentos, inicio } of decoradas) {
       const base = { classe, arquivo: arquivoRelativo };
       switch (decorador) {
         case 'Module':
@@ -224,9 +265,12 @@ export function escanearProjeto(diretorio, opcoes = {}) {
           inventario.modulos.push(base);
           break;
         case 'Controller': {
-          const prefixo = primeiroLiteral(argumentos) ?? '';
+          // @Controller('rota') ou @Controller({ path: 'rota', version: ... })
+          const prefixo = primeiroLiteral(argumentos) ?? valorDaChave(argumentos, 'path') ?? '';
           inventario.controllers.push({ ...base, prefixo });
-          for (const rota of extrairRotasNest(conteudo, prefixo)) {
+          // Com dois controllers no mesmo arquivo, cada um fica so com as rotas da sua classe.
+          const fimDaClasse = inicioDosControllers.find((outro) => outro > inicio) ?? conteudo.length;
+          for (const rota of extrairRotasNest(conteudo.slice(inicio, fimDaClasse), prefixo)) {
             inventario.rotasHttp.push({ ...rota, controller: classe, arquivo: arquivoRelativo });
           }
           break;

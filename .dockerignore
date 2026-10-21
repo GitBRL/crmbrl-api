@@ -1,0 +1,14 @@
+# Fora do contexto do docker build: o que é gerado no próprio build, o que é
+# local e o que não vai para a imagem.
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+docs
+test
+src/generated
+*.tsbuildinfo
+.claude
+tools

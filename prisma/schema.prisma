@@ -1,0 +1,901 @@
+// Esquema do banco do CRM BRL (PostgreSQL 17) — Fase 1 (núcleo do CRM).
+//
+// Convenções:
+// - modelos em PascalCase, no singular e em português;
+// - tabelas e colunas em snake_case (tabelas no plural), via @@map e @map;
+// - ids uuid (EventoAuditoria, LogTecnico e TentativaLogin: bigint sequencial);
+// - datas sempre em timestamptz(3), com `criadoEm`/`atualizadoEm` em todos os
+//   modelos (o masculino vale para qualquer registro, para não errar o nome);
+// - valores em Decimal(14,2); exclusão lógica com `excluidoEm` onde indicado.
+//
+// Regras que o banco garante sozinho (SQL na migration `fase1_nucleo`):
+// - índices únicos parciais (preview `partialIndexes`, declarados aqui com `where`);
+// - CHECKs de valores e da normalização do e-mail do usuário;
+// - o gatilho que recusa UPDATE, DELETE e TRUNCATE em `eventos_auditoria` (R3.3).
+//
+// A URL de conexão fica no prisma.config.ts (Prisma 7), não aqui.
+// Nunca edite uma migration já aplicada: mude este arquivo e gere outra com
+// `bun run prisma:migrar --name <o-que-mudou>`.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // O projeto compila para CommonJS; imports sem extensão funcionam no tsc,
+  // no Jest e no Node sem mapeamento extra.
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+  // Índices únicos parciais (dedup de contatos, CNPJ, um funil-base por área,
+  // uma etapa de ganho e uma de perda por funil) ficam no schema, para o
+  // `migrate dev` conhecê-los e nunca propor apagá-los.
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// Papel de quem usa o CRM. Define o que a pessoa vê e pode fazer (R1).
+enum Papel {
+  ADMIN
+  C_LEVEL
+  LIDER_COMERCIAL
+  COMERCIAL
+  LIDER_MARKETING
+  MARKETING
+  LIDER_CS
+  CS
+
+  @@map("papel")
+}
+
+/// Área de negócio. Cada funil pertence a uma; cada papel de líder ou de membro também (R1).
+enum Area {
+  MARKETING
+  COMERCIAL
+  CS
+
+  @@map("area")
+}
+
+/// Tipo da etapa: o status do negócio deriva dele (R5.2, R5.3).
+enum TipoEtapa {
+  ABERTA
+  GANHO
+  PERDIDO
+
+  @@map("tipo_etapa")
+}
+
+enum StatusNegocio {
+  ABERTO
+  GANHO
+  PERDIDO
+
+  @@map("status_negocio")
+}
+
+/// De onde veio o contato ou o negócio (R4.3).
+enum OrigemContato {
+  MANUAL
+  WEBHOOK
+  WHATSAPP
+  SITE
+  INDICACAO
+  IMPORTACAO
+  PASSAGEM
+  OUTRO
+
+  @@map("origem_contato")
+}
+
+enum TipoAtividade {
+  TAREFA
+  LIGACAO
+  REUNIAO
+  EMAIL
+  WHATSAPP
+  NOTA
+
+  @@map("tipo_atividade")
+}
+
+enum StatusAtividade {
+  PENDENTE
+  CONCLUIDA
+  CANCELADA
+
+  @@map("status_atividade")
+}
+
+enum PrioridadeAtividade {
+  BAIXA
+  MEDIA
+  ALTA
+
+  @@map("prioridade_atividade")
+}
+
+/// Quem fez a alteração (R3.1).
+enum TipoAtor {
+  USUARIO
+  SISTEMA
+  WEBHOOK
+  AUTOMACAO
+  IA
+
+  @@map("tipo_ator")
+}
+
+/// Como um negócio criado por automação ganha responsável (R5.8, R8.1).
+enum EstrategiaDistribuicao {
+  RODIZIO
+  RESPONSAVEL_FIXO
+  LIDER_DA_AREA
+
+  @@map("estrategia_distribuicao")
+}
+
+enum TipoTokenSenha {
+  CONVITE
+  REDEFINICAO
+
+  @@map("tipo_token_senha")
+}
+
+enum StatusRecebimento {
+  RECEBIDO
+  PROCESSADO
+  IGNORADO
+  ERRO
+
+  @@map("status_recebimento")
+}
+
+enum StatusEntrega {
+  PENDENTE
+  ENTREGUE
+  FALHOU
+
+  @@map("status_entrega")
+}
+
+enum NivelLog {
+  DEBUG
+  INFO
+  AVISO
+  ERRO
+
+  @@map("nivel_log")
+}
+
+/// Modelo de mapeamento de um webhook de entrada (R8.1).
+enum ModeloMapeamento {
+  GENERICO
+  DISPAROS_BRL
+  PERSONALIZADO
+
+  @@map("modelo_mapeamento")
+}
+
+// ---------------------------------------------------------------------------
+// Usuários e autenticação (R1, R2)
+// ---------------------------------------------------------------------------
+
+/// Pessoa com acesso ao CRM.
+///
+/// `liderId` aponta para o líder: membro → líder da área; líder → C-level.
+/// Quando alguém é desligado, o que estava com ele vai para esse líder (R7).
+/// O e-mail é gravado aparado e em minúsculas (R1.1; um CHECK garante).
+/// `senhaHash` fica nulo para quem foi convidado e ainda não definiu a senha.
+model Usuario {
+  id              String    @id @default(uuid()) @db.Uuid
+  nome            String
+  email           String    @unique
+  papel           Papel
+  liderId         String?   @map("lider_id") @db.Uuid
+  lider           Usuario?  @relation("Lideranca", fields: [liderId], references: [id], onDelete: SetNull)
+  liderados       Usuario[] @relation("Lideranca")
+  ativo           Boolean   @default(true)
+  desligadoEm     DateTime? @map("desligado_em") @db.Timestamptz(3)
+  /// `scrypt$N$r$p$sal$hash` (R2.1). Nunca sai da API.
+  senhaHash       String?   @map("senha_hash")
+  /// Troca de senha obrigatória no próximo acesso (R2.6, R2.7, R2.8).
+  deveTrocarSenha Boolean   @default(false) @map("deve_trocar_senha")
+  senhaAlteradaEm DateTime? @map("senha_alterada_em") @db.Timestamptz(3)
+  ultimoAcessoEm  DateTime? @map("ultimo_acesso_em") @db.Timestamptz(3)
+  avatarUrl       String?   @map("avatar_url")
+  telefone        String?
+  criadoEm        DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  sessoes                    Sessao[]
+  tokensSenha                TokenSenha[]
+  empresasResponsavel        Empresa[]                       @relation("EmpresaResponsavel")
+  empresasCriadas            Empresa[]                       @relation("EmpresaCriadoPor")
+  contatosResponsavel        Contato[]                       @relation("ContatoResponsavel")
+  contatosCriados            Contato[]                       @relation("ContatoCriadoPor")
+  negociosResponsavel        Negocio[]                       @relation("NegocioResponsavel")
+  negociosCriados            Negocio[]                       @relation("NegocioCriadoPor")
+  movimentacoes              NegocioMovimentacao[]
+  passagensResponsavelFixo   Passagem[]                      @relation("PassagemResponsavelFixo")
+  regrasDistribuicaoUltimo   RegraDistribuicao[]             @relation("RegraDistribuicaoUltimo")
+  participacoesDistribuicao  RegraDistribuicaoParticipante[]
+  atividadesResponsavel      Atividade[]                     @relation("AtividadeResponsavel")
+  atividadesCriadas          Atividade[]                     @relation("AtividadeCriadoPor")
+  atividadesConcluidas       Atividade[]                     @relation("AtividadeConcluidaPor")
+  atividadesEncaminhadas     Atividade[]                     @relation("AtividadeEncaminhadaDe")
+  notificacoes               Notificacao[]
+  webhooksEntradaResponsavel WebhookEntrada[]                @relation("WebhookEntradaResponsavelFixo")
+  webhooksEntradaCriados     WebhookEntrada[]                @relation("WebhookEntradaCriadoPor")
+  webhooksSaidaCriados       WebhookSaida[]                  @relation("WebhookSaidaCriadoPor")
+
+  @@index([liderId])
+  @@index([papel, ativo])
+  @@map("usuarios")
+}
+
+/// Sessão de login (R2.2). O cookie `crmbrl_sessao` leva o token; aqui fica só o SHA-256.
+/// `expiraEm` = mínimo entre (último uso + inatividade) e (criação + duração máxima).
+model Sessao {
+  id              String    @id @default(uuid()) @db.Uuid
+  usuarioId       String    @map("usuario_id") @db.Uuid
+  usuario         Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash       String    @unique @map("token_hash")
+  criadoEm        DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  ultimoUsoEm     DateTime  @default(now()) @map("ultimo_uso_em") @db.Timestamptz(3)
+  expiraEm        DateTime  @map("expira_em") @db.Timestamptz(3)
+  revogadaEm      DateTime? @map("revogada_em") @db.Timestamptz(3)
+  /// `logout`, `desligamento`, `troca_de_senha`, `redefinicao_de_senha`, `senha_temporaria`, `usuario_inativo`.
+  motivoRevogacao String?   @map("motivo_revogacao")
+  ip              String?
+  userAgent       String?   @map("user_agent")
+
+  @@index([usuarioId])
+  @@index([expiraEm])
+  @@map("sessoes")
+}
+
+/// Toda tentativa de login, com sucesso ou não (R2.5). Base do bloqueio por força bruta.
+model TentativaLogin {
+  id        BigInt   @id @default(autoincrement())
+  /// E-mail normalizado (aparado, minúsculas), exista ou não um usuário com ele.
+  email     String
+  ip        String?
+  usuarioId String?  @map("usuario_id") @db.Uuid
+  sucesso   Boolean
+  /// `SUCESSO`, `SENHA_INCORRETA`, `USUARIO_INEXISTENTE`, `SEM_SENHA`, `USUARIO_DESLIGADO`, `BLOQUEADO_EMAIL`, `BLOQUEADO_IP`.
+  motivo    String
+  userAgent String?  @map("user_agent")
+  criadoEm  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([email, criadoEm])
+  @@index([ip, criadoEm])
+  @@map("tentativas_login")
+}
+
+/// Token de uso único para convite ou redefinição de senha (R2.8). Só o hash fica no banco.
+model TokenSenha {
+  id           String         @id @default(uuid()) @db.Uuid
+  usuarioId    String         @map("usuario_id") @db.Uuid
+  usuario      Usuario        @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo         TipoTokenSenha
+  tokenHash    String         @unique @map("token_hash")
+  criadoPorId  String?        @map("criado_por_id") @db.Uuid
+  criadoEm     DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  expiraEm     DateTime       @map("expira_em") @db.Timestamptz(3)
+  usadoEm      DateTime?      @map("usado_em") @db.Timestamptz(3)
+  /// Preenchido quando um token mais novo do mesmo tipo substitui este.
+  invalidadoEm DateTime?      @map("invalidado_em") @db.Timestamptz(3)
+
+  @@index([usuarioId, tipo])
+  @@map("tokens_senha")
+}
+
+// ---------------------------------------------------------------------------
+// Contatos e empresas (R4)
+// ---------------------------------------------------------------------------
+
+/// Empresa (R4.4). CNPJ só com dígitos, único entre as empresas não excluídas.
+model Empresa {
+  id                   String    @id @default(uuid()) @db.Uuid
+  nome                 String
+  /// 14 dígitos, validado pelos dígitos verificadores.
+  cnpj                 String?
+  site                 String?
+  email                String?
+  telefone             String?
+  segmento             String?
+  cidade               String?
+  uf                   String?   @db.Char(2)
+  responsavelId        String?   @map("responsavel_id") @db.Uuid
+  responsavel          Usuario?  @relation("EmpresaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  etiquetas            String[]  @default([])
+  camposPersonalizados Json      @default("{}") @map("campos_personalizados")
+  criadoPorId          String?   @map("criado_por_id") @db.Uuid
+  criadoPor            Usuario?  @relation("EmpresaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm             DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm           DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  contatos   Contato[]
+  negocios   Negocio[]
+  atividades Atividade[]
+
+  @@unique([cnpj], map: "empresas_cnpj_ativo_key", where: raw("(cnpj IS NOT NULL) AND (excluido_em IS NULL)"))
+  @@index([responsavelId])
+  @@index([nome])
+  @@map("empresas")
+}
+
+/// Pessoa de contato (R4). E-mail em minúsculas; telefone em E.164 só com dígitos.
+/// Os índices únicos parciais de e-mail e telefone garantem a deduplicação (R4.2)
+/// mesmo sob concorrência: um segundo INSERT com o mesmo valor falha com P2002.
+model Contato {
+  id                    String        @id @default(uuid()) @db.Uuid
+  nome                  String
+  email                 String?
+  telefone              String?
+  cargo                 String?
+  empresaId             String?       @map("empresa_id") @db.Uuid
+  empresa               Empresa?      @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  responsavelId         String?       @map("responsavel_id") @db.Uuid
+  responsavel           Usuario?      @relation("ContatoResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  /// Primeira origem (R4.3): imutável depois da criação.
+  primeiraOrigem        OrigemContato @default(MANUAL) @map("primeira_origem")
+  primeiraOrigemDetalhe String?       @map("primeira_origem_detalhe")
+  /// `{ source, medium, campaign, term, content }` (tipo `Utm`).
+  primeiraOrigemUtm     Json?         @map("primeira_origem_utm")
+  /// Última origem (R4.3): muda a cada reconversão.
+  ultimaOrigem          OrigemContato @default(MANUAL) @map("ultima_origem")
+  ultimaOrigemDetalhe   String?       @map("ultima_origem_detalhe")
+  ultimaOrigemUtm       Json?         @map("ultima_origem_utm")
+  ultimaOrigemEm        DateTime      @default(now()) @map("ultima_origem_em") @db.Timestamptz(3)
+  /// Quantas vezes o contato chegou (1 na criação, +1 a cada reconversão).
+  conversoes            Int           @default(1)
+  etiquetas             String[]      @default([])
+  camposPersonalizados  Json          @default("{}") @map("campos_personalizados")
+  /// LGPD (R4.6): fora de disparos e automações de marketing.
+  optOutMarketing       Boolean       @default(false) @map("opt_out_marketing")
+  optOutEm              DateTime?     @map("opt_out_em") @db.Timestamptz(3)
+  consentimentoEm       DateTime?     @map("consentimento_em") @db.Timestamptz(3)
+  consentimentoOrigem   String?       @map("consentimento_origem")
+  criadoPorId           String?       @map("criado_por_id") @db.Uuid
+  criadoPor             Usuario?      @relation("ContatoCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm              DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm          DateTime      @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  /// Exclusão lógica com anonimização (R4.6).
+  excluidoEm            DateTime?     @map("excluido_em") @db.Timestamptz(3)
+
+  negocios            Negocio[]
+  atividades          Atividade[]
+  recebimentosWebhook WebhookRecebimento[]
+
+  @@unique([email], map: "contatos_email_ativo_key", where: raw("(email IS NOT NULL) AND (excluido_em IS NULL)"))
+  @@unique([telefone], map: "contatos_telefone_ativo_key", where: raw("(telefone IS NOT NULL) AND (excluido_em IS NULL)"))
+  @@index([responsavelId])
+  @@index([empresaId])
+  @@index([criadoEm])
+  @@map("contatos")
+}
+
+// ---------------------------------------------------------------------------
+// Funis, etapas, negócios e passagens (R5)
+// ---------------------------------------------------------------------------
+
+/// Funil kanban. Os três funis-base (`base = true`, um por área) não podem ser excluídos (R5.1).
+/// `ativo = false` arquiva (some do kanban, volta quando reativado); `excluidoEm`
+/// é a exclusão lógica de um funil extra, que preserva o histórico dos negócios.
+model Funil {
+  id           String    @id @default(uuid()) @db.Uuid
+  nome         String
+  area         Area
+  base         Boolean   @default(false)
+  ordem        Int       @default(0)
+  ativo        Boolean   @default(true)
+  descricao    String?
+  criadoEm     DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm   DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  etapas           Etapa[]
+  negocios         Negocio[]
+  movimentacoes    NegocioMovimentacao[]
+  passagensOrigem  Passagem[]            @relation("PassagemFunilOrigem")
+  passagensDestino Passagem[]            @relation("PassagemFunilDestino")
+  webhooksEntrada  WebhookEntrada[]
+
+  @@unique([area], map: "funis_base_area_key", where: raw("base"))
+  @@index([area, ordem])
+  @@map("funis")
+}
+
+/// Etapa de um funil (R5.2). Exatamente uma de ganho e uma de perda por funil
+/// (índices únicos parciais). `chave` identifica as etapas criadas pela
+/// configuração inicial (ex.: `qualificado_mql`), estável mesmo se renomeadas.
+model Etapa {
+  id            String    @id @default(uuid()) @db.Uuid
+  funilId       String    @map("funil_id") @db.Uuid
+  funil         Funil     @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  nome          String
+  chave         String?
+  ordem         Int
+  tipo          TipoEtapa @default(ABERTA)
+  /// Prazo-alvo em dias: acima dele o negócio está "parado" (R5.10).
+  prazoDias     Int?      @map("prazo_dias")
+  /// 0 a 100.
+  probabilidade Int?
+  criadoEm      DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm  DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  negocios          Negocio[]
+  movimentacoesDe   NegocioMovimentacao[] @relation("MovimentacaoDeEtapa")
+  movimentacoesPara NegocioMovimentacao[] @relation("MovimentacaoParaEtapa")
+  passagensGatilho  Passagem[]            @relation("PassagemEtapaGatilho")
+  passagensDestino  Passagem[]            @relation("PassagemEtapaDestino")
+  webhooksEntrada   WebhookEntrada[]
+
+  @@unique([funilId, chave])
+  @@unique([funilId], map: "etapas_funil_ganho_key", where: raw("(tipo = 'GANHO'::tipo_etapa)"))
+  @@unique([funilId], map: "etapas_funil_perdido_key", where: raw("(tipo = 'PERDIDO'::tipo_etapa)"))
+  @@index([funilId, ordem])
+  @@map("etapas")
+}
+
+/// Negócio (oportunidade) num funil (R5.3). `status` deriva do tipo da etapa.
+model Negocio {
+  id                   String        @id @default(uuid()) @db.Uuid
+  /// Padrão: nome do contato ou da empresa.
+  titulo               String
+  contatoId            String        @map("contato_id") @db.Uuid
+  contato              Contato       @relation(fields: [contatoId], references: [id], onDelete: Restrict)
+  empresaId            String?       @map("empresa_id") @db.Uuid
+  empresa              Empresa?      @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  funilId              String        @map("funil_id") @db.Uuid
+  funil                Funil         @relation(fields: [funilId], references: [id], onDelete: Restrict)
+  etapaId              String        @map("etapa_id") @db.Uuid
+  etapa                Etapa         @relation(fields: [etapaId], references: [id], onDelete: Restrict)
+  /// Nulo = sem responsável (o membro da área pode assumir, R5.9).
+  responsavelId        String?       @map("responsavel_id") @db.Uuid
+  responsavel          Usuario?      @relation("NegocioResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  status               StatusNegocio @default(ABERTO)
+  /// Em reais, ≥ 0, duas casas (CHECK).
+  valor                Decimal       @default(0) @db.Decimal(14, 2)
+  /// Valor recorrente mensal, ≥ 0 (CHECK).
+  valorRecorrente      Decimal?      @map("valor_recorrente") @db.Decimal(14, 2)
+  previsaoFechamento   DateTime?     @map("previsao_fechamento") @db.Date
+  motivoPerda          String?       @map("motivo_perda")
+  ganhoEm              DateTime?     @map("ganho_em") @db.Timestamptz(3)
+  perdidoEm            DateTime?     @map("perdido_em") @db.Timestamptz(3)
+  /// Desde quando está na etapa atual.
+  etapaDesde           DateTime      @default(now()) @map("etapa_desde") @db.Timestamptz(3)
+  /// Ordenação fracionária no kanban (dentro da etapa).
+  posicao              Float         @default(0)
+  /// Negócio que originou este por uma passagem (R5.7).
+  negocioOrigemId      String?       @map("negocio_origem_id") @db.Uuid
+  negocioOrigem        Negocio?      @relation("NegocioOrigem", fields: [negocioOrigemId], references: [id], onDelete: SetNull)
+  negociosDerivados    Negocio[]     @relation("NegocioOrigem")
+  origem               OrigemContato @default(MANUAL)
+  origemDetalhe        String?       @map("origem_detalhe")
+  /// `{ source, medium, campaign, term, content }` (tipo `Utm`).
+  utm                  Json?
+  /// Reconversões registradas neste negócio (R5.6).
+  reconversoes         Int           @default(0)
+  ultimaReconversaoEm  DateTime?     @map("ultima_reconversao_em") @db.Timestamptz(3)
+  camposPersonalizados Json          @default("{}") @map("campos_personalizados")
+  criadoPorId          String?       @map("criado_por_id") @db.Uuid
+  criadoPor            Usuario?      @relation("NegocioCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm             DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime      @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm           DateTime?     @map("excluido_em") @db.Timestamptz(3)
+
+  movimentacoes              NegocioMovimentacao[]
+  atividades                 Atividade[]
+  passagensExecutadasOrigem  PassagemExecucao[]    @relation("ExecucaoNegocioOrigem")
+  passagensExecutadasDestino PassagemExecucao[]    @relation("ExecucaoNegocioDestino")
+  recebimentosWebhook        WebhookRecebimento[]
+
+  @@index([funilId, etapaId, status])
+  @@index([etapaId, posicao])
+  @@index([responsavelId, status])
+  @@index([contatoId])
+  @@index([empresaId])
+  @@index([negocioOrigemId])
+  @@map("negocios")
+}
+
+/// Histórico de movimentação (R5.4) — base das métricas (R5.10). A entrada do
+/// negócio no funil é registrada com `deEtapaId` nulo.
+model NegocioMovimentacao {
+  id                      String   @id @default(uuid()) @db.Uuid
+  negocioId               String   @map("negocio_id") @db.Uuid
+  negocio                 Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  funilId                 String   @map("funil_id") @db.Uuid
+  funil                   Funil    @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  deEtapaId               String?  @map("de_etapa_id") @db.Uuid
+  deEtapa                 Etapa?   @relation("MovimentacaoDeEtapa", fields: [deEtapaId], references: [id], onDelete: SetNull)
+  /// Nulo só se a etapa for excluída depois (o histórico fica).
+  paraEtapaId             String?  @map("para_etapa_id") @db.Uuid
+  paraEtapa               Etapa?   @relation("MovimentacaoParaEtapa", fields: [paraEtapaId], references: [id], onDelete: SetNull)
+  usuarioId               String?  @map("usuario_id") @db.Uuid
+  usuario                 Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  tipoAtor                TipoAtor @map("tipo_ator")
+  segundosNaEtapaAnterior Int?     @map("segundos_na_etapa_anterior")
+  criadoEm                DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([negocioId, criadoEm])
+  @@index([funilId, criadoEm])
+  @@index([paraEtapaId])
+  @@index([deEtapaId])
+  @@map("negocio_movimentacoes")
+}
+
+/// Passagem automática entre funis (R5.7), executada na transação da movimentação.
+model Passagem {
+  id                String                 @id @default(uuid()) @db.Uuid
+  /// Identifica as passagens da configuração inicial (`marketing_comercial`, `comercial_cs`).
+  chave             String?                @unique
+  nome              String
+  funilOrigemId     String                 @map("funil_origem_id") @db.Uuid
+  funilOrigem       Funil                  @relation("PassagemFunilOrigem", fields: [funilOrigemId], references: [id], onDelete: Restrict)
+  etapaGatilhoId    String                 @map("etapa_gatilho_id") @db.Uuid
+  etapaGatilho      Etapa                  @relation("PassagemEtapaGatilho", fields: [etapaGatilhoId], references: [id], onDelete: Restrict)
+  funilDestinoId    String                 @map("funil_destino_id") @db.Uuid
+  funilDestino      Funil                  @relation("PassagemFunilDestino", fields: [funilDestinoId], references: [id], onDelete: Restrict)
+  etapaDestinoId    String                 @map("etapa_destino_id") @db.Uuid
+  etapaDestino      Etapa                  @relation("PassagemEtapaDestino", fields: [etapaDestinoId], references: [id], onDelete: Restrict)
+  estrategia        EstrategiaDistribuicao @default(RODIZIO)
+  responsavelFixoId String?                @map("responsavel_fixo_id") @db.Uuid
+  responsavelFixo   Usuario?               @relation("PassagemResponsavelFixo", fields: [responsavelFixoId], references: [id], onDelete: SetNull)
+  ativa             Boolean                @default(true)
+  criadoEm          DateTime               @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm      DateTime               @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  execucoes PassagemExecucao[]
+
+  @@index([etapaGatilhoId])
+  @@map("passagens")
+}
+
+/// Cada passagem roda uma única vez por negócio de origem (R5.7): o índice único garante.
+/// `negocioDestinoId` é o negócio criado — ou o aberto que recebeu a reconversão (`reconversao = true`, R5.6).
+model PassagemExecucao {
+  id               String   @id @default(uuid()) @db.Uuid
+  passagemId       String   @map("passagem_id") @db.Uuid
+  passagem         Passagem @relation(fields: [passagemId], references: [id], onDelete: Cascade)
+  negocioOrigemId  String   @map("negocio_origem_id") @db.Uuid
+  negocioOrigem    Negocio  @relation("ExecucaoNegocioOrigem", fields: [negocioOrigemId], references: [id], onDelete: Cascade)
+  negocioDestinoId String?  @map("negocio_destino_id") @db.Uuid
+  negocioDestino   Negocio? @relation("ExecucaoNegocioDestino", fields: [negocioDestinoId], references: [id], onDelete: SetNull)
+  reconversao      Boolean  @default(false)
+  criadoEm         DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@unique([passagemId, negocioOrigemId])
+  @@index([negocioDestinoId])
+  @@map("passagem_execucoes")
+}
+
+/// Rodízio de uma área (R5.8). `ultimoUsuarioId` é o ponteiro; trave a linha
+/// (`SELECT … FOR UPDATE`) antes de escolher o próximo.
+model RegraDistribuicao {
+  id              String   @id @default(uuid()) @db.Uuid
+  area            Area     @unique
+  /// O líder da área entra no rodízio.
+  incluirLideres  Boolean  @default(false) @map("incluir_lideres")
+  ultimoUsuarioId String?  @map("ultimo_usuario_id") @db.Uuid
+  ultimoUsuario   Usuario? @relation("RegraDistribuicaoUltimo", fields: [ultimoUsuarioId], references: [id], onDelete: SetNull)
+  criadoEm        DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  participantes RegraDistribuicaoParticipante[]
+
+  @@map("regras_distribuicao")
+}
+
+/// Ajuste manual do rodízio: `participa = false` tira o usuário; `true` inclui
+/// explicitamente (ex.: um líder quando `incluirLideres` é falso).
+model RegraDistribuicaoParticipante {
+  id           String            @id @default(uuid()) @db.Uuid
+  regraId      String            @map("regra_id") @db.Uuid
+  regra        RegraDistribuicao @relation(fields: [regraId], references: [id], onDelete: Cascade)
+  usuarioId    String            @map("usuario_id") @db.Uuid
+  usuario      Usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  participa    Boolean           @default(false)
+  criadoEm     DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime          @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([regraId, usuarioId])
+  @@index([usuarioId])
+  @@map("regras_distribuicao_participantes")
+}
+
+// ---------------------------------------------------------------------------
+// Atividades (R6)
+// ---------------------------------------------------------------------------
+
+/// Tarefa, ligação, reunião, e-mail, WhatsApp ou nota (R6). "Atrasada" é calculado (R6.3).
+model Atividade {
+  id                 String              @id @default(uuid()) @db.Uuid
+  tipo               TipoAtividade
+  titulo             String
+  descricao          String?
+  status             StatusAtividade     @default(PENDENTE)
+  prioridade         PrioridadeAtividade @default(MEDIA)
+  venceEm            DateTime?           @map("vence_em") @db.Timestamptz(3)
+  /// Reunião: início e fim (R6.1).
+  inicioEm           DateTime?           @map("inicio_em") @db.Timestamptz(3)
+  fimEm              DateTime?           @map("fim_em") @db.Timestamptz(3)
+  responsavelId      String              @map("responsavel_id") @db.Uuid
+  responsavel        Usuario             @relation("AtividadeResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  criadoPorId        String?             @map("criado_por_id") @db.Uuid
+  criadoPor          Usuario?            @relation("AtividadeCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  concluidaEm        DateTime?           @map("concluida_em") @db.Timestamptz(3)
+  concluidaPorId     String?             @map("concluida_por_id") @db.Uuid
+  concluidaPor       Usuario?            @relation("AtividadeConcluidaPor", fields: [concluidaPorId], references: [id], onDelete: SetNull)
+  canceladaEm        DateTime?           @map("cancelada_em") @db.Timestamptz(3)
+  contatoId          String?             @map("contato_id") @db.Uuid
+  contato            Contato?            @relation(fields: [contatoId], references: [id], onDelete: SetNull)
+  empresaId          String?             @map("empresa_id") @db.Uuid
+  empresa            Empresa?            @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  negocioId          String?             @map("negocio_id") @db.Uuid
+  negocio            Negocio?            @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  /// Encaminhamento por desligamento (R7.3): de quem veio e quando.
+  encaminhadaDeId    String?             @map("encaminhada_de_id") @db.Uuid
+  encaminhadaDe      Usuario?            @relation("AtividadeEncaminhadaDe", fields: [encaminhadaDeId], references: [id], onDelete: SetNull)
+  encaminhadaEm      DateTime?           @map("encaminhada_em") @db.Timestamptz(3)
+  /// Lembretes (R6.5).
+  lembreteEnviadoEm  DateTime?           @map("lembrete_enviado_em") @db.Timestamptz(3)
+  atrasoNotificadoEm DateTime?           @map("atraso_notificado_em") @db.Timestamptz(3)
+  criadoEm           DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm       DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@index([responsavelId, status, venceEm])
+  @@index([status, venceEm])
+  @@index([contatoId])
+  @@index([empresaId])
+  @@index([negocioId])
+  @@index([criadoPorId])
+  @@map("atividades")
+}
+
+// ---------------------------------------------------------------------------
+// Notificações, auditoria, logs e eventos (R3, R10)
+// ---------------------------------------------------------------------------
+
+/// Notificação interna (R10.2). `tipo` segue `TIPOS_NOTIFICACAO` (src/notificacoes).
+model Notificacao {
+  id        String    @id @default(uuid()) @db.Uuid
+  usuarioId String    @map("usuario_id") @db.Uuid
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo      String
+  titulo    String
+  texto     String?
+  /// Rota do front (ex.: `/funis/comercial?negocio=<id>`).
+  link      String?
+  dados     Json?
+  lidaEm    DateTime? @map("lida_em") @db.Timestamptz(3)
+  criadoEm  DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([usuarioId, lidaEm, criadoEm])
+  @@index([usuarioId, criadoEm])
+  @@map("notificacoes")
+}
+
+/// Evento de auditoria (R3.1–R3.3): somente inclusão. Um gatilho recusa UPDATE,
+/// DELETE e TRUNCATE. Sem chave estrangeira para `usuarios`, de propósito: o
+/// registro não pode depender de nada que mude depois. `relacionados` guarda
+/// referências `entidade:id` (ex.: `contato:<uuid>`) para a linha do tempo (R3.5).
+model EventoAuditoria {
+  id            BigInt   @id @default(autoincrement())
+  criadoEm      DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  tipoAtor      TipoAtor @map("tipo_ator")
+  usuarioId     String?  @map("usuario_id") @db.Uuid
+  /// Nome do usuário (ou do webhook, do job…) no momento do evento.
+  atorDescricao String?  @map("ator_descricao")
+  /// `entidade.verbo`, ex.: `negocio.movido`.
+  acao          String
+  entidade      String
+  entidadeId    String?  @map("entidade_id")
+  resumo        String
+  /// Campos alterados (`{ campo: { antes, depois } }`) e outros detalhes; nunca senhas, tokens ou segredos.
+  dados         Json?
+  relacionados  String[] @default([])
+  ip            String?
+  userAgent     String?  @map("user_agent")
+  requisicaoId  String?  @map("requisicao_id")
+
+  @@index([entidade, entidadeId, criadoEm])
+  @@index([usuarioId, criadoEm])
+  @@index([criadoEm])
+  @@index([acao])
+  @@index([relacionados], type: Gin)
+  @@map("eventos_auditoria")
+}
+
+/// Log técnico gravado no banco (R3.6): 5xx, avisos e falhas de jobs. Apagado após 90 dias.
+model LogTecnico {
+  id           BigInt   @id @default(autoincrement())
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  nivel        NivelLog
+  /// Origem (ex.: `HTTP`, `Fila:webhooks-saida.entregar`, `Eventos`).
+  contexto     String
+  mensagem     String
+  dados        Json?
+  requisicaoId String?  @map("requisicao_id")
+  usuarioId    String?  @map("usuario_id") @db.Uuid
+  metodo       String?
+  rota         String?
+  status       Int?
+  duracaoMs    Int?     @map("duracao_ms")
+
+  @@index([criadoEm])
+  @@index([nivel, criadoEm])
+  @@index([requisicaoId])
+  @@map("logs_tecnicos")
+}
+
+/// Outbox de eventos de domínio (R10.1). O evento é gravado na transação da
+/// alteração; o despachante o entrega à fila (pg-boss) — `enfileiradoEm` — e o
+/// trabalhador da fila roda os manipuladores registrados — `processadoEm`.
+model EventoDominio {
+  id                      String    @id @default(uuid()) @db.Uuid
+  /// Ex.: `negocio.ganho` (R9.2).
+  tipo                    String
+  dados                   Json
+  /// Quando aconteceu (o `ocorridoEm` do envelope dos webhooks de saída).
+  criadoEm                DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  tipoAtor                TipoAtor  @default(SISTEMA) @map("tipo_ator")
+  usuarioId               String?   @map("usuario_id") @db.Uuid
+  requisicaoId            String?   @map("requisicao_id")
+  /// Quando o despachante criou o job do evento na fila.
+  enfileiradoEm           DateTime? @map("enfileirado_em") @db.Timestamptz(3)
+  /// Quando todos os manipuladores concluíram.
+  processadoEm            DateTime? @map("processado_em") @db.Timestamptz(3)
+  tentativas              Int       @default(0)
+  /// Manipuladores que já concluíram: na reentrega, só os que faltam rodam.
+  manipuladoresConcluidos String[]  @default([]) @map("manipuladores_concluidos")
+  /// Erro da última tentativa que falhou.
+  erro                    String?
+
+  @@index([criadoEm], map: "eventos_dominio_a_enfileirar_idx", where: raw("(enfileirado_em IS NULL)"))
+  @@index([tipo, criadoEm])
+  @@map("eventos_dominio")
+}
+
+// ---------------------------------------------------------------------------
+// Webhooks (R8, R9)
+// ---------------------------------------------------------------------------
+
+/// Ponto de entrada de leads (R8.1). O endereço leva um token de 32 bytes; o banco guarda só o hash.
+model WebhookEntrada {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  nome                String
+  tokenHash           String                 @unique @map("token_hash")
+  /// Começo do token, para reconhecer o endereço na tela sem revelá-lo.
+  tokenPrefixo        String                 @map("token_prefixo")
+  funilId             String                 @map("funil_id") @db.Uuid
+  funil               Funil                  @relation(fields: [funilId], references: [id], onDelete: Restrict)
+  etapaId             String                 @map("etapa_id") @db.Uuid
+  etapa               Etapa                  @relation(fields: [etapaId], references: [id], onDelete: Restrict)
+  estrategia          EstrategiaDistribuicao @default(RODIZIO)
+  responsavelFixoId   String?                @map("responsavel_fixo_id") @db.Uuid
+  responsavelFixo     Usuario?               @relation("WebhookEntradaResponsavelFixo", fields: [responsavelFixoId], references: [id], onDelete: SetNull)
+  modeloMapeamento    ModeloMapeamento       @default(GENERICO) @map("modelo_mapeamento")
+  /// Caminho no JSON → campo do contato/negócio.
+  mapeamento          Json                   @default("{}")
+  etiquetasFixas      String[]               @default([]) @map("etiquetas_fixas")
+  /// Segredo HMAC opcional, cifrado com AES-256-GCM (R10.3).
+  segredoCifrado      String?                @map("segredo_cifrado")
+  ativo               Boolean                @default(true)
+  ultimoRecebimentoEm DateTime?              @map("ultimo_recebimento_em") @db.Timestamptz(3)
+  criadoPorId         String?                @map("criado_por_id") @db.Uuid
+  criadoPor           Usuario?               @relation("WebhookEntradaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm            DateTime               @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm        DateTime               @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm          DateTime?              @map("excluido_em") @db.Timestamptz(3)
+
+  recebimentos WebhookRecebimento[]
+
+  @@map("webhooks_entrada")
+}
+
+/// Cada chamada recebida por um webhook de entrada (R8.6). Retenção de 90 dias.
+model WebhookRecebimento {
+  id           String            @id @default(uuid()) @db.Uuid
+  webhookId    String            @map("webhook_id") @db.Uuid
+  webhook      WebhookEntrada    @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  recebidoEm   DateTime          @default(now()) @map("recebido_em") @db.Timestamptz(3)
+  ip           String?
+  /// Subconjunto dos cabeçalhos (sem cookies nem autorização).
+  cabecalhos   Json              @default("{}")
+  tipoConteudo String?           @map("tipo_conteudo")
+  corpo        Json?
+  status       StatusRecebimento @default(RECEBIDO)
+  mensagem     String?
+  contatoId    String?           @map("contato_id") @db.Uuid
+  contato      Contato?          @relation(fields: [contatoId], references: [id], onDelete: SetNull)
+  negocioId    String?           @map("negocio_id") @db.Uuid
+  negocio      Negocio?          @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  processadoEm DateTime?         @map("processado_em") @db.Timestamptz(3)
+  tentativas   Int               @default(0)
+
+  @@index([webhookId, recebidoEm])
+  @@index([recebidoEm])
+  @@index([status])
+  @@map("webhook_recebimentos")
+}
+
+/// Destino de eventos (R9.1). Segredo e cabeçalhos extras ficam cifrados (R10.3).
+model WebhookSaida {
+  id                          String    @id @default(uuid()) @db.Uuid
+  nome                        String
+  url                         String
+  /// Eventos assinados (R9.2).
+  eventos                     String[]  @default([])
+  segredoCifrado              String    @map("segredo_cifrado")
+  /// JSON `{ "Cabecalho": "valor" }` cifrado com AES-256-GCM (pode levar credenciais).
+  cabecalhosCifrados          String?   @map("cabecalhos_cifrados")
+  ativo                       Boolean   @default(true)
+  falhasConsecutivas          Int       @default(0) @map("falhas_consecutivas")
+  desativadoAutomaticamenteEm DateTime? @map("desativado_automaticamente_em") @db.Timestamptz(3)
+  criadoPorId                 String?   @map("criado_por_id") @db.Uuid
+  criadoPor                   Usuario?  @relation("WebhookSaidaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm                    DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm                DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm                  DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  entregas WebhookEntrega[]
+
+  @@map("webhooks_saida")
+}
+
+/// Entrega de um evento a um destino (R9.4). Uma por (destino, evento): reenviar reaproveita a linha.
+model WebhookEntrega {
+  id                 String        @id @default(uuid()) @db.Uuid
+  webhookId          String        @map("webhook_id") @db.Uuid
+  webhook            WebhookSaida  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  /// Id do evento na outbox — também o `id` do envelope (R9.3, R9.6).
+  eventoId           String        @map("evento_id") @db.Uuid
+  tipoEvento         String        @map("tipo_evento")
+  /// Envelope `{ id, evento, ocorridoEm, dados }`.
+  payload            Json
+  status             StatusEntrega @default(PENDENTE)
+  tentativas         Int           @default(0)
+  ultimaTentativaEm  DateTime?     @map("ultima_tentativa_em") @db.Timestamptz(3)
+  proximaTentativaEm DateTime?     @map("proxima_tentativa_em") @db.Timestamptz(3)
+  statusHttp         Int?          @map("status_http")
+  duracaoMs          Int?          @map("duracao_ms")
+  /// Até 2 KB da resposta.
+  trechoResposta     String?       @map("trecho_resposta")
+  erro               String?
+  entregueEm         DateTime?     @map("entregue_em") @db.Timestamptz(3)
+  criadoEm           DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm       DateTime      @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  historicoTentativas WebhookEntregaTentativa[]
+
+  @@unique([webhookId, eventoId])
+  @@index([status, proximaTentativaEm])
+  @@index([webhookId, criadoEm])
+  @@map("webhook_entregas")
+}
+
+/// Cada tentativa de entrega (R9.5): status HTTP, duração, até 2 KB da resposta e erro.
+model WebhookEntregaTentativa {
+  id             String         @id @default(uuid()) @db.Uuid
+  entregaId      String         @map("entrega_id") @db.Uuid
+  entrega        WebhookEntrega @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  numero         Int
+  sucesso        Boolean
+  statusHttp     Int?           @map("status_http")
+  duracaoMs      Int?           @map("duracao_ms")
+  trechoResposta String?        @map("trecho_resposta")
+  erro           String?
+  criadoEm       DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([entregaId, numero])
+  @@map("webhook_entrega_tentativas")
+}

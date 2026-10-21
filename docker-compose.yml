@@ -1,0 +1,111 @@
+# BRL CRM — sobe o sistema inteiro: banco (PostgreSQL 17), API (esta pasta) e
+# front (Angular servido pelo Caddy, construído a partir de ../crmbrl).
+#
+#   docker compose up -d --build    constrói as imagens e sobe tudo
+#   docker compose ps               estado e saúde de cada serviço
+#   docker compose logs -f api      acompanha os logs da API
+#   docker compose up -d banco      sobe só o banco (para rodar a API fora do Docker)
+#   docker compose down             desliga (os dados ficam no volume)
+#   docker compose down -v          desliga e apaga os dados do banco
+#
+# Sem o plugin "docker compose" na máquina? Use a imagem oficial do Docker CLI,
+# com os mesmos argumentos no fim:
+#
+#   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+#     -v /sistemas/crm-brl:/sistemas/crm-brl -w /sistemas/crm-brl/crmbrl-api \
+#     docker:cli docker compose up -d --build
+#
+# Endereços: front em http://localhost:8080 (é por ele que se usa o CRM: o Caddy
+# encaminha /api à API) · API direta só na própria máquina, em
+# http://127.0.0.1:3000/api · banco em 127.0.0.1:5434 (usuário, senha e banco:
+# crmbrl).
+#
+# Toda variável abaixo pode vir do ambiente ou de um .env nesta pasta (veja o
+# .env.example). Os padrões servem para desenvolvimento local em http; para
+# produção defina pelo menos URL_PUBLICA, ORIGENS_PERMITIDAS, COOKIE_SEGURO=true,
+# CHAVE_CRIPTOGRAFIA (openssl rand -base64 32) e o SMTP.
+#
+# Primeiro acesso: sem ADMIN_SENHA_INICIAL, a API gera uma senha para o
+# ADMIN_EMAIL e a mostra uma vez no log (docker compose logs api); a troca é
+# obrigatória no primeiro login.
+
+name: crmbrl
+
+services:
+  banco:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${BANCO_USUARIO:-crmbrl}
+      POSTGRES_PASSWORD: ${BANCO_SENHA:-crmbrl}
+      POSTGRES_DB: ${BANCO_NOME:-crmbrl}
+    ports:
+      - '127.0.0.1:${BANCO_PORTA:-5434}:5432'
+    volumes:
+      - banco-dados:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Mesmas credenciais do serviço banco. Senha com caractere especial de URL
+      # (@ : / ? #) precisa ir codificada (ex.: %40 no lugar de @).
+      DATABASE_URL: postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA:-crmbrl}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+      MIGRAR_AO_INICIAR: ${MIGRAR_AO_INICIAR:-true}
+      CORS_ORIGENS: ${CORS_ORIGENS:-}
+      OBSERVE_APP_KEY: ${OBSERVE_APP_KEY:-}
+      OBSERVE_APP_SECRET: ${OBSERVE_APP_SECRET:-}
+      # Endereço do front (Caddy): base dos links de e-mail e dos endereços de webhook.
+      URL_PUBLICA: ${URL_PUBLICA:-http://localhost:8080}
+      # Origens aceitas em POST/PUT/PATCH/DELETE (proteção CSRF, R2.9).
+      ORIGENS_PERMITIDAS: ${ORIGENS_PERMITIDAS:-http://localhost:8080}
+      # http local: sem o atributo Secure no cookie. Em HTTPS, true.
+      COOKIE_SEGURO: ${COOKIE_SEGURO:-false}
+      # Chave pública de desenvolvimento (a API avisa no log): troque em produção.
+      CHAVE_CRIPTOGRAFIA: ${CHAVE_CRIPTOGRAFIA:-QgJh7zlsW/dNWZEIgY5FuRfgyxtaDc6dfihpFVnoe+A=}
+      SESSAO_INATIVIDADE_DIAS: ${SESSAO_INATIVIDADE_DIAS:-7}
+      SESSAO_DURACAO_MAXIMA_DIAS: ${SESSAO_DURACAO_MAXIMA_DIAS:-30}
+      SESSAO_RENOVACAO_MINUTOS: ${SESSAO_RENOVACAO_MINUTOS:-5}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crmbrl.local}
+      ADMIN_NOME: ${ADMIN_NOME:-Administrador}
+      ADMIN_SENHA_INICIAL: ${ADMIN_SENHA_INICIAL:-}
+      # Sem SMTP_HOST, convite e "esqueci minha senha" ficam indisponíveis.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORTA: ${SMTP_PORTA:-587}
+      SMTP_SEGURO: ${SMTP_SEGURO:-}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_SENHA: ${SMTP_SENHA:-}
+      SMTP_REMETENTE: ${SMTP_REMETENTE:-}
+      WEBHOOKS_PERMITIR_REDE_INTERNA: ${WEBHOOKS_PERMITIR_REDE_INTERNA:-false}
+      # Documentação em /api/docs: false = só o Admin logado.
+      DOCS_PUBLICAS: ${DOCS_PUBLICAS:-false}
+      PROCESSAR_FILAS: ${PROCESSAR_FILAS:-true}
+      LOG_FORMATO: ${LOG_FORMATO:-json}
+    depends_on:
+      banco:
+        condition: service_healthy
+    ports:
+      # Só na própria máquina: o front fala com a API pelo Caddy (rede do compose).
+      - '127.0.0.1:${API_PORTA:-3000}:3000'
+    # A saúde vem do HEALTHCHECK do Dockerfile (GET /api/saude; 503 = banco fora).
+
+  web:
+    build: ${FRONT_DIR:-../crmbrl}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: api:3000
+      PORT: '8080'
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '${WEB_PORTA:-8080}:8080'
+
+volumes:
+  banco-dados:
