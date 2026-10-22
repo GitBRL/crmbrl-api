@@ -143,6 +143,33 @@ npm run start:dev
 A API sobe mesmo com o banco fora do ar: o log avisa e `GET /api/saude` responde
 503 até o banco voltar.
 
+## Dados de demonstração
+
+`scripts/semear-demonstracao.mjs` (Node 24, sem dependências) cria uma
+demonstração completa **pela própria API**, seguindo as regras e gerando
+auditoria: o Admin troca a senha inicial e cria um usuário por papel (C-level,
+três líderes, dois membros por área); cada um entra, troca a senha temporária e
+cria os próprios contatos, empresas, negócios e atividades; há passagens
+Marketing → Comercial → CS, ganhos e perdas com motivo, atividades atrasadas,
+webhooks de entrada (modelo Disparos BRL) com recebimentos, webhooks de saída,
+uma anonimização e o desligamento de um vendedor.
+
+```bash
+CRM_API_URL=http://localhost:3000 ADMIN_EMAIL=admin@brl.local \
+  ADMIN_SENHA_INICIAL='<a do .env>' node scripts/semear-demonstracao.mjs
+```
+
+Só roda numa base **recém-criada** (apenas o Admin do primeiro acesso, sem
+contatos); se já houver dados, para sem alterar nada — para semear de novo,
+recrie o banco (`docker compose down -v`). As senhas vêm de
+`SEMEAR_SENHA_ADMIN` e `SEMEAR_SENHA_USUARIOS` (padrões só para
+desenvolvimento); `CRM_ORIGEM` é o `Origin` enviado (padrão
+`http://localhost:4200`, que precisa estar em `ORIGENS_PERMITIDAS`) e
+`SEMEAR_WEBHOOK_SAIDA_URL` liga um destino de saída real (sem ela, ele é criado
+desativado). O cabeçalho do script lista todas as variáveis e, no fim, ele
+imprime os usuários e os endereços dos webhooks de entrada. Nunca rode em
+produção.
+
 ## Variáveis de ambiente
 
 Lidas e validadas em `src/config/ambiente.ts`. Se algo estiver errado, a API não
