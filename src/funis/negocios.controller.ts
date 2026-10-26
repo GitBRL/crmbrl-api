@@ -33,6 +33,7 @@ import {
   FiltroNegociosDto,
   MoverNegocioDto,
   MovimentacaoDto,
+  NegocioDetalheDto,
   NegocioDto,
   ReabrirNegocioDto,
   ResultadoMovimentacaoDto,
@@ -86,13 +87,17 @@ export class NegociosController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Detalha um negócio' })
-  @ApiOkResponse({ type: NegocioDto })
+  @ApiOperation({
+    summary: 'Detalha um negócio',
+    description:
+      'Traz também a jornada (R5.7): o negócio de origem e os gerados por passagens, com a área e se quem consulta os vê (R5.9).',
+  })
+  @ApiOkResponse({ type: NegocioDetalheDto })
   @ApiRespostasDeErro(400, 404)
   detalhar(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,
-  ): Promise<NegocioDto> {
+  ): Promise<NegocioDetalheDto> {
     return this.negocios.detalhar(usuario, id);
   }
 

@@ -10,6 +10,10 @@ export const ORIGEM_DE_TESTE = 'http://localhost:4200';
 /** Chave de criptografia fixa dos testes (32 bytes em hexadecimal). */
 export const CHAVE_DE_TESTE = '0f'.repeat(32);
 
+/** Token interno API ↔ gateway de WhatsApp nos testes (o gateway de teste exige o mesmo). */
+export const TOKEN_INTERNO_DE_TESTE =
+  'token-interno-dos-testes-de-integracao-0123456789';
+
 /** Porta do banco do docker compose (ambiente do usuário): os testes nunca a usam. */
 const PORTA_DO_BANCO_DO_COMPOSE = '5434';
 
@@ -48,7 +52,9 @@ export function urlDoBancoDeTeste(): string {
 /**
  * Ambiente dos testes: banco de teste, origem e URL pública `http://localhost:4200`,
  * cookie sem `Secure`, chave fixa e `PROCESSAR_FILAS=false` (filas e eventos
- * só rodam quando o teste drena). `variaveis` sobrescreve qualquer valor.
+ * só rodam quando o teste drena). Arquivos na memória (`ARQUIVOS_DRIVER=memoria`,
+ * sem MinIO) e WhatsApp simulado com token interno fixo. `variaveis`
+ * sobrescreve qualquer valor.
  */
 export function ambienteDeTeste(variaveis: VariaveisDeAmbiente = {}): Ambiente {
   return lerAmbiente({
@@ -59,6 +65,9 @@ export function ambienteDeTeste(variaveis: VariaveisDeAmbiente = {}): Ambiente {
     CHAVE_CRIPTOGRAFIA: CHAVE_DE_TESTE,
     PROCESSAR_FILAS: 'false',
     LOG_FORMATO: 'texto',
+    ARQUIVOS_DRIVER: 'memoria',
+    WHATSAPP_SIMULADO: 'true',
+    WHATSAPP_TOKEN_INTERNO: TOKEN_INTERNO_DE_TESTE,
     ...variaveis,
   });
 }

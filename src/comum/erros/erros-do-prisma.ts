@@ -32,6 +32,21 @@ const CAMPOS_POR_RESTRICAO: Readonly<Record<string, readonly string[]>> = {
   ],
   webhooks_entrada_token_hash_key: ['tokenHash'],
   webhook_entregas_webhook_id_evento_id_key: ['webhookId', 'eventoId'],
+  // Onda A (migration `onda_a_atendimento`).
+  arquivos_chave_key: ['chave'],
+  canais_tipo_id_externo_ativo_key: ['tipo', 'idExterno'],
+  filas_atendimento_chave_key: ['chave'],
+  fila_participantes_fila_id_usuario_id_key: ['filaId', 'usuarioId'],
+  contato_identificadores_tipo_valor_key: ['tipo', 'valor'],
+  conversas_ultima_mensagem_id_key: ['ultimaMensagemId'],
+  conversas_uma_em_aberto_key: ['canalId', 'contatoId'],
+  mensagens_canal_id_id_externo_key: ['canalId', 'idExterno'],
+  respostas_rapidas_atalho_global_key: ['atalho'],
+  respostas_rapidas_area_atalho_key: ['area', 'atalho'],
+  webchat_visitantes_token_hash_key: ['tokenHash'],
+  whatsapp_numeros_canal_id_key: ['canalId'],
+  chat_canais_chave_key: ['chave'],
+  chat_membros_canal_id_usuario_id_key: ['canalId', 'usuarioId'],
 };
 
 /**
@@ -76,9 +91,11 @@ export function traduzirErroDoPrisma(erro: unknown): ErroApi | null {
   }
   const mensagem =
     typeof causa?.originalMessage === 'string' ? causa.originalMessage : '';
-  const regra = /\((R\d+\.\d+)\)\.?$/.exec(mensagem);
+  const regra = /\s*\((R\d+\.\d+)\)\.?$/.exec(mensagem);
   if (causa?.originalCode === '23514' && regra) {
-    return new RegraVioladaException(regra[1], mensagem);
+    // O código da regra vai em `detalhes.regra`, não no texto para a pessoa.
+    const texto = `${mensagem.slice(0, regra.index).trimEnd().replace(/\.$/, '')}.`;
+    return new RegraVioladaException(regra[1], texto);
   }
   return null;
 }

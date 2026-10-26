@@ -202,10 +202,10 @@ export class ProcessamentoEntradaService implements OnModuleInit {
     const partes = [
       contatoCriado
         ? `Contato "${contato.nome}" criado`
-        : `Contato "${contato.nome}" reconvertido (já existia, R4.2)`,
+        : `Contato "${contato.nome}" reconvertido (já existia)`,
       resultado.criado
         ? `negócio criado em ${funil.nome} / ${etapa.nome}, ${responsavel ? `com ${responsavel.nome}` : 'sem responsável'}`
-        : `reconversão registrada no negócio aberto "${negocio.titulo}" (R5.6)`,
+        : `reconversão registrada no negócio aberto "${negocio.titulo}"`,
     ];
     const mensagem = `${partes.join('; ')}.${lead.avisos.length > 0 ? ` Avisos: ${lead.avisos.join(' ')}` : ''}`;
     await tx.webhookRecebimento.update({
@@ -277,11 +277,8 @@ function descreverErro(erro: unknown): string {
     return detalhes ? `${erro.mensagem} (${detalhes})` : erro.mensagem;
   }
   if (erro instanceof ErroApi) {
-    const regra =
-      typeof erro.detalhes?.regra === 'string'
-        ? ` [${erro.detalhes.regra}]`
-        : '';
-    return `${erro.mensagem}${regra}`;
+    // Sem o código da regra (`detalhes.regra`): a mensagem é lida pelo Admin.
+    return erro.mensagem;
   }
   // Sem `instanceof Error`: erros do Node podem vir de outro "realm".
   const mensagem =

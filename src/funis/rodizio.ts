@@ -1,3 +1,5 @@
+import type { MotivoAguardandoAcesso } from './dto/distribuicao.dto';
+
 /**
  * Rodízio (R5.8): a escolha do próximo da vez, sem banco. A lista de
  * candidatos chega em ordem estável (quem entrou primeiro no CRM primeiro;
@@ -56,4 +58,24 @@ export function proximoDoRodizio<T extends PosicaoNoRodizio>(
     ordenados.find((candidato) => compararNoRodizio(candidato, ponteiro) > 0) ??
     ordenados[0]
   );
+}
+
+/**
+ * Ajuste da R5.8: o rodízio só inclui quem já ativou o acesso — definiu a
+ * senha do convite ou concluiu o primeiro login trocando a senha temporária.
+ * O banco marca `acessoAtivadoEm` na primeira vez em que a pessoa fica com
+ * senha própria e nunca mais desmarca (uma senha temporária nova, posta pelo
+ * Admin, não tira ninguém do rodízio). Devolve por que ainda não ativou, ou
+ * `null` se já ativou.
+ */
+export function motivoSemAcessoAtivado(usuario: {
+  readonly acessoAtivadoEm: Date | null;
+  readonly senhaHash: string | null;
+}): MotivoAguardandoAcesso | null {
+  if (usuario.acessoAtivadoEm !== null) {
+    return null;
+  }
+  return usuario.senhaHash === null
+    ? 'CONVITE_PENDENTE'
+    : 'PRIMEIRO_ACESSO_PENDENTE';
 }

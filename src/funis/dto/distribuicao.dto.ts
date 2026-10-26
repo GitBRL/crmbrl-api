@@ -19,6 +19,28 @@ export class ParticipanteDoRodizioDto extends ResumoUsuarioDto {
   motivo: MotivoNoRodizio;
 }
 
+/**
+ * Por que alguém que a regra (ou um ajuste) poria no rodízio ainda está fora
+ * dele (ajuste da R5.8): o rodízio só inclui quem já ativou o acesso.
+ */
+export const MOTIVOS_AGUARDANDO_ACESSO = [
+  'CONVITE_PENDENTE',
+  'PRIMEIRO_ACESSO_PENDENTE',
+] as const;
+export type MotivoAguardandoAcesso = (typeof MOTIVOS_AGUARDANDO_ACESSO)[number];
+
+export class AguardandoAcessoDto extends ResumoUsuarioDto {
+  @ApiProperty({ enum: Papel, enumName: 'Papel' })
+  papel: Papel;
+
+  @ApiProperty({
+    enum: MOTIVOS_AGUARDANDO_ACESSO,
+    description:
+      '`CONVITE_PENDENTE`: ainda não definiu a senha pelo link do convite. `PRIMEIRO_ACESSO_PENDENTE`: tem a senha temporária e ainda não concluiu o primeiro login (a troca dela).',
+  })
+  motivo: MotivoAguardandoAcesso;
+}
+
 export class AjusteDoRodizioDto extends ResumoUsuarioDto {
   @ApiProperty({ enum: Papel, enumName: 'Papel' })
   papel: Papel;
@@ -69,6 +91,13 @@ export class RegraDistribuicaoDto {
     description: 'Ajustes manuais (inclusões e exclusões).',
   })
   ajustes: AjusteDoRodizioDto[];
+
+  @ApiProperty({
+    type: [AguardandoAcessoDto],
+    description:
+      'Quem a regra (ou um ajuste) poria no rodízio, mas ainda não ativou o acesso: fica fora da fila e entra sozinho ao concluir o primeiro login ou definir a senha do convite (R5.8).',
+  })
+  aguardandoAcesso: AguardandoAcessoDto[];
 
   @ApiProperty({ format: 'date-time' })
   atualizadoEm: string;

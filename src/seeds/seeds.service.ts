@@ -297,8 +297,9 @@ export class SeedsService implements OnApplicationBootstrap, OnModuleDestroy {
       acao: 'usuario.criado',
       entidade: 'usuario',
       entidadeId: admin.id,
-      resumo: `Admin inicial ${admin.nome} (${admin.email}) criado pela configuração inicial (R2.6)`,
+      resumo: `Admin inicial ${admin.nome} (${admin.email}) criado pela configuração inicial`,
       dados: {
+        regra: 'R2.6',
         papel: admin.papel,
         deveTrocarSenha: true,
         senhaInicialGerada: senhaGerada !== null,

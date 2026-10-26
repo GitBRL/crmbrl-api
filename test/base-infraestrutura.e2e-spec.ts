@@ -847,10 +847,14 @@ describe('Base — filas e eventos em segundo plano, como em produção (e2e)', 
       async () => recebidos.some(({ id }) => id === resposta.body.id),
       15_000,
     );
-    const registro = await t.prisma.eventoDominio.findUniqueOrThrow({
-      where: { id: resposta.body.id as string },
-    });
-    expect(registro.processadoEm).not.toBeNull();
+    // O trabalhador marca o evento como processado logo depois de o último
+    // manipulador terminar: espera essa gravação em vez de ler na hora.
+    await esperarAte(async () => {
+      const registro = await t.prisma.eventoDominio.findUniqueOrThrow({
+        where: { id: resposta.body.id as string },
+      });
+      return registro.processadoEm !== null;
+    }, 15_000);
   });
 
   it('o trabalhador da fila consome os jobs sozinho', async () => {

@@ -27,14 +27,20 @@ import {
   podeSerResponsavelNaArea,
 } from './acesso-funis';
 import type {
+  AguardandoAcessoDto,
   AjusteDoRodizioDto,
   AtualizarRegraDistribuicaoDto,
   DefinirParticipacaoDto,
+  MotivoAguardandoAcesso,
   MotivoNoRodizio,
   ParticipanteDoRodizioDto,
   RegraDistribuicaoDto,
 } from './dto/distribuicao.dto';
-import { ordenarParaRodizio, proximoDoRodizio } from './rodizio';
+import {
+  motivoSemAcessoAtivado,
+  ordenarParaRodizio,
+  proximoDoRodizio,
+} from './rodizio';
 
 /** Ordem estável dos usuários: quem entrou primeiro no CRM primeiro. */
 const ORDEM_ESTAVEL = [
@@ -48,6 +54,9 @@ const DADOS_DO_CANDIDATO = {
   avatarUrl: true,
   papel: true,
   criadoEm: true,
+  // Para saber se já ativou o acesso e, se não, por quê (R5.8).
+  acessoAtivadoEm: true,
+  senhaHash: true,
 } satisfies Prisma.UsuarioSelect;
 
 type Candidato = Prisma.UsuarioGetPayload<{
@@ -63,10 +72,11 @@ interface LinhaDaRegra {
 /**
  * Distribuição de negócios criados por automação (R5.8, R8.1).
  *
- * - `RODIZIO`: por área, entre os membros ativos (o líder só se a regra da
- *   área disser, ou se for incluído à mão), em ordem estável e com o ponteiro
- *   salvo na regra. A linha da regra fica travada (`SELECT … FOR UPDATE`) até
- *   o fim da transação: duas distribuições ao mesmo tempo não repetem a pessoa.
+ * - `RODIZIO`: por área, entre os membros ativos que já ativaram o acesso (o
+ *   líder só se a regra da área disser, ou se for incluído à mão), em ordem
+ *   estável e com o ponteiro salvo na regra. A linha da regra fica travada
+ *   (`SELECT … FOR UPDATE`) até o fim da transação: duas distribuições ao
+ *   mesmo tempo não repetem a pessoa.
  * - `LIDER_DA_AREA`: o líder ativo da área.
  * - `RESPONSAVEL_FIXO`: a pessoa escolhida, se estiver ativa.
  *
@@ -109,8 +119,8 @@ export class DistribuicaoService {
       }
       await this.logs.aviso(
         'Distribuicao',
-        `Responsável fixo ${responsavelFixoId ? 'inativo, de outra área ou inexistente' : 'não informado'}: o negócio vai para o líder da área ${rotuloDaArea(area)} (R5.8).`,
-        { area, responsavelFixoId: responsavelFixoId ?? null },
+        `Responsável fixo ${responsavelFixoId ? 'inativo, de outra área ou inexistente' : 'não informado'}: o negócio vai para o líder da área ${rotuloDaArea(area)}.`,
+        { area, responsavelFixoId: responsavelFixoId ?? null, regra: 'R5.8' },
       );
       return this.liderOuCLevel(tx, area);
     }
@@ -123,7 +133,7 @@ export class DistribuicaoService {
   /** O próximo da vez no rodízio da área, avançando o ponteiro (R5.8). */
   private async proximoDoRodizio(tx: Tx, area: Area): Promise<string | null> {
     const regra = await this.travarRegra(tx, area);
-    const candidatos = await this.candidatos(tx, area, {
+    const { candidatos } = await this.candidatos(tx, area, {
       id: regra.id,
       incluirLideres: regra.incluir_lideres,
     });
@@ -184,13 +194,17 @@ export class DistribuicaoService {
   /**
    * Quem está no rodízio da área, em ordem: membros ativos, o líder se a regra
    * incluir líderes, os incluídos à mão (só pessoas da área) e sem os tirados
-   * à mão.
+   * à mão — e, desses, só quem já ativou o acesso. Os outros vêm à parte, em
+   * `aguardandoAcesso`, com o motivo (R5.8).
    */
   private async candidatos(
     tx: Tx,
     area: Area,
     regra: { id: string; incluirLideres: boolean },
-  ): Promise<{ usuario: Candidato; motivo: MotivoNoRodizio }[]> {
+  ): Promise<{
+    candidatos: { usuario: Candidato; motivo: MotivoNoRodizio }[];
+    aguardandoAcesso: { usuario: Candidato; motivo: MotivoAguardandoAcesso }[];
+  }> {
     const ajustes = await tx.regraDistribuicaoParticipante.findMany({
       where: { regraId: regra.id },
       select: { usuarioId: true, participa: true },
@@ -223,15 +237,28 @@ export class DistribuicaoService {
       orderBy: ORDEM_ESTAVEL,
       select: DADOS_DO_CANDIDATO,
     });
-    return ordenarParaRodizio(usuarios).map((usuario) => ({
-      usuario,
-      motivo:
-        usuario.papel === membroDaArea(area)
-          ? 'MEMBRO_DA_AREA'
-          : regra.incluirLideres && usuario.papel === liderDaArea(area)
-            ? 'LIDER_INCLUIDO_PELA_REGRA'
-            : 'INCLUIDO_MANUALMENTE',
-    }));
+    const candidatos: { usuario: Candidato; motivo: MotivoNoRodizio }[] = [];
+    const aguardandoAcesso: {
+      usuario: Candidato;
+      motivo: MotivoAguardandoAcesso;
+    }[] = [];
+    for (const usuario of ordenarParaRodizio(usuarios)) {
+      const semAcesso = motivoSemAcessoAtivado(usuario);
+      if (semAcesso) {
+        aguardandoAcesso.push({ usuario, motivo: semAcesso });
+        continue;
+      }
+      candidatos.push({
+        usuario,
+        motivo:
+          usuario.papel === membroDaArea(area)
+            ? 'MEMBRO_DA_AREA'
+            : regra.incluirLideres && usuario.papel === liderDaArea(area)
+              ? 'LIDER_INCLUIDO_PELA_REGRA'
+              : 'INCLUIDO_MANUALMENTE',
+      });
+    }
+    return { candidatos, aguardandoAcesso };
   }
 
   /** Sem ninguém no rodízio: o líder ativo da área; sem líder, um C-level ativo. */
@@ -429,7 +456,11 @@ export class DistribuicaoService {
     regra: RegraDistribuicao,
   ): Promise<RegraDistribuicaoDto> {
     // Em sequência: `tx` pode ser uma transação (uma conexão só).
-    const candidatos = await this.candidatos(tx, regra.area, regra);
+    const { candidatos, aguardandoAcesso } = await this.candidatos(
+      tx,
+      regra.area,
+      regra,
+    );
     const ajustes = await tx.regraDistribuicaoParticipante.findMany({
       where: { regraId: regra.id },
       include: {
@@ -491,6 +522,15 @@ export class DistribuicaoService {
       proximo,
       participantes,
       ajustes: listaDeAjustes,
+      aguardandoAcesso: aguardandoAcesso.map(
+        ({ usuario, motivo }): AguardandoAcessoDto => ({
+          id: usuario.id,
+          nome: usuario.nome,
+          avatarUrl: usuario.avatarUrl,
+          papel: usuario.papel,
+          motivo,
+        }),
+      ),
       atualizadoEm: regra.atualizadoEm.toISOString(),
     };
   }

@@ -10,6 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import type { ValorJson } from '../../comum/dados/sanitizar';
+import { semCodigoDeRegra } from '../../comum/dados/textos';
 import {
   type EventoAuditoria,
   Papel,
@@ -183,7 +184,8 @@ export class EventoAuditoriaDto {
       acao: linha.acao,
       entidade: linha.entidade,
       entidadeId: linha.entidade_id,
-      resumo: linha.resumo,
+      // Eventos antigos guardam o código da regra no resumo; a leitura o tira.
+      resumo: semCodigoDeRegra(linha.resumo),
       quantidadeAlteracoes: extrairAlteracoes({
         alteracoes: linha.alteracoes,
       }).length,
@@ -298,7 +300,7 @@ export class EventoAuditoriaDetalheDto extends EventoAuditoriaDto {
       acao: evento.acao,
       entidade: evento.entidade,
       entidadeId: evento.entidadeId,
-      resumo: evento.resumo,
+      resumo: semCodigoDeRegra(evento.resumo),
       quantidadeAlteracoes: alteracoes.length,
       requisicaoId: evento.requisicaoId,
       alteracoes,

@@ -337,13 +337,13 @@ export function validarMapeamento(
     if (!destinos.has('nome')) {
       problema(
         '.campos',
-        'precisa de uma regra com destino "nome" (o contato exige nome, R8.5)',
+        'precisa de uma regra com destino "nome" (o contato exige nome)',
       );
     }
     if (!destinos.has('email') && !destinos.has('telefone')) {
       problema(
         '.campos',
-        'precisa de uma regra com destino "email" ou "telefone" (R8.5)',
+        'precisa de uma regra com destino "email" ou "telefone"',
       );
     }
   }
@@ -697,18 +697,18 @@ export function aplicarMapeamento(
   } else {
     if (!nome) {
       problemas.push(
-        `Sem nome: ${descreverCaminhos(caminhosPorDestino.get('nome'))} não trouxe valor (R4.1).`,
+        `Sem nome: ${semValorEm(caminhosPorDestino.get('nome'))}.`,
       );
     }
     if (!email.escolhido && !telefone.escolhido) {
       const invalidos = [...email.invalidos, ...telefone.invalidos];
       problemas.push(
         invalidos.length > 0
-          ? `Sem e-mail nem telefone válidos (R4.1): ${invalidos.join('; ')}.`
-          : `Sem e-mail nem telefone (R4.1): ${descreverCaminhos([
+          ? `Sem e-mail nem telefone válidos: ${invalidos.join('; ')}.`
+          : `Sem e-mail nem telefone: ${semValorEm([
               ...(caminhosPorDestino.get('email') ?? []),
               ...(caminhosPorDestino.get('telefone') ?? []),
-            ])} não trouxe valor.`,
+            ])}.`,
       );
     } else {
       avisos.push(
@@ -769,12 +769,15 @@ function leadVazio(etiquetasFixas: readonly string[]): LeadMapeado {
   };
 }
 
-function descreverCaminhos(caminhos: readonly string[] | undefined): string {
+/** "o caminho "name" não trouxe valor", "os caminhos "email", "phone" não trouxeram valor". */
+function semValorEm(caminhos: readonly string[] | undefined): string {
   if (!caminhos || caminhos.length === 0) {
-    return 'nenhuma regra do mapeamento';
+    return 'nenhuma regra do mapeamento trouxe valor';
   }
   const lista = caminhos.map((caminho) => `"${caminho}"`).join(', ');
-  return caminhos.length === 1 ? `o caminho ${lista}` : `os caminhos ${lista}`;
+  return caminhos.length === 1
+    ? `o caminho ${lista} não trouxe valor`
+    : `os caminhos ${lista} não trouxeram valor`;
 }
 
 interface Escolha {

@@ -102,9 +102,7 @@ describe('normalizarEntradaDeContato (R4.1, R4.3, R4.7)', () => {
       entrada({ email: '  ', telefone: undefined }),
     );
     expect(erro.getStatus()).toBe(400);
-    expect(erro.mensagem).toBe(
-      'O contato precisa de e-mail ou telefone (R4.1).',
-    );
+    expect(erro.mensagem).toBe('O contato precisa de e-mail ou telefone.');
     expect(erro.detalhes).toMatchObject({
       regra: 'R4.1',
       campos: [

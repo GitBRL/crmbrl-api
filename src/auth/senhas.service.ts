@@ -187,6 +187,9 @@ export class SenhasService {
         entidade: 'usuario',
         entidadeId: usuario.id,
         resumo: `Redefinição de senha solicitada para ${usuario.email}`,
+        // Pedido sem login: o ator é o e-mail informado, nunca a sessão que o
+        // navegador porventura tenha aberta (como na falha de login).
+        ator: { tipoAtor: 'USUARIO', descricao: usuario.email },
       });
       return emitido;
     });
@@ -360,8 +363,9 @@ function validarTamanho(senha: string, campo: string): void {
     senha.length > TAMANHO_MAXIMO_SENHA
   ) {
     throw new DadosInvalidosException(
-      `A senha precisa ter de ${TAMANHO_MINIMO_SENHA} a ${TAMANHO_MAXIMO_SENHA} caracteres (R2.1).`,
+      `A senha precisa ter de ${TAMANHO_MINIMO_SENHA} a ${TAMANHO_MAXIMO_SENHA} caracteres.`,
       {
+        regra: 'R2.1',
         campos: [
           {
             campo,

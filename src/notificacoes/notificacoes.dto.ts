@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional } from 'class-validator';
+import { semCodigoDeRegra } from '../comum/dados/textos';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import type { Notificacao } from '../generated/prisma/client';
 
@@ -63,8 +64,9 @@ export class NotificacaoDto {
     return {
       id: notificacao.id,
       tipo: notificacao.tipo,
-      titulo: notificacao.titulo,
-      texto: notificacao.texto,
+      // Notificações antigas podem trazer o código da regra no texto.
+      titulo: semCodigoDeRegra(notificacao.titulo),
+      texto: semCodigoDeRegra(notificacao.texto),
       link: notificacao.link,
       dados: notificacao.dados ?? null,
       lidaEm: notificacao.lidaEm?.toISOString() ?? null,

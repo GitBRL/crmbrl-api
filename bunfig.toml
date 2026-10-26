@@ -1,0 +1,10 @@
+# Configuração do Bun (gerenciador de pacotes; o runtime continua sendo o Node).
+#
+# peer = false: o Bun não instala sozinho as peerDependencies. O baileys declara
+# o `sharp` (biblioteca nativa de imagens, fora das dependências aprovadas) como
+# peer obrigatória, mas só o usa — por import dinâmico, com alternativa — para
+# gerar miniaturas. Tudo o que a API precisa em tempo de execução está declarado
+# em "dependencies". Ficam de fora só peers opcionais de ferramentas que não
+# usamos (webpack do Nest CLI, React do Prisma Studio).
+[install]
+peer = false

@@ -105,7 +105,7 @@ describe('Contatos (e2e)', () => {
         .expect(400);
       expect(semMeio.body).toMatchObject({
         erro: 'dados_invalidos',
-        mensagem: 'O contato precisa de e-mail ou telefone (R4.1).',
+        mensagem: 'O contato precisa de e-mail ou telefone.',
         detalhes: { regra: 'R4.1' },
       });
       expect(
@@ -1108,9 +1108,11 @@ describe('Contatos (e2e)', () => {
       });
       expect(auditoria).toMatchObject({
         usuarioId: admin.usuario?.id,
-        resumo: 'Contato anonimizado pelo Admin (LGPD, R4.6)',
+        resumo: 'Contato anonimizado pelo Admin (LGPD)',
       });
       expect(auditoria.dados).toMatchObject({
+        // O código da regra fica nos dados, não no resumo.
+        regra: 'R4.6',
         motivo: 'Pedido do titular',
         negociosAtualizados: 1,
         atividadesAtualizadas: 1,

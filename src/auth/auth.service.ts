@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import type { Ator } from '../comum/contexto/contexto-requisicao';
 import { CriptografiaService } from '../comum/criptografia/criptografia.service';
 import { normalizarEmail } from '../comum/dominio/email';
 import {
@@ -286,6 +287,10 @@ export class AuthService {
   /**
    * Registra a tentativa que falhou, audita e, se ela fechou um bloqueio, audita
    * o bloqueio. A senha atual errada na troca de senha conta como tentativa.
+   *
+   * Na falha de login o ator é sempre o e-mail tentado, sem usuário: o navegador
+   * pode ter a sessão de outra pessoa aberta (o cookie dela vai junto), e quem
+   * tentou entrar não é essa pessoa. Na troca de senha o ator é quem está logado.
    */
   private async registrarFalha(
     email: string,
@@ -295,6 +300,10 @@ export class AuthService {
     agora: Date,
     origem: 'login' | 'troca_de_senha' = 'login',
   ): Promise<void> {
+    const ator: Ator | undefined =
+      origem === 'login'
+        ? { tipoAtor: 'USUARIO', descricao: email }
+        : undefined;
     await this.prisma.$transaction(async (tx) => {
       await this.forcaBruta.registrar(tx, {
         email,
@@ -318,6 +327,7 @@ export class AuthService {
               ? `Tentativa de login de usuário desligado (${email})`
               : `Falha de login para ${email}`,
         dados: { email, motivo },
+        ator,
       });
       // Antes desta falha não havia bloqueio (foi conferido); se há agora, ela o fechou.
       const bloqueio = await this.forcaBruta.verificar(
@@ -341,6 +351,7 @@ export class AuthService {
             motivo: bloqueio.motivo,
             ate: bloqueio.ate,
           },
+          ator,
         });
       }
     });

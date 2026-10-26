@@ -1,5 +1,6 @@
 import {
   compararNoRodizio,
+  motivoSemAcessoAtivado,
   ordenarParaRodizio,
   proximoDoRodizio,
 } from './rodizio';
@@ -51,5 +52,27 @@ describe('rodízio (R5.8)', () => {
   it('sem candidatos, ninguém (o serviço cai para o líder ou o C-level)', () => {
     expect(proximoDoRodizio([], ana)).toBeNull();
     expect(proximoDoRodizio([], null)).toBeNull();
+  });
+});
+
+describe('rodízio — só quem já ativou o acesso (ajuste da R5.8)', () => {
+  const ontem = new Date(Date.UTC(2026, 9, 21, 12));
+
+  it('convite pendente (sem senha) fica fora', () => {
+    expect(
+      motivoSemAcessoAtivado({ acessoAtivadoEm: null, senhaHash: null }),
+    ).toBe('CONVITE_PENDENTE');
+  });
+
+  it('senha temporária ainda não trocada no primeiro login fica fora', () => {
+    expect(
+      motivoSemAcessoAtivado({ acessoAtivadoEm: null, senhaHash: 'scrypt$…' }),
+    ).toBe('PRIMEIRO_ACESSO_PENDENTE');
+  });
+
+  it('com o acesso ativado (marcado pelo banco), participa', () => {
+    expect(
+      motivoSemAcessoAtivado({ acessoAtivadoEm: ontem, senhaHash: 'scrypt$…' }),
+    ).toBeNull();
   });
 });

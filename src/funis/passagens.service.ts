@@ -199,7 +199,8 @@ export class PassagensService {
   private exigirPermissao(usuario: UsuarioAutenticado): void {
     if (!podeConfigurarPassagens(usuario)) {
       throw new SemPermissaoException(
-        'Só o Admin e o C-level configuram as passagens entre funis (R5.7).',
+        'Só o Admin e o C-level configuram as passagens entre funis.',
+        { regra: 'R5.7' },
       );
     }
   }
@@ -262,7 +263,7 @@ export class PassagensService {
     if (gatilho.funilId === destino.funilId) {
       throw new RegraVioladaException(
         'R5.7',
-        'A passagem liga funis diferentes: dentro do mesmo funil, o negócio é movido (R5.4).',
+        'A passagem liga funis diferentes: dentro do mesmo funil, o negócio é movido de etapa.',
         { funilId: gatilho.funilId },
       );
     }

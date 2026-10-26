@@ -126,6 +126,8 @@ describe('traduzirErroDoPrisma', () => {
     );
     expect(erro).toBeInstanceOf(RegraVioladaException);
     expect(erro?.detalhes).toEqual({ regra: 'R4.3' });
+    // O código fica só nos detalhes (Onda A: mensagens sem código de regra).
+    expect(erro?.mensagem).toBe('A primeira origem do contato é imutável.');
   });
 
   it('o resto não é traduzido', () => {

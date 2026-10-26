@@ -44,15 +44,20 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
   docker:cli docker compose up -d --build
 ```
 
-| Serviço | Endereço                  | O que é                                                    |
-| ------- | ------------------------- | ---------------------------------------------------------- |
-| `web`   | http://localhost:8080     | Front (Caddy), que encaminha `/api/*` à API — use por aqui |
-| `api`   | http://127.0.0.1:3000/api | Esta API, publicada só na própria máquina                  |
-| `banco` | `127.0.0.1:5434`          | PostgreSQL 17 (usuário, senha e banco: `crmbrl`)           |
+| Serviço    | Endereço                     | O que é                                                                                             |
+| ---------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `web`      | http://localhost:8080        | Front (Caddy), que encaminha `/api/*` à API (inclusive o websocket `/api/socket.io`) — use por aqui |
+| `api`      | http://127.0.0.1:3000/api    | Esta API, publicada só na própria máquina                                                           |
+| `banco`    | `127.0.0.1:5434`             | PostgreSQL 17 (usuário, senha e banco: `crmbrl`)                                                    |
+| `arquivos` | só na rede interna (`:9000`) | MinIO (S3) com os arquivos do CRM; console desligado, sem porta no host                             |
+| `whatsapp` | só na rede interna (`:3100`) | Gateway de WhatsApp: a mesma imagem da API, outro processo (`node dist/whatsapp/main.js`)           |
 
-A ordem de subida é garantida pelos healthchecks: o banco fica saudável
-(`pg_isready`), a API aplica as migrations pendentes (`prisma migrate deploy`) e
-sobe, e o front só sobe depois que `GET /api/saude` responde 200.
+A ordem de subida é garantida pelos healthchecks: o banco (`pg_isready`) e o
+MinIO ficam saudáveis, a API aplica as migrations pendentes (`prisma migrate
+deploy`) e sobe (e cria o bucket), e só depois de `GET /api/saude` responder
+200 sobem o gateway de WhatsApp (healthcheck `GET /saude` na porta interna) e o
+front. A imagem traz o `ffmpeg`, que o gateway usa para converter o áudio
+gravado no navegador em mensagem de voz.
 
 ```bash
 docker compose ps              # estado e saúde de cada serviço
@@ -143,6 +148,18 @@ npm run start:dev
 A API sobe mesmo com o banco fora do ar: o log avisa e `GET /api/saude` responde
 503 até o banco voltar.
 
+O tempo real (Socket.IO) sobe junto com a API, em `/api/socket.io` (namespace
+`/tempo-real`, autenticado pelo cookie da sessão e pela origem). Arquivos
+precisam do MinIO (`docker compose up -d arquivos` não publica porta: rode a
+API no compose ou use `ARQUIVOS_DRIVER=memoria` para experimentar). O gateway
+de WhatsApp é outro processo, com as mesmas variáveis:
+
+```bash
+bun run build                                  # compila também dist/whatsapp/main.js
+WHATSAPP_SIMULADO=true bun run start:whatsapp  # gateway em http://localhost:3100 (HTTP interno)
+curl http://localhost:3100/saude
+```
+
 ## Dados de demonstração
 
 `scripts/semear-demonstracao.mjs` (Node 24, sem dependências) cria uma
@@ -178,29 +195,38 @@ vêm do `.env` (carregado com `process.loadEnvFile()` quando o arquivo existe); 
 que já estiver definido no ambiente tem prioridade. Variável vazia vale como não
 definida.
 
-| Variável                                                                                 | Padrão                                   | Para que serve                                                                                                                                               |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                                                                           | — (obrigatória)                          | Conexão com o PostgreSQL. Lida também pelo CLI do Prisma (`prisma.config.ts`) e pelo pg-boss.                                                                |
-| `PORT`                                                                                   | `3000`                                   | Porta HTTP.                                                                                                                                                  |
-| `NODE_ENV`                                                                               | `development`                            | Ambiente; aparece em `GET /api/saude`. A imagem Docker usa `production`, que torna obrigatórias `URL_PUBLICA` e `CHAVE_CRIPTOGRAFIA`.                        |
-| `CORS_ORIGENS`                                                                           | vazio                                    | Origens liberadas no CORS (com credenciais), separadas por vírgula. Vazio: CORS desligado.                                                                   |
-| `OBSERVE_APP_KEY`, `OBSERVE_APP_SECRET`                                                  | vazias                                   | Chaves do `@nestjs/observe`. Ele só liga com as duas.                                                                                                        |
-| `URL_PUBLICA`                                                                            | `http://localhost:4200` fora de produção | Endereço do CRM: base dos links de convite/redefinição e dos endereços de webhook.                                                                           |
-| `ORIGENS_PERMITIDAS`                                                                     | a origem da `URL_PUBLICA`                | Origens aceitas em `POST`/`PUT`/`PATCH`/`DELETE` (CSRF, R2.9), pelo `Origin` ou `Referer`.                                                                   |
-| `COOKIE_SEGURO`                                                                          | `true` em produção                       | Atributo `Secure` do cookie `crmbrl_sessao` (só HTTPS).                                                                                                      |
-| `CHAVE_CRIPTOGRAFIA`                                                                     | chave de desenvolvimento (com aviso)     | 32 bytes em base64 ou hex; cifra os segredos dos webhooks (AES-256-GCM, R10.3). Obrigatória em produção: `openssl rand -base64 32`.                          |
-| `SESSAO_INATIVIDADE_DIAS`                                                                | `7`                                      | A sessão expira depois de tantos dias sem uso (R2.2).                                                                                                        |
-| `SESSAO_DURACAO_MAXIMA_DIAS`                                                             | `30`                                     | …e, em qualquer caso, tantos dias depois do login.                                                                                                           |
-| `SESSAO_RENOVACAO_MINUTOS`                                                               | `5`                                      | Intervalo mínimo entre duas gravações da renovação.                                                                                                          |
-| `ADMIN_EMAIL`, `ADMIN_NOME`                                                              | vazio, `Administrador`                   | Admin criado quando não há nenhum usuário (R2.6), com troca de senha obrigatória.                                                                            |
-| `ADMIN_SENHA_INICIAL`                                                                    | vazia                                    | Senha inicial desse Admin (8 a 128 caracteres). Vazia: a API gera uma e a mostra uma vez no log.                                                             |
-| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | vazias, `587`                            | Envio de e-mail (nodemailer). Sem `SMTP_HOST`, convite e "esqueci minha senha" ficam indisponíveis (R2.8). `SMTP_SEGURO` vazio = TLS direto só na porta 465. |
-| `WEBHOOKS_PERMITIR_REDE_INTERNA`                                                         | `false`                                  | Webhooks de saída podem chamar rede interna/localhost (R9.1).                                                                                                |
-| `DOCS_PUBLICAS`                                                                          | `true` fora de produção                  | `/api/docs` e `/api/docs-json` abertos; com `false`, só o Admin logado.                                                                                      |
-| `PROCESSAR_FILAS`                                                                        | `true`                                   | Trabalhadores da fila, agendamentos e despachante de eventos. `false` para réplicas só HTTP (e nos testes).                                                  |
-| `LOG_FORMATO`                                                                            | `json` em produção, `texto` fora         | Formato do log do console (logger nativo do Nest).                                                                                                           |
-| `MIGRAR_AO_INICIAR`                                                                      | `true`                                   | Só no container: `false` pula o `prisma migrate deploy` ao subir.                                                                                            |
-| `DATABASE_URL_TESTE`                                                                     | —                                        | Só nos testes de integração: o banco descartável que eles apagam.                                                                                            |
+| Variável                                                                                 | Padrão                                   | Para que serve                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                                           | — (obrigatória)                          | Conexão com o PostgreSQL. Lida também pelo CLI do Prisma (`prisma.config.ts`) e pelo pg-boss.                                                                            |
+| `PORT`                                                                                   | `3000`                                   | Porta HTTP.                                                                                                                                                              |
+| `NODE_ENV`                                                                               | `development`                            | Ambiente; aparece em `GET /api/saude`. A imagem Docker usa `production`, que torna obrigatórias `URL_PUBLICA` e `CHAVE_CRIPTOGRAFIA`.                                    |
+| `CORS_ORIGENS`                                                                           | vazio                                    | Origens liberadas no CORS (com credenciais), separadas por vírgula. Vazio: CORS desligado.                                                                               |
+| `OBSERVE_APP_KEY`, `OBSERVE_APP_SECRET`                                                  | vazias                                   | Chaves do `@nestjs/observe`. Ele só liga com as duas.                                                                                                                    |
+| `URL_PUBLICA`                                                                            | `http://localhost:4200` fora de produção | Endereço do CRM: base dos links de convite/redefinição e dos endereços de webhook.                                                                                       |
+| `ORIGENS_PERMITIDAS`                                                                     | a origem da `URL_PUBLICA`                | Origens aceitas em `POST`/`PUT`/`PATCH`/`DELETE` (CSRF, R2.9) e na conexão do tempo real (`/api/socket.io`), pelo `Origin` ou `Referer`.                                 |
+| `COOKIE_SEGURO`                                                                          | `true` em produção                       | Atributo `Secure` do cookie `crmbrl_sessao` (só HTTPS).                                                                                                                  |
+| `CHAVE_CRIPTOGRAFIA`                                                                     | chave de desenvolvimento (com aviso)     | 32 bytes em base64 ou hex; cifra os segredos dos webhooks e dos canais e as chaves do WhatsApp (AES-256-GCM, R10.3). Obrigatória em produção: `openssl rand -base64 32`. |
+| `SESSAO_INATIVIDADE_DIAS`                                                                | `7`                                      | A sessão expira depois de tantos dias sem uso (R2.2).                                                                                                                    |
+| `SESSAO_DURACAO_MAXIMA_DIAS`                                                             | `30`                                     | …e, em qualquer caso, tantos dias depois do login.                                                                                                                       |
+| `SESSAO_RENOVACAO_MINUTOS`                                                               | `5`                                      | Intervalo mínimo entre duas gravações da renovação.                                                                                                                      |
+| `ADMIN_EMAIL`, `ADMIN_NOME`                                                              | vazio, `Administrador`                   | Admin criado quando não há nenhum usuário (R2.6), com troca de senha obrigatória.                                                                                        |
+| `ADMIN_SENHA_INICIAL`                                                                    | vazia                                    | Senha inicial desse Admin (8 a 128 caracteres). Vazia: a API gera uma e a mostra uma vez no log.                                                                         |
+| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | vazias, `587`                            | Envio de e-mail (nodemailer). Sem `SMTP_HOST`, convite e "esqueci minha senha" ficam indisponíveis (R2.8). `SMTP_SEGURO` vazio = TLS direto só na porta 465.             |
+| `WEBHOOKS_PERMITIR_REDE_INTERNA`                                                         | `false`                                  | Webhooks de saída podem chamar rede interna/localhost (R9.1).                                                                                                            |
+| `DOCS_PUBLICAS`                                                                          | `true` fora de produção                  | `/api/docs` e `/api/docs-json` abertos; com `false`, só o Admin logado.                                                                                                  |
+| `PROCESSAR_FILAS`                                                                        | `true`                                   | Trabalhadores da fila, agendamentos e despachante de eventos (no gateway, as filas de envio dos números). `false` para réplicas só HTTP (e nos testes).                  |
+| `LOG_FORMATO`                                                                            | `json` em produção, `texto` fora         | Formato do log do console (logger nativo do Nest).                                                                                                                       |
+| `ARQUIVOS_DRIVER`                                                                        | `s3`                                     | Onde ficam os arquivos (R11): `s3` (MinIO/S3) ou `memoria` (só testes; somem ao reiniciar).                                                                              |
+| `ARQUIVOS_ENDPOINT`                                                                      | `http://localhost:9000` fora de produção | Endereço do MinIO/S3 (no compose, `http://arquivos:9000`).                                                                                                               |
+| `ARQUIVOS_REGIAO`, `ARQUIVOS_BUCKET`                                                     | `us-east-1`, `crmbrl`                    | Região e bucket; o bucket é criado pela API ao subir.                                                                                                                    |
+| `ARQUIVOS_CHAVE`, `ARQUIVOS_SEGREDO`                                                     | vazias (o compose usa padrões de dev)    | Credenciais do MinIO/S3 (o compose cria o usuário do MinIO com elas). Obrigatórias em produção com `s3`.                                                                 |
+| `WHATSAPP_URL_INTERNA`                                                                   | `http://localhost:<WHATSAPP_PORTA>`      | Endereço interno do gateway de WhatsApp, para os comandos da API (no compose, `http://whatsapp:3100`).                                                                   |
+| `WHATSAPP_PORTA`                                                                         | `3100`                                   | Porta HTTP interna do processo do gateway (nunca publicada no host).                                                                                                     |
+| `WHATSAPP_TOKEN_INTERNO`                                                                 | token de desenvolvimento (com aviso)     | Segredo do cabeçalho `X-Token-Interno` entre a API e o gateway (32+ caracteres, o mesmo nos dois). Obrigatório em produção: `openssl rand -base64 32`.                   |
+| `WHATSAPP_SIMULADO`                                                                      | `false`                                  | Transporte simulado do gateway: QR de mentira, conexão em segundos, status progressivo e `POST /simulador/receber`. Desenvolvimento, testes e demonstrações.             |
+| `META_GRAPH_URL`, `META_GRAPH_VERSAO`                                                    | `https://graph.facebook.com`, `v24.0`    | Graph API da Meta (Instagram e Messenger, R14); nos testes, uma falsa.                                                                                                   |
+| `MIGRAR_AO_INICIAR`                                                                      | `true`                                   | Só no container: `false` pula o `prisma migrate deploy` ao subir.                                                                                                        |
+| `DATABASE_URL_TESTE`                                                                     | —                                        | Só nos testes de integração: o banco descartável que eles apagam.                                                                                                        |
 
 ## Banco e migrations
 
@@ -263,7 +289,13 @@ docker rm -f crmbrl-teste
 
 Os utilitários ficam em `test/utils` (`criarAppTeste`, `limparBanco`,
 fábricas, `entrarComo`, drenagem de eventos e filas); veja o exemplo no topo de
-`test/utils/index.ts`. Cada teste cita a regra que cobre (`R7.2 — …`); os 15
+`test/utils/index.ts`. Nos testes os arquivos ficam na memória
+(`ARQUIVOS_DRIVER=memoria`, sem MinIO; `t.arquivos` mostra o que foi guardado)
+e o WhatsApp é simulado: `criarGatewayTeste(t)` sobe o processo do gateway no
+mesmo banco, com o transporte simulado instantâneo, e `drenarEventosDoGateway(t)`
+entrega à API o que ele publicou. Para o tempo real, `conectarTempoReal(t,
+cliente)` abre um `socket.io-client` de verdade com o cookie da sessão
+(`esperarEvento`, `semEvento`, `pedirAoTempoReal`). Cada teste cita a regra que cobre (`R7.2 — …`); os 15
 cenários de aceitação da seção 13 das regras levam "cenário N" no nome
 (`--testNamePattern "[Cc]enário"` roda só eles), e `test/integracao.e2e-spec.ts`
 percorre a jornada inteira de um lead, do webhook ao CS. A suíte completa (21

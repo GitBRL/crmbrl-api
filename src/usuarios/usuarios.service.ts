@@ -334,7 +334,7 @@ export class UsuariosService {
       if (!usuario.ativo) {
         throw new RegraVioladaException(
           'R2.8',
-          `O usuário ${usuario.nome} está desligado: reative-o antes de definir uma senha (R7.5).`,
+          `O usuário ${usuario.nome} está desligado: reative-o antes de definir uma senha.`,
         );
       }
       await this.senhas.definirSenhaTemporaria(tx, usuario, dto.senha);
@@ -373,9 +373,9 @@ export class UsuariosService {
     const condicoes: Prisma.UsuarioWhereInput[] = [{ ativo: true }];
     if (ehLider(observador.papel)) {
       if (filtro.liderId && filtro.liderId !== observador.id) {
-        throw new SemPermissaoException(
-          'Você só vê a sua própria equipe (R1.5).',
-        );
+        throw new SemPermissaoException('Você só vê a sua própria equipe.', {
+          regra: 'R1.5',
+        });
       }
       condicoes.push({ id: observador.id });
     } else if (ehDiretoria(observador.papel)) {
@@ -394,7 +394,8 @@ export class UsuariosService {
       }
     } else {
       throw new SemPermissaoException(
-        'A visão de equipe é de líderes, C-level e Admin (R1.5).',
+        'A visão de equipe é de líderes, C-level e Admin.',
+        { regra: 'R1.5' },
       );
     }
 

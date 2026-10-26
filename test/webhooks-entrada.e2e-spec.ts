@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
+import { RegraVioladaException } from '../src/comum/erros/excecoes';
 import { ContatosService } from '../src/contatos/contatos.service';
 import type { Usuario } from '../src/generated/prisma/client';
 import { ProcessamentoEntradaService } from '../src/webhooks/entrada/processamento-entrada.service';
@@ -329,7 +330,7 @@ describe('Webhooks de entrada (e2e)', () => {
       negocioId: negocioDaMaria.id,
     });
     expect(segundoRecebimento.mensagem).toMatch(
-      /reconvertido \(já existia, R4\.2\); reconversão registrada no negócio aberto/,
+      /reconvertido \(já existia\); reconversão registrada no negócio aberto/,
     );
 
     // Os eventos dos módulos de contatos e funis seguem pela outbox.
@@ -464,7 +465,9 @@ describe('Webhooks de entrada (e2e)', () => {
       tentativas: 0,
       corpo: { name: 'Ana Paula', email: 'ana@x.com' },
     });
-    expect(recusado.mensagem).toMatch(/^Assinatura inválida \(R8\.3\)/);
+    expect(recusado.mensagem).toBe(
+      'Assinatura inválida: X-Assinatura não confere com o HMAC-SHA256 do corpo.',
+    );
     expect(
       await t.prisma.webhookRecebimento.count({ where: { status: 'ERRO' } }),
     ).toBe(2);
@@ -625,7 +628,7 @@ describe('Webhooks de entrada (e2e)', () => {
     const comErro = await recebimento(id);
     expect(comErro).toMatchObject({ status: 'ERRO', tentativas: 1 });
     expect(comErro.mensagem).toBe(
-      'Sem nome: o caminho "name" não trouxe valor (R4.1).',
+      'Sem nome: o caminho "name" não trouxe valor.',
     );
     expect(await t.fila.listarTrabalhos(FILA_PROCESSAR)).toHaveLength(0);
 
@@ -798,6 +801,55 @@ describe('Webhooks de entrada (e2e)', () => {
     } finally {
       espiao.mockRestore();
     }
+  });
+
+  it('textos sem código de regra: a regra que recusa o lead fica fora da mensagem do recebimento, e mensagens antigas saem limpas', async () => {
+    await criarEquipe(t, 'MARKETING', { membros: 1 });
+    const ponto = await criarPonto();
+    const espiao = jest
+      .spyOn(t.get(ContatosService), 'encontrarOuCriar')
+      .mockRejectedValueOnce(
+        new RegraVioladaException('R5.1', 'O funil está arquivado.'),
+      );
+    try {
+      const resposta = await enviarLead(t, ponto.token, {
+        name: 'Ivo',
+        email: 'ivo@x.com',
+      }).expect(202);
+      const id = (resposta.body as { id: string }).id;
+      await processar();
+      // Regra recusou: erro definitivo, sem novas tentativas e sem "[R5.1]".
+      expect(await recebimento(id)).toMatchObject({
+        status: 'ERRO',
+        tentativas: 1,
+        mensagem: 'O funil está arquivado.',
+      });
+    } finally {
+      espiao.mockRestore();
+    }
+
+    // Recebimento gravado antes do ajuste, com o código na mensagem.
+    const antigo = await t.prisma.webhookRecebimento.create({
+      data: {
+        webhookId: ponto.id,
+        status: 'ERRO',
+        mensagem:
+          'Contato "Ana" reconvertido (já existia, R4.2); funil arquivado. [R5.1]',
+      },
+    });
+    const lista = await admin
+      .get(`/api/v1/webhooks/entradas/${ponto.id}/recebimentos`)
+      .expect(200);
+    const detalhe = await admin
+      .get(`/api/v1/webhooks/entradas/${ponto.id}/recebimentos/${antigo.id}`)
+      .expect(200);
+    const limpa = 'Contato "Ana" reconvertido (já existia); funil arquivado.';
+    expect(detalhe.body).toMatchObject({ mensagem: limpa });
+    expect(
+      (lista.body.itens as { id: string; mensagem: string | null }[]).find(
+        (item) => item.id === antigo.id,
+      ),
+    ).toMatchObject({ mensagem: limpa });
   });
 
   it('R8.1 — RESPONSAVEL_FIXO: o responsável é validado e recebe o negócio; LIDER_DA_AREA vai para o líder', async () => {
@@ -1098,9 +1150,7 @@ describe('Webhooks de entrada (e2e)', () => {
       corpo: null,
       cabecalhos: {},
       ip: null,
-      mensagem: expect.stringMatching(
-        /anonimização do contato \(R4\.6\)/,
-      ) as string,
+      mensagem: 'Corpo, cabeçalhos e IP apagados na anonimização do contato.',
     });
     expect(
       await t.prisma.eventoAuditoria.findFirstOrThrow({

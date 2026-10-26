@@ -1,16 +1,23 @@
 # Regras de negócio — BRL CRM
 
 Fonte de verdade das regras do produto. A API (`crmbrl-api`) é a única camada que as
-aplica; o front só as reflete. Cada regra tem um código (`R<seção>.<n>`) para ser citada
-em testes, commits e chamados.
+aplica; o front só as reflete. Cada regra tem um código (`R<n>.<m>`) para ser citada
+em testes, commits e chamados. Até a R10 o número é o da seção; as regras da Fase 2
+continuam a sequência dos códigos (R11 a R15) nas seções 14 a 18, depois da convenção,
+da matriz e dos cenários da Fase 1 (seções 11 a 13, que mantêm o número porque o código
+as cita).
 
-Esta versão cobre a **Fase 1 — núcleo do CRM**. As fases seguintes estão em
-[ROADMAP.md](ROADMAP.md) e ganham seções aqui quando forem detalhadas.
+Esta versão cobre a **Fase 1 — núcleo do CRM** e a **primeira parte da Fase 2 (Onda
+A)**: arquivos, atendimento omnichannel, gateway de WhatsApp próprio, chat do site,
+e-mail, Instagram e Messenger, tempo real e chat interno da equipe. As fases seguintes
+estão em [ROADMAP.md](ROADMAP.md) e ganham seções aqui quando forem detalhadas.
 
-> Atualizado em 2026-10-21. Regras marcadas com **(proposta)** dependem de validação do
+> Atualizado em 2026-10-26. Regras marcadas com **(proposta)** dependem de validação do
 > negócio e podem mudar sem quebrar o resto. Trechos marcados com **Ajuste da
 > implementação (2026-10-20)** registram o que a implementação da Fase 1 precisou
-> definir ou mudar em relação ao texto original da regra.
+> definir ou mudar em relação ao texto original da regra; os marcados só com **Ajuste**
+> e a data, mudanças pedidas depois; os marcados com **Ajuste da Onda A
+> (2026-10-26)**, o que a Fase 2 mudou nas regras da Fase 1.
 
 ---
 
@@ -82,6 +89,17 @@ Esta versão cobre a **Fase 1 — núcleo do CRM**. As fases seguintes estão em
   (R6.5) e os registros de recebimento, entrega e tentativa dos webhooks (que já são o
   próprio histórico). São auditadas as ações do Admin sobre eles, a desativação
   automática de destino e a limpeza de dados da LGPD.
+  **Ajuste da Onda A (2026-10-26):** também não geram auditoria item a item as
+  mensagens — as do Atendimento (a conversa é o próprio histórico, com autor, data e
+  status de cada mensagem) e as do chat interno (as diretas são privadas, R15.3: a
+  mensagem guarda `editadaEm` e `excluidaEm`, e a auditoria registra só quem iniciou a
+  conversa direta) —, o envio de um arquivo (R11; a remoção é auditada), a leitura e o
+  silenciar do chat, as marcações técnicas do gateway de WhatsApp (envios do dia,
+  verificações de número, chaves da sessão) e o "digitando". São auditadas as ações
+  sobre conversas (criar, assumir, transferir, resolver, reabrir, alterar, ligar
+  negócio, avaliação, encaminhamento no desligamento), filas, respostas rápidas,
+  canais e números de WhatsApp (inclusive conexão, queda, pausa e retomada) e a
+  estrutura do chat interno (grupos, membros, administradores, arquivamento).
 - **R3.2** Também são auditados: login, logout, falha de login, bloqueio por força bruta,
   troca e redefinição de senha, desligamento, reativação e encaminhamentos.
 - **R3.3** A auditoria é **somente inclusão**: não há endpoint de edição ou exclusão, e um
@@ -104,6 +122,10 @@ Esta versão cobre a **Fase 1 — núcleo do CRM**. As fases seguintes estão em
 - **R4.1** Contato precisa de nome e de pelo menos um meio de contato (e-mail ou telefone).
   E-mail em minúsculas. Telefone normalizado para E.164 só com dígitos: números brasileiros
   com 10 ou 11 dígitos ganham o `55`, e o DDD é validado.
+  **Ajuste da Onda A (2026-10-26):** um **identificador de canal** também conta como
+  meio de contato (R12.2): quem escreve pelo Instagram, pelo Messenger ou pelo chat do
+  site pode não ter e-mail nem telefone. O banco confere no fim da transação (gatilho
+  adiável) que todo contato não excluído tem e-mail, telefone ou identificador.
 - **R4.2** **Deduplicação:** toda criação (manual, webhook, importação, passagem) procura
   antes um contato ativo com o mesmo e-mail ou o mesmo telefone normalizado. Se achar, não
   cria outro: completa os campos vazios (sem sobrescrever os preenchidos), atualiza a
@@ -174,6 +196,14 @@ Esta versão cobre a **Fase 1 — núcleo do CRM**. As fases seguintes estão em
   só se a regra da área disser), em ordem estável e com ponteiro salvo, sob trava no banco
   para não repetir em concorrência. Sem membros disponíveis, vai para o líder da área; sem
   líder, para um C-level.
+  **Ajuste (2026-10-22):** o rodízio só inclui quem **já ativou o acesso** — concluiu o
+  primeiro login (com a troca da senha temporária) ou definiu a senha do convite. Quem
+  ainda não ativou (convite pendente, ou senha temporária ainda não trocada) fica fora da
+  fila, mesmo se incluído à mão, e entra sozinho quando ativar; a configuração do rodízio
+  lista essas pessoas à parte, com o motivo. O banco marca a ativação
+  (`usuarios.acesso_ativado_em`) na primeira vez em que a pessoa fica com senha própria e
+  não a desfaz: uma senha temporária definida depois pelo Admin (R2.8) não tira ninguém do
+  rodízio.
 - **R5.9** **Visibilidade (proposta):** Admin e C-level veem todos os negócios; o líder vê
   todos os da sua área; o membro vê os da sua área em que é responsável e os ainda sem
   responsável (que ele pode assumir). Quem vê pode editar e mover, exceto reabrir (R5.5).
@@ -228,6 +258,11 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
   responsável fixo em webhooks de entrada e passagens; cada item encaminhado ganha o
   próprio evento de auditoria (aparece na linha do tempo dele), além do
   `usuario.desligado` com as contagens.
+  **Ajuste da Onda A (2026-10-26):** logo depois do desligamento (pela outbox), as
+  conversas do Atendimento em aberto com a pessoa vão para o mesmo destinatário
+  (R12.17) e ela sai dos canais padrão e dos grupos do chat interno (R15.1, R15.2);
+  inativa, já não entra na distribuição das filas (R12.4). Os sockets dela caem na hora
+  (R2.4).
 - **R7.4** O destinatário é notificado ("Você recebeu 12 atividades e 3 negócios de
   Pedro"), a auditoria guarda as contagens e o evento `usuario.desligado` vai para os
   webhooks de saída.
@@ -294,10 +329,21 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
 - **R10.1** Efeitos colaterais (webhooks de saída, notificações, e no futuro automações e
   tempo real) usam uma **outbox**: o evento é gravado na mesma transação da alteração e um
   despachante o entrega à fila (pg-boss). Nada se perde se a API cair no meio.
+  **Ajuste da Onda A (2026-10-26):** o **tempo real** (Socket.IO) também sai da outbox:
+  só é emitido o que foi confirmado no banco, depois do commit, e uma emissão com mais de
+  5 minutos de atraso é descartada (quem reconecta recarrega a tela pela API). Só o
+  efêmero ("digitando…") é emitido direto. A entrega é "pelo menos uma vez": o front
+  ignora repetidos pelo `id` do recurso.
 - **R10.2** Notificações internas na Fase 1: lead ou negócio atribuído, passagem recebida,
   itens encaminhados por desligamento, atividade vencendo ou atrasada, falha ou desativação
   de webhook de saída (Admin) e equipe sem líder (Admin). Podem ser listadas, marcadas como
   lidas uma a uma ou todas de uma vez. O tempo real chega na Fase 2.
+  **Ajuste da Onda A (2026-10-26):** a notificação nova chega na hora pelo tempo real
+  (`notificacao.nova`, com a contagem do sino), e a consulta a cada 60 s fica só de
+  reserva. Tipos novos: conversa atribuída, transferida, encaminhada por desligamento,
+  mensagem nova do contato (para quem está fora do CRM), nota interna, prazo de
+  primeira resposta ou de resolução estourado e avaliação baixa (para o líder), e
+  menção no chat interno (R12.14, R15.5).
 - **R10.3** Segredos (HMAC de entrada e de saída) ficam cifrados no banco com AES-256-GCM e
   a chave `CHAVE_CRIPTOGRAFIA`; depois de criados, só aparecem mascarados.
 
@@ -361,3 +407,314 @@ Cada cenário vira um teste automatizado contra um Postgres real.
     marketing não vê o funil comercial (R5.9).
 14. `UPDATE` direto em `eventos_auditoria` falha (R3.3).
 15. 5 senhas erradas → a 6ª tentativa é bloqueada (429), mesmo com a senha certa (R2.5).
+
+---
+
+# Fase 2 — Onda A: atendimento e comunicação
+
+## 14. Arquivos (R11)
+
+- **R11.1** Arquivos (mídia das conversas, anexos do chat interno e das respostas rápidas,
+  fotos de perfil, importações) ficam num armazenamento S3 próprio (MinIO no compose),
+  nunca no banco nem no disco da API. O banco guarda nome original (limpo), tipo, tamanho,
+  SHA-256, contexto (`MENSAGEM`, `CHAT`, `IMPORTACAO`, `AVATAR`, `OUTRO`), quem enviou e
+  quando. A chave no armazenamento nunca sai da API.
+- **R11.2** Tipos aceitos: imagens comuns (JPEG, PNG, GIF, WebP, AVIF, HEIC, BMP, TIFF),
+  áudio (inclusive o gravado no navegador e a voz do WhatsApp), vídeo, PDF, Office e
+  OpenDocument, texto (TXT, CSV, TSV, iCal, vCard, RTF) e zip. **Sempre recusados:** SVG,
+  HTML, XHTML, XML, JavaScript e executáveis (415). O conteúdo é conferido pelos primeiros
+  bytes: o que começa como página, SVG ou script é recusado mesmo com outro tipo declarado,
+  e PNG, JPEG, GIF, WebP, PDF e os formatos zip precisam ter a assinatura do formato. Tipo
+  genérico (`application/octet-stream`) é resolvido pela extensão do nome.
+- **R11.3** Limites (413): 25 MB para imagem, áudio e vídeo; 100 MB para documentos,
+  texto e zip; 5 MB para foto de perfil (só JPG, PNG, GIF ou WebP). Arquivo vazio é 400.
+  Canais podem ter limites menores (chat do site: 10 MB; mídia do WhatsApp conferida antes
+  do download).
+- **R11.4** Download **só pela API** (`GET /api/v1/arquivos/:id`), com a mesma permissão do
+  item a que o arquivo pertence: quem enviou sempre baixa; mídia de mensagem, quem vê a
+  conversa (R12.5); anexo de resposta rápida, quem usa o Atendimento; anexo do chat
+  interno, só os membros do canal — **nem o Admin** (R15.3); foto de perfil, qualquer
+  pessoa logada; importação e outros, só o Admin. Quem não pode ver recebe 404 (não revela
+  que o arquivo existe).
+- **R11.5** O download vai com `X-Content-Type-Options: nosniff`, `Content-Disposition`
+  seguro (imagens comuns, áudio, vídeo e PDF abrem no navegador; o resto é baixado) e,
+  nos que não abrem, `Content-Security-Policy: default-src 'none'; sandbox`. Aceita
+  `Range` (206, para o player de áudio e vídeo) e `If-None-Match` (304).
+- **R11.6** Fora do CRM, só por link assinado com validade: o visitante do chat do site
+  baixa os anexos da própria conversa por 24 horas (R14.3) e a Meta busca os anexos que o
+  CRM envia (R14.9).
+- **R11.7** Remover um arquivo marca a remoção (o registro fica para o histórico, com
+  auditoria) e apaga o conteúdo do armazenamento só depois de a transação confirmar.
+
+## 15. Atendimento omnichannel (R12)
+
+- **R12.1** **Filas** organizam o atendimento: nome, área (**Comercial** ou **CS** — o
+  Marketing não usa o Atendimento), prazo de primeira resposta e de resolução (SLA, em
+  minutos, opcionais), estratégia de distribuição (`RODIZIO`, `MENOR_CARGA` ou `MANUAL`),
+  participantes e se está ativa. Admin e C-level configuram todas; o líder, as da sua área.
+  Uma fila com conversas em aberto não pode ser excluída nem mudar de área (422). Cada
+  canal tem uma fila padrão, que recebe as conversas novas.
+- **R12.2** **Entrada:** cada mensagem que chega por um canal identifica o contato pelo
+  identificador do canal (telefone do WhatsApp, e-mail, id do Instagram ou do Messenger,
+  visitante do chat do site — único por tipo e valor); sem ele, pelo e-mail ou telefone
+  (deduplicação da R4.2); sem nenhum, cria o contato com a origem do canal e grava o
+  identificador. Repetir uma mensagem com o mesmo id externo no mesmo canal não a duplica.
+- **R12.3** **Uma conversa em aberto por contato e canal** (índice único no banco).
+  Status: `ABERTA`, `PENDENTE` (esperando o contato) e `RESOLVIDA`; "em aberto" é aberta
+  ou pendente. Mensagem do contato numa conversa pendente a devolve para aberta; numa
+  resolvida, abre uma conversa nova (salvo a nota da pesquisa, R12.13).
+- **R12.4** **Distribuição** da conversa nova pela fila: participam os membros **ativos**
+  da área da fila que **já ativaram o acesso** (o mesmo ajuste da R5.8), menos os retirados
+  à mão; com lista definida, só os da lista (que pode incluir o líder). `RODIZIO` segue
+  ordem estável com ponteiro salvo na fila, sob trava; `MENOR_CARGA` escolhe quem tem menos
+  conversas em aberto (empate pelo rodízio); `MANUAL` não escolhe ninguém. Sem candidato
+  (ou em `MANUAL`), a conversa fica **sem responsável** na fila, para alguém assumir. Quem
+  recebe é notificado.
+- **R12.5** **Visibilidade:** Admin e C-level veem todas as conversas; o líder, as das
+  filas da sua área e as que estão com ele; o membro, as que estão com ele e as **sem
+  responsável** das filas da sua área. O Marketing não acessa o Atendimento (403). Conversa
+  sem fila e sem responsável só aparece para Admin e C-level. O que a pessoa não vê
+  responde 404 — inclusive a mídia (R11.4) e a sala de tempo real da conversa (R12.14).
+- **R12.6** **Assumir:** quem vê uma conversa sem responsável pode assumi-la (409 se outra
+  pessoa assumiu antes). Responder uma conversa sem responsável também a assume. Os
+  colegas que deixam de ver a conversa saem da sala de tempo real dela na hora.
+- **R12.7** **Transferência** para uma pessoa e/ou outra fila, com nota opcional (vira
+  nota interna). Para alguém de outra área, é preciso escolher também uma fila da área
+  dessa pessoa; pessoa desligada, do Marketing ou fila desativada são recusadas (422).
+  Transferir só para a fila redistribui pela estratégia dela. Fica no histórico de
+  atribuições (quem, de quem, para quem, motivo e quando), é auditada e notifica quem
+  recebe.
+- **R12.8** **Resolver** grava quando e quem resolveu (409 se já está resolvida) e, se o
+  canal tem a pesquisa ligada, pergunta a nota (R12.13). **Reabrir** volta a conversa para
+  aberta com o responsável anterior (se ainda ativo; senão, com quem reabriu); recusa (409)
+  se o contato já tem outra conversa em aberto no mesmo canal.
+- **R12.9** **Notas internas** ficam na conversa, só para a equipe — nunca vão ao contato;
+  a nota de outra pessoa notifica o responsável. A conversa também tem prioridade,
+  assunto, etiquetas (normalizadas como na R4.7) e pode ser ligada a um negócio **do mesmo
+  contato**. "Criar negócio" a partir da conversa usa o funil-base da área da fila (ou o
+  escolhido), com a origem do canal, e liga o negócio à conversa.
+- **R12.10** **Envio:** a mensagem da equipe nasce `PENDENTE` e vai para a fila de envio
+  do canal; o status só avança (`ENVIADA` → `ENTREGUE` → `LIDA`), conforme o canal informa.
+  Falha definitiva marca `FALHOU` com o motivo em português, visível na bolha, e "tentar
+  de novo" a devolve para `PENDENTE`; falha passageira é tentada de novo 3 vezes, com
+  espera crescente (15 s, 30 s, 60 s). `FALHOU` só vale antes da entrega. Não se envia em
+  conversa resolvida nem por canal desativado (422); na Meta, fora da janela de 24 h
+  (R14.8).
+- **R12.11** **Horário de atendimento** por canal (fuso e intervalos por dia da semana;
+  sem horário = 24 horas). Fora do horário, o canal responde a mensagem automática
+  configurada **uma vez por conversa em cada período fechado**.
+- **R12.12** **SLA:** a fila define o prazo da **primeira resposta** (até a primeira
+  mensagem da equipe) e o de **resolução**, em minutos corridos contados da chegada — ou da
+  abertura seguinte do canal, quando a conversa chega fora do horário. Um job a cada
+  minuto avisa o líder (o líder direto de quem atende, se for da área da fila; senão, os
+  líderes da área) **uma vez por prazo** estourado. Conversa começada pela equipe
+  (R12.16) só tem o prazo de resolução. A lista mostra o selo de prazo estourado.
+- **R12.13** **Pesquisa de satisfação:** com a pesquisa ligada no canal, resolver envia a
+  pergunta (nota de 1 a 5; texto configurável). A resposta vale por **24 horas**: a nota
+  chega como a próxima mensagem do contato ("5", "nota 4", "3 - demorou", estrelas) ou por
+  botões do canal; fica na conversa resolvida (que não reabre), com o comentário, e o
+  contato recebe um agradecimento. Nota **1 ou 2** avisa o líder de quem atendeu. Depois
+  das 24 horas, ou com um texto que não é nota, a mensagem abre conversa nova.
+- **R12.14** **Tempo real e avisos:** conversas e mensagens chegam na hora a quem as vê
+  (salas por área, por pessoa e por conversa, com verificação da R12.5); o menu mostra
+  quantas conversas com mensagens não lidas a pessoa atende. O responsável que está fora
+  do CRM é notificado na primeira mensagem não lida de uma sequência.
+- **R12.15** **Respostas rápidas:** atalho (até 40 caracteres, sem espaço nem `/`; único
+  no mesmo alcance), título, texto e anexo opcional. Globais (Admin e C-level) ou de uma
+  área (também o líder dela). O texto aceita variáveis da lista (`{{contato.nome}}`,
+  `{{contato.primeiroNome}}`, `{{usuario.primeiroNome}}`, `{{saudacao}}`…), validadas ao
+  salvar e aplicadas à conversa antes de enviar, para a pessoa revisar.
+- **R12.16** **Conversa começada pela equipe:** quem usa o Atendimento pode começar uma
+  conversa com um contato num canal que permite (WhatsApp, e-mail) e ela fica com quem
+  começou. Se o contato já tem uma em aberto no canal, continua por ela (409 se a pessoa
+  não a vê).
+- **R12.17** **Desligamento (R7):** as conversas em aberto de quem sai vão para o mesmo
+  destinatário dos outros itens, com o histórico, um aviso em cada conversa e uma
+  notificação com o total.
+- **R12.18** **Métricas para o BI:** por período (padrão 30 dias, máximo 1 ano), geral,
+  por fila, por canal e por pessoa — conversas novas, tempo da primeira resposta, tempo de
+  resolução, cumprimento do SLA, satisfação (média e respostas), mensagens enviadas e
+  situação atual. Admin e C-level veem tudo; o líder, a sua área; o membro não (403).
+
+## 16. WhatsApp (R13)
+
+- **R13.1** **Gateway próprio** (Baileys, conexão direta por WebSocket, sem navegador e sem
+  serviço de terceiros), num processo separado da API (mesma imagem). Vários números, cada
+  um ligado a um canal `WHATSAPP` do Atendimento. Só o Admin cadastra, conecta, desconecta,
+  pausa e exclui números.
+- **R13.2** **Conexão por QR:** conectar gera o QR (o primeiro vale 60 s, os seguintes
+  20 s, renovados sozinhos) e o mostra ao vivo a quem gerencia os canais. Status:
+  `DESCONECTADO`, `AGUARDANDO_QR`, `CONECTANDO`, `CONECTADO`, `ERRO` e `BANIDO`, sempre com
+  o motivo em português. O mesmo celular não pode ficar conectado em dois canais. QR não
+  lido volta para desconectado. Cada mudança de status é auditada em nome de quem pediu.
+- **R13.3** A **sessão** (chaves do WhatsApp) fica no Postgres, **cifrada** com a
+  `CHAVE_CRIPTOGRAFIA` — nada em disco. Ao subir, o gateway reconecta os números que
+  estavam conectados; uma queda comum reconecta com espera crescente (de 2 s a 5 min);
+  "desconectar" pelo CRM ou pelo celular apaga as chaves e marca desconectado.
+- **R13.4** **Recebimento:** mensagens de grupos, status e canais do WhatsApp são
+  ignoradas. A mídia recebida é conferida (tipo e tamanho, R11) antes do download e salva
+  antes de a mensagem entrar no Atendimento; se o download falhar, a mensagem entra sem a
+  mídia. "Digitando…" vai nos dois sentidos.
+- **R13.5** **Envio** pela fila durável de cada número, uma mensagem por vez; o gateway
+  não envia duas vezes a mesma mensagem. Áudio gravado no navegador vira mensagem de voz
+  (ogg/opus, convertido com ffmpeg); imagem e vídeo levam miniatura.
+- **R13.6** **Proteções anti-banimento** (configuráveis por número): espera aleatória
+  entre dois envios (padrão de 2 a 6 s); "digitando…" (ou "gravando…") antes de cada
+  envio, proporcional ao texto (até 4 s); limite diário (padrão 1.000) com **aquecimento**
+  do número novo (nos primeiros 14 dias o limite cresce aos poucos, a partir de 20 por dia
+  — o excedente fica para o dia seguinte); verificação de que o telefone tem WhatsApp
+  antes de uma mensagem ativa, com cache de 7 dias; pausa automática depois de 5 falhas
+  seguidas, de um limite imposto pelo WhatsApp, de erro grave ou de banimento (reconectar
+  pelo CRM tira a pausa automática); pausa manual, que adia os envios (a cada 5 min, por
+  até 24 h, depois falham).
+- **R13.7** **Opt-out (R4.6):** mensagem **ativa** — a que não é resposta a uma conversa
+  aberta pelo contato — para quem pediu para não receber falha sem sair. O limite diário
+  vale para as ativas; as respostas contam no total, mas só são barradas se o número for
+  configurado para isso.
+- **R13.8** **Modo simulado** (`WHATSAPP_SIMULADO=true`): mesmo fluxo com um transporte
+  falso (QR de mentira, conexão em segundos, status enviada → entregue → lida, telefones
+  terminados em `0000` sem WhatsApp, injeção de mensagens recebidas). Para
+  desenvolvimento, testes e demonstração — nunca com número real.
+
+## 17. Canais: chat do site, e-mail, Instagram e Messenger (R14)
+
+- **R14.1** **Chat do site:** o Admin cria o canal com os domínios onde o widget roda
+  (`https://*.site.com.br` vale para os subdomínios), a aparência (cores, título, tema
+  claro/escuro/automático, posição), o meio de contato pedido (e-mail, telefone ou um dos
+  dois), o texto do consentimento e se aceita anexos; a tela mostra o trecho de
+  instalação. O widget é um script único, sem dependências, com menos de 40 KB.
+- **R14.2** As rotas do widget são públicas, com **CORS só para os domínios do canal** (e
+  o próprio CRM) e limites por IP (120 por minuto) e por visitante (20 mensagens por
+  minuto, 10 anexos a cada 10 minutos, 10 cadastros por IP a cada 10 minutos). O
+  formulário inicial exige nome, o meio de contato do canal e o **consentimento LGPD**;
+  o contato é encontrado ou criado (R4.2) com o consentimento e as UTMs da página. O
+  visitante recebe um token (vale 90 dias), sempre enviado no corpo, nunca na URL.
+- **R14.3** **Privacidade do visitante:** cada navegador é um visitante; ele vê só as
+  próprias mensagens e as respostas dirigidas a ele, a partir de quando entrou — outro
+  navegador com o mesmo e-mail cai na mesma conversa (R12.3), mas não lê o que o primeiro
+  escreveu. A equipe responde a quem escreveu por último. Anexos até 10 MB, baixados pelo
+  visitante por link assinado de 24 h.
+- **R14.4** No chat do site a mensagem fica `ENTREGUE` quando o widget confirma e `LIDA`
+  quando ela aparece com o painel aberto e a aba visível. Fora do horário, o widget mostra
+  o aviso e quando o atendimento volta.
+- **R14.5** **E-mail:** o canal lê uma caixa por IMAP (varredura a cada minuto, só
+  mensagens que chegaram **depois** de o canal ser criado) e responde por SMTP; a senha
+  fica cifrada e há teste de conexão. O corpo é mostrado **só como texto** (a parte texto,
+  ou o texto extraído do HTML), sem a citação da mensagem anterior — nunca HTML. Os
+  anexos vão para o armazenamento de arquivos (R11).
+- **R14.6** **Encadeamento:** a resposta sai com `In-Reply-To` e `References`, assunto
+  "Re: …" e a assinatura do canal; a volta do cliente entra na mesma conversa pelo
+  `Message-ID`/`In-Reply-To`/`References`. O contato é o endereço do `Reply-To` (ou, sem
+  ele, o remetente) — o mesmo para onde a resposta vai. Reimportar o mesmo e-mail não
+  duplica mensagem nem anexo.
+- **R14.7** **Instagram e Messenger (Graph API da Meta):** credenciais por canal (app id,
+  app secret, id da página, token da página, id da conta do Instagram), com os segredos
+  cifrados e mascarados, e um token de verificação gerado pelo CRM. O webhook público
+  responde ao desafio de verificação só com esse token (403 com outro) e **exige a
+  assinatura** `X-Hub-Signature-256` do corpo com o app secret (401 sem ela ou errada:
+  nada entra). Os eventos são processados por fila; ecos das próprias mensagens são
+  ignorados; o nome do contato vem do perfil.
+- **R14.8** **Janela de 24 horas** da Meta: a resposta comum só é aceita até 24 horas
+  depois da última mensagem do contato. Fora dela a tela avisa e o envio é recusado (422);
+  a recusa da Meta também vira falha definitiva com o motivo.
+- **R14.9** Anexos recebidos da Meta são baixados só por HTTPS (conferido em cada
+  redirecionamento), com limite de tamanho, e não são baixados de novo numa nova
+  tentativa; os enviados vão por link assinado da API. Numa mensagem com anexo e texto, a
+  parte que já chegou ao contato não é reenviada.
+
+## 18. Chat interno da equipe (R15)
+
+- **R15.1** **Canais padrão:** o "Geral" reúne todas as pessoas ativas; cada área
+  (Comercial, Marketing, CS) tem o seu canal, com as pessoas da área e o C-level (o Admin
+  fica só no Geral). Os membros acompanham o papel automaticamente (ao subir a API, a cada
+  minuto, no desligamento e sempre que a pessoa usa o chat). Não dá para sair, renomear
+  nem arquivar um canal padrão — só silenciar.
+- **R15.2** **Grupos:** qualquer pessoa cria e vira administradora. Quem administra
+  renomeia, muda a descrição, adiciona pessoas ativas (até 200), tira pessoas, dá ou tira
+  a administração (sempre fica alguém administrando) e arquiva ou desarquiva; grupo
+  arquivado fica só para leitura. Quem sai passa a administração ao membro mais antigo; o
+  grupo que fica vazio é arquivado. Quem é desligado sai dos grupos, com um aviso. Cada
+  mudança gera um aviso no grupo e é auditada.
+- **R15.3** **Conversas diretas:** uma por par de pessoas, criada sob demanda, e
+  **privadas** — nem o Admin vê a conversa, as mensagens, os anexos, a busca ou o tempo
+  real dela; a auditoria guarda só quem iniciou. Com a outra pessoa desligada, a conversa
+  fica só para leitura.
+- **R15.4** **Mensagens:** texto de até 4.000 caracteres e/ou um anexo (do contexto do
+  chat, enviado por quem escreve, usado uma vez só), resposta a outra mensagem; só o autor
+  edita ou exclui as próprias — a exclusão apaga o texto e remove o anexo (R11.7).
+- **R15.5** **Menções** (`@nome`, gravadas como `<@id>`, até 20 por mensagem) só de membros
+  do canal; notificam a pessoa mencionada com o link da mensagem, mesmo com o canal
+  silenciado. Na edição, só as menções novas notificam.
+- **R15.6** **Referências** a negócio, contato e empresa (até 10 por mensagem) viram links;
+  negócio só se quem escreve o vê (R5.9). Item excluído aparece como "item indisponível".
+- **R15.7** **Não lidas e busca:** contam as mensagens de outras pessoas depois da última
+  leitura; o total do menu soma os canais não silenciados e não arquivados, mais as
+  menções nos silenciados. A busca ignora acentos e maiúsculas, só nos canais da pessoa,
+  sem mensagens excluídas.
+
+## 19. Tempo real e matriz de acesso (Fase 2 — Onda A)
+
+- O tempo real (Socket.IO) aceita só quem tem sessão válida (cookie) vinda de uma origem
+  permitida (R2.9); com troca de senha pendente (R2.7) a conexão é recusada. Sair,
+  desligamento ou sessão expirada derrubam os sockets da sessão na hora (R2.4). Entrar na
+  sala de uma conversa ou de um canal do chat confere a permissão (R12.5, R15).
+
+| Recurso | Admin | C-level | Líder (Comercial, CS) | Membro (Comercial, CS) | Marketing |
+| --- | --- | --- | --- | --- | --- |
+| Ver e atender conversas | todas | todas | filas da área + as suas | as suas + sem responsável da área | — |
+| Assumir, transferir, resolver, reabrir | ✓ | ✓ | nas que vê | nas que vê | — |
+| Configurar filas | todas | todas | da área | — | — |
+| Respostas rápidas (gerenciar) | todas | todas | da área | — | — |
+| Horário, fila padrão e satisfação do canal | ✓ | ✓ | — | — | — |
+| Canais (WhatsApp, chat do site, e-mail, Meta) | ✓ | — | — | — | — |
+| Métricas do Atendimento | todas | todas | da área | — | — |
+| Chat interno | ✓ (sem ler diretas alheias) | ✓ | ✓ | ✓ | ✓ |
+
+## 20. Cenários de aceitação (Fase 2 — Onda A)
+
+Continuam a numeração da seção 13; cada um tem teste automatizado contra um Postgres
+real ("cenário N" no nome do teste).
+
+16. Arquivo SVG ou HTML, inclusive com outro tipo declarado, é recusado (415); acima do
+    limite do contexto, 413 (R11.2, R11.3).
+17. Mídia de uma mensagem: quem vê a conversa baixa com `nosniff` e `Content-Disposition`;
+    quem não vê recebe 404. Anexo do chat interno: só os membros do canal, nem o Admin
+    (R11.4, R11.5).
+18. Mensagem recebida por um canal cria contato, identificador, conversa na fila padrão e
+    mensagem; repetir o mesmo id externo não duplica, e a mensagem seguinte entra na mesma
+    conversa (R12.2, R12.3).
+19. Conversas novas numa fila em rodízio alternam entre os membros ativos da área que já
+    ativaram o acesso; quem tem convite pendente fica fora até ativar — também no rodízio
+    de leads (R12.4, ajuste da R5.8).
+20. Visibilidade: Admin e C-level veem tudo; o líder, as filas da área; o membro, as suas
+    e as sem responsável da área; o Marketing não acessa (R12.5).
+21. Transferir para uma pessoa com nota grava o histórico, a nota interna, a notificação e
+    a auditoria (R12.7).
+22. Fora do horário, a resposta automática sai uma vez por período, e o SLA conta da
+    abertura seguinte (R12.11, R12.12).
+23. SLA de primeira resposta estourado: o job avisa o líder uma vez; responder antes do
+    prazo evita o aviso (R12.12).
+24. Resolver com a pesquisa ligada: "5" em até 24 horas grava a nota sem reabrir; depois
+    disso, a mensagem abre conversa nova; nota 1 ou 2 avisa o líder (R12.13).
+25. Envio com falha definitiva fica `FALHOU` com o motivo; "tentar de novo" volta a
+    `PENDENTE` e envia (R12.10).
+26. WhatsApp no gateway simulado (processo de verdade): conectar mostra o QR e chega a
+    `CONECTADO`; a mensagem do simulador vira conversa; o envio vai até `LIDA` (R13.2,
+    R13.5, R13.8).
+27. Proteções: mensagem ativa para quem pediu opt-out falha e a resposta ao contato sai;
+    passado o limite diário (com aquecimento), a ativa fica para o dia seguinte (R13.6,
+    R13.7).
+28. Chat do site: sem consentimento o visitante não entra; outro navegador com o mesmo
+    e-mail não lê o que o primeiro escreveu (R14.2, R14.3).
+29. E-mail: só mensagens novas, corpo em texto sem HTML nem citação, resposta com
+    `In-Reply-To`/`References` e a volta na mesma conversa (R14.5, R14.6).
+30. Meta: webhook sem assinatura ou com assinatura errada é 401 e nada entra; fora da
+    janela de 24 horas o envio é recusado (R14.7, R14.8).
+31. Chat interno: o Geral e o canal da área nascem pelo papel; a menção notifica com link;
+    a conversa direta é privada até para o Admin (R15.1, R15.3, R15.5).
+32. Tempo real: sem sessão a conexão é recusada; sair derruba o socket; entrar na sala de
+    uma conversa que a pessoa não vê é recusado (seção 19, R12.5).
+33. Jornada do atendimento: mensagem pelo WhatsApp simulado → conversa distribuída e
+    avisada em tempo real → resposta com resposta rápida até `LIDA` → negócio criado da
+    conversa e citado no chat interno → resolução com nota 5 → métricas da fila
+    (R12, R13, R15).

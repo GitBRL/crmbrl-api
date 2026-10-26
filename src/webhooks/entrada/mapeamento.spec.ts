@@ -222,7 +222,15 @@ describe('mapeamento dos webhooks de entrada (R8.1)', () => {
         email: 'a@x.com',
       });
       expect(semNome.problemas).toEqual([
-        'Sem nome: o caminho "name" não trouxe valor (R4.1).',
+        'Sem nome: o caminho "name" não trouxe valor.',
+      ]);
+      const semNenhumMeio = aplicarMapeamento(MAPEAMENTO_GENERICO, {
+        name: 'Ana',
+      });
+      expect(semNenhumMeio.problemas).toEqual([
+        expect.stringMatching(
+          /^Sem e-mail nem telefone: os caminhos "email", .+ não trouxeram valor\.$/,
+        ),
       ]);
       const semMeio = aplicarMapeamento(MAPEAMENTO_GENERICO, {
         name: 'Ana',
@@ -231,7 +239,7 @@ describe('mapeamento dos webhooks de entrada (R8.1)', () => {
       });
       expect(semMeio.problemas).toEqual([
         expect.stringMatching(
-          /^Sem e-mail nem telefone válidos \(R4\.1\): E-mail "nao-e-email" \(email\) inválido; Telefone .*DDD 20/,
+          /^Sem e-mail nem telefone válidos: E-mail "nao-e-email" \(email\) inválido; Telefone .*DDD 20/,
         ),
       ]);
       const comUmValido = aplicarMapeamento(MAPEAMENTO_GENERICO, {

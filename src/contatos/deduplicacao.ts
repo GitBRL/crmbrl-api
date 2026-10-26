@@ -347,7 +347,7 @@ export function normalizarEntradaDeContato(
     );
     const mensagem =
       semMeioDeContato && problemas.length === 2
-        ? 'O contato precisa de e-mail ou telefone (R4.1).'
+        ? 'O contato precisa de e-mail ou telefone.'
         : resumirProblemas(problemas);
     throw new DadosInvalidosException(mensagem, {
       ...(doMeioDeContato ? { regra: 'R4.1' } : {}),

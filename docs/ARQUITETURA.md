@@ -10,9 +10,16 @@ sessão, usuários e hierarquia com desligamento e encaminhamento, contatos e
 empresas com deduplicação e LGPD, funis em kanban com passagens automáticas e
 rodízio, atividades com lembretes, auditoria e logs técnicos consultáveis,
 webhooks de entrada e de saída, notificações internas e a configuração inicial.
+A primeira parte da Fase 2 (Onda A, 2026-10-26) também: arquivos no MinIO,
+tempo real com Socket.IO, **Atendimento omnichannel** (filas, distribuição,
+transferência, SLA, horário, satisfação, respostas rápidas, métricas), o
+**gateway de WhatsApp próprio** (Baileys, num segundo processo da mesma imagem),
+os canais chat do site (widget próprio), e-mail (IMAP/SMTP), Instagram e
+Messenger (Graph API da Meta) e o **chat interno** da equipe.
 As regras ficam em [REGRAS-DE-NEGOCIO.md](REGRAS-DE-NEGOCIO.md) (códigos R…,
-citados nos testes); os 15 cenários de aceitação da seção 13 têm teste de
-integração contra um PostgreSQL real.
+citados nos testes); os 15 cenários de aceitação da seção 13 (Fase 1) e os 18
+da seção 20 (Onda A, cenários 16 a 33) têm teste de integração contra um
+PostgreSQL real.
 
 ### Inicialização
 
@@ -38,9 +45,13 @@ integração contra um PostgreSQL real.
    do Caddy), sem `X-Powered-By`, o **middleware de requisição**
    (`X-Request-Id`, contexto e log HTTP), os body parsers (JSON até 1 MB,
    formulário até 256 KB), a reabertura do contexto e o `ValidationPipe` global.
-7. `configurarDocumentacao()` (`src/documentacao.ts`): Swagger em `/api/docs` e
-   `/api/docs-json`; com `DOCS_PUBLICAS=false` (padrão em produção) um middleware
-   exige sessão de Admin antes.
+7. `configurarTempoReal()` (`src/tempo-real/adaptador-socket-io.ts`): o
+   adaptador Socket.IO do Nest no mesmo servidor HTTP, caminho `/api/socket.io`
+   (os gateways `/tempo-real` e `/webchat` usam as mesmas
+   `OPCOES_DO_SOCKET_IO`). Depois, `configurarDocumentacao()`
+   (`src/documentacao.ts`): Swagger em `/api/docs` e `/api/docs-json`; com
+   `DOCS_PUBLICAS=false` (padrão em produção) um middleware exige sessão de
+   Admin antes.
 8. Na inicialização dos módulos (antes do `listen`): o `FilaService` sobe o
    pg-boss (schema `pgboss`; com o banco fora, tenta de novo em segundo plano);
    a **configuração inicial** (`SeedsService`) roda numa transação com trava
@@ -48,7 +59,12 @@ integração contra um PostgreSQL real.
    passagens (R5.7), os rodízios por área (R5.8) e, com a base sem usuários, o
    Admin de `ADMIN_EMAIL` com troca de senha obrigatória (R2.6); com
    `PROCESSAR_FILAS=true`, os módulos registram os trabalhadores e agendamentos
-   (abaixo) e o despachante da outbox começa a rodar a cada segundo.
+   (abaixo) e o despachante da outbox começa a rodar a cada segundo. Na Onda A,
+   também: o `ArquivosService` cria o bucket se faltar (sem MinIO, a API sobe e
+   os envios respondem 503 até ele voltar); o `OuvinteDoBanco` abre um `LISTEN`
+   (sessões revogadas e notificações novas, com varredura de reserva a cada
+   60 s); o chat interno sincroniza os canais padrão (R15.1); e os módulos de
+   canal registram os adaptadores no `RegistroCanais`.
 9. `enableShutdownHooks()` e `listen(PORT ?? 3000)`. No SIGTERM o Nest para os
    módulos na ordem inversa: módulos de negócio, depois eventos e fila (o pg-boss
    espera os jobs em curso) e por último o Prisma, que encerra o pool.
@@ -144,6 +160,27 @@ apagam os dados pessoais dos recebimentos e das entregas daquele contato
 | `webhooks-saida.entregar` | manipulador da outbox, reenvio, nova tentativa | envia o envelope assinado (R9.3); cada nova tentativa (1 min … 24 h, R9.4) é um job novo, agendado na transação do resultado |
 | `atividades.lembretes` | agendamento `*/15 * * * *` (America/Sao_Paulo) | avisa 1 h antes do vencimento e uma vez no atraso (R6.5) |
 | `administracao.retencao` | agendamento `30 3 * * *` (America/Sao_Paulo) | apaga logs técnicos e recebimentos de webhook com mais de 90 dias, em lotes (R3.6, R8.6) |
+| `atendimento.enviar` | envio da equipe (mensagem `PENDENTE`), na transação da mensagem | chama o adaptador do canal pelo `RegistroCanais`; 3 retentativas com espera crescente (15 s, dobrando) para falha passageira; falha definitiva vira `FALHOU` (R12.10) |
+| `atendimento.sla` | agendamento `* * * * *` | avisa o líder uma vez por prazo de SLA estourado (R12.12) |
+| `whatsapp.envio.<numeroId>` | `AdaptadorWhatsapp` (API), um job por mensagem | **consumida pelo gateway**: proteções (R13.6, R13.7) e envio pelo Baileys, uma por vez por número; as tentativas ficam no contrato (`contrato-gateway.ts`), gravadas pela API em cada job |
+| `whatsapp.evento` | gateway (mensagem recebida, status, conexão, digitando) | **consumida pela API** (`EventosWhatsappService`): `receber`, `atualizarStatus`, `whatsapp.conexao` em tempo real |
+| `meta.webhook` | `POST /publico/meta/webhook` assinado | entrega os eventos da Meta ao Atendimento (mensagens, anexos, entregas, leituras) |
+| `email.varrer` | agendamento `* * * * *` | lê as caixas IMAP (só UIDs novos) e entrega ao Atendimento (R14.5) |
+| `chat-interno.sincronizar` | agendamento a cada minuto | acerta os membros dos canais padrão pelo papel (R15.1) |
+| `arquivos.apagar-conteudo` | `ArquivosService.remover`, na transação da remoção | apaga o objeto do MinIO depois do commit (R11.7) |
+
+Manipuladores da outbox da Onda A: `tempo-real:emissao` (evento interno
+`tempo-real.emissao`, gravado por `emitirAposCommit`: emite as cargas prontas
+depois do commit, descartando as com mais de 5 min), os tradutores do chat
+interno (`chat_mensagem.criada|editada|excluida`, `chat_canal.atualizado` →
+`chat.mensagem`, `chat.atualizado` e `nao-lidas`), `atendimento.contagens`
+(recalcula `nao-lidas.atendimento` de quem foi afetado), o aviso de mensagem
+nova a quem está fora do CRM (`mensagem.recebida`) e, em `usuario.desligado`,
+o encaminhamento das conversas (R12.17) e a saída dos canais do chat (R15.1).
+Os eventos de domínio do Atendimento (`conversa.criada|atribuida|transferida|
+resolvida|reaberta|avaliada`, `mensagem.recebida|enviada`) ficam na outbox
+para uso interno e para as automações das próximas ondas; não vão aos webhooks
+de saída.
 
 Nos testes, `PROCESSAR_FILAS=false`: nada roda sozinho, e os utilitários
 `processarEventos()` e `drenarFilas()` executam a outbox e as filas na hora.
@@ -177,6 +214,20 @@ Nos testes, `PROCESSAR_FILAS=false`: nada roda sozinho, e os utilitários
 - `AuthModule`: login, sessões, senhas e os guards globais (R2).
 - `SeedsModule`: a configuração inicial idempotente, rodada a cada subida.
 - `SaudeModule`: `GET /api/saude` (abaixo).
+- `ArquivosModule` (Onda A, global): `ArquivosService` (`salvar`, `abrirLeitura`,
+  `abrirConteudo`, `lerConteudo`, `remover` e os verificadores de acesso por
+  contexto, R11), a política de tipos e limites (`politica.ts`) e o driver
+  (`s3` com envio em partes, ou `memoria` nos testes). As rotas
+  (`POST`/`GET /arquivos`) ficam no `ArquivosHttpModule`.
+- `TempoRealModule` (Onda A, global): o gateway `/tempo-real` (cookie +
+  origem, salas), o `TempoRealService` (`emitir`, salas, autorizadores de sala
+  registrados pelos módulos donos), o `TempoRealPublicador` (manipulador da
+  outbox: `emitirAposCommit` e `registrarTradutor`) e o `OuvinteDoBanco`
+  (`LISTEN` de sessões revogadas e de notificações novas). O catálogo de salas,
+  eventos e cargas (`catalogo.ts`) é o contrato com o front.
+- `RegistroCanaisModule` (Onda A, global, em `CanaisModule`): o
+  `RegistroCanais`, onde cada canal registra o seu `AdaptadorCanal`
+  (`src/canais/adaptador-canal.ts`).
 
 Módulos de negócio (Fase 1), cada um na sua pasta de `src/`:
 
@@ -189,6 +240,15 @@ Módulos de negócio (Fase 1), cada um na sua pasta de `src/`:
 | `AuditoriaConsultaModule` (`auditoria/consulta/`) | R3.4 (consulta com filtros e cursor) | `AuditoriaConsultaService` |
 | `AdministracaoModule` (`administracao/`) | logs técnicos e resumo do Admin, retenção de 90 dias (R3.6, R8.6) | `RetencaoService` |
 | `WebhooksModule` (`webhooks/`) | R8 (entrada) e R9 (saída) | — |
+| `AtendimentoModule` (`atendimento/`, Onda A) | R12 (conversas, filas, distribuição, SLA, horário, satisfação, respostas rápidas, métricas) | `AtendimentoService.receber(entrada)`, `atualizarStatus(canalId, idExterno, status, erro?, quando?)` e `avaliar(conversaId, nota, comentário?)`, chamados pelos canais; `AcessoAtendimentoService` (sala `conversa:<id>` e mídia `MENSAGEM`) |
+| `CanaisModule` (`canais/`, Onda A) | R13 (lado da API do WhatsApp) e R14 — submódulos `whatsapp/`, `webchat/` (com o widget), `email/`, `meta/` e `comum/` (segredos cifrados, limitador, configuração auditada, links públicos assinados) | um `AdaptadorCanal` por tipo no `RegistroCanais`; `ClienteGatewayWhatsapp` (HTTP interno do gateway) |
+| `ChatInternoModule` (`chat-interno/`, Onda A) | R15 | `AcessoChatService` (sala `chat:<canalId>` e anexos `CHAT`) |
+
+O **gateway de WhatsApp** (`src/whatsapp/`) é outro processo, com o próprio
+módulo raiz (`GatewayWhatsappModule`): usa ambiente, Prisma, logs técnicos,
+criptografia, fila, auditoria e arquivos da API, mas **não** o
+`EventosModule` (a outbox fica só na API). Expõe só o HTTP interno (token
+`X-Token-Interno`) e consome as filas de envio dos números.
 
 Dependências entre eles: `WebhooksModule` importa `ContatosModule` e
 `FunisModule`; `FunisModule` importa `ContatosModule` (linha do tempo do
@@ -199,6 +259,93 @@ em dados de vários módulos de uma vez; a anonimização de contato também
 reescreve títulos de negócios e atividades. A visibilidade de negócios (R5.9) e
 de atividades (R6.4) sai de `permissoesDoPapel` (`src/comum/dominio`), a mesma
 matriz que o `auth/eu` devolve ao front.
+
+Na Onda A: `AtendimentoModule` importa `ContatosModule` (deduplicação e
+identificadores) e `FunisModule` (criar negócio a partir da conversa); cada
+submódulo de canal importa `AtendimentoModule` (entrada pelo `receber`) e,
+o chat do site, também `ContatosModule` (formulário do visitante). O
+Atendimento não conhece os canais: envia pelo `RegistroCanais` e recebe pelas
+interfaces da §4 do contrato da onda. O chat interno não depende do Atendimento.
+Arquivos, tempo real e registro de canais são globais: os módulos donos
+registram neles os verificadores de acesso (`registrarVerificadorDeAcesso`),
+os autorizadores de sala (`registrarAutorizadorDeSala`) e os adaptadores.
+
+### Fluxos da Onda A (atendimento, gateway, tempo real, arquivos)
+
+**Entrada de uma mensagem** (qualquer canal):
+
+```mermaid
+sequenceDiagram
+  participant Canal as Canal (gateway / IMAP / webhook Meta / widget)
+  participant Atd as AtendimentoService.receber
+  participant Banco as Postgres (uma transação)
+  participant Outbox as outbox → TempoRealPublicador
+  Canal->>Atd: entrada normalizada (canalId, remetente, mensagem)
+  Atd->>Banco: trava (canal, idExterno) — repetida devolve nova=false
+  Atd->>Banco: contato pelo identificador / e-mail / telefone (R4.2) ou novo
+  Atd->>Banco: nota de satisfação pendente? (R12.13) senão conversa em aberto ou nova
+  Atd->>Banco: fila padrão, SLA, distribuição (R12.4), mensagem, resposta fora do horário
+  Atd->>Banco: auditoria + eventos + emissões (emitirAposCommit) + notificação
+  Banco-->>Outbox: depois do commit
+  Outbox-->>Outbox: conversa.nova / mensagem.nova / nao-lidas nas salas
+```
+
+**Saída** (a equipe responde): `POST /atendimento/conversas/:id/mensagens`
+grava a mensagem `PENDENTE` e o job `atendimento.enviar` na mesma transação →
+o trabalhador chama `RegistroCanais.obter(tipo).enviar()` → o adaptador
+devolve `{ idExterno }` (síncrono: `ENVIADA`; chat do site, e-mail,
+Instagram e Messenger) ou
+`{ idExterno, enfileirado: true }` (WhatsApp: fica `PENDENTE` até o gateway
+avisar) ou lança `FalhaDefinitivaDeEnvio` (`FALHOU` com o motivo) → os status
+seguintes chegam por `atualizarStatus` (só avançam) e saem em
+`mensagem.status` na sala da conversa.
+
+**Gateway de WhatsApp** (processo `node dist/whatsapp/main.js`, serviço
+`whatsapp`):
+
+```mermaid
+flowchart LR
+  subgraph API["api (node dist/main.js)"]
+    Num["/whatsapp/numeros (Admin)"] -- "HTTP interno + X-Token-Interno" --> GW
+    Ad["AdaptadorWhatsapp"] -- "job whatsapp.envio.<numeroId>" --> Q1[("pg-boss")]
+    Ev["EventosWhatsappService"]
+  end
+  subgraph GW["whatsapp (node dist/whatsapp/main.js)"]
+    Ger["GerenciadorDeNumeros<br/>proteções R13.6"] --> Tr["TransporteBaileys<br/>ou TransporteSimulado"]
+  end
+  Q1 --> Ger
+  Tr <-- "WebSocket" --> WA["WhatsApp"]
+  Ger -- "job whatsapp.evento<br/>(mensagem, status, conexão, digitando)" --> Q2[("pg-boss")] --> Ev
+  Ger -- "chaves cifradas" --> Chaves[("whatsapp_chaves")]
+  Ger -- "mídia recebida" --> Minio[("MinIO")]
+```
+
+Comandos síncronos (conectar, desconectar, status, verificar número,
+digitando) vão por HTTP interno na rede do compose (`WHATSAPP_URL_INTERNA`),
+com o ator no cabeçalho `x-ator` (o gateway audita em nome de quem pediu).
+Tudo o que o gateway conta à API vai pela fila `whatsapp.evento`, consumida
+com concorrência 1 (a ordem dos eventos de um número importa). No modo
+simulado, `POST /simulador/receber` injeta mensagens recebidas.
+
+**Tempo real**: o cliente conecta em `/api/socket.io` (namespace
+`/tempo-real`) com o cookie da sessão e uma origem permitida; entra sozinho em
+`usuario:<id>`, `papel:<papel>` e `area:<area>` e pede `conversa:<id>` e
+`chat:<canalId>` (com o autorizador do módulo dono). As emissões saem da
+outbox depois do commit (`emitirAposCommit` ou tradutores de eventos de
+domínio); a notificação nova chega pelo `NOTIFY` do gatilho da tabela; a
+sessão revogada (gatilho com `NOTIFY`) derruba os sockets dela, e uma
+varredura a cada 60 s pega o que o `LISTEN` perdeu e as sessões expiradas.
+"Digitando" é o único evento emitido direto (`TempoRealService.emitir`). O
+chat do site usa o namespace `/webchat` no mesmo caminho, com o token do
+visitante e a origem conferida contra os domínios do canal.
+
+**Arquivos**: `POST /arquivos?contexto=…` (multipart) passa pelo
+armazenamento do multer da API, que confere tipo, assinatura e limite
+enquanto envia ao MinIO (sem arquivo temporário em disco) e grava o
+registro com SHA-256; o `id` vai depois na mensagem, no chat ou na resposta
+rápida. `GET /arquivos/:id` pergunta ao verificador do contexto (R11.4) e
+devolve o conteúdo com `Range`/`ETag` e cabeçalhos seguros. Canais e gateway
+usam `ArquivosService.salvar` direto (mídia recebida, sem `criadoPorId`).
 
 ### Jornada de um lead (como os módulos conversam)
 
@@ -241,7 +388,20 @@ O teste `test/integracao.e2e-spec.ts` percorre essa jornada inteira.
   acrescentado à mão no fim da migration (gerada com `--create-only`) antes da
   primeira aplicação; o `migrate dev` seguinte não propõe removê-lo. A primeira,
   `20261020183550_inicial`, cria o enum `papel` e a tabela `usuarios`; a
-  segunda, `20261020224552_fase1_nucleo`, cria todo o modelo da Fase 1.
+  segunda, `20261020224552_fase1_nucleo`, cria todo o modelo da Fase 1; a
+  terceira, `20261022231056_onda_a_atendimento`, todo o modelo da Onda A
+  (arquivos, canais, filas, identificadores, conversas, mensagens, atribuições,
+  respostas rápidas, visitantes do chat do site, números/chaves/envios
+  diários/verificações do WhatsApp e o chat interno), `usuarios.acesso_ativado_em`
+  e as origens `EMAIL`, `INSTAGRAM` e `MESSENGER`. À mão nela: CHECKs (tamanho e
+  hash dos arquivos, SLA positivo, nota de 1 a 5, status de entrega só na
+  saída, formato do atalho, identificadores normalizados, limites do número,
+  canal de área com área); o gatilho **adiável** que exige e-mail, telefone ou
+  identificador no contato (R4.1 da Onda A); o que marca a ativação do acesso
+  (R5.8); e os `NOTIFY` de sessão revogada e de notificação nova, ouvidos pelo
+  tempo real. Índices únicos parciais novos: uma conversa em aberto por contato
+  e canal (R12.3), canal por `(tipo, idExterno)` não excluído e atalho de
+  resposta rápida por alcance.
 - Índices únicos parciais (preview `partialIndexes`, declarados no schema com
   `where`): e-mail e telefone de contatos não excluídos (R4.2), CNPJ de empresas
   não excluídas (R4.4), um funil-base por área (R5.1) e uma etapa de ganho e uma
@@ -278,7 +438,7 @@ Docker consulta e o que o card "Status do sistema" do front mostra.
   "horario": "2026-10-20T18:00:00.000Z",
   "uptimeSegundos": 42,
   "banco": { "status": "ok", "latenciaMs": 3 },
-  "migrations": { "aplicadas": 2, "ultima": "20261020224552_fase1_nucleo" }
+  "migrations": { "aplicadas": 3, "ultima": "20261022231056_onda_a_atendimento" }
 }
 ```
 
@@ -476,6 +636,86 @@ domínio (`contato.reconvertido`, `contato.anonimizado`, `empresa.*`,
 `atividade.atrasada`, `webhook_saida.falhou`, `webhook_saida.desativado` e
 `equipe.sem_lider`. Os `link` apontam para telas do front (`/atividades?atividade=…`,
 `/administracao/usuarios`, `/integracoes?webhookSaida=…`, …).
+Na Onda A (constantes nos módulos donos): `conversa.atribuida`,
+`conversa.transferida`, `conversa.mensagem_recebida`, `conversa.encaminhadas`,
+`conversa.nota_interna`, `conversa.sla_primeira_resposta`,
+`conversa.sla_resolucao` e `conversa.avaliacao_baixa`
+(`TIPOS_NOTIFICACAO_ATENDIMENTO`, link `/atendimento/<conversaId>`; o front
+escolhe o ícone pelo prefixo `conversa.`) e `chat.mencao` (link
+`/chat/<canalId>?mensagem=<id>`).
+
+### Endpoints da Onda A — contrato com o front
+
+Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não
+vê, erro padrão com `detalhes.regra`). Campos completos no Swagger; o tempo
+real está no catálogo (`src/tempo-real/catalogo.ts`) e no resumo abaixo.
+
+**Arquivos** (`ArquivosController`)
+
+| Método e rota | Quem | Recebe → devolve |
+| --- | --- | --- |
+| `POST /arquivos?contexto=MENSAGEM\|CHAT\|IMPORTACAO\|AVATAR\|OUTRO` | todos | multipart, campo `arquivo` → 201 `Arquivo` (`id`, `nome`, `mime`, `tamanho`, `url`…); 413 limite, 415 tipo recusado (R11.2, R11.3) |
+| `GET /arquivos/:id` | quem vê o item (R11.4) | `?baixar=true` força download; `Range` → 206, `If-None-Match` → 304; 404 sem permissão |
+
+**Atendimento** (`ConversasController`, `FilasController`, `RespostasRapidasController`, `CanaisDoAtendimentoController`, `MetricasDoAtendimentoController`) — o Marketing recebe 403 em todas (R12.5)
+
+| Método e rota | Quem | Recebe → devolve |
+| --- | --- | --- |
+| `GET /atendimento/conversas` | recorte R12.5 | `?escopo=MINHAS\|FILA\|SEM_RESPONSAVEL\|TODAS&status&filaId&canalId&tipoCanal&responsavelId&contatoId&etiqueta&prioridade&naoLidas&slaEstourado&busca&pagina&porPagina` → página de `ConversaResumo` (canal, contato, fila, responsável, última mensagem, `sla`, `janelaAte`) + `contadores` |
+| `POST /atendimento/conversas` | quem usa o Atendimento | `{ canalId, contatoId, texto?, arquivoId?, assunto? }` → 201 (começa ou continua, R12.16); 422 `sem_destino` |
+| `GET /atendimento/nao-lidas` · `GET /atendimento/etiquetas` · `GET /atendimento/atendentes` | idem | contagem do menu · etiquetas em uso · quem pode receber (`?area&busca`, com a carga) |
+| `GET /atendimento/conversas/:id` · `PATCH` | recorte R12.5 | detalhe (`satisfacao`, `negocio`, `podeResponder`, `acoes`) · `{ status?: ABERTA\|PENDENTE, prioridade?, assunto?, etiquetas?, negocioId? }` |
+| `POST /atendimento/conversas/:id/assumir` · `/transferir` · `/resolver` · `/reabrir` · `/lida` | recorte R12.5 | — · `{ usuarioId?, filaId?, nota? }` · `{ enviarPesquisa? }` · — · — → a conversa; 409/422 com o motivo (R12.6–R12.8) |
+| `POST /atendimento/conversas/:id/negocio` | recorte R12.5 | `{ funilId?, etapaId?, titulo?, valor? }` → 201 `Negocio` (R12.9) |
+| `GET /atendimento/conversas/:id/atribuicoes` | recorte R12.5 | histórico de quem cuidou (motivo, de, para, filas, nota, por) |
+| `GET`/`POST /atendimento/conversas/:id/mensagens` | recorte R12.5 | `?cursor&limite` → `{ itens, proximoCursor }` · `{ texto?, arquivoId?, respostaAId? }` → 201 `Mensagem` `PENDENTE` (R12.10) |
+| `POST /atendimento/conversas/:id/notas` · `POST …/mensagens/:mensagemId/reenviar` | recorte R12.5 | `{ texto }` → nota interna · tenta de novo uma `FALHOU` |
+| `GET`/`POST /atendimento/filas` · `GET`/`PATCH`/`DELETE /atendimento/filas/:id` | ver: quem usa; alterar: Admin, C-level, líder da área | `{ nome, area: COMERCIAL\|CS, descricao?, slaPrimeiraRespostaMinutos?, slaResolucaoMinutos?, estrategia?, ativa?, participantes? }` → `Fila` (pessoas com `participa`/`motivo`, `proximo`, canais, contagens) |
+| `PUT`/`DELETE /atendimento/filas/:id/participantes/:usuarioId` | Admin, C-level, líder da área | `{ participa }` · desfaz o ajuste |
+| `GET /atendimento/respostas-rapidas` · `/variaveis` · `POST` · `GET`/`PATCH`/`DELETE /:id` · `POST /:id/aplicar` | usar: quem usa o Atendimento; gerenciar: R12.15 | `{ atalho, titulo, texto, area?, arquivoId?, ativa? }` · `{ conversaId }` → `{ texto, arquivo }` com as variáveis aplicadas |
+| `GET /atendimento/canais` · `GET`/`PATCH /atendimento/canais/:id` | ver: quem usa; alterar: Admin, C-level | `{ filaPadraoId?, horarioAtendimento?, mensagemForaHorario?, pesquisaSatisfacao?, mensagemSatisfacao? }` (R12.11, R12.13) |
+| `GET /atendimento/metricas` | Admin, C-level, líder (a área) | `?de&ate&area&filaId&canalId` → `{ geral, porFila, porCanal, porPessoa, agora }` (R12.18) |
+
+**Canais** (Admin) — `NumerosWhatsappController`, `WebchatCanaisController`, `EmailCanaisController`, `MetaCanaisController`
+
+| Método e rota | Recebe → devolve |
+| --- | --- |
+| `GET`/`POST /whatsapp/numeros` · `GET`/`PATCH`/`DELETE /whatsapp/numeros/:id` | `{ nome, filaPadraoId?, limiteDiario?, intervaloMinimoSegundos?, intervaloMaximoSegundos?, aquecimentoDias?, protecoes? }` → `NumeroWhatsapp` (status, motivo, telefone, aquecimento, `hoje`, proteções, pausa); cada número é um canal `WHATSAPP` |
+| `POST /whatsapp/numeros/:id/conectar` · `/desconectar` · `GET …/status` · `POST …/verificar` | 202 (o QR chega por `whatsapp.conexao`) · desvincula e apaga as chaves · status atual com o QR · `{ telefone }` → existe no WhatsApp? (cache de 7 dias); 503 gateway fora |
+| `POST /whatsapp/numeros/:id/pausar` · `/retomar` · `GET …/envios` | `{ motivo? }` · — · `?dias` → envios por dia com o limite de cada dia |
+| `GET`/`POST /webchat/canais` · `GET`/`PATCH`/`DELETE /webchat/canais/:id` | `{ nome, dominios, aparencia?, contato?, textoConsentimento?, urlPrivacidade?, permitirAnexos?, filaPadraoId?, horarioAtendimento?, … }` → `CanalWebchat` com `chavePublica` e `instalacao.trecho` |
+| `GET`/`POST /email/canais` · `POST /email/canais/testar` · `GET`/`PATCH`/`DELETE /email/canais/:id` · `POST …/:id/testar` | `{ nome, endereco, nomeRemetente?, imap: { host, porta, tls, usuario?, pasta? }, smtp?: { host?, porta, seguranca: TLS\|STARTTLS\|NENHUMA }, senha, senhaSmtp?, assinatura? }` → `CanalEmail` (senhas mascaradas, `ultimaVarreduraEm`, `ultimoErro`) · teste `{ imap, smtp }` com o resultado de cada um |
+| `GET`/`POST /meta/canais` · `GET`/`PATCH`/`DELETE /meta/canais/:id` · `POST …/:id/testar` · `POST …/:id/token-verificacao` | `{ tipo: INSTAGRAM\|MESSENGER, nome, appId, appSecret, pageId, tokenPagina, instagramId? }` → `CanalMeta` (segredos mascarados, `webhook: { url, tokenVerificacao, campos }`) · testa o token na Graph · gera outro token de verificação |
+
+**Rotas públicas dos canais** (sem sessão nem CSRF; limites por IP)
+
+| Método e rota | Uso |
+| --- | --- |
+| `GET /publico/webchat/widget.js` | o script do widget (cache 5 min, ETag) |
+| `GET /publico/webchat/:chave/configuracao` · `POST …/visitantes` · `…/sessao` · `…/historico` · `…/mensagens` · `…/anexos` · `…/sair` · `GET …/arquivos/:id` | o widget (CORS só dos domínios do canal; token do visitante no corpo; R14.1–R14.4) |
+| `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7) · anexo enviado à Meta por link assinado |
+
+**Chat interno** (`ChatInternoController`, todos os papéis; só membros veem um canal — R15)
+
+| Método e rota | Recebe → devolve |
+| --- | --- |
+| `GET /chat/canais` · `GET`/`PATCH /chat/canais/:id` | `?arquivados` → canais da pessoa (Geral, áreas, grupos, diretas) com `naoLidas` e `mencoesNaoLidas` · `{ nome?, descricao? }` (grupo, administrador) |
+| `POST /chat/canais/:id/arquivar` · `/desarquivar` · `/sair` · `PUT …/preferencias` · `POST …/leitura` | grupo (administrador) · sair · `{ silenciado }` · marca como lido até agora (ou até uma mensagem) |
+| `GET`/`POST /chat/canais/:id/membros` · `PATCH`/`DELETE …/membros/:usuarioId` | membros · `{ usuariosIds }` · `{ administrador }` · tira do grupo |
+| `POST /chat/grupos` · `POST /chat/diretas` | `{ nome, descricao?, membrosIds }` · `{ usuarioId }` (a direta existente ou uma nova) |
+| `GET`/`POST /chat/canais/:id/mensagens` · `PATCH`/`DELETE /chat/mensagens/:id` | `?antesDe&depoisDe&aoRedorDe&limite` · `{ texto?, arquivoId?, respostaAId? }` com `<@id>` e `<negocio\|contato\|empresa:id>` → a mensagem com `partes` resolvidas · `{ texto }` · exclui (só o autor) |
+| `GET /chat/mensagens/busca` · `GET /chat/nao-lidas` · `GET /chat/pessoas` | `?texto&canalId&autorId` · total do menu · diretório (`?busca`) |
+
+**Tempo real** (Socket.IO, `io('/tempo-real', { path: '/api/socket.io', withCredentials: true })`):
+servidor → cliente `notificacao.nova`, `conversa.nova`, `conversa.atualizada`,
+`mensagem.nova`, `mensagem.status`, `digitando`, `chat.mensagem`,
+`chat.atualizado`, `whatsapp.conexao` (só Admin), `nao-lidas` (`{ notificacoes?,
+atendimento?, chat? }`) e `sessao.encerrada`; cliente → servidor
+`conversa.entrar`/`sair` e `chat.entrar`/`sair` (com confirmação `{ ok }` ou
+`{ ok: false, erro: 'sem_permissao' … }`) e `digitando`. A conexão é recusada
+com `nao_autenticado`, `origem_nao_permitida` ou `troca_de_senha_pendente`. As
+contagens iniciais do menu vêm da API (`/notificacoes/nao-lidas/contagem`,
+`/atendimento/nao-lidas`, `/chat/nao-lidas`): o tempo real só manda as mudanças.
 
 ### Variáveis de ambiente
 

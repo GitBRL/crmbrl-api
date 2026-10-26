@@ -270,10 +270,19 @@ export class FilaService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         await this.criarFila(fila, registro.opcoes);
-        const jobs = await boss.fetch<Envelope<unknown>>(fila, {
+        const buscados = await boss.fetch<Envelope<unknown>>(fila, {
           batchSize: 50,
           ignoreStartAfter: opcoes.incluirAgendados ?? false,
+          includeMetadata: true,
         });
+        // O pg-boss escolhe os jobs por prioridade e criação, mas o lote volta do
+        // `UPDATE … RETURNING` sem ordem garantida: ordenar aqui mantém a ordem
+        // de criação (a mesma do trabalhador, que busca um por vez).
+        const jobs = [...buscados].sort(
+          (a, b) =>
+            b.priority - a.priority ||
+            a.createdOn.getTime() - b.createdOn.getTime(),
+        );
         for (const job of jobs) {
           nestaRodada++;
           try {

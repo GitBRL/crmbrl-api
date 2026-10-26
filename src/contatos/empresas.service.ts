@@ -413,8 +413,8 @@ export class EmpresasService {
       acao: 'empresa.atualizada',
       entidade: 'empresa',
       entidadeId: empresa.id,
-      resumo: `Empresa "${empresa.nome}" ganhou responsável (R4.5)`,
-      dados: { alteracoes },
+      resumo: `Empresa "${empresa.nome}" ganhou responsável`,
+      dados: { alteracoes, regra: 'R4.5' },
     });
     await this.eventos.publicar(tx, 'empresa.atualizada', {
       ...instantaneoDaEmpresa(empresa),

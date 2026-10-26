@@ -16,6 +16,7 @@ import {
   FiltroDeConsultaDto,
   paraLista,
 } from '../auditoria/consulta/filtro-de-consulta.dto';
+import { semCodigoDeRegra } from '../comum/dados/textos';
 import {
   type LogTecnico,
   NivelLog,
@@ -131,7 +132,8 @@ export class LogTecnicoDto {
       criadoEm: linha.criado_em.toISOString(),
       nivel: linha.nivel,
       contexto: linha.contexto,
-      mensagem: linha.mensagem,
+      // Logs antigos podem trazer o código da regra na mensagem.
+      mensagem: semCodigoDeRegra(linha.mensagem),
       requisicaoId: linha.requisicao_id,
       usuarioId: linha.usuario_id,
       metodo: linha.metodo,
@@ -147,7 +149,7 @@ export class LogTecnicoDto {
       criadoEm: log.criadoEm.toISOString(),
       nivel: log.nivel,
       contexto: log.contexto,
-      mensagem: log.mensagem,
+      mensagem: semCodigoDeRegra(log.mensagem),
       requisicaoId: log.requisicaoId,
       usuarioId: log.usuarioId,
       metodo: log.metodo,

@@ -16,6 +16,7 @@ import {
   type ClienteHttp,
   cookieDaSessao,
   criarAppTeste,
+  criarContato,
   criarEquipe,
   criarUsuario,
   entrarComo,
@@ -687,6 +688,62 @@ describe('Auditoria — consulta (e2e)', () => {
       alteracoes: [],
       dados: { contagens: { negocios: 2 } },
     });
+  });
+
+  it('textos sem código de regra: resumos antigos, gravados com "(R4.6)", saem limpos na consulta e na linha do tempo', async () => {
+    const admin = await criarUsuario(t, { papel: 'ADMIN' });
+    const comoAdmin = await entrarComo(t, admin);
+    const contato = await criarContato(t, { nome: 'Titular' });
+    const antigo = await registrarEvento(t, {
+      acao: 'contato.atualizado',
+      entidade: 'contato',
+      entidadeId: contato.id,
+      resumo: 'Contato anonimizado pelo Admin (LGPD, R4.6)',
+      usuario: admin,
+    });
+    await registrarEvento(t, {
+      acao: 'contato.atualizado',
+      entidade: 'contato',
+      entidadeId: contato.id,
+      resumo: 'Contato "Titular" ganhou responsável (R4.5)',
+      usuario: admin,
+    });
+
+    const lista = await listar(
+      comoAdmin,
+      `entidade=contato&entidadeId=${contato.id}`,
+    );
+    expect(lista.itens.map(({ resumo }) => resumo)).toEqual([
+      'Contato "Titular" ganhou responsável',
+      'Contato anonimizado pelo Admin (LGPD)',
+    ]);
+    const detalhe = await comoAdmin
+      .get(`/api/v1/auditoria/${antigo.id.toString()}`)
+      .expect(200);
+    expect(detalhe.body.resumo).toBe('Contato anonimizado pelo Admin (LGPD)');
+    const linha = await comoAdmin
+      .get(`/api/v1/contatos/${contato.id}/linha-do-tempo`)
+      .expect(200);
+    const resumos = (
+      linha.body.itens as { evento: { resumo: string } | null }[]
+    )
+      .map((item) => item.evento?.resumo)
+      .filter((resumo): resumo is string => resumo !== undefined);
+    expect(resumos).toEqual(
+      expect.arrayContaining([
+        'Contato anonimizado pelo Admin (LGPD)',
+        'Contato "Titular" ganhou responsável',
+      ]),
+    );
+    expect(resumos.filter((resumo) => /\bR\d+\.\d+/.test(resumo))).toEqual([]);
+    // O registro em si não muda (a auditoria é só inclusão).
+    expect(
+      (
+        await t.prisma.eventoAuditoria.findUniqueOrThrow({
+          where: { id: antigo.id },
+        })
+      ).resumo,
+    ).toBe('Contato anonimizado pelo Admin (LGPD, R4.6)');
   });
 
   it('R3.4 — detalhe: id inexistente → 404; id inválido → 400', async () => {

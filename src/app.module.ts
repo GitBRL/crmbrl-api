@@ -1,9 +1,13 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import { AdministracaoModule } from './administracao/administracao.module';
+import { ArquivosHttpModule, ArquivosModule } from './arquivos/arquivos.module';
+import { AtendimentoModule } from './atendimento/atendimento.module';
 import { AtividadesModule } from './atividades/atividades.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
+import { CanaisModule } from './canais/canais.module';
+import { ChatInternoModule } from './chat-interno/chat-interno.module';
 import { ComumModule } from './comum/comum.module';
 import type { Ambiente } from './config/ambiente';
 import { AmbienteModule } from './config/ambiente.module';
@@ -17,12 +21,15 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SaudeModule } from './saude/saude.module';
 import { SeedsModule } from './seeds/seeds.module';
+import { TempoRealModule } from './tempo-real/tempo-real.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 
 /**
- * Módulo raiz. É montado no `main.ts` (e nos testes e2e) com o ambiente já
- * validado — nada aqui lê variável de ambiente na hora do import.
+ * Módulo raiz da API. É montado no `main.ts` (e nos testes e2e) com o ambiente
+ * já validado — nada aqui lê variável de ambiente na hora do import. O gateway
+ * de WhatsApp é outro processo, com o seu próprio módulo raiz
+ * (`src/whatsapp/gateway-whatsapp.module.ts`).
  */
 @Module({})
 export class AppModule {
@@ -49,6 +56,9 @@ export class AppModule {
         AuditoriaModule,
         NotificacoesModule,
         AuthModule,
+        // Onda A: arquivos (MinIO/S3) e tempo real (Socket.IO), globais.
+        ArquivosModule,
+        TempoRealModule,
         SeedsModule,
         SaudeModule,
         // Módulos de negócio (Fase 1).
@@ -59,6 +69,12 @@ export class AppModule {
         AuditoriaConsultaModule,
         AdministracaoModule,
         WebhooksModule,
+        // Módulos de negócio (Onda A): rotas de arquivos, atendimento, canais
+        // (WhatsApp, chat do site, e-mail, Meta) e chat interno.
+        ArquivosHttpModule,
+        AtendimentoModule,
+        CanaisModule,
+        ChatInternoModule,
       ],
     };
   }

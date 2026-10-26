@@ -504,7 +504,7 @@ export class FunisService {
   ): void {
     if (!podeConfigurarFunis(usuario, area)) {
       throw new SemPermissaoException(
-        `Só o Admin, o C-level e o líder de ${rotuloDaArea(area)} configuram os funis dessa área (R5.1).`,
+        `Só o Admin, o C-level e o líder de ${rotuloDaArea(area)} configuram os funis dessa área.`,
         { regra: 'R5.1' },
       );
     }

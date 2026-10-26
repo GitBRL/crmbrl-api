@@ -22,6 +22,7 @@ import { FORMATO_VALOR, formatarValor } from '../../comum/dominio/dinheiro';
 import type { Utm } from '../../comum/dominio/utm';
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
 import {
+  Area,
   OrigemContato,
   StatusNegocio,
   TipoAtor,
@@ -241,6 +242,48 @@ export class NegocioDto {
       atualizadoEm: negocio.atualizadoEm.toISOString(),
     };
   }
+}
+
+/** Um negócio do outro lado da jornada (passagem entre funis, R5.7). */
+export class NegocioDaJornadaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({
+    enum: Area,
+    enumName: 'Area',
+    description: 'Área do funil desse negócio.',
+  })
+  area: Area;
+
+  @ApiProperty({
+    description:
+      'Quem consulta vê esse negócio (R5.9). Sem acesso, a tela mostra só a área ("negócio em Customer Success, sem acesso").',
+  })
+  visivel: boolean;
+}
+
+/** De onde o negócio veio e o que ele gerou nos outros funis (R5.7). */
+export class JornadaDoNegocioDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    type: NegocioDaJornadaDto,
+    description: 'O negócio que originou este por uma passagem.',
+  })
+  origem: NegocioDaJornadaDto | null;
+
+  @ApiProperty({
+    type: [NegocioDaJornadaDto],
+    description:
+      'Os negócios criados a partir deste por passagens, do mais antigo ao mais novo — inclusive os de funis que quem consulta não vê.',
+  })
+  gerados: NegocioDaJornadaDto[];
+}
+
+/** `GET /negocios/:id`: o negócio e a jornada dele entre os funis. */
+export class NegocioDetalheDto extends NegocioDto {
+  @ApiProperty({ type: JornadaDoNegocioDto })
+  jornada: JornadaDoNegocioDto;
 }
 
 export class CriarNegocioDto {

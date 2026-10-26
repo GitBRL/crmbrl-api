@@ -58,6 +58,9 @@ const ROTULO_DA_ORIGEM: Readonly<Record<OrigemContato, string>> = {
   IMPORTACAO: 'importação',
   PASSAGEM: 'passagem entre funis',
   OUTRO: 'outra origem',
+  EMAIL: 'e-mail',
+  INSTAGRAM: 'Instagram',
+  MESSENGER: 'Messenger',
 };
 
 /** `webhook (Landing Black Friday)`, `cadastro manual`… — para os resumos da auditoria. */

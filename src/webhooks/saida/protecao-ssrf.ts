@@ -207,7 +207,7 @@ export async function verificarDestino(
   ) {
     return recusa(
       'https_obrigatorio',
-      'Em produção o destino precisa ser HTTPS (R9.1).',
+      'Em produção o destino precisa ser HTTPS.',
     );
   }
 
@@ -237,7 +237,7 @@ export async function verificarDestino(
   if (internos.length > 0 && !opcoes.permitirRedeInterna) {
     return recusa(
       'rede_interna',
-      `O destino aponta para rede interna ou localhost (${internos.join(', ')}): recusado para proteger a rede (R9.1). ` +
+      `O destino aponta para rede interna ou localhost (${internos.join(', ')}): recusado para proteger a rede. ` +
         'Para sistemas internos, ligue WEBHOOKS_PERMITIR_REDE_INTERNA.',
     );
   }
@@ -248,7 +248,7 @@ export async function verificarDestino(
   ) {
     return recusa(
       'https_obrigatorio',
-      'Em produção o destino precisa ser HTTPS (R9.1); http:// só vale para sistemas da rede interna.',
+      'Em produção o destino precisa ser HTTPS; http:// só vale para sistemas da rede interna.',
     );
   }
   return { permitido: true, url, enderecos };

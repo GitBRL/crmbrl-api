@@ -177,6 +177,58 @@ describe('Base — autenticação e sessões (e2e)', () => {
       ).toBe(2);
     });
 
+    it('R3.2 — falha de login num navegador com a sessão de outra pessoa: o ator é o e-mail tentado, sem usuário', async () => {
+      const dona = await criarUsuario(t, {
+        email: 'dona@teste.local',
+        nome: 'Dona da Sessão',
+      });
+      const alvo = await criarUsuario(t, { email: 'alvo@teste.local' });
+      const sessao = await entrarComo(t, dona);
+      const tentar = (email: string, senha: string) =>
+        request(t.servidor)
+          .post('/api/v1/auth/entrar')
+          .set('Origin', ORIGEM_DE_TESTE)
+          .set('Cookie', sessao.cookie ?? '')
+          .send({ email, senha });
+      await tentar('ninguem@teste.local', 'errada-errada').expect(401);
+      for (let vez = 1; vez <= 5; vez++) {
+        await tentar('alvo@teste.local', `errada-${vez}`).expect(401);
+      }
+
+      const falhas = await t.prisma.eventoAuditoria.findMany({
+        where: { acao: 'usuario.login_falhou' },
+        orderBy: { id: 'asc' },
+      });
+      expect(falhas).toHaveLength(6);
+      expect(falhas[0]).toMatchObject({
+        tipoAtor: 'USUARIO',
+        usuarioId: null,
+        atorDescricao: 'ninguem@teste.local',
+        entidadeId: null,
+      });
+      expect(falhas[1]).toMatchObject({
+        tipoAtor: 'USUARIO',
+        usuarioId: null,
+        atorDescricao: 'alvo@teste.local',
+        entidadeId: alvo.id,
+      });
+      // O bloqueio que a 5ª falha fechou também não é da dona da sessão.
+      const bloqueio = await t.prisma.eventoAuditoria.findFirstOrThrow({
+        where: { acao: 'usuario.bloqueado_forca_bruta' },
+      });
+      expect(bloqueio).toMatchObject({
+        usuarioId: null,
+        atorDescricao: 'alvo@teste.local',
+      });
+      expect(
+        await t.prisma.eventoAuditoria.count({
+          where: { usuarioId: dona.id, acao: { not: 'usuario.login' } },
+        }),
+      ).toBe(0);
+      // A sessão de quem estava no navegador continua valendo.
+      await sessao.get('/api/v1/auth/eu').expect(200);
+    });
+
     it('R2.3 — usuário desligado com a senha certa recebe "Acesso desativado"', async () => {
       await criarUsuario(t, { email: 'saiu@teste.local', ativo: false });
       const resposta = await clienteAnonimo(t)
@@ -664,6 +716,24 @@ describe('Base — autenticação e sessões (e2e)', () => {
           where: { acao: 'usuario.senha_redefinida', entidadeId: usuario.id },
         }),
       ).toBe(1);
+    });
+
+    it('R3.2 — "esqueci minha senha" pedido de um navegador com a sessão de outra pessoa: o ator é o e-mail informado', async () => {
+      const dono = await criarUsuario(t, { email: 'dono@teste.local' });
+      const usuario = await criarUsuario(t, { email: 'esqueceu@teste.local' });
+      const sessao = await entrarComo(t, dono);
+      await sessao
+        .post('/api/v1/auth/senha/esqueci', { email: 'esqueceu@teste.local' })
+        .expect(202);
+      const pedido = await t.prisma.eventoAuditoria.findFirstOrThrow({
+        where: { acao: 'usuario.redefinicao_solicitada' },
+      });
+      expect(pedido).toMatchObject({
+        tipoAtor: 'USUARIO',
+        usuarioId: null,
+        atorDescricao: 'esqueceu@teste.local',
+        entidadeId: usuario.id,
+      });
     });
 
     it('R2.8 — e-mail inexistente recebe a mesma resposta e nenhum e-mail sai', async () => {

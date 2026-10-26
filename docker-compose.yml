@@ -1,5 +1,6 @@
-# BRL CRM — sobe o sistema inteiro: banco (PostgreSQL 17), API (esta pasta) e
-# front (Angular servido pelo Caddy, construído a partir de ../crmbrl).
+# BRL CRM — sobe o sistema inteiro: banco (PostgreSQL 17), arquivos (MinIO),
+# API (esta pasta), gateway de WhatsApp (a mesma imagem da API, outro processo)
+# e front (Angular servido pelo Caddy, construído a partir de ../crmbrl).
 #
 #   docker compose up -d --build    constrói as imagens e sobe tudo
 #   docker compose ps               estado e saúde de cada serviço
@@ -16,20 +17,55 @@
 #     docker:cli docker compose up -d --build
 #
 # Endereços: front em http://localhost:8080 (é por ele que se usa o CRM: o Caddy
-# encaminha /api à API) · API direta só na própria máquina, em
-# http://127.0.0.1:3000/api · banco em 127.0.0.1:5434 (usuário, senha e banco:
-# crmbrl).
+# encaminha /api à API, inclusive o websocket do tempo real em /api/socket.io)
+# · API direta só na própria máquina, em http://127.0.0.1:3000/api · banco em
+# 127.0.0.1:5434 (usuário, senha e banco: crmbrl). MinIO (arquivos) e gateway
+# de WhatsApp ficam só na rede interna do compose, sem porta no host.
 #
 # Toda variável abaixo pode vir do ambiente ou de um .env nesta pasta (veja o
 # .env.example). Os padrões servem para desenvolvimento local em http; para
 # produção defina pelo menos URL_PUBLICA, ORIGENS_PERMITIDAS, COOKIE_SEGURO=true,
-# CHAVE_CRIPTOGRAFIA (openssl rand -base64 32) e o SMTP.
+# CHAVE_CRIPTOGRAFIA (openssl rand -base64 32), ARQUIVOS_CHAVE/ARQUIVOS_SEGREDO,
+# WHATSAPP_TOKEN_INTERNO (openssl rand -base64 32) e o SMTP.
 #
 # Primeiro acesso: sem ADMIN_SENHA_INICIAL, a API gera uma senha para o
 # ADMIN_EMAIL e a mostra uma vez no log (docker compose logs api); a troca é
 # obrigatória no primeiro login.
 
 name: crmbrl
+
+# Variáveis lidas pelos dois processos da imagem da API (a API e o gateway de
+# WhatsApp): banco, chave de criptografia, endereço público, arquivos e o
+# contrato entre os dois (endereço interno e token do gateway).
+x-ambiente-da-imagem: &ambiente-da-imagem
+  # Mesmas credenciais do serviço banco. Senha com caractere especial de URL
+  # (@ : / ? #) precisa ir codificada (ex.: %40 no lugar de @).
+  DATABASE_URL: postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA:-crmbrl}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+  # Endereço do front (Caddy): base dos links de e-mail e dos endereços de webhook.
+  URL_PUBLICA: ${URL_PUBLICA:-http://localhost:8080}
+  # Origens aceitas em POST/PUT/PATCH/DELETE e no tempo real (proteção CSRF, R2.9).
+  ORIGENS_PERMITIDAS: ${ORIGENS_PERMITIDAS:-http://localhost:8080}
+  # Chave pública de desenvolvimento (a API avisa no log): troque em produção.
+  CHAVE_CRIPTOGRAFIA: ${CHAVE_CRIPTOGRAFIA:-QgJh7zlsW/dNWZEIgY5FuRfgyxtaDc6dfihpFVnoe+A=}
+  # Arquivos (R11) no MinIO do serviço "arquivos"; o bucket é criado pela API.
+  ARQUIVOS_DRIVER: ${ARQUIVOS_DRIVER:-s3}
+  ARQUIVOS_ENDPOINT: ${ARQUIVOS_ENDPOINT:-http://arquivos:9000}
+  ARQUIVOS_REGIAO: ${ARQUIVOS_REGIAO:-us-east-1}
+  ARQUIVOS_CHAVE: ${ARQUIVOS_CHAVE:-crmbrl}
+  ARQUIVOS_SEGREDO: ${ARQUIVOS_SEGREDO:-crmbrl-arquivos-desenvolvimento}
+  ARQUIVOS_BUCKET: ${ARQUIVOS_BUCKET:-crmbrl}
+  # Gateway de WhatsApp (R13): comandos por HTTP interno, com o mesmo token nos
+  # dois lados. O padrão é o token público de desenvolvimento (com aviso no log).
+  WHATSAPP_URL_INTERNA: http://whatsapp:3100
+  WHATSAPP_PORTA: '3100'
+  WHATSAPP_TOKEN_INTERNO: ${WHATSAPP_TOKEN_INTERNO:-crmbrl-token-interno-de-desenvolvimento-nao-use-em-producao}
+  # true = transporte simulado (QR de mentira, sem WhatsApp de verdade).
+  WHATSAPP_SIMULADO: ${WHATSAPP_SIMULADO:-false}
+  # Graph API da Meta (Instagram e Messenger, R14).
+  META_GRAPH_URL: ${META_GRAPH_URL:-https://graph.facebook.com}
+  META_GRAPH_VERSAO: ${META_GRAPH_VERSAO:-v24.0}
+  PROCESSAR_FILAS: ${PROCESSAR_FILAS:-true}
+  LOG_FORMATO: ${LOG_FORMATO:-json}
 
 services:
   banco:
@@ -50,25 +86,47 @@ services:
       timeout: 5s
       retries: 10
 
+  arquivos:
+    # MinIO (armazenamento compatível com S3) para os arquivos do CRM (R11). A
+    # imagem oficial minio/minio deixou de ser publicada: esta é a da Bitnami
+    # (bitnamilegacy), com o MinIO RELEASE 2025-07-23, versão fixada.
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${ARQUIVOS_CHAVE:-crmbrl}
+      MINIO_ROOT_PASSWORD: ${ARQUIVOS_SEGREDO:-crmbrl-arquivos-desenvolvimento}
+      # Console web desligado; o bucket é criado pela API ao subir.
+      MINIO_BROWSER: 'off'
+      MINIO_SKIP_CLIENT: 'yes'
+    volumes:
+      - arquivos-dados:/bitnami/minio/data
+    # Sem porta no host: só a API e o gateway falam com o MinIO, pela rede interna.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'curl',
+          '-fsS',
+          '-o',
+          '/dev/null',
+          'http://127.0.0.1:9000/minio/health/live',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build: .
     restart: unless-stopped
     environment:
-      # Mesmas credenciais do serviço banco. Senha com caractere especial de URL
-      # (@ : / ? #) precisa ir codificada (ex.: %40 no lugar de @).
-      DATABASE_URL: postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA:-crmbrl}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+      <<: *ambiente-da-imagem
       MIGRAR_AO_INICIAR: ${MIGRAR_AO_INICIAR:-true}
       CORS_ORIGENS: ${CORS_ORIGENS:-}
       OBSERVE_APP_KEY: ${OBSERVE_APP_KEY:-}
       OBSERVE_APP_SECRET: ${OBSERVE_APP_SECRET:-}
-      # Endereço do front (Caddy): base dos links de e-mail e dos endereços de webhook.
-      URL_PUBLICA: ${URL_PUBLICA:-http://localhost:8080}
-      # Origens aceitas em POST/PUT/PATCH/DELETE (proteção CSRF, R2.9).
-      ORIGENS_PERMITIDAS: ${ORIGENS_PERMITIDAS:-http://localhost:8080}
       # http local: sem o atributo Secure no cookie. Em HTTPS, true.
       COOKIE_SEGURO: ${COOKIE_SEGURO:-false}
-      # Chave pública de desenvolvimento (a API avisa no log): troque em produção.
-      CHAVE_CRIPTOGRAFIA: ${CHAVE_CRIPTOGRAFIA:-QgJh7zlsW/dNWZEIgY5FuRfgyxtaDc6dfihpFVnoe+A=}
       SESSAO_INATIVIDADE_DIAS: ${SESSAO_INATIVIDADE_DIAS:-7}
       SESSAO_DURACAO_MAXIMA_DIAS: ${SESSAO_DURACAO_MAXIMA_DIAS:-30}
       SESSAO_RENOVACAO_MINUTOS: ${SESSAO_RENOVACAO_MINUTOS:-5}
@@ -85,15 +143,40 @@ services:
       WEBHOOKS_PERMITIR_REDE_INTERNA: ${WEBHOOKS_PERMITIR_REDE_INTERNA:-false}
       # Documentação em /api/docs: false = só o Admin logado.
       DOCS_PUBLICAS: ${DOCS_PUBLICAS:-false}
-      PROCESSAR_FILAS: ${PROCESSAR_FILAS:-true}
-      LOG_FORMATO: ${LOG_FORMATO:-json}
     depends_on:
       banco:
+        condition: service_healthy
+      arquivos:
         condition: service_healthy
     ports:
       # Só na própria máquina: o front fala com a API pelo Caddy (rede do compose).
       - '127.0.0.1:${API_PORTA:-3000}:3000'
     # A saúde vem do HEALTHCHECK do Dockerfile (GET /api/saude; 503 = banco fora).
+
+  whatsapp:
+    # Gateway de WhatsApp (R13): a mesma imagem da API, outro processo
+    # (node dist/whatsapp/main.js). Mantém as conexões dos números (Baileys),
+    # recebe os comandos da API pelo HTTP interno e troca mensagens e eventos
+    # com ela pelas filas do pg-boss. Uma instância só.
+    build: .
+    restart: unless-stopped
+    command: ['whatsapp']
+    environment:
+      <<: *ambiente-da-imagem
+    depends_on:
+      # A API aplica as migrations antes; o gateway sobe depois dela.
+      api:
+        condition: service_healthy
+      arquivos:
+        condition: service_healthy
+    # Sem porta no host: só a API fala com o gateway (http://whatsapp:3100).
+    healthcheck:
+      test:
+        ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3100/saude']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   web:
     build: ${FRONT_DIR:-../crmbrl}
@@ -109,3 +192,4 @@ services:
 
 volumes:
   banco-dados:
+  arquivos-dados:

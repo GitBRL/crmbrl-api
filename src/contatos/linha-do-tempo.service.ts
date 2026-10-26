@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ehAtrasada } from '../atividades/regras-atividades';
 import { referenciaDeAuditoria } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { semCodigoDeRegra } from '../comum/dados/textos';
 import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
 import {
   montarPagina,
@@ -239,7 +240,8 @@ export class LinhaDoTempoService {
       acao: evento.acao,
       entidade: evento.entidade,
       entidadeId: evento.entidadeId,
-      resumo: evento.resumo,
+      // Eventos antigos guardam o código da regra no resumo; a leitura o tira.
+      resumo: semCodigoDeRegra(evento.resumo),
       dados: evento.dados ?? null,
       tipoAtor: evento.tipoAtor,
       usuarioId: evento.usuarioId,

@@ -24,3 +24,5 @@ export * from './clientes';
 export * from './drenar';
 export * from './email-falso';
 export * from './fabricas';
+export * from './gateway-whatsapp';
+export * from './tempo-real';

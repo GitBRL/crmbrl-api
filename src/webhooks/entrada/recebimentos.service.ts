@@ -7,6 +7,7 @@ import {
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { CriptografiaService } from '../../comum/criptografia/criptografia.service';
 import { ehCampoSensivel } from '../../comum/dados/sanitizar';
+import { semCodigoDeRegra } from '../../comum/dados/textos';
 import {
   ConflitoException,
   CorpoMuitoGrandeException,
@@ -143,7 +144,7 @@ export class RecebimentosService implements OnModuleInit {
     }
     if (!webhook.ativo) {
       throw new RecursoDesativadoException(
-        'Este webhook de entrada está desativado (R8.7).',
+        'Este webhook de entrada está desativado.',
         { regra: 'R8.7' },
       );
     }
@@ -202,7 +203,7 @@ export class RecebimentosService implements OnModuleInit {
     if (resultado.limitado) {
       await this.avisarLimite(webhook);
       throw new MuitasTentativasException(
-        `Mais de ${CHAMADAS_POR_MINUTO} chamadas por minuto neste webhook (R8.7). Tente de novo em ${resultado.segundos} s.`,
+        `Mais de ${CHAMADAS_POR_MINUTO} chamadas por minuto neste webhook. Tente de novo em ${resultado.segundos} s.`,
         resultado.segundos,
         { regra: 'R8.7' },
       );
@@ -227,7 +228,7 @@ export class RecebimentosService implements OnModuleInit {
       bruto !== undefined ? bruto.length > 0 : declaraCorpo(req.headers);
     if (temCorpo && bruto === undefined) {
       const tipo = truncar(req.get('content-type'), 100) ?? 'não informado';
-      const mensagem = `Tipo de conteúdo não suportado (${tipo}): envie JSON ou application/x-www-form-urlencoded (R8.2).`;
+      const mensagem = `Tipo de conteúdo não suportado (${tipo}): envie JSON ou application/x-www-form-urlencoded.`;
       return {
         aceita: false,
         corpo: null,
@@ -240,7 +241,7 @@ export class RecebimentosService implements OnModuleInit {
       };
     }
     if (bruto && bruto.length > BYTES_MAXIMOS_DO_CORPO) {
-      const mensagem = `O corpo tem ${Math.ceil(bruto.length / 1024)} KB; o limite é ${BYTES_MAXIMOS_DO_CORPO / 1024} KB (R8.2).`;
+      const mensagem = `O corpo tem ${Math.ceil(bruto.length / 1024)} KB; o limite é ${BYTES_MAXIMOS_DO_CORPO / 1024} KB.`;
       return {
         aceita: false,
         corpo: null,
@@ -286,8 +287,8 @@ export class RecebimentosService implements OnModuleInit {
         )
       ) {
         const mensagem = assinatura
-          ? 'Assinatura inválida (R8.3): X-Assinatura não confere com o HMAC-SHA256 do corpo.'
-          : 'Assinatura ausente (R8.3): este webhook exige X-Assinatura: sha256=<hmac do corpo>.';
+          ? 'Assinatura inválida: X-Assinatura não confere com o HMAC-SHA256 do corpo.'
+          : 'Assinatura ausente: este webhook exige X-Assinatura: sha256=<hmac do corpo>.';
         return {
           aceita: false,
           corpo,
@@ -312,8 +313,8 @@ export class RecebimentosService implements OnModuleInit {
     this.ultimoAvisoDeLimite.set(webhook.id, agora);
     await this.logs.aviso(
       'Webhooks',
-      `Webhook de entrada "${webhook.nome}" passou de ${CHAMADAS_POR_MINUTO} chamadas por minuto: as excedentes recebem 429 (R8.7).`,
-      { webhookId: webhook.id },
+      `Webhook de entrada "${webhook.nome}" passou de ${CHAMADAS_POR_MINUTO} chamadas por minuto: as excedentes recebem 429.`,
+      { webhookId: webhook.id, regra: 'R8.7' },
     );
   }
 
@@ -484,7 +485,7 @@ export class RecebimentosService implements OnModuleInit {
       return 0;
     }
     const mensagem =
-      'Corpo, cabeçalhos e IP apagados na anonimização do contato (R4.6).';
+      'Corpo, cabeçalhos e IP apagados na anonimização do contato.';
     return this.prisma.$transaction(async (tx) => {
       const apagados = await tx.$executeRaw`
         UPDATE webhook_recebimentos
@@ -496,8 +497,8 @@ export class RecebimentosService implements OnModuleInit {
         await this.auditoria.registrar(tx, {
           acao: 'webhook_recebimento.dados_apagados',
           entidade: 'webhook_recebimento',
-          resumo: `Dados pessoais apagados de ${apagados} recebimento(s) de webhook na anonimização do contato (R4.6)`,
-          dados: { quantidade: apagados },
+          resumo: `Dados pessoais apagados de ${apagados} recebimento(s) de webhook na anonimização do contato`,
+          dados: { quantidade: apagados, regra: 'R4.6' },
           relacionados: { contato: contatoId },
         });
       }
@@ -533,7 +534,8 @@ function paraDto(
     ip: recebimento.ip,
     tipoConteudo: recebimento.tipoConteudo,
     status: recebimento.status,
-    mensagem: recebimento.mensagem,
+    // Recebimentos antigos podem trazer o código da regra na mensagem.
+    mensagem: semCodigoDeRegra(recebimento.mensagem),
     tentativas: recebimento.tentativas,
     processadoEm: recebimento.processadoEm?.toISOString() ?? null,
     contato: recebimento.contato,

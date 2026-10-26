@@ -55,7 +55,7 @@ const DESCRICAO_DOS_EVENTOS: Readonly<Record<EventoDeWebhook, string>> = {
   'atividade.criada': 'Atividade criada.',
   'atividade.concluida': 'Atividade concluída.',
   'usuario.desligado':
-    'Usuário desligado, com quem recebeu os itens e as contagens (R7.4).',
+    'Usuário desligado, com quem recebeu os itens e as contagens.',
   'webhook.teste':
     'Evento de teste disparado pelo Admin (sempre entregue ao destino testado).',
 };

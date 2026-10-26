@@ -189,8 +189,8 @@ export class ContatosService {
       acao: 'contato.atualizado',
       entidade: 'contato',
       entidadeId: atualizado.id,
-      resumo: `Contato "${atualizado.nome}" ganhou responsável (R4.5)`,
-      dados: { alteracoes },
+      resumo: `Contato "${atualizado.nome}" ganhou responsável`,
+      dados: { alteracoes, regra: 'R4.5' },
       relacionados: { empresa: atualizado.empresaId },
     });
     await this.eventos.publicar(tx, 'contato.atualizado', {
@@ -419,7 +419,7 @@ export class ContatosService {
       if (!emailFinal && !telefoneFinal) {
         const mensagens = ['o contato precisa de e-mail ou telefone'];
         throw new DadosInvalidosException(
-          'O contato precisa de e-mail ou telefone (R4.1).',
+          'O contato precisa de e-mail ou telefone.',
           {
             regra: 'R4.1',
             campos: [
@@ -518,7 +518,9 @@ export class ContatosService {
     dto: AnonimizarContatoDto,
   ): Promise<void> {
     if (!permissoesDoPapel(usuario.papel).anonimizarContatos) {
-      throw new SemPermissaoException('Só o Admin anonimiza contatos (R4.6).');
+      throw new SemPermissaoException('Só o Admin anonimiza contatos.', {
+        regra: 'R4.6',
+      });
     }
     await this.prisma.$transaction(async (tx) => {
       const contato = await this.travarContatoAtivo(tx, id);
@@ -538,8 +540,9 @@ export class ContatosService {
         acao: 'contato.anonimizado',
         entidade: 'contato',
         entidadeId: id,
-        resumo: 'Contato anonimizado pelo Admin (LGPD, R4.6)',
+        resumo: 'Contato anonimizado pelo Admin (LGPD)',
         dados: {
+          regra: 'R4.6',
           motivo: dto.motivo?.trim() || null,
           camposAnonimizados: [...CAMPOS_ANONIMIZADOS],
           negociosAtualizados: negocios,
@@ -889,8 +892,12 @@ export class ContatosService {
         acao: 'negocio.atualizado',
         entidade: 'negocio',
         entidadeId: negocio.id,
-        resumo: 'Título do negócio anonimizado com o contato (LGPD, R4.6)',
-        dados: { motivo: 'anonimizacao_do_contato', campos: ['titulo'] },
+        resumo: 'Título do negócio anonimizado com o contato (LGPD)',
+        dados: {
+          motivo: 'anonimizacao_do_contato',
+          campos: ['titulo'],
+          regra: 'R4.6',
+        },
         relacionados: { contato: contatoId, empresa: negocio.empresaId },
       });
       alterados++;
@@ -936,8 +943,8 @@ export class ContatosService {
         acao: 'atividade.atualizada',
         entidade: 'atividade',
         entidadeId: atividade.id,
-        resumo: 'Atividade anonimizada com o contato (LGPD, R4.6)',
-        dados: { motivo: 'anonimizacao_do_contato', campos },
+        resumo: 'Atividade anonimizada com o contato (LGPD)',
+        dados: { motivo: 'anonimizacao_do_contato', campos, regra: 'R4.6' },
         relacionados: {
           contato: contatoId,
           empresa: atividade.empresaId,

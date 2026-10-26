@@ -9,6 +9,7 @@ import { configurarDocumentacao } from './documentacao';
 import { criarLogger } from './logs/logger';
 import { carregarObservabilidade } from './observabilidade';
 import { lerVersao } from './saude/saude.service';
+import { configurarTempoReal } from './tempo-real/adaptador-socket-io';
 
 const logger = new Logger('Inicialização');
 
@@ -42,12 +43,14 @@ async function iniciar(): Promise<void> {
     },
   );
   configurarAplicacao(app, ambiente);
+  configurarTempoReal(app, ambiente);
   configurarDocumentacao(app, ambiente, lerVersao());
   app.enableShutdownHooks();
 
   await app.listen(ambiente.porta);
   logger.log(
     `API ouvindo na porta ${ambiente.porta} — saúde em /api/saude, rotas em /api/v1, ` +
+      `tempo real em /api/socket.io, ` +
       `documentação em /api/docs${ambiente.docsPublicas ? '' : ' (só Admin)'} (ambiente: ${ambiente.nodeEnv}).`,
   );
 }

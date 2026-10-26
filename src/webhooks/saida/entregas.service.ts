@@ -421,8 +421,8 @@ export class EntregasService implements OnModuleInit {
       acao: 'webhook_saida.desativado_automaticamente',
       entidade: 'webhook_saida',
       entidadeId: destino.id,
-      resumo: `Webhook de saída "${destino.nome}" desativado automaticamente depois de ${linha.falhas_consecutivas} falhas seguidas (R9.4)`,
-      dados: { falhasConsecutivas: linha.falhas_consecutivas },
+      resumo: `Webhook de saída "${destino.nome}" desativado automaticamente depois de ${linha.falhas_consecutivas} falhas seguidas`,
+      dados: { falhasConsecutivas: linha.falhas_consecutivas, regra: 'R9.4' },
     });
     await this.notificacoes.notificarAdmins(tx, {
       tipo: TIPOS_NOTIFICACAO.WEBHOOK_SAIDA_DESATIVADO,
@@ -639,7 +639,7 @@ export class EntregasService implements OnModuleInit {
     const redigido = JSON.stringify({
       contatoId,
       anonimizado: true,
-      motivo: 'Dados pessoais apagados na anonimização do contato (R4.6).',
+      motivo: 'Dados pessoais apagados na anonimização do contato.',
     });
     return this.prisma.$transaction(async (tx) => {
       const redigidas = await tx.$executeRaw`
@@ -653,8 +653,8 @@ export class EntregasService implements OnModuleInit {
         await this.auditoria.registrar(tx, {
           acao: 'webhook_entrega.dados_apagados',
           entidade: 'webhook_entrega',
-          resumo: `Dados pessoais apagados de ${redigidas} entrega(s) de webhook de saída na anonimização do contato (R4.6)`,
-          dados: { quantidade: redigidas },
+          resumo: `Dados pessoais apagados de ${redigidas} entrega(s) de webhook de saída na anonimização do contato`,
+          dados: { quantidade: redigidas, regra: 'R4.6' },
           relacionados: { contato: contatoId },
         });
       }

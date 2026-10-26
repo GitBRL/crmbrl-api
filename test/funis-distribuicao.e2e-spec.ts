@@ -12,7 +12,9 @@ import {
   criarNegocio,
   criarUsuario,
   entrarComo,
+  entrarPeloLogin,
   etapaDoFunilBase,
+  SENHA_DE_TESTE,
 } from './utils';
 
 describe('Distribuição por rodízio (e2e)', () => {
@@ -132,6 +134,100 @@ describe('Distribuição por rodízio (e2e)', () => {
         where: { entidade: 'regra_distribuicao', usuarioId: lider.id },
       }),
     ).toBe(5);
+  });
+
+  it('cenário 19 — R5.8 (ajuste): só entra no rodízio quem já ativou o acesso: convite pendente e senha temporária sem login ficam fora até ativar', async () => {
+    const {
+      lider,
+      membros: [ana],
+    } = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    const convidado = await criarUsuario(t, {
+      papel: 'COMERCIAL',
+      lider,
+      senha: null,
+    });
+    const temporario = await criarUsuario(t, {
+      papel: 'COMERCIAL',
+      lider,
+      deveTrocarSenha: true,
+    });
+    expect(await escolherVarias('COMERCIAL', 2)).toEqual([ana.id, ana.id]);
+
+    const comoLider = await entrarComo(t, lider);
+    const regra = await comoLider
+      .get('/api/v1/regras-distribuicao/comercial')
+      .expect(200);
+    expect(
+      (regra.body.participantes as { id: string }[]).map((p) => p.id),
+    ).toEqual([ana.id]);
+    expect(regra.body.aguardandoAcesso).toEqual([
+      expect.objectContaining({
+        id: convidado.id,
+        papel: 'COMERCIAL',
+        motivo: 'CONVITE_PENDENTE',
+      }),
+      expect.objectContaining({
+        id: temporario.id,
+        motivo: 'PRIMEIRO_ACESSO_PENDENTE',
+      }),
+    ]);
+    // Nada de senha nem de dados de acesso na resposta.
+    expect(Object.keys(regra.body.aguardandoAcesso[0]).sort()).toEqual([
+      'avatarUrl',
+      'id',
+      'motivo',
+      'nome',
+      'papel',
+    ]);
+    // Incluir à mão quem ainda não ativou não o põe na fila.
+    const incluido = await comoLider
+      .put(
+        `/api/v1/regras-distribuicao/comercial/participantes/${convidado.id}`,
+        { participa: true },
+      )
+      .expect(200);
+    expect(
+      (incluido.body.participantes as { id: string }[]).map((p) => p.id),
+    ).toEqual([ana.id]);
+    expect(await escolher('COMERCIAL')).toBe(ana.id);
+
+    // Só entrar não basta: o primeiro login se conclui com a troca da senha temporária.
+    const { cliente: comoTemporario } = await entrarPeloLogin(
+      t,
+      temporario.email,
+    );
+    expect(await escolher('COMERCIAL')).toBe(ana.id);
+    await comoTemporario
+      .post('/api/v1/auth/senha', {
+        senhaAtual: SENHA_DE_TESTE,
+        novaSenha: 'senha-nova-do-temporario',
+      })
+      .expect(200);
+    expect(await escolher('COMERCIAL')).toBe(temporario.id);
+    // Definir a senha do convite também (o que o link do convite grava; o banco
+    // marca `acesso_ativado_em`).
+    await t.prisma.usuario.update({
+      where: { id: convidado.id },
+      data: {
+        senhaHash: temporario.senhaHash,
+        deveTrocarSenha: false,
+        senhaAlteradaEm: new Date(),
+      },
+    });
+    // Uma senha temporária nova, depois, não tira ninguém do rodízio.
+    await t.prisma.usuario.update({
+      where: { id: temporario.id },
+      data: { deveTrocarSenha: true },
+    });
+    expect(await escolherVarias('COMERCIAL', 3)).toEqual([
+      ana.id,
+      convidado.id,
+      temporario.id,
+    ]);
+    const depois = await comoLider
+      .get('/api/v1/regras-distribuicao/comercial')
+      .expect(200);
+    expect(depois.body.aguardandoAcesso).toEqual([]);
   });
 
   it('R5.8 — sem membros disponíveis vai para o líder da área; sem líder, para um C-level; sem ninguém, fica sem responsável', async () => {

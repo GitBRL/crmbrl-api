@@ -86,7 +86,7 @@ const CAMPOS_AUDITADOS = [
 ] as const satisfies readonly (keyof WebhookEntrada)[];
 
 const DESCRICOES_DOS_DESTINOS: Readonly<Record<string, string>> = {
-  nome: 'Nome do contato (obrigatório, R4.1).',
+  nome: 'Nome do contato (obrigatório).',
   email: 'E-mail do contato (gravado em minúsculas).',
   telefone: 'Telefone do contato (E.164, só dígitos; DDD validado).',
   empresa: 'Nome da empresa: vincula à empresa com o mesmo nome ou cria uma.',
@@ -95,7 +95,7 @@ const DESCRICOES_DOS_DESTINOS: Readonly<Record<string, string>> = {
   valor:
     'Valor do negócio em reais (aceita "1500", "1.500,00", "R$ 1.500,00").',
   valorRecorrente: 'Valor recorrente mensal do negócio, em reais.',
-  'utm.source': 'UTM source da origem (R4.3).',
+  'utm.source': 'UTM source da origem.',
   'utm.medium': 'UTM medium da origem.',
   'utm.campaign': 'UTM campaign da origem.',
   'utm.term': 'UTM term da origem.',

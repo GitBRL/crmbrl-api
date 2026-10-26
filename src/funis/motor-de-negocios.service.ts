@@ -181,7 +181,7 @@ export function linkDoNegocio(negocio: {
 /** 400 de R5.5 (cenário 11 da seção 13): entrar numa etapa de perda exige motivo. */
 export function motivoDePerdaObrigatorio(): DadosInvalidosException {
   return new DadosInvalidosException(
-    'Informe o motivo da perda para mover o negócio para uma etapa de perda (R5.5).',
+    'Informe o motivo da perda para mover o negócio para uma etapa de perda.',
     {
       regra: 'R5.5',
       campos: [
@@ -544,8 +544,9 @@ export class MotorDeNegociosService {
       acao: 'negocio.reconvertido',
       entidade: 'negocio',
       entidadeId: negocio.id,
-      resumo: `Contato voltou com o negócio "${negocio.titulo}" aberto em ${negocio.funil.nome}: reconversão registrada (R5.6)`,
+      resumo: `Contato voltou com o negócio "${negocio.titulo}" aberto em ${negocio.funil.nome}: reconversão registrada`,
       dados: {
+        regra: 'R5.6',
         ...origem,
         reconversoes: negocio.reconversoes,
         ...entrada.detalhesDaCriacao,
@@ -676,8 +677,9 @@ export class MotorDeNegociosService {
       entidadeId: passagem.id,
       resumo: resultado.criado
         ? `Passagem ${passagem.nome}: "${origem.titulo}" seguiu para ${negocio.funil.nome} / ${negocio.etapa.nome}`
-        : `Passagem ${passagem.nome}: "${origem.titulo}" já tinha negócio aberto em ${negocio.funil.nome}; reconversão registrada (R5.6)`,
+        : `Passagem ${passagem.nome}: "${origem.titulo}" já tinha negócio aberto em ${negocio.funil.nome}; reconversão registrada`,
       dados: {
+        regra: resultado.criado ? 'R5.7' : 'R5.6',
         negocioOrigemId: origem.id,
         negocioDestinoId: negocio.id,
         funilDestino: { id: negocio.funil.id, nome: negocio.funil.nome },

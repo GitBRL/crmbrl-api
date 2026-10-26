@@ -36,6 +36,8 @@ import {
   type AtualizarNegocioDto,
   type CriarNegocioDto,
   type MoverNegocioDto,
+  type NegocioDaJornadaDto,
+  type NegocioDetalheDto,
   NegocioDto,
   type ReabrirNegocioDto,
   type ResultadoMovimentacaoDto,
@@ -105,8 +107,45 @@ export class NegociosService {
     private readonly notificacoes: NotificacoesService,
   ) {}
 
-  async detalhar(usuario: UsuarioAutenticado, id: string): Promise<NegocioDto> {
-    return NegocioDto.de(await this.carregarVisivel(this.prisma, usuario, id));
+  /**
+   * O negócio e a jornada dele (R5.7): de onde veio e o que gerou nos outros
+   * funis, com a área de cada um e se quem consulta o vê (R5.9) — quem não vê
+   * fica sabendo só que existe um negócio naquela área.
+   */
+  async detalhar(
+    usuario: UsuarioAutenticado,
+    id: string,
+  ): Promise<NegocioDetalheDto> {
+    const negocio = await this.carregarVisivel(this.prisma, usuario, id);
+    const LIGADO = {
+      id: true,
+      responsavelId: true,
+      funil: { select: { area: true } },
+    } satisfies Prisma.NegocioSelect;
+    const origem = negocio.negocioOrigemId
+      ? await this.prisma.negocio.findFirst({
+          where: { id: negocio.negocioOrigemId, excluidoEm: null },
+          select: LIGADO,
+        })
+      : null;
+    const gerados = await this.prisma.negocio.findMany({
+      where: { negocioOrigemId: negocio.id, excluidoEm: null },
+      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+      select: LIGADO,
+    });
+    const daJornada = (
+      ligado: Prisma.NegocioGetPayload<{ select: typeof LIGADO }>,
+    ): NegocioDaJornadaDto => ({
+      id: ligado.id,
+      area: ligado.funil.area,
+      visivel: podeVerNegocio(usuario, ligado),
+    });
+    return Object.assign(NegocioDto.de(negocio), {
+      jornada: {
+        origem: origem ? daJornada(origem) : null,
+        gerados: gerados.map(daJornada),
+      },
+    });
   }
 
   /**
@@ -545,7 +584,7 @@ export class NegociosService {
           : `${contato.nome} voltou a converter`,
         texto: resultado.criado
           ? `${contato.nome} chegou${entrada.origemDetalhe ? ` por ${entrada.origemDetalhe}` : ''} e entrou em ${funil.nome} / ${etapa.nome}.`
-          : `O negócio "${negocio.titulo}" continua aberto com você; a reconversão foi registrada (R5.6).`,
+          : `O negócio "${negocio.titulo}" continua aberto com você; a reconversão foi registrada.`,
         link: linkDoNegocio(negocio),
         dados: {
           negocioId: negocio.id,
@@ -764,7 +803,7 @@ export class NegociosService {
 
   private semPermissaoParaReabrir(): SemPermissaoException {
     return new SemPermissaoException(
-      'Só o líder da área, o C-level e o Admin reabrem negócio ganho ou perdido (R5.5).',
+      'Só o líder da área, o C-level e o Admin reabrem negócio ganho ou perdido.',
       { regra: 'R5.5' },
     );
   }

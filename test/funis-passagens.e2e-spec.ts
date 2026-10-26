@@ -191,6 +191,76 @@ describe('Passagens entre funis (e2e)', () => {
     });
   });
 
+  it('R5.7/R5.9 — o detalhe traz a jornada: origem e gerados com a área, e quem não vê o outro funil só fica sabendo da área', async () => {
+    const cLevel = await criarUsuario(t, { papel: 'C_LEVEL' });
+    const {
+      lider: liderMarketing,
+      membros: [marina],
+    } = await criarEquipe(t, 'MARKETING', { membros: 1, cLevel });
+    const {
+      lider: liderComercial,
+      membros: [ana],
+    } = await criarEquipe(t, 'COMERCIAL', { membros: 1, cLevel });
+    const { lider: liderCs } = await criarEquipe(t, 'CS', {
+      membros: 1,
+      cLevel,
+    });
+    const lead = await criarNegocio(t, {
+      area: 'MARKETING',
+      responsavel: marina,
+    });
+    const mql = await etapaDoFunilBase(t, 'MARKETING', 'qualificado_mql');
+    const noComercial = (
+      await mover(await entrarComo(t, marina), lead.id, mql.id).expect(200)
+    ).body.passagens[0].negocioDestinoId as string;
+    await t.prisma.negocio.update({
+      where: { id: noComercial },
+      data: { responsavelId: ana.id },
+    });
+    const ganho = await etapaDoFunilBase(t, 'COMERCIAL', 'ganho');
+    const noCs = (
+      await mover(await entrarComo(t, ana), noComercial, ganho.id).expect(200)
+    ).body.passagens[0].negocioDestinoId as string;
+
+    // A Líder Comercial não vê Marketing nem CS: só a área dos dois lados.
+    const comoLiderComercial = await entrarComo(t, liderComercial);
+    const detalhe = await comoLiderComercial
+      .get(`/api/v1/negocios/${noComercial}`)
+      .expect(200);
+    expect(detalhe.body.jornada).toEqual({
+      origem: { id: lead.id, area: 'MARKETING', visivel: false },
+      gerados: [{ id: noCs, area: 'CS', visivel: false }],
+    });
+    // O C-level vê tudo.
+    const comoCLevel = await entrarComo(t, cLevel);
+    expect(
+      (await comoCLevel.get(`/api/v1/negocios/${noComercial}`).expect(200)).body
+        .jornada,
+    ).toEqual({
+      origem: { id: lead.id, area: 'MARKETING', visivel: true },
+      gerados: [{ id: noCs, area: 'CS', visivel: true }],
+    });
+    // Nas pontas: o lead gerou o do Comercial; o do CS veio dele.
+    const comoLiderMarketing = await entrarComo(t, liderMarketing);
+    expect(
+      (await comoLiderMarketing.get(`/api/v1/negocios/${lead.id}`).expect(200))
+        .body.jornada,
+    ).toEqual({
+      origem: null,
+      gerados: [{ id: noComercial, area: 'COMERCIAL', visivel: false }],
+    });
+    const comoLiderCs = await entrarComo(t, liderCs);
+    expect(
+      (await comoLiderCs.get(`/api/v1/negocios/${noCs}`).expect(200)).body
+        .jornada,
+    ).toEqual({
+      origem: { id: noComercial, area: 'COMERCIAL', visivel: false },
+      gerados: [],
+    });
+    // Quem não vê o negócio de origem continua recebendo 404 nele.
+    await comoLiderComercial.get(`/api/v1/negocios/${noCs}`).expect(404);
+  });
+
   it('R5.7 — roda uma única vez por negócio de origem: reabrir e ganhar de novo não duplica', async () => {
     const cLevel = await criarUsuario(t, { papel: 'C_LEVEL' });
     const { lider } = await criarEquipe(t, 'COMERCIAL', { membros: 0, cLevel });

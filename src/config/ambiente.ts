@@ -25,6 +25,59 @@ export const CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO = createHash('sha256')
   .update('crmbrl-chave-de-desenvolvimento-nao-use-em-producao')
   .digest();
 
+/** Porta HTTP interna do gateway de WhatsApp (`WHATSAPP_PORTA`). */
+export const PORTA_PADRAO_GATEWAY_WHATSAPP = 3100;
+
+/**
+ * Token interno de desenvolvimento entre a API e o gateway de WhatsApp. Só é
+ * usado fora de produção quando `WHATSAPP_TOKEN_INTERNO` não vem; em produção,
+ * se alguém o configurar de propósito, a inicialização avisa.
+ */
+export const TOKEN_INTERNO_DESENVOLVIMENTO =
+  'crmbrl-token-interno-de-desenvolvimento-nao-use-em-producao';
+
+/** Tamanho mínimo do `WHATSAPP_TOKEN_INTERNO`. */
+export const TAMANHO_MINIMO_TOKEN_INTERNO = 32;
+
+/** Endereço e versão padrão da Graph API da Meta (Instagram e Messenger). */
+export const META_GRAPH_URL_PADRAO = 'https://graph.facebook.com';
+export const META_GRAPH_VERSAO_PADRAO = 'v24.0';
+
+/** Onde ficam os arquivos (R11): MinIO/S3 ou memória (testes). */
+export type DriverDeArquivos = 's3' | 'memoria';
+
+export interface ConfiguracaoArquivos {
+  /** `s3` (MinIO no compose) ou `memoria` (testes: some quando o processo para). */
+  readonly driver: DriverDeArquivos;
+  /** Endereço do S3/MinIO (`ARQUIVOS_ENDPOINT`). `null` = o endereço padrão da AWS para a região. */
+  readonly endpoint: string | null;
+  readonly regiao: string;
+  /** Chave de acesso (`ARQUIVOS_CHAVE`). Obrigatória com `s3` em produção. */
+  readonly chave: string | null;
+  /** Segredo (`ARQUIVOS_SEGREDO`). Nunca vai para log nem resposta. */
+  readonly segredo: string | null;
+  /** Bucket (`ARQUIVOS_BUCKET`), criado pela API ao subir se ainda não existir. */
+  readonly bucket: string;
+}
+
+export interface ConfiguracaoWhatsapp {
+  /** Endereço interno do gateway, para os comandos síncronos da API (`WHATSAPP_URL_INTERNA`). */
+  readonly urlInterna: string;
+  /** Token do cabeçalho `X-Token-Interno` entre a API e o gateway (`WHATSAPP_TOKEN_INTERNO`). */
+  readonly tokenInterno: string;
+  /** Transporte simulado: QR de mentira, envios com status progressivo e `POST /simulador/receber`. */
+  readonly simulado: boolean;
+  /** Porta HTTP interna do processo do gateway (`WHATSAPP_PORTA`). */
+  readonly porta: number;
+}
+
+export interface ConfiguracaoMeta {
+  /** Base da Graph API, sem barra no fim (`META_GRAPH_URL`; a falsa do ambiente dos agentes, nos testes). */
+  readonly graphUrl: string;
+  /** Versão da Graph API (`META_GRAPH_VERSAO`, ex.: `v24.0`). */
+  readonly graphVersao: string;
+}
+
 export interface ConfiguracaoSessao {
   /** Sem uso por tanto tempo, a sessão expira (R2.2, padrão 7 dias). */
   readonly inatividadeDias: number;
@@ -89,6 +142,12 @@ export interface Ambiente {
   readonly processarFilas: boolean;
   /** Formato do log no console (`LOG_FORMATO`: `json` ou `texto`; padrão `json` em produção). */
   readonly logFormato: 'json' | 'texto';
+  /** Armazenamento de arquivos (R11). */
+  readonly arquivos: ConfiguracaoArquivos;
+  /** Gateway de WhatsApp (R13): processo próprio, comandos por HTTP interno. */
+  readonly whatsapp: ConfiguracaoWhatsapp;
+  /** Graph API da Meta (Instagram e Messenger, R14). */
+  readonly meta: ConfiguracaoMeta;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -121,6 +180,18 @@ export interface VariaveisDeAmbiente {
   DOCS_PUBLICAS?: string;
   PROCESSAR_FILAS?: string;
   LOG_FORMATO?: string;
+  ARQUIVOS_DRIVER?: string;
+  ARQUIVOS_ENDPOINT?: string;
+  ARQUIVOS_REGIAO?: string;
+  ARQUIVOS_CHAVE?: string;
+  ARQUIVOS_SEGREDO?: string;
+  ARQUIVOS_BUCKET?: string;
+  WHATSAPP_URL_INTERNA?: string;
+  WHATSAPP_TOKEN_INTERNO?: string;
+  WHATSAPP_SIMULADO?: string;
+  WHATSAPP_PORTA?: string;
+  META_GRAPH_URL?: string;
+  META_GRAPH_VERSAO?: string;
 }
 
 const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
@@ -150,6 +221,18 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'DOCS_PUBLICAS',
   'PROCESSAR_FILAS',
   'LOG_FORMATO',
+  'ARQUIVOS_DRIVER',
+  'ARQUIVOS_ENDPOINT',
+  'ARQUIVOS_REGIAO',
+  'ARQUIVOS_CHAVE',
+  'ARQUIVOS_SEGREDO',
+  'ARQUIVOS_BUCKET',
+  'WHATSAPP_URL_INTERNA',
+  'WHATSAPP_TOKEN_INTERNO',
+  'WHATSAPP_SIMULADO',
+  'WHATSAPP_PORTA',
+  'META_GRAPH_URL',
+  'META_GRAPH_VERSAO',
 ];
 
 export function variaveisDoProcesso(): VariaveisDeAmbiente {
@@ -231,6 +314,9 @@ export function lerAmbiente(
       problemas,
     ),
     logFormato: lerLogFormato(variaveis.LOG_FORMATO, producao, problemas),
+    arquivos: lerArquivos(variaveis, producao, problemas, avisos),
+    whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
+    meta: lerMeta(variaveis, problemas),
     avisos,
   };
 
@@ -266,17 +352,22 @@ function lerDatabaseUrl(
   return url;
 }
 
-function lerPorta(valor: string | undefined, problemas: string[]): number {
+function lerPorta(
+  valor: string | undefined,
+  problemas: string[],
+  nome = 'PORT',
+  padrao = PORTA_PADRAO,
+): number {
   const texto = limpar(valor);
   if (texto === undefined) {
-    return PORTA_PADRAO;
+    return padrao;
   }
   const porta = Number(texto);
   if (!/^\d+$/.test(texto) || porta < 1 || porta > 65535) {
     problemas.push(
-      `PORT precisa ser um número inteiro entre 1 e 65535 (recebido: "${texto}").`,
+      `${nome} precisa ser um número inteiro entre 1 e 65535 (recebido: "${texto}").`,
     );
-    return PORTA_PADRAO;
+    return padrao;
   }
   return porta;
 }
@@ -580,4 +671,183 @@ function lerChavesDoObserve(
     );
   }
   return null;
+}
+
+/** Endereço http(s) sem barra no fim, ou `null` (com o problema registrado) se não for um. */
+function lerEnderecoHttp(
+  nome: string,
+  valor: string | undefined,
+  padrao: string | null,
+  problemas: string[],
+): string | null {
+  const texto = limpar(valor);
+  if (texto === undefined) {
+    return padrao;
+  }
+  if (!URL.canParse(texto) || !/^https?:$/.test(new URL(texto).protocol)) {
+    problemas.push(
+      `${nome} precisa ser um endereço http(s) (recebido: "${texto}").`,
+    );
+    return padrao;
+  }
+  const url = new URL(texto);
+  if (url.username || url.password) {
+    problemas.push(
+      `${nome} não pode levar usuário e senha no endereço (use as variáveis próprias).`,
+    );
+    return padrao;
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/** Regras de nome de bucket do S3: 3 a 63 caracteres, minúsculas, dígitos, ponto e hífen. */
+const NOME_DE_BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+/**
+ * `ARQUIVOS_*` (R11). Com `s3` (padrão) a API fala com o MinIO do compose; com
+ * `memoria` (testes) os arquivos ficam no processo e somem ao reiniciar. Em
+ * produção, o driver `s3` exige chave e segredo.
+ */
+function lerArquivos(
+  variaveis: VariaveisDeAmbiente,
+  producao: boolean,
+  problemas: string[],
+  avisos: string[],
+): ConfiguracaoArquivos {
+  const driverTexto = limpar(variaveis.ARQUIVOS_DRIVER)?.toLowerCase() ?? 's3';
+  let driver: DriverDeArquivos = 's3';
+  if (driverTexto === 's3' || driverTexto === 'memoria') {
+    driver = driverTexto;
+  } else {
+    problemas.push(
+      `ARQUIVOS_DRIVER precisa ser s3 ou memoria (recebido: "${variaveis.ARQUIVOS_DRIVER}").`,
+    );
+  }
+  const endpoint = lerEnderecoHttp(
+    'ARQUIVOS_ENDPOINT',
+    variaveis.ARQUIVOS_ENDPOINT,
+    producao ? null : 'http://localhost:9000',
+    problemas,
+  );
+  const chave = limpar(variaveis.ARQUIVOS_CHAVE) ?? null;
+  const segredo = variaveis.ARQUIVOS_SEGREDO?.trim()
+    ? variaveis.ARQUIVOS_SEGREDO.trim()
+    : null;
+  const bucket = limpar(variaveis.ARQUIVOS_BUCKET) ?? 'crmbrl';
+  if (!NOME_DE_BUCKET.test(bucket)) {
+    problemas.push(
+      `ARQUIVOS_BUCKET precisa ter de 3 a 63 caracteres: letras minúsculas, dígitos, ponto ou hífen (recebido: "${bucket}").`,
+    );
+  }
+  if (driver === 's3' && (!chave || !segredo)) {
+    const faltando = [
+      chave ? null : 'ARQUIVOS_CHAVE',
+      segredo ? null : 'ARQUIVOS_SEGREDO',
+    ]
+      .filter(Boolean)
+      .join(' e ');
+    if (producao) {
+      problemas.push(
+        `${faltando}: obrigatória(s) em produção com ARQUIVOS_DRIVER=s3 (as credenciais do MinIO).`,
+      );
+    } else {
+      avisos.push(
+        `${faltando} não definida(s): o envio e o download de arquivos vão falhar até configurar o MinIO (ou use ARQUIVOS_DRIVER=memoria).`,
+      );
+    }
+  }
+  if (driver === 'memoria' && producao) {
+    avisos.push(
+      'ARQUIVOS_DRIVER=memoria em produção: os arquivos somem quando o processo reinicia.',
+    );
+  }
+  return {
+    driver,
+    endpoint,
+    regiao: limpar(variaveis.ARQUIVOS_REGIAO) ?? 'us-east-1',
+    chave,
+    segredo,
+    bucket,
+  };
+}
+
+/**
+ * `WHATSAPP_*` (R13): o gateway é outro processo da mesma imagem. A API manda
+ * comandos para `WHATSAPP_URL_INTERNA` com o token interno; o gateway exige o
+ * mesmo token. Em produção o token é obrigatório.
+ */
+function lerWhatsapp(
+  variaveis: VariaveisDeAmbiente,
+  producao: boolean,
+  problemas: string[],
+  avisos: string[],
+): ConfiguracaoWhatsapp {
+  const porta = lerPorta(
+    variaveis.WHATSAPP_PORTA,
+    problemas,
+    'WHATSAPP_PORTA',
+    PORTA_PADRAO_GATEWAY_WHATSAPP,
+  );
+  const urlInterna =
+    lerEnderecoHttp(
+      'WHATSAPP_URL_INTERNA',
+      variaveis.WHATSAPP_URL_INTERNA,
+      null,
+      problemas,
+    ) ?? `http://localhost:${porta}`;
+  let tokenInterno = variaveis.WHATSAPP_TOKEN_INTERNO?.trim() ?? '';
+  if (!tokenInterno) {
+    if (producao) {
+      problemas.push(
+        `WHATSAPP_TOKEN_INTERNO é obrigatório em produção: um segredo de pelo menos ${TAMANHO_MINIMO_TOKEN_INTERNO} caracteres, o mesmo na API e no gateway (gere com \`openssl rand -base64 32\`).`,
+      );
+    } else {
+      avisos.push(
+        'WHATSAPP_TOKEN_INTERNO não definido: usando o token interno de desenvolvimento (não use em produção).',
+      );
+    }
+    tokenInterno = TOKEN_INTERNO_DESENVOLVIMENTO;
+  } else if (tokenInterno.length < TAMANHO_MINIMO_TOKEN_INTERNO) {
+    // O valor não entra na mensagem: é um segredo.
+    problemas.push(
+      `WHATSAPP_TOKEN_INTERNO precisa ter pelo menos ${TAMANHO_MINIMO_TOKEN_INTERNO} caracteres.`,
+    );
+  } else if (producao && tokenInterno === TOKEN_INTERNO_DESENVOLVIMENTO) {
+    avisos.push(
+      'WHATSAPP_TOKEN_INTERNO é o token público de desenvolvimento: troque-o antes de usar em produção.',
+    );
+  }
+  return {
+    urlInterna,
+    tokenInterno,
+    simulado: lerBooleano(
+      'WHATSAPP_SIMULADO',
+      variaveis.WHATSAPP_SIMULADO,
+      false,
+      problemas,
+    ),
+    porta,
+  };
+}
+
+/** `META_GRAPH_*` (R14): onde fica a Graph API (a falsa do ambiente dos agentes, nos testes). */
+function lerMeta(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoMeta {
+  const graphUrl =
+    lerEnderecoHttp(
+      'META_GRAPH_URL',
+      variaveis.META_GRAPH_URL,
+      META_GRAPH_URL_PADRAO,
+      problemas,
+    ) ?? META_GRAPH_URL_PADRAO;
+  const versao =
+    limpar(variaveis.META_GRAPH_VERSAO) ?? META_GRAPH_VERSAO_PADRAO;
+  if (!/^v\d+\.\d+$/.test(versao)) {
+    problemas.push(
+      `META_GRAPH_VERSAO precisa ter o formato vNN.N, como ${META_GRAPH_VERSAO_PADRAO} (recebido: "${versao}").`,
+    );
+  }
+  return { graphUrl, graphVersao: versao };
 }
