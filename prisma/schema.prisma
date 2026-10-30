@@ -1,5 +1,6 @@
-// Esquema do banco do CRM BRL (PostgreSQL 17) — Fase 1 (núcleo do CRM) e
-// Onda A da Fase 2 (arquivos, atendimento omnichannel, WhatsApp, chat interno).
+// Esquema do banco do CRM BRL (PostgreSQL 17) — Fase 1 (núcleo do CRM), Onda A
+// da Fase 2 (arquivos, atendimento omnichannel, WhatsApp, chat interno) e Onda B
+// (importação, disparos, chatbot, automações e o executor de passos).
 //
 // Convenções:
 // - modelos em PascalCase, no singular e em português;
@@ -9,8 +10,8 @@
 //   modelos (o masculino vale para qualquer registro, para não errar o nome);
 // - valores em Decimal(14,2); exclusão lógica com `excluidoEm` onde indicado.
 //
-// Regras que o banco garante sozinho (SQL nas migrations `fase1_nucleo` e
-// `onda_a_atendimento`):
+// Regras que o banco garante sozinho (SQL nas migrations `fase1_nucleo`,
+// `onda_a_atendimento` e `onda_b_automacao`):
 // - índices únicos parciais (preview `partialIndexes`, declarados aqui com `where`);
 // - CHECKs de valores e da normalização do e-mail do usuário;
 // - o gatilho que recusa UPDATE, DELETE e TRUNCATE em `eventos_auditoria` (R3.3);
@@ -140,6 +141,9 @@ enum TipoAtor {
   WEBHOOK
   AUTOMACAO
   IA
+  /// Onda B: autor das mensagens do chatbot (`mensagens.autor_tipo`). As ações do
+  /// chatbot são auditadas como AUTOMACAO.
+  BOT
 
   @@map("tipo_ator")
 }
@@ -265,6 +269,17 @@ model Usuario {
   chatCanaisCriados          ChatCanal[]                     @relation("ChatCanalCriadoPor")
   chatParticipacoes          ChatMembro[]
   chatMensagens              ChatMensagem[]                  @relation("ChatMensagemAutor")
+  // Onda B
+  configuracoesAtualizadas   Configuracao[]                  @relation("ConfiguracaoAtualizadaPor")
+  importacoesCriadas         Importacao[]                    @relation("ImportacaoCriadaPor")
+  importacoesResponsavel     Importacao[]                    @relation("ImportacaoResponsavel")
+  importacaoModelosCriados   ImportacaoModelo[]              @relation("ImportacaoModeloCriadoPor")
+  modelosMensagemCriados     ModeloMensagem[]                @relation("ModeloMensagemCriadoPor")
+  campanhasCriadas           Campanha[]                      @relation("CampanhaCriadaPor")
+  campanhasAprovadas         Campanha[]                      @relation("CampanhaAprovadaPor")
+  fluxosChatbotCriados       FluxoChatbot[]                  @relation("FluxoChatbotCriadoPor")
+  fluxosVersoesPublicadas    FluxoChatbotVersao[]            @relation("FluxoVersaoPublicadaPor")
+  automacoesCriadas          Automacao[]                     @relation("AutomacaoCriadaPor")
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -405,13 +420,16 @@ model Contato {
   /// Exclusão lógica com anonimização (R4.6).
   excluidoEm            DateTime?     @map("excluido_em") @db.Timestamptz(3)
 
-  negocios            Negocio[]
-  atividades          Atividade[]
-  recebimentosWebhook WebhookRecebimento[]
+  negocios              Negocio[]
+  atividades            Atividade[]
+  recebimentosWebhook   WebhookRecebimento[]
   // Onda A
-  identificadores     ContatoIdentificador[]
-  conversas           Conversa[]
-  visitantesWebchat   WebchatVisitante[]
+  identificadores       ContatoIdentificador[]
+  conversas             Conversa[]
+  visitantesWebchat     WebchatVisitante[]
+  // Onda B
+  destinatariosCampanha CampanhaDestinatario[]
+  execucoes             Execucao[]
 
   @@unique([email], map: "contatos_email_ativo_key", where: raw("(email IS NOT NULL) AND (excluido_em IS NULL)"))
   @@unique([telefone], map: "contatos_telefone_ativo_key", where: raw("(telefone IS NOT NULL) AND (excluido_em IS NULL)"))
@@ -537,6 +555,7 @@ model Negocio {
   passagensExecutadasDestino PassagemExecucao[]    @relation("ExecucaoNegocioDestino")
   recebimentosWebhook        WebhookRecebimento[]
   conversas                  Conversa[]
+  execucoes                  Execucao[]
 
   @@index([funilId, etapaId, status])
   @@index([etapaId, posicao])
@@ -799,6 +818,9 @@ model EventoDominio {
   manipuladoresConcluidos String[]  @default([]) @map("manipuladores_concluidos")
   /// Erro da última tentativa que falhou.
   erro                    String?
+  /// Onda B: encadeamento de automações que gerou o evento (`{ execucaoId,
+  /// profundidade, automacoes }`), para a proteção contra laços. Nulo fora delas.
+  cadeia                  Json?
 
   @@index([criadoEm], map: "eventos_dominio_a_enfileirar_idx", where: raw("(enfileirado_em IS NULL)"))
   @@index([tipo, criadoEm])
@@ -963,6 +985,10 @@ enum ContextoArquivo {
   /// Foto de usuário ou de contato (qualquer usuário logado).
   AVATAR
   OUTRO
+  /// Onda B: mídia de campanhas, modelos de mensagem, chatbot e automações.
+  CAMPANHA
+  /// Onda B: relatórios gerados (importação, exportação de campanhas).
+  RELATORIO
 
   @@map("contexto_arquivo")
 }
@@ -1117,34 +1143,39 @@ enum TipoChatCanal {
 /// Arquivo guardado no bucket (MinIO/S3). O download passa sempre pela API
 /// (`GET /api/v1/arquivos/:id`), com a permissão do item a que pertence.
 model Arquivo {
-  id               String          @id @default(uuid()) @db.Uuid
+  id              String          @id @default(uuid()) @db.Uuid
   /// Chave do objeto no bucket (`<contexto>/<aaaa>/<mm>/<id>`). Nunca sai da API.
-  chave            String          @unique
+  chave           String          @unique
   /// Nome original, já limpo (sem caminho nem caracteres de controle).
-  nome             String
+  nome            String
   /// Tipo MIME aceito pela política de arquivos (SVG e HTML são recusados).
-  mime             String
+  mime            String
   /// Em bytes.
-  tamanho          Int
+  tamanho         Int
   /// SHA-256 do conteúdo, em hexadecimal.
-  sha256           String          @db.Char(64)
-  contexto         ContextoArquivo
+  sha256          String          @db.Char(64)
+  contexto        ContextoArquivo
   /// Imagens e vídeos: dimensões, quando conhecidas.
-  largura          Int?
-  altura           Int?
+  largura         Int?
+  altura          Int?
   /// Áudio e vídeo: duração, quando conhecida.
-  duracaoSegundos  Int?            @map("duracao_segundos")
+  duracaoSegundos Int?            @map("duracao_segundos")
   /// Nulo quando veio de fora (mídia recebida por um canal, visitante do chat do site).
-  criadoPorId      String?         @map("criado_por_id") @db.Uuid
-  criadoPor        Usuario?        @relation("ArquivoCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
-  criadoEm         DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm     DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  criadoPorId     String?         @map("criado_por_id") @db.Uuid
+  criadoPor       Usuario?        @relation("ArquivoCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm        DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   /// O conteúdo foi apagado do bucket (`ArquivosService.remover`); o registro fica para o histórico.
-  removidoEm       DateTime?       @map("removido_em") @db.Timestamptz(3)
+  removidoEm      DateTime?       @map("removido_em") @db.Timestamptz(3)
 
-  mensagens        Mensagem[]
-  chatMensagens    ChatMensagem[]
-  respostasRapidas RespostaRapida[]
+  mensagens            Mensagem[]
+  chatMensagens        ChatMensagem[]
+  respostasRapidas     RespostaRapida[]
+  // Onda B
+  importacoes          Importacao[]     @relation("ImportacaoArquivo")
+  relatoriosImportacao Importacao[]     @relation("ImportacaoRelatorio")
+  modelosMensagem      ModeloMensagem[] @relation("ModeloMensagemArquivo")
+  campanhas            Campanha[]       @relation("CampanhaArquivo")
 
   @@index([contexto, criadoEm])
   @@index([criadoPorId])
@@ -1200,11 +1231,14 @@ model Canal {
   atualizadoEm        DateTime         @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   excluidoEm          DateTime?        @map("excluido_em") @db.Timestamptz(3)
 
-  whatsappNumero      WhatsappNumero?
-  conversas           Conversa[]
-  mensagens           Mensagem[]
-  identificadores     ContatoIdentificador[]
-  visitantes          WebchatVisitante[]
+  whatsappNumero  WhatsappNumero?
+  conversas       Conversa[]
+  mensagens       Mensagem[]
+  identificadores ContatoIdentificador[]
+  visitantes      WebchatVisitante[]
+  // Onda B
+  campanhas       CampanhaCanal[]        @relation("CampanhaCanalCanal")
+  destinatarios   CampanhaDestinatario[] @relation("CampanhaDestinatarioCanal")
 
   @@unique([tipo, idExterno], map: "canais_tipo_id_externo_ativo_key", where: raw("((id_externo IS NOT NULL) AND (excluido_em IS NULL))"))
   @@index([tipo, ativo])
@@ -1214,30 +1248,30 @@ model Canal {
 /// Fila de atendimento de uma área (R12): SLA de primeira resposta e de
 /// resolução e a estratégia de distribuição das conversas novas.
 model FilaAtendimento {
-  id                         String               @id @default(uuid()) @db.Uuid
+  id                         String         @id @default(uuid()) @db.Uuid
   /// Identifica filas criadas pelo sistema (ex.: `comercial`), estável mesmo se renomeadas.
-  chave                      String?              @unique
+  chave                      String?        @unique
   nome                       String
   area                       Area
   descricao                  String?
   /// Prazo da primeira resposta, em minutos. Nulo = sem SLA.
-  slaPrimeiraRespostaMinutos Int?                 @map("sla_primeira_resposta_minutos")
+  slaPrimeiraRespostaMinutos Int?           @map("sla_primeira_resposta_minutos")
   /// Prazo de resolução, em minutos. Nulo = sem SLA.
-  slaResolucaoMinutos        Int?                 @map("sla_resolucao_minutos")
-  estrategia                 EstrategiaFila       @default(RODIZIO)
+  slaResolucaoMinutos        Int?           @map("sla_resolucao_minutos")
+  estrategia                 EstrategiaFila @default(RODIZIO)
   /// Ponteiro do rodízio: trave a linha (`SELECT … FOR UPDATE`) antes de escolher o próximo.
-  ultimoUsuarioId            String?              @map("ultimo_usuario_id") @db.Uuid
-  ultimoUsuario              Usuario?             @relation("FilaUltimoUsuario", fields: [ultimoUsuarioId], references: [id], onDelete: SetNull)
-  ativa                      Boolean              @default(true)
-  criadoEm                   DateTime             @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm               DateTime             @updatedAt @map("atualizado_em") @db.Timestamptz(3)
-  excluidoEm                 DateTime?            @map("excluido_em") @db.Timestamptz(3)
+  ultimoUsuarioId            String?        @map("ultimo_usuario_id") @db.Uuid
+  ultimoUsuario              Usuario?       @relation("FilaUltimoUsuario", fields: [ultimoUsuarioId], references: [id], onDelete: SetNull)
+  ativa                      Boolean        @default(true)
+  criadoEm                   DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm               DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm                 DateTime?      @map("excluido_em") @db.Timestamptz(3)
 
-  participantes              FilaParticipante[]
-  conversas                  Conversa[]
-  canaisPadrao               Canal[]
-  atribuicoesDe              ConversaAtribuicao[] @relation("AtribuicaoDeFila")
-  atribuicoesPara            ConversaAtribuicao[] @relation("AtribuicaoParaFila")
+  participantes   FilaParticipante[]
+  conversas       Conversa[]
+  canaisPadrao    Canal[]
+  atribuicoesDe   ConversaAtribuicao[] @relation("AtribuicaoDeFila")
+  atribuicoesPara ConversaAtribuicao[] @relation("AtribuicaoParaFila")
 
   @@index([area, ativa])
   @@map("filas_atendimento")
@@ -1294,66 +1328,67 @@ model ContatoIdentificador {
 /// Conversa de um contato num canal. Um contato tem no máximo uma conversa em
 /// aberto (ABERTA ou PENDENTE) por canal — índice único parcial (R12).
 model Conversa {
-  id                           String               @id @default(uuid()) @db.Uuid
-  canalId                      String               @map("canal_id") @db.Uuid
-  canal                        Canal                @relation(fields: [canalId], references: [id], onDelete: Restrict)
-  contatoId                    String               @map("contato_id") @db.Uuid
-  contato                      Contato              @relation(fields: [contatoId], references: [id], onDelete: Restrict)
-  filaId                       String?              @map("fila_id") @db.Uuid
-  fila                         FilaAtendimento?     @relation(fields: [filaId], references: [id], onDelete: SetNull)
+  id                           String             @id @default(uuid()) @db.Uuid
+  canalId                      String             @map("canal_id") @db.Uuid
+  canal                        Canal              @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  contatoId                    String             @map("contato_id") @db.Uuid
+  contato                      Contato            @relation(fields: [contatoId], references: [id], onDelete: Restrict)
+  filaId                       String?            @map("fila_id") @db.Uuid
+  fila                         FilaAtendimento?   @relation(fields: [filaId], references: [id], onDelete: SetNull)
   /// Nulo = sem responsável (quem atende a fila pode assumir, R12).
-  responsavelId                String?              @map("responsavel_id") @db.Uuid
-  responsavel                  Usuario?             @relation("ConversaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  responsavelId                String?            @map("responsavel_id") @db.Uuid
+  responsavel                  Usuario?           @relation("ConversaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   /// Quando o responsável atual recebeu a conversa.
-  atribuidaEm                  DateTime?            @map("atribuida_em") @db.Timestamptz(3)
-  status                       StatusConversa       @default(ABERTA)
-  prioridade                   PrioridadeConversa   @default(NORMAL)
+  atribuidaEm                  DateTime?          @map("atribuida_em") @db.Timestamptz(3)
+  status                       StatusConversa     @default(ABERTA)
+  prioridade                   PrioridadeConversa @default(NORMAL)
   assunto                      String?
   /// Id da conversa no provedor (jid do WhatsApp, Message-ID da raiz do e-mail,
   /// id da conversa da Meta, visitante do chat do site).
-  idExterno                    String?              @map("id_externo")
-  etiquetas                    String[]             @default([])
+  idExterno                    String?            @map("id_externo")
+  etiquetas                    String[]           @default([])
   /// Negócio ligado à conversa (ex.: criado a partir dela).
-  negocioId                    String?              @map("negocio_id") @db.Uuid
-  negocio                      Negocio?             @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  negocioId                    String?            @map("negocio_id") @db.Uuid
+  negocio                      Negocio?           @relation(fields: [negocioId], references: [id], onDelete: SetNull)
   /// Última mensagem (para a prévia na lista de conversas).
-  ultimaMensagemId             String?              @unique @map("ultima_mensagem_id") @db.Uuid
-  ultimaMensagem               Mensagem?            @relation("ConversaUltimaMensagem", fields: [ultimaMensagemId], references: [id], onDelete: SetNull)
-  ultimaMensagemEm             DateTime?            @map("ultima_mensagem_em") @db.Timestamptz(3)
+  ultimaMensagemId             String?            @unique @map("ultima_mensagem_id") @db.Uuid
+  ultimaMensagem               Mensagem?          @relation("ConversaUltimaMensagem", fields: [ultimaMensagemId], references: [id], onDelete: SetNull)
+  ultimaMensagemEm             DateTime?          @map("ultima_mensagem_em") @db.Timestamptz(3)
   /// Última mensagem do contato: base da janela de 24 h da Meta e do "aguardando".
-  ultimaEntradaEm              DateTime?            @map("ultima_entrada_em") @db.Timestamptz(3)
+  ultimaEntradaEm              DateTime?          @map("ultima_entrada_em") @db.Timestamptz(3)
   /// Desde quando o contato espera resposta (primeira entrada sem resposta). Nulo = ninguém esperando.
-  aguardandoDesde              DateTime?            @map("aguardando_desde") @db.Timestamptz(3)
+  aguardandoDesde              DateTime?          @map("aguardando_desde") @db.Timestamptz(3)
   /// Mensagens do contato ainda não lidas pela equipe.
-  naoLidas                     Int                  @default(0) @map("nao_lidas")
+  naoLidas                     Int                @default(0) @map("nao_lidas")
   /// Primeira resposta da equipe ao contato (SLA de primeira resposta).
-  primeiraRespostaEm           DateTime?            @map("primeira_resposta_em") @db.Timestamptz(3)
-  resolvidaEm                  DateTime?            @map("resolvida_em") @db.Timestamptz(3)
-  resolvidaPorId               String?              @map("resolvida_por_id") @db.Uuid
-  resolvidaPor                 Usuario?             @relation("ConversaResolvidaPor", fields: [resolvidaPorId], references: [id], onDelete: SetNull)
-  reaberturas                  Int                  @default(0)
+  primeiraRespostaEm           DateTime?          @map("primeira_resposta_em") @db.Timestamptz(3)
+  resolvidaEm                  DateTime?          @map("resolvida_em") @db.Timestamptz(3)
+  resolvidaPorId               String?            @map("resolvida_por_id") @db.Uuid
+  resolvidaPor                 Usuario?           @relation("ConversaResolvidaPor", fields: [resolvidaPorId], references: [id], onDelete: SetNull)
+  reaberturas                  Int                @default(0)
   /// Prazos do SLA da fila (R12), calculados quando a conversa entra na fila.
-  slaPrimeiraRespostaAte       DateTime?            @map("sla_primeira_resposta_ate") @db.Timestamptz(3)
-  slaResolucaoAte              DateTime?            @map("sla_resolucao_ate") @db.Timestamptz(3)
+  slaPrimeiraRespostaAte       DateTime?          @map("sla_primeira_resposta_ate") @db.Timestamptz(3)
+  slaResolucaoAte              DateTime?          @map("sla_resolucao_ate") @db.Timestamptz(3)
   /// Quando o líder foi avisado do estouro (uma vez por prazo).
-  slaPrimeiraRespostaAvisadoEm DateTime?            @map("sla_primeira_resposta_avisado_em") @db.Timestamptz(3)
-  slaResolucaoAvisadoEm        DateTime?            @map("sla_resolucao_avisado_em") @db.Timestamptz(3)
+  slaPrimeiraRespostaAvisadoEm DateTime?          @map("sla_primeira_resposta_avisado_em") @db.Timestamptz(3)
+  slaResolucaoAvisadoEm        DateTime?          @map("sla_resolucao_avisado_em") @db.Timestamptz(3)
   /// A resposta automática de fora do horário já foi enviada neste período.
-  foraHorarioRespondidoEm      DateTime?            @map("fora_horario_respondido_em") @db.Timestamptz(3)
+  foraHorarioRespondidoEm      DateTime?          @map("fora_horario_respondido_em") @db.Timestamptz(3)
   /// Pesquisa de satisfação (R12): pedida ao resolver, vale por 24 h.
-  satisfacaoSolicitadaEm       DateTime?            @map("satisfacao_solicitada_em") @db.Timestamptz(3)
+  satisfacaoSolicitadaEm       DateTime?          @map("satisfacao_solicitada_em") @db.Timestamptz(3)
   /// 1 a 5 (CHECK).
-  satisfacaoNota               Int?                 @map("satisfacao_nota")
-  satisfacaoComentario         String?              @map("satisfacao_comentario")
-  satisfacaoRespondidaEm       DateTime?            @map("satisfacao_respondida_em") @db.Timestamptz(3)
+  satisfacaoNota               Int?               @map("satisfacao_nota")
+  satisfacaoComentario         String?            @map("satisfacao_comentario")
+  satisfacaoRespondidaEm       DateTime?          @map("satisfacao_respondida_em") @db.Timestamptz(3)
   /// Janela de 24 h da Meta (Instagram, Messenger): até quando cabe resposta comum.
-  janelaAte                    DateTime?            @map("janela_ate") @db.Timestamptz(3)
-  criadoEm                     DateTime             @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm                 DateTime             @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  janelaAte                    DateTime?          @map("janela_ate") @db.Timestamptz(3)
+  criadoEm                     DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm                 DateTime           @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  mensagens                    Mensagem[]           @relation("MensagensDaConversa")
-  atribuicoes                  ConversaAtribuicao[]
-  visitantes                   WebchatVisitante[]
+  mensagens   Mensagem[]           @relation("MensagensDaConversa")
+  atribuicoes ConversaAtribuicao[]
+  visitantes  WebchatVisitante[]
+  execucoes   Execucao[]
 
   @@unique([canalId, contatoId], map: "conversas_uma_em_aberto_key", where: raw("(status <> 'RESOLVIDA'::status_conversa)"))
   @@index([status, filaId])
@@ -1369,50 +1404,52 @@ model Conversa {
 /// mensagem pelo id externo (status de entrega, respostas, encadeamento do
 /// e-mail) — e o par é único, o que torna a entrada idempotente.
 model Mensagem {
-  id             String          @id @default(uuid()) @db.Uuid
-  conversaId     String          @map("conversa_id") @db.Uuid
-  conversa       Conversa        @relation("MensagensDaConversa", fields: [conversaId], references: [id], onDelete: Cascade)
-  canalId        String          @map("canal_id") @db.Uuid
-  canal          Canal           @relation(fields: [canalId], references: [id], onDelete: Restrict)
-  direcao        DirecaoMensagem
-  tipo           TipoMensagem    @default(TEXTO)
+  id           String          @id @default(uuid()) @db.Uuid
+  conversaId   String          @map("conversa_id") @db.Uuid
+  conversa     Conversa        @relation("MensagensDaConversa", fields: [conversaId], references: [id], onDelete: Cascade)
+  canalId      String          @map("canal_id") @db.Uuid
+  canal        Canal           @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  direcao      DirecaoMensagem
+  tipo         TipoMensagem    @default(TEXTO)
   /// Texto puro (o e-mail chega aqui como texto, nunca HTML).
-  texto          String?
-  arquivoId      String?         @map("arquivo_id") @db.Uuid
-  arquivo        Arquivo?        @relation(fields: [arquivoId], references: [id], onDelete: SetNull)
+  texto        String?
+  arquivoId    String?         @map("arquivo_id") @db.Uuid
+  arquivo      Arquivo?        @relation(fields: [arquivoId], references: [id], onDelete: SetNull)
   /// Quem escreveu (saída, nota interna). Na entrada, o autor é o contato da conversa.
-  autorId        String?         @map("autor_id") @db.Uuid
-  autor          Usuario?        @relation("MensagemAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  autorId      String?         @map("autor_id") @db.Uuid
+  autor        Usuario?        @relation("MensagemAutor", fields: [autorId], references: [id], onDelete: SetNull)
   /// `USUARIO`, `SISTEMA`, `AUTOMACAO` (chatbot, disparo) ou `IA`. Nulo na entrada.
-  autorTipo      TipoAtor?       @map("autor_tipo")
+  autorTipo    TipoAtor?       @map("autor_tipo")
   /// Só na saída (CHECK): PENDENTE → ENVIADA → ENTREGUE → LIDA, ou FALHOU com `erro`.
-  status         StatusMensagem?
+  status       StatusMensagem?
   /// Motivo da falha, em português (mostrado na bolha com "tentar de novo").
-  erro           String?
-  tentativas     Int             @default(0)
+  erro         String?
+  tentativas   Int             @default(0)
   /// Id da mensagem no provedor (id do WhatsApp, Message-ID do e-mail, mid da Meta…).
-  idExterno      String?         @map("id_externo")
+  idExterno    String?         @map("id_externo")
   /// Mensagem respondida (citação).
-  respostaAId    String?         @map("resposta_a_id") @db.Uuid
-  respostaA      Mensagem?       @relation("MensagemResposta", fields: [respostaAId], references: [id], onDelete: SetNull)
-  respostas      Mensagem[]      @relation("MensagemResposta")
+  respostaAId  String?         @map("resposta_a_id") @db.Uuid
+  respostaA    Mensagem?       @relation("MensagemResposta", fields: [respostaAId], references: [id], onDelete: SetNull)
+  respostas    Mensagem[]      @relation("MensagemResposta")
   /// Detalhes por tipo e canal: localização `{ latitude, longitude, nome? }`,
   /// contato `{ vcard }`, reação `{ emoji }`, e-mail `{ messageId, inReplyTo,
   /// references[], de, para[], cc[], assunto }`, id citado ainda desconhecido
   /// (`respondeAIdExterno`) etc.
-  metadados      Json?
+  metadados    Json?
   /// Quando aconteceu (ordem da conversa): o horário do provedor na entrada, o da criação na saída.
-  ocorridaEm     DateTime        @default(now()) @map("ocorrida_em") @db.Timestamptz(3)
-  enviadaEm      DateTime?       @map("enviada_em") @db.Timestamptz(3)
-  entregueEm     DateTime?       @map("entregue_em") @db.Timestamptz(3)
+  ocorridaEm   DateTime        @default(now()) @map("ocorrida_em") @db.Timestamptz(3)
+  enviadaEm    DateTime?       @map("enviada_em") @db.Timestamptz(3)
+  entregueEm   DateTime?       @map("entregue_em") @db.Timestamptz(3)
   /// Saída: lida pelo contato. Entrada: lida pela equipe.
-  lidaEm         DateTime?       @map("lida_em") @db.Timestamptz(3)
-  editadaEm      DateTime?       @map("editada_em") @db.Timestamptz(3)
-  excluidaEm     DateTime?       @map("excluida_em") @db.Timestamptz(3)
-  criadoEm       DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm   DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  lidaEm       DateTime?       @map("lida_em") @db.Timestamptz(3)
+  editadaEm    DateTime?       @map("editada_em") @db.Timestamptz(3)
+  excluidaEm   DateTime?       @map("excluida_em") @db.Timestamptz(3)
+  criadoEm     DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  conversaUltima Conversa?       @relation("ConversaUltimaMensagem")
+  conversaUltima       Conversa?             @relation("ConversaUltimaMensagem")
+  /// Onda B: destinatário de campanha que gerou esta mensagem.
+  destinatarioCampanha CampanhaDestinatario? @relation("CampanhaDestinatarioMensagem")
 
   @@unique([canalId, idExterno])
   @@index([conversaId, ocorridaEm])
@@ -1509,42 +1546,42 @@ model WebchatVisitante {
 /// Número de WhatsApp conectado pelo gateway próprio (Baileys). Um por canal
 /// `WHATSAPP`. Limites, aquecimento e pausa são as proteções anti-banimento.
 model WhatsappNumero {
-  id                      String                @id @default(uuid()) @db.Uuid
-  canalId                 String                @unique @map("canal_id") @db.Uuid
-  canal                   Canal                 @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  id                      String         @id @default(uuid()) @db.Uuid
+  canalId                 String         @unique @map("canal_id") @db.Uuid
+  canal                   Canal          @relation(fields: [canalId], references: [id], onDelete: Cascade)
   nome                    String
   /// Telefone conectado (E.164 só com dígitos), conhecido depois da leitura do QR.
   telefone                String?
   /// JID e LID da conta conectada (`5511…@s.whatsapp.net`, `…@lid`).
   jid                     String?
   lid                     String?
-  status                  StatusWhatsapp        @default(DESCONECTADO)
+  status                  StatusWhatsapp @default(DESCONECTADO)
   /// Por que está nesse status (erro, banimento, desconectado pelo celular…), em português.
   motivo                  String?
   /// Envios por dia depois do aquecimento.
-  limiteDiario            Int                   @default(1000) @map("limite_diario")
+  limiteDiario            Int            @default(1000) @map("limite_diario")
   /// Ritmo: espera aleatória entre o mínimo e o máximo entre dois envios, em segundos.
-  intervaloMinimoSegundos Int                   @default(2) @map("intervalo_minimo_segundos")
-  intervaloMaximoSegundos Int                   @default(6) @map("intervalo_maximo_segundos")
+  intervaloMinimoSegundos Int            @default(2) @map("intervalo_minimo_segundos")
+  intervaloMaximoSegundos Int            @default(6) @map("intervalo_maximo_segundos")
   /// Aquecimento de número novo: a partir daqui, por `aquecimentoDias`, o limite diário cresce aos poucos.
-  aquecimentoInicioEm     DateTime?             @map("aquecimento_inicio_em") @db.Timestamptz(3)
-  aquecimentoDias         Int                   @default(14) @map("aquecimento_dias")
+  aquecimentoInicioEm     DateTime?      @map("aquecimento_inicio_em") @db.Timestamptz(3)
+  aquecimentoDias         Int            @default(14) @map("aquecimento_dias")
   /// Pausa manual ou automática (erro grave): nada sai por este número enquanto não nulo.
-  pausadoEm               DateTime?             @map("pausado_em") @db.Timestamptz(3)
-  pausaMotivo             String?               @map("pausa_motivo")
+  pausadoEm               DateTime?      @map("pausado_em") @db.Timestamptz(3)
+  pausaMotivo             String?        @map("pausa_motivo")
   /// Outras opções do gateway (ex.: ritmo próprio dos disparos), em JSON.
-  configuracao            Json                  @default("{}")
+  configuracao            Json           @default("{}")
   /// Tentativas seguidas de reconexão (espera crescente); zera ao conectar.
-  tentativasReconexao     Int                   @default(0) @map("tentativas_reconexao")
-  conectadoEm             DateTime?             @map("conectado_em") @db.Timestamptz(3)
-  desconectadoEm          DateTime?             @map("desconectado_em") @db.Timestamptz(3)
-  ultimoQrEm              DateTime?             @map("ultimo_qr_em") @db.Timestamptz(3)
-  ultimoEventoEm          DateTime?             @map("ultimo_evento_em") @db.Timestamptz(3)
-  criadoEm                DateTime              @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm            DateTime              @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  tentativasReconexao     Int            @default(0) @map("tentativas_reconexao")
+  conectadoEm             DateTime?      @map("conectado_em") @db.Timestamptz(3)
+  desconectadoEm          DateTime?      @map("desconectado_em") @db.Timestamptz(3)
+  ultimoQrEm              DateTime?      @map("ultimo_qr_em") @db.Timestamptz(3)
+  ultimoEventoEm          DateTime?      @map("ultimo_evento_em") @db.Timestamptz(3)
+  criadoEm                DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  chaves                  WhatsappChave[]
-  enviosDiarios           WhatsappEnvioDiario[]
+  chaves        WhatsappChave[]
+  enviosDiarios WhatsappEnvioDiario[]
 
   @@index([status])
   @@map("whatsapp_numeros")
@@ -1603,23 +1640,23 @@ model WhatsappVerificacao {
 /// `chave` identifica os canais criados pelo sistema e as diretas
 /// (`geral`, `area:COMERCIAL`, `direto:<menor id>:<maior id>`), sem duplicar.
 model ChatCanal {
-  id               String         @id @default(uuid()) @db.Uuid
+  id               String        @id @default(uuid()) @db.Uuid
   tipo             TipoChatCanal
-  chave            String?        @unique
+  chave            String?       @unique
   /// Nulo nas conversas diretas (o nome é o da outra pessoa).
   nome             String?
   descricao        String?
   /// Canais `AREA`.
   area             Area?
-  criadoPorId      String?        @map("criado_por_id") @db.Uuid
-  criadoPor        Usuario?       @relation("ChatCanalCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
-  ultimaMensagemEm DateTime?      @map("ultima_mensagem_em") @db.Timestamptz(3)
-  arquivadoEm      DateTime?      @map("arquivado_em") @db.Timestamptz(3)
-  criadoEm         DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm     DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  criadoPorId      String?       @map("criado_por_id") @db.Uuid
+  criadoPor        Usuario?      @relation("ChatCanalCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  ultimaMensagemEm DateTime?     @map("ultima_mensagem_em") @db.Timestamptz(3)
+  arquivadoEm      DateTime?     @map("arquivado_em") @db.Timestamptz(3)
+  criadoEm         DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm     DateTime      @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  membros          ChatMembro[]
-  mensagens        ChatMensagem[]
+  membros   ChatMembro[]
+  mensagens ChatMensagem[]
 
   @@index([tipo])
   @@map("chat_canais")
@@ -1675,4 +1712,676 @@ model ChatMensagem {
   @@index([autorId, criadoEm])
   @@index([mencoes], type: Gin)
   @@map("chat_mensagens")
+}
+
+// ===========================================================================
+// Onda B da Fase 2 — importação, disparos (campanhas), chatbot e automações
+// (R16 a R19). Todos os modelos da onda ficam aqui, criados de uma vez pela
+// migration `onda_b_automacao`: os módulos importacao, disparos, chatbot e
+// automacoes não mudam o schema.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Enums da Onda B
+// ---------------------------------------------------------------------------
+
+/// O que a importação cria (R16).
+enum TipoImportacao {
+  CONTATOS
+  EMPRESAS
+
+  @@map("tipo_importacao")
+}
+
+/// RASCUNHO (arquivo enviado, prévia e mapeamento) → NA_FILA → PROCESSANDO →
+/// CONCLUIDA, ou FALHOU / CANCELADA.
+enum StatusImportacao {
+  RASCUNHO
+  NA_FILA
+  PROCESSANDO
+  CONCLUIDA
+  FALHOU
+  CANCELADA
+
+  @@map("status_importacao")
+}
+
+/// O que fazer quando a linha bate com um registro existente (dedup da R4.2).
+enum AcaoDuplicado {
+  /// Preenche só os campos vazios do existente.
+  ATUALIZAR_VAZIOS
+  IGNORAR
+  /// Os valores da planilha substituem os do existente (vazios não apagam).
+  SOBRESCREVER
+
+  @@map("acao_duplicado")
+}
+
+enum ResultadoLinhaImportacao {
+  CRIADO
+  ATUALIZADO
+  IGNORADO
+  ERRO
+
+  @@map("resultado_linha_importacao")
+}
+
+/// Ciclo de vida da campanha (R17): RASCUNHO → (AGUARDANDO_APROVACAO) →
+/// AGENDADA → EM_ANDAMENTO ⇄ PAUSADA → CONCLUIDA; CANCELADA a qualquer momento.
+enum StatusCampanha {
+  RASCUNHO
+  AGUARDANDO_APROVACAO
+  AGENDADA
+  EM_ANDAMENTO
+  PAUSADA
+  CONCLUIDA
+  CANCELADA
+
+  @@map("status_campanha")
+}
+
+/// De onde vem o público da campanha.
+enum TipoPublico {
+  /// Filtro declarativo (`src/comum/segmentos`).
+  SEGMENTO
+  /// Contatos criados ou atualizados por uma importação.
+  IMPORTACAO
+
+  @@map("tipo_publico")
+}
+
+/// Envio de um destinatário. Entrega, leitura, resposta e opt-out ficam nas datas
+/// (`entregueEm`, `lidoEm`, `respondeuEm`, `optOutEm`).
+enum StatusDestinatario {
+  PENDENTE
+  /// Separado por um envio em curso (volta a PENDENTE se o envio cair no meio).
+  ENVIANDO
+  ENVIADO
+  FALHOU
+  /// Número sem WhatsApp ou e-mail inválido.
+  INVALIDO
+  /// Retirado antes do envio (opt-out, campanha cancelada…), com `motivo`.
+  EXCLUIDO
+
+  @@map("status_destinatario")
+}
+
+/// Quando um fluxo do chatbot entra numa conversa (R18).
+enum GatilhoFluxo {
+  /// Primeira mensagem de uma conversa nova.
+  NOVA_CONVERSA
+  /// Mensagem que contém uma das `palavrasChave`.
+  PALAVRA_CHAVE
+  /// Mensagem fora do horário de atendimento do canal.
+  FORA_DO_HORARIO
+  /// Toda conversa sem atendente passa pelo fluxo antes do atendimento humano.
+  SEMPRE
+
+  @@map("gatilho_fluxo")
+}
+
+/// Quem usa o executor de passos (`src/comum/passos`).
+enum TipoExecucao {
+  CHATBOT
+  AUTOMACAO
+
+  @@map("tipo_execucao")
+}
+
+enum StatusExecucao {
+  EM_ANDAMENTO
+  /// Esperando o tempo (`aguardandoAte`) ou uma entrada (`aguardandoEntrada`).
+  AGUARDANDO
+  CONCLUIDA
+  FALHOU
+  /// Parada antes do fim: critério de parada, atendente assumiu, cancelada à mão.
+  CANCELADA
+
+  @@map("status_execucao")
+}
+
+enum StatusPasso {
+  EXECUTANDO
+  AGUARDANDO
+  CONCLUIDO
+  ERRO
+
+  @@map("status_passo")
+}
+
+/// Gatilho de uma automação (R19).
+enum TipoGatilhoAutomacao {
+  /// Evento de domínio da outbox (`evento`, ex.: `negocio.movido`).
+  EVENTO
+  /// "N dias antes/depois de" um campo de data (`gatilhoConfig`).
+  DATA_RELATIVA
+  /// Recorrência (diária, semanal, mensal) em `gatilhoConfig`.
+  RECORRENCIA
+
+  @@map("tipo_gatilho_automacao")
+}
+
+/// Quantas vezes a automação roda para a mesma entidade.
+enum LimiteExecucao {
+  UMA_VEZ
+  /// Uma vez a cada `limitePeriodoDias`.
+  UMA_VEZ_POR_PERIODO
+  SEMPRE
+
+  @@map("limite_execucao")
+}
+
+// ---------------------------------------------------------------------------
+// Configurações por módulo
+// ---------------------------------------------------------------------------
+
+/// Configuração de um módulo, em JSON (`chave` = nome do módulo, ex.:
+/// `disparos` → `{ aprovacaoDoLider, palavrasDeSaida, mensagemDeSaida }`).
+/// Cada módulo valida o próprio formato e usa padrões quando a linha não existe.
+model Configuracao {
+  chave           String   @id
+  valor           Json     @default("{}")
+  atualizadoPorId String?  @map("atualizado_por_id") @db.Uuid
+  atualizadoPor   Usuario? @relation("ConfiguracaoAtualizadaPor", fields: [atualizadoPorId], references: [id], onDelete: SetNull)
+  criadoEm        DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("configuracoes")
+}
+
+// ---------------------------------------------------------------------------
+// Importação de contatos e empresas (R16)
+// ---------------------------------------------------------------------------
+
+/// Uma importação: o arquivo (CSV ou XLSX, até 50 mil linhas), o mapeamento
+/// coluna → campo, as opções e o progresso. As contagens são atualizadas ao longo
+/// do processamento (progresso ao vivo); `ImportacaoLinha` guarda o resultado de
+/// cada linha (relatório e retomada após reinício).
+model Importacao {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tipo                  TipoImportacao          @default(CONTATOS)
+  status                StatusImportacao        @default(RASCUNHO)
+  /// Nome original do arquivo.
+  nome                  String
+  arquivoId             String                  @map("arquivo_id") @db.Uuid
+  arquivo               Arquivo                 @relation("ImportacaoArquivo", fields: [arquivoId], references: [id], onDelete: Restrict)
+  /// `csv` ou `xlsx`.
+  formato               String
+  /// Leitura: `{ separador, codificacao, aba, linhaCabecalho }`.
+  leitura               Json                    @default("{}")
+  /// Cabeçalhos detectados, na ordem do arquivo.
+  colunas               String[]                @default([])
+  /// Linhas de dados (sem o cabeçalho), conhecidas depois da leitura.
+  totalLinhas           Int?                    @map("total_linhas")
+  /// `{ "<coluna>": "<campo>" }`, ex.: `{ "E-mail": "email", "Cidade": "campos.cidade" }`.
+  mapeamento            Json                    @default("{}")
+  modeloId              String?                 @map("modelo_id") @db.Uuid
+  modelo                ImportacaoModelo?       @relation(fields: [modeloId], references: [id], onDelete: SetNull)
+  duplicados            AcaoDuplicado           @default(ATUALIZAR_VAZIOS)
+  /// Etiquetas acrescentadas a todos os registros importados.
+  etiquetas             String[]                @default([])
+  /// Responsável: nulo = mantém/sem responsável; RESPONSAVEL_FIXO usa
+  /// `responsavelId`; RODIZIO usa o rodízio da `areaRodizio`.
+  estrategiaResponsavel EstrategiaDistribuicao? @map("estrategia_responsavel")
+  responsavelId         String?                 @map("responsavel_id") @db.Uuid
+  responsavel           Usuario?                @relation("ImportacaoResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  areaRodizio           Area?                   @map("area_rodizio")
+  /// Detalhe da origem gravado nos contatos (a origem é IMPORTACAO).
+  origemDetalhe         String?                 @map("origem_detalhe")
+  /// Outras opções do módulo.
+  opcoes                Json                    @default("{}")
+  processadas           Int                     @default(0)
+  criados               Int                     @default(0)
+  atualizados           Int                     @default(0)
+  ignorados             Int                     @default(0)
+  erros                 Int                     @default(0)
+  /// Relatório XLSX gerado no fim.
+  relatorioId           String?                 @map("relatorio_id") @db.Uuid
+  relatorio             Arquivo?                @relation("ImportacaoRelatorio", fields: [relatorioId], references: [id], onDelete: SetNull)
+  /// Erro que parou a importação inteira (arquivo ilegível…).
+  erro                  String?
+  iniciadaEm            DateTime?               @map("iniciada_em") @db.Timestamptz(3)
+  concluidaEm           DateTime?               @map("concluida_em") @db.Timestamptz(3)
+  criadoPorId           String?                 @map("criado_por_id") @db.Uuid
+  criadoPor             Usuario?                @relation("ImportacaoCriadaPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm              DateTime                @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm          DateTime                @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  linhas    ImportacaoLinha[]
+  campanhas Campanha[]
+
+  @@index([criadoPorId, criadoEm])
+  @@index([status])
+  @@map("importacoes")
+}
+
+/// Resultado de uma linha da importação. Único por (importação, número): o
+/// processamento retomado continua depois da última linha gravada.
+model ImportacaoLinha {
+  id           String                   @id @default(uuid()) @db.Uuid
+  importacaoId String                   @map("importacao_id") @db.Uuid
+  importacao   Importacao               @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+  /// Número da linha no arquivo (o cabeçalho é a linha 1).
+  numero       Int
+  resultado    ResultadoLinhaImportacao
+  /// Contato ou empresa criado/atualizado/encontrado.
+  entidadeId   String?                  @map("entidade_id") @db.Uuid
+  /// Motivo do erro ou de ter sido ignorada, em português.
+  motivo       String?
+  /// Valores da linha (só nas com erro, para o relatório).
+  dados        Json?
+  criadoEm     DateTime                 @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@unique([importacaoId, numero])
+  @@index([importacaoId, resultado])
+  @@index([entidadeId])
+  @@map("importacao_linhas")
+}
+
+/// Modelo de mapeamento salvo (colunas da planilha → campos), para reaproveitar.
+model ImportacaoModelo {
+  id           String         @id @default(uuid()) @db.Uuid
+  nome         String
+  tipo         TipoImportacao @default(CONTATOS)
+  /// `{ "<coluna>": "<campo>" }`; colunas comparadas sem acento nem caixa.
+  mapeamento   Json           @default("{}")
+  /// Opções sugeridas (duplicados, etiquetas…).
+  opcoes       Json           @default("{}")
+  criadoPorId  String?        @map("criado_por_id") @db.Uuid
+  criadoPor    Usuario?       @relation("ImportacaoModeloCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm     DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  importacoes Importacao[]
+
+  @@unique([tipo, nome])
+  @@map("importacao_modelos")
+}
+
+// ---------------------------------------------------------------------------
+// Modelos de mensagem (disparos, automações, chatbot)
+// ---------------------------------------------------------------------------
+
+/// Modelo de mensagem salvo, com variáveis e variações (`src/comum/modelos`).
+/// Usado por campanhas e pela ação "enviar WhatsApp/e-mail por modelo".
+model ModeloMensagem {
+  id           String     @id @default(uuid()) @db.Uuid
+  nome         String
+  /// WHATSAPP ou EMAIL (CHECK); nulo = serve para os dois.
+  canal        TipoCanal?
+  /// Assunto do e-mail (aceita variáveis).
+  assunto      String?
+  texto        String
+  arquivoId    String?    @map("arquivo_id") @db.Uuid
+  arquivo      Arquivo?   @relation("ModeloMensagemArquivo", fields: [arquivoId], references: [id], onDelete: SetNull)
+  /// Nula = de todas as áreas.
+  area         Area?
+  criadoPorId  String?    @map("criado_por_id") @db.Uuid
+  criadoPor    Usuario?   @relation("ModeloMensagemCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm     DateTime   @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime   @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm   DateTime?  @map("excluido_em") @db.Timestamptz(3)
+
+  campanhas Campanha[]
+
+  @@index([area])
+  @@map("modelos_mensagem")
+}
+
+// ---------------------------------------------------------------------------
+// Disparos — campanhas (R17)
+// ---------------------------------------------------------------------------
+
+/// Campanha de WhatsApp ou e-mail. O ritmo (intervalos, lote, janela) é da
+/// campanha; os limites diários e o aquecimento vêm de cada número (R13).
+model Campanha {
+  id                      String          @id @default(uuid()) @db.Uuid
+  nome                    String
+  descricao               String?
+  /// Área dona (permissões: líderes veem as da área). Nula = da diretoria.
+  area                    Area?
+  /// WHATSAPP ou EMAIL (CHECK).
+  canal                   TipoCanal
+  status                  StatusCampanha  @default(RASCUNHO)
+  tipoPublico             TipoPublico     @default(SEGMENTO) @map("tipo_publico")
+  /// Filtro do público (`Segmento`), quando `tipoPublico = SEGMENTO`.
+  segmento                Json?
+  /// Lista importada, quando `tipoPublico = IMPORTACAO`.
+  importacaoId            String?         @map("importacao_id") @db.Uuid
+  importacao              Importacao?     @relation(fields: [importacaoId], references: [id], onDelete: SetNull)
+  /// Modelo de origem (o texto é copiado para `texto`; editar o modelo não muda a campanha).
+  modeloId                String?         @map("modelo_id") @db.Uuid
+  modelo                  ModeloMensagem? @relation(fields: [modeloId], references: [id], onDelete: SetNull)
+  /// Assunto do e-mail (aceita variáveis).
+  assunto                 String?
+  /// Texto com variáveis e variações.
+  texto                   String          @default("")
+  arquivoId               String?         @map("arquivo_id") @db.Uuid
+  arquivo                 Arquivo?        @relation("CampanhaArquivo", fields: [arquivoId], references: [id], onDelete: SetNull)
+  // Ritmo (anti-banimento). Nunca mais rápido do que o gateway permite.
+  intervaloMinimoSegundos Int             @default(20) @map("intervalo_minimo_segundos")
+  intervaloMaximoSegundos Int             @default(60) @map("intervalo_maximo_segundos")
+  /// Envios por lote antes da pausa (nulo = sem lote).
+  loteTamanho             Int?            @map("lote_tamanho")
+  lotePausaSegundos       Int?            @map("lote_pausa_segundos")
+  /// Mostrar "digitando…" antes de cada envio (WhatsApp).
+  simularDigitando        Boolean         @default(true) @map("simular_digitando")
+  /// Janela de envio no formato de `canais.horario_atendimento`
+  /// (`{ fusoHorario, dias: { "1": [{ inicio, fim }] } }`). Nula = qualquer hora.
+  janelaEnvio             Json?           @map("janela_envio")
+  /// Pausa automática depois de tantas falhas seguidas.
+  pausarAposFalhas        Int             @default(5) @map("pausar_apos_falhas")
+  // Ciclo de vida
+  agendadaPara            DateTime?       @map("agendada_para") @db.Timestamptz(3)
+  iniciadaEm              DateTime?       @map("iniciada_em") @db.Timestamptz(3)
+  pausadaEm               DateTime?       @map("pausada_em") @db.Timestamptz(3)
+  pausaMotivo             String?         @map("pausa_motivo")
+  concluidaEm             DateTime?       @map("concluida_em") @db.Timestamptz(3)
+  canceladaEm             DateTime?       @map("cancelada_em") @db.Timestamptz(3)
+  // Aprovação do líder (opcional, configurável em `configuracoes.disparos`)
+  aprovacaoSolicitadaEm   DateTime?       @map("aprovacao_solicitada_em") @db.Timestamptz(3)
+  aprovadaPorId           String?         @map("aprovada_por_id") @db.Uuid
+  aprovadaPor             Usuario?        @relation("CampanhaAprovadaPor", fields: [aprovadaPorId], references: [id], onDelete: SetNull)
+  aprovadaEm              DateTime?       @map("aprovada_em") @db.Timestamptz(3)
+  reprovacaoMotivo        String?         @map("reprovacao_motivo")
+  // Estado do envio (mantido pelo módulo de disparos)
+  /// Próximo envio previsto (ritmo).
+  proximoEnvioEm          DateTime?       @map("proximo_envio_em") @db.Timestamptz(3)
+  /// Envios no lote atual.
+  enviadosNoLote          Int             @default(0) @map("enviados_no_lote")
+  /// Falhas seguidas (zera a cada envio bem-sucedido).
+  falhasSeguidas          Int             @default(0) @map("falhas_seguidas")
+  /// Ponteiro do rodízio entre os canais da campanha.
+  ultimoCanalId           String?         @map("ultimo_canal_id") @db.Uuid
+  // Contadores (progresso ao vivo e relatório)
+  totalDestinatarios      Int             @default(0) @map("total_destinatarios")
+  enviados                Int             @default(0)
+  entregues               Int             @default(0)
+  lidos                   Int             @default(0)
+  respondidos             Int             @default(0)
+  falhas                  Int             @default(0)
+  invalidos               Int             @default(0)
+  optOuts                 Int             @default(0) @map("opt_outs")
+  /// Campanha copiada ("duplicar").
+  campanhaOrigemId        String?         @map("campanha_origem_id") @db.Uuid
+  campanhaOrigem          Campanha?       @relation("CampanhaDuplicada", fields: [campanhaOrigemId], references: [id], onDelete: SetNull)
+  copias                  Campanha[]      @relation("CampanhaDuplicada")
+  criadoPorId             String?         @map("criado_por_id") @db.Uuid
+  criadoPor               Usuario?        @relation("CampanhaCriadaPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm                DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm              DateTime?       @map("excluido_em") @db.Timestamptz(3)
+
+  canais        CampanhaCanal[]
+  destinatarios CampanhaDestinatario[]
+
+  @@index([status, agendadaPara])
+  @@index([criadoPorId, criadoEm])
+  @@index([area, criadoEm])
+  @@map("campanhas")
+}
+
+/// Canais (números de WhatsApp ou caixas de e-mail) usados pela campanha, em rodízio.
+model CampanhaCanal {
+  id         String   @id @default(uuid()) @db.Uuid
+  campanhaId String   @map("campanha_id") @db.Uuid
+  campanha   Campanha @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  canalId    String   @map("canal_id") @db.Uuid
+  canal      Canal    @relation("CampanhaCanalCanal", fields: [canalId], references: [id], onDelete: Restrict)
+  ordem      Int      @default(0)
+  criadoEm   DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@unique([campanhaId, canalId])
+  @@index([canalId])
+  @@map("campanha_canais")
+}
+
+/// Destinatário de uma campanha: um por contato (duplicados removidos ao montar o público).
+model CampanhaDestinatario {
+  id           String             @id @default(uuid()) @db.Uuid
+  campanhaId   String             @map("campanha_id") @db.Uuid
+  campanha     Campanha           @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  contatoId    String             @map("contato_id") @db.Uuid
+  contato      Contato            @relation(fields: [contatoId], references: [id], onDelete: Cascade)
+  /// Telefone (E.164 só com dígitos) ou e-mail (minúsculas) no momento da montagem.
+  destino      String
+  /// Ordem de envio.
+  ordem        Int
+  status       StatusDestinatario @default(PENDENTE)
+  /// Motivo da falha, da exclusão ou da invalidez, em português.
+  motivo       String?
+  tentativas   Int                @default(0)
+  /// Canal (número) que enviou.
+  canalId      String?            @map("canal_id") @db.Uuid
+  canal        Canal?             @relation("CampanhaDestinatarioCanal", fields: [canalId], references: [id], onDelete: SetNull)
+  /// Mensagem criada na conversa do contato (Atendimento).
+  mensagemId   String?            @unique @map("mensagem_id") @db.Uuid
+  mensagem     Mensagem?          @relation("CampanhaDestinatarioMensagem", fields: [mensagemId], references: [id], onDelete: SetNull)
+  enviadoEm    DateTime?          @map("enviado_em") @db.Timestamptz(3)
+  entregueEm   DateTime?          @map("entregue_em") @db.Timestamptz(3)
+  lidoEm       DateTime?          @map("lido_em") @db.Timestamptz(3)
+  respondeuEm  DateTime?          @map("respondeu_em") @db.Timestamptz(3)
+  optOutEm     DateTime?          @map("opt_out_em") @db.Timestamptz(3)
+  falhouEm     DateTime?          @map("falhou_em") @db.Timestamptz(3)
+  criadoEm     DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime           @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([campanhaId, contatoId])
+  @@index([campanhaId, status, ordem])
+  @@index([contatoId, enviadoEm])
+  @@index([canalId, enviadoEm])
+  @@map("campanha_destinatarios")
+}
+
+// ---------------------------------------------------------------------------
+// Chatbot — fluxos em passos (R18)
+// ---------------------------------------------------------------------------
+
+/// Fluxo do chatbot. `rascunho` é a definição em edição (`DefinicaoDePassos`);
+/// publicar copia o rascunho para uma `FluxoChatbotVersao` nova. Conversas em
+/// andamento seguem na versão em que começaram.
+model FluxoChatbot {
+  id                 String              @id @default(uuid()) @db.Uuid
+  nome               String
+  descricao          String?
+  /// Nula = de todas as áreas.
+  area               Area?
+  /// Canais em que o fluxo vale (`canais.id`); vazio = todos.
+  canalIds           String[]            @default([]) @map("canal_ids") @db.Uuid
+  gatilho            GatilhoFluxo
+  /// Para `PALAVRA_CHAVE` (comparadas sem acento nem caixa).
+  palavrasChave      String[]            @default([]) @map("palavras_chave")
+  /// Maior primeiro, quando mais de um fluxo serve.
+  prioridade         Int                 @default(0)
+  ativo              Boolean             @default(false)
+  rascunho           Json                @default("{\"passos\": []}")
+  rascunhoAlteradoEm DateTime            @default(now()) @map("rascunho_alterado_em") @db.Timestamptz(3)
+  versaoPublicadaId  String?             @unique @map("versao_publicada_id") @db.Uuid
+  versaoPublicada    FluxoChatbotVersao? @relation("FluxoVersaoPublicada", fields: [versaoPublicadaId], references: [id], onDelete: SetNull)
+  criadoPorId        String?             @map("criado_por_id") @db.Uuid
+  criadoPor          Usuario?            @relation("FluxoChatbotCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm           DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm       DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm         DateTime?           @map("excluido_em") @db.Timestamptz(3)
+
+  versoes   FluxoChatbotVersao[] @relation("FluxoVersoes")
+  execucoes Execucao[]
+
+  @@index([ativo, gatilho, prioridade])
+  @@map("fluxos_chatbot")
+}
+
+/// Versão publicada (imutável) de um fluxo.
+model FluxoChatbotVersao {
+  id             String       @id @default(uuid()) @db.Uuid
+  fluxoId        String       @map("fluxo_id") @db.Uuid
+  fluxo          FluxoChatbot @relation("FluxoVersoes", fields: [fluxoId], references: [id], onDelete: Cascade)
+  /// 1, 2, 3… por fluxo.
+  numero         Int
+  definicao      Json
+  publicadaPorId String?      @map("publicada_por_id") @db.Uuid
+  publicadaPor   Usuario?     @relation("FluxoVersaoPublicadaPor", fields: [publicadaPorId], references: [id], onDelete: SetNull)
+  criadoEm       DateTime     @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  publicadaNo FluxoChatbot? @relation("FluxoVersaoPublicada")
+  execucoes   Execucao[]
+
+  @@unique([fluxoId, numero])
+  @@map("fluxos_chatbot_versoes")
+}
+
+// ---------------------------------------------------------------------------
+// Automações e cadências (R19)
+// ---------------------------------------------------------------------------
+
+/// Automação: gatilho → condições → ações em sequência (com esperas = cadência).
+/// `definicao` segue `DefinicaoDePassos` (`src/comum/passos`); cada execução
+/// guarda uma cópia, então editar não muda execuções em andamento.
+model Automacao {
+  id                String               @id @default(uuid()) @db.Uuid
+  nome              String
+  descricao         String?
+  /// Área/escopo. Nula = da diretoria (todas as áreas).
+  area              Area?
+  ativa             Boolean              @default(false)
+  tipoGatilho       TipoGatilhoAutomacao @map("tipo_gatilho")
+  /// Tipo do evento de domínio, quando `tipoGatilho = EVENTO` (CHECK).
+  evento            String?
+  /// Detalhes do gatilho: filtro do evento (`{ etapaId }`, `{ palavras }`…),
+  /// `DataRelativa` ou `Recorrencia` (`src/comum/gatilhos`).
+  gatilhoConfig     Json                 @default("{}") @map("gatilho_config")
+  /// Entidade alvo: `contato`, `negocio`, `atividade` ou `conversa`.
+  entidade          String
+  /// `{ segmento?: Segmento, horario?: janela no formato de horario_atendimento }`.
+  condicoes         Json                 @default("{}")
+  definicao         Json                 @default("{\"passos\": []}")
+  /// `RESPONDEU`, `GANHOU`, `PERDEU`, `SAIU_DO_SEGMENTO`.
+  criteriosParada   String[]             @default([]) @map("criterios_parada")
+  limiteExecucao    LimiteExecucao       @default(UMA_VEZ) @map("limite_execucao")
+  limitePeriodoDias Int?                 @map("limite_periodo_dias")
+  /// Automação de marketing: contatos com opt-out ficam de fora (R4.6).
+  marketing         Boolean              @default(false)
+  /// Chave do modelo pronto de origem (`boas_vindas_lead`…), se veio de um.
+  modelo            String?
+  /// Incrementada a cada edição (a execução guarda a versão em que começou).
+  versao            Int                  @default(1)
+  /// Agenda (DATA_RELATIVA, RECORRENCIA): próxima varredura/ocorrência.
+  proximaExecucaoEm DateTime?            @map("proxima_execucao_em") @db.Timestamptz(3)
+  ultimaExecucaoEm  DateTime?            @map("ultima_execucao_em") @db.Timestamptz(3)
+  criadoPorId       String?              @map("criado_por_id") @db.Uuid
+  criadoPor         Usuario?             @relation("AutomacaoCriadaPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm          DateTime             @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm      DateTime             @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm        DateTime?            @map("excluido_em") @db.Timestamptz(3)
+
+  execucoes Execucao[]
+
+  @@index([ativa, tipoGatilho, evento])
+  @@index([ativa, proximaExecucaoEm])
+  @@map("automacoes")
+}
+
+// ---------------------------------------------------------------------------
+// Executor de passos (chatbot e automações)
+// ---------------------------------------------------------------------------
+
+/// Uma execução de passos (`src/comum/passos`): um fluxo do chatbot numa
+/// conversa ou uma automação para uma entidade. Guarda a cópia da definição, o
+/// passo atual, as variáveis e a espera; `ExecucaoPasso` é o histórico.
+model Execucao {
+  id                String              @id @default(uuid()) @db.Uuid
+  tipo              TipoExecucao
+  /// Nome da automação/fluxo no início: é o ator (AUTOMACAO) das auditorias.
+  nome              String
+  automacaoId       String?             @map("automacao_id") @db.Uuid
+  automacao         Automacao?          @relation(fields: [automacaoId], references: [id], onDelete: SetNull)
+  automacaoVersao   Int?                @map("automacao_versao")
+  fluxoId           String?             @map("fluxo_id") @db.Uuid
+  fluxo             FluxoChatbot?       @relation(fields: [fluxoId], references: [id], onDelete: SetNull)
+  /// Nula no simulador (roda o rascunho).
+  fluxoVersaoId     String?             @map("fluxo_versao_id") @db.Uuid
+  fluxoVersao       FluxoChatbotVersao? @relation(fields: [fluxoVersaoId], references: [id], onDelete: SetNull)
+  /// Cópia da `DefinicaoDePassos` em uso.
+  definicao         Json
+  status            StatusExecucao      @default(EM_ANDAMENTO)
+  /// Passo atual (id na definição); nulo quando acabou.
+  passoAtualId      String?             @map("passo_atual_id")
+  /// Visita do passo atual (um passo pode ser revisitado: "voltar ao menu").
+  visitaAtual       Int                 @default(1) @map("visita_atual")
+  /// `{ "<passoId>": <visitas> }`.
+  visitas           Json                @default("{}")
+  /// Variáveis da execução (respostas do chatbot, saídas dos passos).
+  variaveis         Json                @default("{}")
+  /// Dados do gatilho (evento, ids, mensagem…), só leitura para os passos.
+  contexto          Json                @default("{}")
+  /// Entidade alvo: `contato`, `negocio`, `atividade`, `conversa`.
+  entidade          String?
+  entidadeId        String?             @map("entidade_id") @db.Uuid
+  contatoId         String?             @map("contato_id") @db.Uuid
+  contato           Contato?            @relation(fields: [contatoId], references: [id], onDelete: SetNull)
+  negocioId         String?             @map("negocio_id") @db.Uuid
+  negocio           Negocio?            @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  conversaId        String?             @map("conversa_id") @db.Uuid
+  conversa          Conversa?           @relation(fields: [conversaId], references: [id], onDelete: SetNull)
+  /// Evento da outbox que disparou.
+  eventoId          String?             @map("evento_id") @db.Uuid
+  /// Idempotência do início (ex.: `automacao:<id>:evento:<eventoId>`).
+  chaveUnica        String?             @unique @map("chave_unica")
+  /// Encadeamento: `{ profundidade, automacoes: [ids] }` (proteção contra laços).
+  cadeia            Json                @default("{}")
+  /// Modo teste / simulador: sem efeitos externos.
+  teste             Boolean             @default(false)
+  aguardandoAte     DateTime?           @map("aguardando_ate") @db.Timestamptz(3)
+  aguardandoEntrada Boolean             @default(false) @map("aguardando_entrada")
+  /// Identifica a espera atual: um job de despertar com outro token é ignorado.
+  esperaToken       String?             @map("espera_token")
+  /// Trava de execução (um avanço por vez), com prazo para sobreviver a quedas.
+  travadaAte        DateTime?           @map("travada_ate") @db.Timestamptz(3)
+  trava             String?
+  /// Passos executados (proteção contra laço infinito).
+  passosExecutados  Int                 @default(0) @map("passos_executados")
+  erro              String?
+  /// Por que acabou (`concluida`, `atendente_assumiu`, `criterio:RESPONDEU`…).
+  motivoFim         String?             @map("motivo_fim")
+  iniciadaEm        DateTime            @default(now()) @map("iniciada_em") @db.Timestamptz(3)
+  concluidaEm       DateTime?           @map("concluida_em") @db.Timestamptz(3)
+  criadoEm          DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm      DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  passos ExecucaoPasso[]
+
+  @@index([status, aguardandoAte])
+  @@index([automacaoId, entidadeId, criadoEm])
+  @@index([fluxoId, criadoEm])
+  @@index([conversaId, status])
+  @@index([contatoId, criadoEm])
+  @@index([negocioId])
+  @@map("execucoes")
+}
+
+/// Histórico por passo de uma execução. Único por (execução, chave =
+/// `<passoId>:<visita>`): um passo concluído nunca roda de novo (idempotência).
+model ExecucaoPasso {
+  id           String      @id @default(uuid()) @db.Uuid
+  execucaoId   String      @map("execucao_id") @db.Uuid
+  execucao     Execucao    @relation(fields: [execucaoId], references: [id], onDelete: Cascade)
+  passoId      String      @map("passo_id")
+  tipo         String
+  visita       Int
+  chave        String
+  /// Sequência na execução (1, 2, 3…).
+  ordem        Int
+  status       StatusPasso @default(EXECUTANDO)
+  tentativas   Int         @default(1)
+  /// `{ decisao, saida }` devolvidos pelo passo.
+  resultado    Json?
+  erro         String?
+  iniciadoEm   DateTime    @default(now()) @map("iniciado_em") @db.Timestamptz(3)
+  concluidoEm  DateTime?   @map("concluido_em") @db.Timestamptz(3)
+  criadoEm     DateTime    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([execucaoId, chave])
+  @@index([execucaoId, ordem])
+  @@map("execucao_passos")
 }

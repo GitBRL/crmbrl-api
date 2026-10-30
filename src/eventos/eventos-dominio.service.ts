@@ -7,6 +7,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import {
+  type CadeiaDeAutomacao,
   contextoAtual,
   executarComoAtor,
 } from '../comum/contexto/contexto-requisicao';
@@ -37,6 +38,11 @@ export interface EventoPublicado<T = unknown> {
   readonly requisicaoId: string | null;
   /** 1 na primeira entrega, 2 na primeira reentrega… */
   readonly tentativa: number;
+  /**
+   * Onda B: encadeamento de automações que publicou o evento (nulo quando não
+   * veio de uma execução de passos). Os gatilhos usam para barrar laços.
+   */
+  readonly cadeia?: CadeiaDeAutomacao | null;
 }
 
 export type ManipuladorDeEvento<T = unknown> = (
@@ -134,6 +140,9 @@ export class EventosDominioService
         tipoAtor: contexto.tipoAtor,
         usuarioId: contexto.usuario?.id ?? null,
         requisicaoId: contexto.requisicaoId,
+        cadeia: contexto.cadeia
+          ? (contexto.cadeia as unknown as Prisma.InputJsonObject)
+          : undefined,
       },
     });
     if (this.ambiente.processarFilas) {
@@ -150,6 +159,7 @@ export class EventosDominioService
       usuarioId: evento.usuarioId,
       requisicaoId: evento.requisicaoId,
       tentativa: 0,
+      cadeia: contexto.cadeia ?? null,
     };
   }
 
@@ -285,6 +295,7 @@ export class EventosDominioService
       usuarioId: registro.usuarioId,
       requisicaoId: registro.requisicaoId,
       tentativa,
+      cadeia: (registro.cadeia as CadeiaDeAutomacao | null) ?? null,
     };
     const concluidos = new Set(registro.manipuladoresConcluidos);
     const falhas: string[] = [];

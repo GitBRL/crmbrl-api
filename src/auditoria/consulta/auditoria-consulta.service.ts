@@ -91,7 +91,10 @@ export class AuditoriaConsultaService {
       this.valoresDistintos('acao'),
       this.valoresDistintos('entidade'),
     ]);
-    return { acoes, entidades, tiposAtor: Object.values(TipoAtor) };
+    // BOT só identifica o autor de mensagens do chatbot; as ações dele são
+    // auditadas como AUTOMACAO, então não serve de filtro (Onda B).
+    const tiposAtor = Object.values(TipoAtor).filter((tipo) => tipo !== 'BOT');
+    return { acoes, entidades, tiposAtor };
   }
 
   private condicoes(filtro: FiltroAuditoriaDto): Prisma.Sql[] {

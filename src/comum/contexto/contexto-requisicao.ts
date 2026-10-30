@@ -16,6 +16,21 @@ export interface UsuarioDoContexto {
   readonly nome: string;
 }
 
+/**
+ * Encadeamento de automações (Onda B, R19): quem roda dentro de uma execução de
+ * passos leva a cadeia no contexto; a outbox grava a cadeia com cada evento
+ * publicado, e os gatilhos a usam para barrar laços (profundidade máxima e
+ * repetição da mesma automação).
+ */
+export interface CadeiaDeAutomacao {
+  /** Execução (`execucoes.id`) que está rodando. */
+  readonly execucaoId: string;
+  /** 1 = a execução foi disparada por algo de fora; 2 = por um evento de outra execução… */
+  readonly profundidade: number;
+  /** Automações/fluxos da cadeia, da origem até a atual (ids). */
+  readonly automacoes: readonly string[];
+}
+
 export interface ContextoRequisicao {
   /** `X-Request-Id` da requisição (R3.7), ou um id gerado para o job. */
   readonly requisicaoId: string;
@@ -28,6 +43,8 @@ export interface ContextoRequisicao {
   readonly tipoAtor: TipoAtor;
   /** Nome legível do ator: o do usuário, o do webhook, o do job… */
   readonly atorDescricao?: string;
+  /** Encadeamento de automações em curso (Onda B). */
+  readonly cadeia?: CadeiaDeAutomacao;
 }
 
 /** O que muda ao trocar de ator (`executarComoAtor`). */
@@ -35,6 +52,8 @@ export interface Ator {
   readonly tipoAtor: TipoAtor;
   readonly descricao?: string;
   readonly usuario?: UsuarioDoContexto;
+  /** Encadeamento de automações; sem ele, herda o do contexto atual. */
+  readonly cadeia?: CadeiaDeAutomacao;
 }
 
 const armazenamento = new AsyncLocalStorage<ContextoRequisicao>();
@@ -91,6 +110,7 @@ export function executarComoAtor<T>(
       tipoAtor: ator.tipoAtor,
       usuario: ator.usuario,
       atorDescricao: ator.descricao ?? ator.usuario?.nome,
+      cadeia: ator.cadeia ?? atual?.cadeia,
     },
     fn,
   );

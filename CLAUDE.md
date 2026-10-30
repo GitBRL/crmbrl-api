@@ -5,12 +5,16 @@ Socket.IO (`/api/socket.io`, namespace `/tempo-real`), gateway de WhatsApp próp
 processo (`node dist/whatsapp/main.js`). Gerenciador: Bun; execução: Node 24.
 
 ## Comandos
+O Bun não está instalado na máquina: rode os scripts com `npm run` (usa o `node_modules` já instalado).
+Dependências e `bun.lock` só pelo Bun no Docker — nunca gere `package-lock.json`:
+`docker run --rm -v /sistemas/crm-brl/crmbrl-api:/app -w /app oven/bun:1 bun add <pacote>` (depois confira o dono
+dos arquivos com `ls -l bun.lock node_modules | head -3` e corrija com `docker run … chown -R 1000:1000` se preciso).
 ```bash
-bun run build                 # prisma generate + nest build (gera dist/main.js e dist/whatsapp/main.js)
-bun run lint                  # oxlint --type-aware
-bun run format:verificar      # Prettier (bun run format corrige)
-bun run test 2>&1 | tail -n 30                      # unidade
-DATABASE_URL_TESTE=postgresql://crmbrl:crmbrl@localhost:<porta>/crmbrl bun run test:e2e -- <arquivo>   # integração
+npm run build                 # prisma generate + nest build (gera dist/main.js e dist/whatsapp/main.js)
+npm run lint                  # oxlint --type-aware
+npm run format:verificar      # Prettier (npm run format corrige)
+npm test -- -w 2 2>&1 | tail -n 30                  # unidade (no máximo 2 workers)
+DATABASE_URL_TESTE=postgresql://crmbrl:crmbrl@localhost:<porta>/crmbrl npm run test:e2e -- <arquivo>   # integração
 ```
 Banco de teste descartável (os testes APAGAM tudo):
 `docker run -d --name crmbrl-teste-<rotulo> -e POSTGRES_USER=crmbrl -e POSTGRES_PASSWORD=crmbrl -e POSTGRES_DB=crmbrl -p 127.0.0.1:<porta>:5432 postgres:17-alpine`.

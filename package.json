@@ -44,6 +44,7 @@
     "baileys": "7.0.0-rc14",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "exceljs": "^4.4.0",
     "imapflow": "2.2.11",
     "mailparser": "3.9.37",
     "nodemailer": "^10.1.7",

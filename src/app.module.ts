@@ -6,16 +6,21 @@ import { AtividadesModule } from './atividades/atividades.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
+import { AutomacoesModule } from './automacoes/automacoes.module';
 import { CanaisModule } from './canais/canais.module';
+import { ChatbotModule } from './chatbot/chatbot.module';
 import { ChatInternoModule } from './chat-interno/chat-interno.module';
+import { AutomacaoComumModule } from './comum/automacao-comum.module';
 import { ComumModule } from './comum/comum.module';
 import type { Ambiente } from './config/ambiente';
 import { AmbienteModule } from './config/ambiente.module';
 import { ContatosModule } from './contatos/contatos.module';
+import { DisparosModule } from './disparos/disparos.module';
 import { EmailModule } from './email/email.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FilaModule } from './fila/fila.module';
 import { FunisModule } from './funis/funis.module';
+import { ImportacaoModule } from './importacao/importacao.module';
 import { LogsModule } from './logs/logs.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -59,6 +64,8 @@ export class AppModule {
         // Onda A: arquivos (MinIO/S3) e tempo real (Socket.IO), globais.
         ArquivosModule,
         TempoRealModule,
+        // Onda B: modelos, segmentos, executor de passos e gatilhos, globais.
+        AutomacaoComumModule,
         SeedsModule,
         SaudeModule,
         // Módulos de negócio (Fase 1).
@@ -75,6 +82,11 @@ export class AppModule {
         AtendimentoModule,
         CanaisModule,
         ChatInternoModule,
+        // Módulos de negócio (Onda B): importação, disparos, chatbot e automações.
+        ImportacaoModule,
+        DisparosModule,
+        ChatbotModule,
+        AutomacoesModule,
       ],
     };
   }

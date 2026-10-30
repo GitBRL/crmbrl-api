@@ -63,7 +63,7 @@ describe('FiltroAuditoriaDto', () => {
       de: ['deve ser uma data ISO 8601 com fuso (ex.: 2026-10-20T03:00:00Z)'],
       ate: ['deve ser uma data ISO 8601 com fuso (ex.: 2026-10-20T03:00:00Z)'],
       tipoAtor: [
-        '(cada item) deve ser um destes valores: USUARIO, SISTEMA, WEBHOOK, AUTOMACAO, IA',
+        '(cada item) deve ser um destes valores: USUARIO, SISTEMA, WEBHOOK, AUTOMACAO, IA, BOT',
       ],
       limite: ['deve ser no máximo 100'],
       usuarioId: ['deve ser um identificador (UUID) válido'],

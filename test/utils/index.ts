@@ -26,3 +26,4 @@ export * from './email-falso';
 export * from './fabricas';
 export * from './gateway-whatsapp';
 export * from './tempo-real';
+export * from './onda-b';
