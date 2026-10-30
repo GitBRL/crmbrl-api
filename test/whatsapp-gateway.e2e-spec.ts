@@ -622,6 +622,71 @@ describe('WhatsApp — gateway: conexão e proteções (e2e)', () => {
       expect(gateway.transporte.sessao(numero.id).enviados).toHaveLength(0);
     });
 
+    it('ordem da conversa: a mensagem posterior espera a anterior pendente e volta à fila sem gastar tentativa', async () => {
+      const { numero } = await numeroConectado();
+      await gateway.prisma.whatsappNumero.update({
+        where: { id: numero.id },
+        data: { configuracao: { digitando: false } },
+      });
+      const primeiro = await pedidoDe(numero);
+      const conversa = await gateway.prisma.conversa.findUniqueOrThrow({
+        where: { id: primeiro.conversaId },
+      });
+      const segundo = await pedidoDe(numero, {
+        conversa,
+        telefone: '5511944442222',
+      });
+      await gateway.prisma.mensagem.update({
+        where: { id: primeiro.mensagemId },
+        data: { status: 'PENDENTE' },
+      });
+      await gateway.prisma.mensagem.update({
+        where: { id: segundo.mensagemId },
+        data: { status: 'PENDENTE' },
+      });
+      const sessao = gateway.transporte.sessao(numero.id);
+
+      // O segundo chega primeiro: não sai, volta à fila.
+      await gateway.processar(segundo);
+      expect(sessao.enviados).toHaveLength(0);
+      const [volta] = await gateway.envios(numero.id);
+      expect(volta.dados).toMatchObject({
+        mensagemId: segundo.mensagemId,
+        esperaDesde: expect.any(String),
+      });
+
+      await gateway.processar(primeiro);
+      expect(sessao.enviados).toHaveLength(1);
+      // O primeiro já saiu por este processo: o segundo não espera o evento.
+      await gateway.processar(segundo);
+      expect(sessao.enviados).toHaveLength(2);
+    });
+
+    it('número desconectado: o envio volta à fila sem lançar erro e, passado o prazo, falha', async () => {
+      const { numero } = await numeroConectado();
+      await gateway
+        .pedir('post', `/numeros/${numero.id}/desconectar`, {})
+        .expect(200);
+      const pedido = await pedidoDe(numero);
+      await expect(gateway.processar(pedido)).resolves.toBeUndefined();
+      const [volta] = await gateway.envios(numero.id);
+      expect(volta.dados).toMatchObject({ mensagemId: pedido.mensagemId });
+      expect(await statusPublicados()).toHaveLength(0);
+
+      await gateway.processar({
+        ...pedido,
+        esperaDesde: new Date(
+          gateway.relogio.agora() - 31 * 60_000,
+        ).toISOString(),
+      });
+      expect(await statusPublicados()).toEqual([
+        expect.objectContaining({
+          status: 'FALHOU',
+          erro: 'O número de WhatsApp está desconectado.',
+        }),
+      ]);
+    });
+
     it('pausa automática depois de mensagens seguidas que não saem', async () => {
       const { numero } = await numeroConectado();
       await gateway.prisma.whatsappNumero.update({

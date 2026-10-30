@@ -29,6 +29,7 @@ import {
 } from '../comum/paginacao/paginacao';
 import { Prisma, type Papel } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TempoRealService } from '../tempo-real/tempo-real.service';
 import {
   problemaDeMudancaDePapel,
   temLiderEsperado,
@@ -92,6 +93,7 @@ export class UsuariosService {
     private readonly auditoria: AuditoriaService,
     private readonly senhas: SenhasService,
     private readonly cripto: CriptografiaService,
+    private readonly tempoReal: TempoRealService,
   ) {}
 
   async listar(
@@ -241,7 +243,8 @@ export class UsuariosService {
   async atualizar(id: string, dto: AtualizarUsuarioDto): Promise<UsuarioDto> {
     const telefone =
       dto.telefone === undefined ? undefined : lerTelefone(dto.telefone);
-    return this.prisma.$transaction(async (tx) => {
+    let mudouAcesso = false;
+    const resultado = await this.prisma.$transaction(async (tx) => {
       await travarHierarquia(tx);
       const antes = await tx.usuario.findUnique({
         where: { id },
@@ -296,6 +299,7 @@ export class UsuariosService {
         },
         include: INCLUIR_LIDER,
       });
+      mudouAcesso = mudouPapel || depois.liderId !== antes.liderId;
       const alteracoes = calcularAlteracoes(antes, depois, CAMPOS_EDITAVEIS);
       if (Object.keys(alteracoes).length > 0) {
         await this.auditoria.registrar(tx, {
@@ -309,6 +313,13 @@ export class UsuariosService {
       }
       return UsuarioDto.completo(depois);
     });
+    // As salas do socket (papel, área) são fixadas no handshake: quem mudou de
+    // papel ou de líder reconecta e entra nas salas certas (R12.5). Só depois
+    // do commit, para o novo handshake já ler o perfil novo.
+    if (mudouAcesso) {
+      this.tempoReal.desconectarUsuario(id);
+    }
+    return resultado;
   }
 
   /**

@@ -6,7 +6,7 @@
 // contatos, negócios e atividades; as passagens Marketing → Comercial → CS
 // rodam sozinhas; webhooks de entrada recebem leads; um vendedor é desligado.
 //
-// Só roda numa base recém-criada (apenas o Admin do primeiro acesso, sem
+// A semeadura completa só roda numa base recém-criada (apenas o Admin do primeiro acesso, sem
 // contatos): se já houver dados, para com uma mensagem e não altera nada.
 // Para recomeçar, recrie o banco e rode de novo.
 //
@@ -30,8 +30,11 @@
 //   SEMEAR_WEBHOOK_SAIDA_FALHA_URL  opcional: um destino que responde erro, para
 //                             ver tentativas e falhas (assina só negocio.perdido).
 //   SEMEAR_CONVITE            "false" pula o usuário convidado por e-mail (exige SMTP)
+//   SEMEAR_ETAPA             "atendimento" (ou o argumento `atendimento`): só a etapa de atendimento, sobre a base
+//                             já semeada (idempotente). Veja o cabeçalho da etapa, mais abaixo.
 
 import { createHmac, randomBytes } from 'node:crypto';
+import net from 'node:net';
 
 // ---------------------------------------------------------------- config ---
 
@@ -49,6 +52,11 @@ const DOMINIO = AMBIENTE.SEMEAR_DOMINIO ?? 'demo.local';
 const WEBHOOK_SAIDA_URL = AMBIENTE.SEMEAR_WEBHOOK_SAIDA_URL ?? '';
 const WEBHOOK_SAIDA_FALHA_URL = AMBIENTE.SEMEAR_WEBHOOK_SAIDA_FALHA_URL ?? '';
 const CRIAR_CONVITE = AMBIENTE.SEMEAR_CONVITE !== 'false';
+// Etapa a rodar: sem nada = semeadura completa (que termina com o atendimento);
+// `atendimento` = só a etapa de atendimento, sobre a base já semeada.
+const ETAPA = (process.argv[2] ?? AMBIENTE.SEMEAR_ETAPA ?? '')
+  .trim()
+  .toLowerCase();
 
 function parar(mensagem) {
   console.error(`\n✗ ${mensagem}`);
@@ -446,10 +454,1120 @@ async function lerFunis(admin) {
 
 // ========================================================== principal ===
 
+// ================================================== Etapa: atendimento ===
+//
+// Roda sobre a base já semeada (ou logo depois da semeadura completa) e pode ser
+// repetida: cada peça só é criada se ainda não existir (por nome/atalho), e as
+// conversas de um canal só entram se o canal ainda não tiver nenhuma.
+//
+//   node scripts/semear-demonstracao.mjs atendimento      (ou SEMEAR_ETAPA=atendimento)
+//
+// Variáveis da etapa (padrões do ambiente dos agentes, `crmbrl-dev`):
+//   WHATSAPP_TOKEN_INTERNO   token do gateway simulado (obrigatória para as conversas do WhatsApp)
+//   GATEWAY_URL              gateway simulado; padrão http://127.0.0.1:3210
+//   GREENMAIL_SMTP           host:porta do SMTP do GreenMail visto DESTE script; padrão 127.0.0.1:3025
+//   GREENMAIL_HOST_API       host do GreenMail visto PELA API (IMAP/SMTP do canal); padrão greenmail
+//   SEMEAR_ATENDIMENTO       "false" pula a etapa na semeadura completa
+//   SEMEAR_ESPERA_EMAIL      segundos de espera pela varredura do IMAP (a cada minuto); padrão 100
+
+const TOKEN_GATEWAY = AMBIENTE.WHATSAPP_TOKEN_INTERNO ?? '';
+const GATEWAY_URL = (AMBIENTE.GATEWAY_URL ?? 'http://127.0.0.1:3210').replace(
+  /\/+$/,
+  '',
+);
+const [SMTP_LOCAL_HOST, SMTP_LOCAL_PORTA] = (
+  AMBIENTE.GREENMAIL_SMTP ?? '127.0.0.1:3025'
+).split(':');
+const GREENMAIL_NA_API = AMBIENTE.GREENMAIL_HOST_API ?? 'greenmail';
+const ESPERA_EMAIL_S = Number(AMBIENTE.SEMEAR_ESPERA_EMAIL ?? 100);
+const RODAR_ATENDIMENTO = AMBIENTE.SEMEAR_ATENDIMENTO !== 'false';
+const SEGREDO_META = 'segredo-meta-de-demonstracao';
+
+/** PNG de 1x1 pixel: serve de "foto" enviada pelo cliente no WhatsApp. */
+const PNG_PIXEL =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+const normalizarBusca = (texto) => texto.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+/** Pede algo ao gateway simulado de WhatsApp (porta 3210). */
+async function simularWhatsapp(numeroId, de, nome, texto, midia) {
+  if (!TOKEN_GATEWAY) {
+    parar(
+      'Defina WHATSAPP_TOKEN_INTERNO (o do .env do ambiente) para simular o WhatsApp.',
+    );
+  }
+  const resposta = await fetch(`${GATEWAY_URL}/simulador/receber`, {
+    method: 'POST',
+    headers: {
+      'X-Token-Interno': TOKEN_GATEWAY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ numeroId, de, nome, texto, midia }),
+  });
+  if (!resposta.ok) {
+    throw new Error(
+      `Simulador do WhatsApp → ${resposta.status}: ${await resposta.text()}`,
+    );
+  }
+}
+
+/** Cliente SMTP mínimo (sem dependências) para entregar e-mails na caixa do GreenMail. */
+function enviarEmailSmtp({
+  de,
+  nomeDe,
+  para,
+  replyTo,
+  assunto,
+  texto,
+  messageId,
+}) {
+  const codificar = (valor) =>
+    `=?UTF-8?B?${Buffer.from(valor, 'utf8').toString('base64')}?=`;
+  const corpo64 = Buffer.from(texto, 'utf8')
+    .toString('base64')
+    .replace(/(.{76})/g, '$1\r\n');
+  const mensagem = [
+    `From: ${codificar(nomeDe)} <${de}>`,
+    `To: <${para}>`,
+    replyTo ? `Reply-To: <${replyTo}>` : null,
+    `Subject: ${codificar(assunto)}`,
+    `Message-ID: <${messageId}>`,
+    `Date: ${new Date().toUTCString()}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    corpo64,
+  ]
+    .filter((linha) => linha !== null)
+    .join('\r\n');
+  const comandos = [
+    'EHLO semeadura.demo.local',
+    `MAIL FROM:<${de}>`,
+    `RCPT TO:<${para}>`,
+    'DATA',
+    `${mensagem}\r\n.`,
+    'QUIT',
+  ];
+  return new Promise((resolver, rejeitar) => {
+    const conexao = net.createConnection({
+      host: SMTP_LOCAL_HOST,
+      port: Number(SMTP_LOCAL_PORTA),
+    });
+    let buffer = '';
+    let indice = -1; // -1 = esperando o "220" de abertura
+    conexao.setTimeout(15_000, () =>
+      conexao.destroy(new Error('SMTP do GreenMail: tempo esgotado')),
+    );
+    conexao.on('error', rejeitar);
+    conexao.on('data', (pedaco) => {
+      buffer += pedaco.toString('utf8');
+      let fim;
+      while ((fim = buffer.indexOf('\r\n')) >= 0) {
+        const linha = buffer.slice(0, fim);
+        buffer = buffer.slice(fim + 2);
+        if (/^\d{3}-/.test(linha)) continue; // continuação de resposta
+        const codigo = Number(linha.slice(0, 3));
+        if (codigo >= 400) {
+          conexao.destroy();
+          rejeitar(new Error(`SMTP do GreenMail recusou: ${linha}`));
+          return;
+        }
+        indice += 1;
+        if (indice < comandos.length) {
+          conexao.write(`${comandos[indice]}\r\n`);
+        } else {
+          conexao.end();
+          resolver();
+        }
+      }
+    });
+  });
+}
+
+/** Webhook da Meta assinado com o app secret (o mesmo que a Meta enviaria). */
+async function webhookMeta(corpo, segredo = SEGREDO_META) {
+  const bruto = JSON.stringify(corpo);
+  const assinatura = `sha256=${createHmac('sha256', segredo).update(bruto).digest('hex')}`;
+  const resposta = await fetch(`${API}/api/v1/publico/meta/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hub-Signature-256': assinatura,
+    },
+    body: bruto,
+  });
+  if (!resposta.ok) {
+    throw new Error(
+      `Webhook da Meta → ${resposta.status}: ${await resposta.text()}`,
+    );
+  }
+}
+
+/** Chamada pública do widget do chat do site (sem cookie; o Origin é conferido). */
+async function widget(chave, caminho, corpo) {
+  const resposta = await fetch(
+    `${API}/api/v1/publico/webchat/${chave}${caminho}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGEM },
+      body: JSON.stringify(corpo),
+    },
+  );
+  const dados = await lerCorpo(resposta);
+  if (!resposta.ok)
+    throw new ErroDaApi(
+      'POST',
+      `/publico/webchat/${chave}${caminho}`,
+      resposta.status,
+      dados,
+    );
+  return dados;
+}
+
+async function esperarAte(
+  descricao,
+  funcao,
+  { ms = 30_000, passo = 1_000 } = {},
+) {
+  const limite = Date.now() + ms;
+  for (;;) {
+    const resultado = await funcao();
+    if (resultado) return resultado;
+    if (Date.now() > limite)
+      throw new Error(`Esperei demais por: ${descricao}`);
+    await esperar(passo);
+  }
+}
+
+async function etapaAtendimento() {
+  passo('Atendimento: entrando com a equipe');
+  const entradas = {
+    admin: [ADMIN_EMAIL, SENHA_ADMIN],
+    clevel: [email('clevel'), SENHA_USUARIOS],
+    liderComercial: [email('lider.comercial'), SENHA_USUARIOS],
+    liderCs: [email('lider.cs'), SENHA_USUARIOS],
+    liderMarketing: [email('lider.marketing'), SENHA_USUARIOS],
+    comercial1: [email('comercial1'), SENHA_USUARIOS],
+    comercial2: [email('comercial2'), SENHA_USUARIOS],
+    marketing1: [email('marketing1'), SENHA_USUARIOS],
+    marketing2: [email('marketing2'), SENHA_USUARIOS],
+    cs1: [email('cs1'), SENHA_USUARIOS],
+    cs2: [email('cs2'), SENHA_USUARIOS],
+  };
+  const eq = {};
+  const porId = new Map();
+  for (const [chave, [endereco, senha]] of Object.entries(entradas)) {
+    try {
+      eq[chave] = await entrar(endereco, senha);
+    } catch (erro) {
+      parar(
+        `A etapa "atendimento" roda sobre a base semeada: não consegui entrar como ${endereco} (${erro.message}).`,
+      );
+    }
+    porId.set(eq[chave].usuario.id, eq[chave]);
+  }
+  const admin = eq.admin;
+  nota(`${Object.keys(eq).length} sessões abertas`);
+
+  // ------------------------------------------------------------- filas ---
+  passo('Atendimento: filas (R12)');
+  const filas = {};
+  const filasExistentes = await admin.get('/atendimento/filas');
+  const definicoesFilas = [
+    {
+      chave: 'vendas',
+      nome: 'Vendas',
+      area: 'COMERCIAL',
+      descricao: 'Interessados em contratar: propostas e dúvidas comerciais.',
+      slaPrimeiraRespostaMinutos: 10,
+      slaResolucaoMinutos: 480,
+      estrategia: 'RODIZIO',
+      participantes: ['comercial1', 'comercial2'],
+    },
+    {
+      chave: 'preVendas',
+      nome: 'Pré-vendas',
+      area: 'COMERCIAL',
+      descricao: 'Primeiro contato vindo de anúncios e redes sociais.',
+      slaPrimeiraRespostaMinutos: 15,
+      slaResolucaoMinutos: 240,
+      estrategia: 'MENOR_CARGA',
+      participantes: ['comercial1', 'comercial2'],
+    },
+    {
+      chave: 'triagem',
+      nome: 'Triagem do site',
+      area: 'COMERCIAL',
+      descricao: 'Chat do site: fica sem responsável até alguém assumir.',
+      slaPrimeiraRespostaMinutos: 5,
+      slaResolucaoMinutos: 240,
+      estrategia: 'MANUAL',
+    },
+    {
+      chave: 'suporte',
+      nome: 'Suporte CS',
+      area: 'CS',
+      descricao: 'Clientes ativos: dúvidas de uso, cobrança e ocorrências.',
+      slaPrimeiraRespostaMinutos: 5,
+      slaResolucaoMinutos: 240,
+      estrategia: 'RODIZIO',
+      participantes: ['cs1', 'cs2'],
+    },
+  ];
+  for (const { chave, participantes, ...definicao } of definicoesFilas) {
+    let fila = filasExistentes.find((f) => f.nome === definicao.nome);
+    if (fila) {
+      nota(`fila "${fila.nome}" já existe`);
+    } else {
+      const lider =
+        definicao.area === 'COMERCIAL' ? eq.liderComercial : eq.liderCs;
+      fila = await lider.post('/atendimento/filas', {
+        ...definicao,
+        participantes: participantes?.map((p) => eq[p].usuario.id),
+      });
+      nota(
+        `fila "${fila.nome}" (${fila.area}, ${fila.estrategia}) criada por ${lider.usuario.nome}`,
+      );
+    }
+    filas[chave] = fila;
+  }
+
+  // ------------------------------------------------------------ canais ---
+  passo('Atendimento: canais de todos os tipos (R13, R14)');
+  const canais = {};
+  const canaisExistentes = async () => admin.get('/atendimento/canais');
+  const canalPorNome = async (nome) =>
+    (await canaisExistentes()).find((c) => c.nome === nome);
+
+  // WhatsApp (gateway simulado)
+  const numeros = await admin.get('/whatsapp/numeros');
+  for (const { chave, nome, fila } of [
+    { chave: 'wppVendas', nome: 'WhatsApp Vendas', fila: filas.vendas },
+    { chave: 'wppSuporte', nome: 'WhatsApp Suporte', fila: filas.suporte },
+  ]) {
+    let numero = numeros.find((n) => n.nome === nome);
+    if (!numero) {
+      numero = await admin.post('/whatsapp/numeros', {
+        nome,
+        filaPadraoId: fila.id,
+        aquecimentoDias: 0,
+        // Esperas curtas: a demonstração não precisa imitar o ritmo humano.
+        intervaloMinimoSegundos: 1,
+        intervaloMaximoSegundos: 2,
+        protecoes: { digitandoMaximoSegundos: 1 },
+      });
+      nota(`número "${nome}" criado → fila ${fila.nome}`);
+    }
+    if (numero.status !== 'CONECTADO') {
+      await admin.post(`/whatsapp/numeros/${numero.id}/conectar`);
+      numero = await esperarAte(
+        `o número "${nome}" conectar (gateway simulado)`,
+        async () => {
+          const atual = await admin.get(`/whatsapp/numeros/${numero.id}`);
+          return atual.status === 'CONECTADO' ? atual : null;
+        },
+        { ms: 45_000 },
+      );
+      nota(`"${nome}" conectado (simulado), telefone ${numero.telefone}`);
+    } else {
+      nota(`"${nome}" já conectado`);
+    }
+    canais[chave] = {
+      canalId: numero.canalId,
+      numeroId: numero.id,
+      nome,
+      tipo: 'WHATSAPP',
+    };
+  }
+
+  // Chat do site
+  let site = await canalPorNome('Chat do site');
+  if (!site) {
+    const criado = await admin.post('/webchat/canais', {
+      nome: 'Chat do site',
+      filaPadraoId: filas.triagem.id,
+      dominios: ['https://www.brl-demo.local', ORIGEM],
+      contato: 'EMAIL_OU_TELEFONE',
+      textoConsentimento:
+        'Concordo em ser contatado(a) sobre o meu pedido, conforme a política de privacidade.',
+      urlPrivacidade: 'https://www.brl-demo.local/privacidade',
+      permitirAnexos: true,
+      aparencia: {
+        titulo: 'Fale com a gente',
+        subtitulo: 'Respondemos em poucos minutos.',
+        saudacao: 'Olá! Como podemos ajudar?',
+      },
+    });
+    site = await canalPorNome('Chat do site');
+    nota(
+      `chat do site criado (chave pública ${criado.chavePublica ?? site?.idExterno ?? '?'})`,
+    );
+  } else {
+    nota('chat do site já existe');
+  }
+  const chaveSite = (await admin.get(`/webchat/canais/${site.id}`))
+    .chavePublica;
+  canais.site = {
+    canalId: site.id,
+    nome: 'Chat do site',
+    tipo: 'WEBCHAT',
+    chave: chaveSite,
+  };
+
+  // E-mail (GreenMail)
+  for (const { chave, nome, endereco, senha, fila } of [
+    {
+      chave: 'emailAtendimento',
+      nome: 'E-mail atendimento',
+      endereco: email('atendimento'),
+      senha: 'atendimento2026',
+      fila: filas.suporte,
+    },
+    {
+      chave: 'emailVendas',
+      nome: 'E-mail vendas',
+      endereco: email('vendas'),
+      senha: 'vendas2026',
+      fila: filas.vendas,
+    },
+  ]) {
+    let canal = await canalPorNome(nome);
+    if (!canal) {
+      await admin.post('/email/canais', {
+        nome,
+        endereco,
+        nomeRemetente: nome.replace('E-mail ', 'BRL — '),
+        filaPadraoId: fila.id,
+        imap: {
+          host: GREENMAIL_NA_API,
+          porta: 3143,
+          tls: false,
+          usuario: endereco,
+        },
+        smtp: {
+          host: GREENMAIL_NA_API,
+          porta: 3025,
+          seguranca: 'NENHUMA',
+          usuario: endereco,
+        },
+        senha,
+        assinatura: `Equipe BRL\n${endereco}`,
+      });
+      canal = await canalPorNome(nome);
+      nota(`canal de e-mail "${nome}" (${endereco}) criado`);
+    } else {
+      nota(`canal de e-mail "${nome}" já existe`);
+    }
+    canais[chave] = { canalId: canal.id, nome, tipo: 'EMAIL', endereco };
+  }
+
+  // Instagram e Messenger (Graph API falsa do serviço "apoio")
+  const metas = [
+    {
+      chave: 'instagram',
+      nome: 'Instagram BRL',
+      tipo: 'INSTAGRAM',
+      pageId: '100000000000001',
+      instagramId: '17841400000000001',
+      fila: filas.preVendas,
+    },
+    {
+      chave: 'messenger',
+      nome: 'Messenger BRL',
+      tipo: 'MESSENGER',
+      pageId: '100000000000002',
+      instagramId: undefined,
+      fila: filas.suporte,
+    },
+  ];
+  for (const { chave, nome, tipo, pageId, instagramId, fila } of metas) {
+    let canal = await canalPorNome(nome);
+    if (!canal) {
+      await admin.post('/meta/canais', {
+        nome,
+        tipo,
+        appId: '1000000000000099',
+        appSecret: SEGREDO_META,
+        pageId,
+        instagramId,
+        tokenPagina: 'EAAdemo-token-de-pagina-de-demonstracao',
+        filaPadraoId: fila.id,
+      });
+      canal = await canalPorNome(nome);
+      nota(`${tipo} "${nome}" criado → fila ${fila.nome}`);
+    } else {
+      nota(`${tipo} "${nome}" já existe`);
+    }
+    canais[chave] = {
+      canalId: canal.id,
+      nome,
+      tipo,
+      entryId: tipo === 'INSTAGRAM' ? instagramId : pageId,
+    };
+  }
+
+  // Pesquisa de satisfação ligada em todos os canais (R12.13)
+  for (const canal of await canaisExistentes()) {
+    if (!canal.pesquisaSatisfacao) {
+      await admin.patch(`/atendimento/canais/${canal.id}`, {
+        pesquisaSatisfacao: true,
+      });
+    }
+  }
+  nota('pesquisa de satisfação (1 a 5) ligada em todos os canais');
+
+  // ------------------------------------------------- respostas rápidas ---
+  passo('Atendimento: respostas rápidas');
+  const rapidasExistentes = await admin.get('/atendimento/respostas-rapidas');
+  const rapidas = [
+    {
+      atalho: 'ola',
+      titulo: 'Saudação',
+      texto:
+        '{{saudacao}}, {{contato.primeiroNome}}! Aqui é {{usuario.primeiroNome}}, da BRL. Como posso ajudar?',
+    },
+    {
+      atalho: 'proposta',
+      titulo: 'Envio de proposta',
+      texto:
+        'Perfeito, {{contato.primeiroNome}}. Vou montar a proposta e te envio ainda hoje. Pode me confirmar o número de usuários?',
+      area: 'COMERCIAL',
+    },
+    {
+      atalho: 'prazo',
+      titulo: 'Prazo de retorno',
+      texto:
+        'Anotei aqui, {{contato.primeiroNome}}. Retorno com a resposta em até 1 dia útil.',
+    },
+    {
+      atalho: 'boleto',
+      titulo: '2ª via de boleto',
+      texto:
+        'Claro, {{contato.primeiroNome}}! Estou gerando a 2ª via e envio por aqui em instantes.',
+      area: 'CS',
+    },
+    {
+      atalho: 'obrigado',
+      titulo: 'Encerramento',
+      texto:
+        'Foi um prazer, {{contato.primeiroNome}}! Se precisar de mais alguma coisa é só chamar.',
+    },
+  ];
+  const respostasPorAtalho = {};
+  for (const resposta of rapidas) {
+    let criada = rapidasExistentes.itens
+      ? rapidasExistentes.itens.find((r) => r.atalho === resposta.atalho)
+      : rapidasExistentes.find((r) => r.atalho === resposta.atalho);
+    if (!criada) {
+      const dono =
+        resposta.area === 'CS'
+          ? eq.liderCs
+          : resposta.area === 'COMERCIAL'
+            ? eq.liderComercial
+            : admin;
+      criada = await dono.post('/atendimento/respostas-rapidas', resposta);
+    }
+    respostasPorAtalho[resposta.atalho] = criada;
+  }
+  nota(
+    `${rapidas.length} respostas rápidas (/${rapidas.map((r) => r.atalho).join(', /')})`,
+  );
+
+  // ---------------------------------------------------------- conversas ---
+  const semConversas = async (canalId) =>
+    (
+      await admin.get(
+        `/atendimento/conversas${consultar({ canalId, porPagina: 1 })}`,
+      )
+    ).total === 0;
+
+  const acharConversa = (canalId, busca) =>
+    esperarAte(`conversa de "${busca}"`, async () => {
+      const lista = await admin.get(
+        `/atendimento/conversas${consultar({ canalId, busca, porPagina: 5 })}`,
+      );
+      return lista.itens[0] ?? null;
+    });
+
+  /**
+   * As mensagens de entrada chegam por filas (gateway, webhook): antes de agir sobre
+   * elas (responder, resolver) espera a mensagem aparecer na conversa do contato.
+   */
+  const esperarEntrada = (canalId, busca, trecho) =>
+    esperarAte(`a mensagem "${trecho}" de ${busca} entrar`, async () => {
+      for (const status of ['ABERTA', 'RESOLVIDA']) {
+        const lista = await admin.get(
+          `/atendimento/conversas${consultar({ canalId, busca, status, porPagina: 5 })}`,
+        );
+        for (const conversa of lista.itens) {
+          const { itens } = await admin.get(
+            `/atendimento/conversas/${conversa.id}/mensagens`,
+          );
+          if (
+            itens.some(
+              (m) => m.direcao === 'ENTRADA' && m.texto?.includes(trecho),
+            )
+          )
+            return conversa;
+        }
+      }
+      return null;
+    });
+  const clienteWhatsapp = async (canal, de, nome, texto, midia) => {
+    await simularWhatsapp(canal.numeroId, de, nome, texto, midia);
+    return esperarEntrada(canal.canalId, nome, texto);
+  };
+
+  /** Quem atende: o responsável da conversa; sem responsável, `padrao` assume antes. */
+  async function sessaoDeAtendimento(conversa, padrao) {
+    if (conversa.responsavel)
+      return porId.get(conversa.responsavel.id) ?? admin;
+    await padrao.post(`/atendimento/conversas/${conversa.id}/assumir`);
+    return padrao;
+  }
+  async function responder(conversa, padrao, texto, atalho) {
+    const sessao = await sessaoDeAtendimento(conversa, padrao);
+    let corpo = texto;
+    if (atalho) {
+      const aplicada = await sessao.post(
+        `/atendimento/respostas-rapidas/${respostasPorAtalho[atalho].id}/aplicar`,
+        { conversaId: conversa.id },
+      );
+      corpo = aplicada.texto;
+    }
+    await sessao.post(`/atendimento/conversas/${conversa.id}/mensagens`, {
+      texto: corpo,
+    });
+    conversa.responsavel ??= { id: sessao.usuario.id };
+    return sessao;
+  }
+  const resolverComPesquisa = async (conversa, padrao) => {
+    const sessao = await sessaoDeAtendimento(conversa, padrao);
+    await sessao.post(`/atendimento/conversas/${conversa.id}/resolver`, {
+      enviarPesquisa: true,
+    });
+  };
+
+  passo('Atendimento: conversas pelo WhatsApp simulado (gateway)');
+  if (await semConversas(canais.wppVendas.canalId)) {
+    const canal = canais.wppVendas;
+    const falar = (de, nome, texto, midia) =>
+      clienteWhatsapp(canal, de, nome, texto, midia);
+    // 1. Em andamento: a equipe respondeu e o cliente voltou a escrever
+    let c = await falar(
+      '(11) 97001-0001',
+      'Marina Albuquerque',
+      'Oi! Vi o anúncio de vocês e quero entender os planos.',
+    );
+    await falar(
+      '(11) 97001-0001',
+      'Marina Albuquerque',
+      'Somos 10 pessoas no time comercial. Quanto fica por mês?',
+    );
+    await responder(c, eq.comercial1, null, 'ola');
+    await falar(
+      '(11) 97001-0001',
+      'Marina Albuquerque',
+      'Preciso de uma proposta até sexta, consegue?',
+    );
+    // 2. O cliente mandou uma imagem; resposta com a rápida de proposta
+    c = await falar(
+      '(21) 97002-0002',
+      'Carlos Eduardo Lima',
+      'Bom dia, segue o print da tela que mencionei.',
+      {
+        base64: PNG_PIXEL,
+        nome: 'print-da-tela.png',
+        mime: 'image/png',
+      },
+    );
+    await responder(c, eq.comercial2, null, 'proposta');
+    // 3. Resolvida, nota 5
+    c = await falar(
+      '(31) 97003-0003',
+      'Fernanda Prado',
+      'Olá, queria agendar uma demonstração para a minha equipe.',
+    );
+    await responder(c, eq.comercial1, null, 'ola');
+    await responder(
+      c,
+      eq.comercial1,
+      'Agendado para quinta, 15h. Mando o convite por e-mail. Algo mais?',
+    );
+    await falar('(31) 97003-0003', 'Fernanda Prado', 'Só isso, obrigada!');
+    await responder(c, eq.comercial1, null, 'obrigado');
+    await resolverComPesquisa(c, eq.comercial1);
+    // 4. Resolvida, nota 2 (avisa o líder)
+    const roberto = await falar(
+      '(41) 97004-0004',
+      'Roberto Nunes',
+      'Estou esperando retorno da proposta desde segunda.',
+    );
+    await responder(
+      roberto,
+      eq.comercial2,
+      'Peço desculpas pela demora, Roberto. Já envio a proposta revisada.',
+    );
+    await resolverComPesquisa(roberto, eq.comercial2);
+    // 5. Recém-chegada, ninguém respondeu (não lida)
+    await falar(
+      '(51) 97005-0005',
+      'Patrícia Gomes',
+      'Boa tarde! Vocês integram com o RD Station?',
+    );
+    // As notas chegam como a próxima mensagem do cliente, em até 24 h (R12.13)
+    await falar(
+      '(31) 97003-0003',
+      'Fernanda Prado',
+      '5 - atendimento excelente!',
+    );
+    await falar(
+      '(41) 97004-0004',
+      'Roberto Nunes',
+      '2 - demorou muito para responder',
+    );
+    nota(
+      '5 conversas no WhatsApp Vendas (resolvidas com nota: Fernanda Prado 5, Roberto Nunes 2)',
+    );
+  } else {
+    nota('WhatsApp Vendas já tem conversas: nada a fazer');
+  }
+  if (await semConversas(canais.wppSuporte.canalId)) {
+    const canal = canais.wppSuporte;
+    const falar = (de, nome, texto) => clienteWhatsapp(canal, de, nome, texto);
+    let c = await falar(
+      '(11) 96001-1001',
+      'Bruna Teixeira',
+      'Não consigo emitir o boleto deste mês.',
+    );
+    await responder(c, eq.cs1, null, 'boleto');
+    c = await falar(
+      '(21) 96002-1002',
+      'Gustavo Ferraz',
+      'O relatório de vendas não abre no meu navegador.',
+    );
+    await falar(
+      '(21) 96002-1002',
+      'Gustavo Ferraz',
+      'Já tentei limpar o cache.',
+    );
+    // Quem recebeu a conversa pelo rodízio passa para a outra pessoa, com nota (R12.7)
+    const dono = await sessaoDeAtendimento(c, eq.cs2);
+    const outro = dono === eq.cs1 ? eq.cs2 : eq.cs1;
+    await dono.post(`/atendimento/conversas/${c.id}/transferir`, {
+      usuarioId: outro.usuario.id,
+      nota: 'Gustavo já tentou limpar o cache; parece problema do relatório novo. Você acompanha?',
+    });
+    await outro.post(`/atendimento/conversas/${c.id}/notas`, {
+      texto:
+        'Reproduzi o erro no Chrome. Abrindo chamado com o time de produto.',
+    });
+    await outro.post(`/atendimento/conversas/${c.id}/mensagens`, {
+      texto:
+        'Oi, Gustavo! Reproduzimos o erro e já abrimos um chamado. Aviso assim que corrigir.',
+    });
+    c = await falar(
+      '(31) 96003-1003',
+      'Larissa Moura',
+      'Obrigada pela ajuda de ontem com a fatura!',
+    );
+    await responder(
+      c,
+      eq.cs2,
+      'Que bom, Larissa! A fatura já está regularizada.',
+    );
+    await resolverComPesquisa(c, eq.cs2);
+    await falar(
+      '(31) 96003-1003',
+      'Larissa Moura',
+      'nota 4, só o prazo que foi um pouco longo',
+    );
+    nota(
+      '3 conversas no WhatsApp Suporte (uma transferida com nota, uma resolvida com nota 4)',
+    );
+  } else {
+    nota('WhatsApp Suporte já tem conversas: nada a fazer');
+  }
+
+  passo('Atendimento: conversas pelo chat do site (widget público)');
+  if (await semConversas(canais.site.canalId)) {
+    const chave = canais.site.chave;
+    const visitantes = [
+      {
+        nome: 'Henrique Salles',
+        email: 'henrique.salles@exemplo.com.br',
+        pagina:
+          'https://www.brl-demo.local/planos?utm_source=google&utm_medium=cpc&utm_campaign=crm-pme',
+        textos: [
+          'Olá! Vocês têm plano para equipes pequenas?',
+          'Somos 4 vendedores.',
+        ],
+      },
+      {
+        nome: 'Camila Vidal',
+        telefone: '(61) 95001-2002',
+        pagina: 'https://www.brl-demo.local/contato',
+        textos: ['Gostaria de falar com alguém sobre integração com WhatsApp.'],
+      },
+    ];
+    for (const v of visitantes) {
+      const criado = await widget(chave, '/visitantes', {
+        nome: v.nome,
+        email: v.email,
+        telefone: v.telefone,
+        consentimento: true,
+        pagina: v.pagina,
+      });
+      const token = criado.token ?? criado.visitanteToken ?? criado.visitanteId;
+      for (const texto of v.textos) {
+        await widget(chave, '/mensagens', { token, texto });
+        await esperar(150);
+      }
+    }
+    const primeira = await acharConversa(canais.site.canalId, 'Henrique');
+    await responder(primeira, eq.comercial1, null, 'ola');
+    await acharConversa(canais.site.canalId, 'Camila'); // fica na triagem, sem responsável
+    nota(
+      '2 conversas no chat do site (a da Camila fica sem responsável na Triagem)',
+    );
+  } else {
+    nota('Chat do site já tem conversas: nada a fazer');
+  }
+
+  passo(
+    'Atendimento: conversas pelo Instagram e Messenger (webhooks assinados da Meta)',
+  );
+  const agoraMs = Date.now();
+  const mensagemMeta = (canal, psid, mid, texto, deslocamentoMs = 0) => ({
+    object: canal.tipo === 'INSTAGRAM' ? 'instagram' : 'page',
+    entry: [
+      {
+        id: canal.entryId,
+        time: agoraMs - deslocamentoMs,
+        messaging: [
+          {
+            sender: { id: psid },
+            recipient: { id: canal.entryId },
+            timestamp: agoraMs - deslocamentoMs,
+            message: { mid, text: texto },
+          },
+        ],
+      },
+    ],
+  });
+  if (await semConversas(canais.instagram.canalId)) {
+    await webhookMeta(
+      mensagemMeta(
+        canais.instagram,
+        'demo-Julia-Ferraz',
+        'm_demo_ig_1',
+        'Oi! Vi o reel de vocês. Como funciona a automação de leads?',
+        60_000,
+      ),
+    );
+    await webhookMeta(
+      mensagemMeta(
+        canais.instagram,
+        'demo-Thiago-Bastos',
+        'm_demo_ig_2',
+        'Vocês atendem agência de marketing?',
+        30_000,
+      ),
+    );
+    const julia = await acharConversa(canais.instagram.canalId, 'Julia');
+    await responder(julia, eq.comercial2, null, 'ola');
+    nota('2 conversas no Instagram (a da Julia já respondida)');
+  } else {
+    nota('Instagram já tem conversas: nada a fazer');
+  }
+  if (await semConversas(canais.messenger.canalId)) {
+    await webhookMeta(
+      mensagemMeta(
+        canais.messenger,
+        'demo-Paulo-Andrade',
+        'm_demo_fb_1',
+        'Boa noite, meu acesso não está funcionando.',
+        45_000,
+      ),
+    );
+    await webhookMeta(
+      mensagemMeta(
+        canais.messenger,
+        'demo-Renata-Campos',
+        'm_demo_fb_2',
+        'Vocês emitem nota fiscal?',
+        15_000,
+      ),
+    );
+    const renata = await acharConversa(canais.messenger.canalId, 'Renata');
+    await responder(
+      renata,
+      eq.cs2,
+      'Emitimos sim, Renata! A nota sai em até 2 dias úteis após o pagamento.',
+    );
+    await resolverComPesquisa(renata, eq.cs2);
+    await esperar(800);
+    await webhookMeta(
+      mensagemMeta(
+        canais.messenger,
+        'demo-Renata-Campos',
+        'm_demo_fb_3',
+        '5',
+        0,
+      ),
+    );
+    nota('2 conversas no Messenger (a da Renata resolvida com nota 5)');
+  } else {
+    nota('Messenger já tem conversas: nada a fazer');
+  }
+
+  passo(
+    'Atendimento: e-mails pelo GreenMail (varredura do IMAP a cada minuto)',
+  );
+  const emailsEntrada = [
+    {
+      canal: canais.emailAtendimento,
+      de: 'compras@lojaexemplo.com.br',
+      nome: 'Lojas Exemplo — Compras',
+      assunto: 'Divergência na fatura de outubro',
+      texto:
+        'Olá,\n\nIdentificamos um valor diferente do contratado na fatura de outubro. Podem verificar?\n\nAtenciosamente,\nSetor de Compras',
+      busca: 'Lojas Exemplo',
+    },
+    {
+      canal: canais.emailVendas,
+      de: 'diretoria@construtoraalfa.com.br',
+      nome: 'Ricardo Alfa',
+      assunto: 'Solicitação de orçamento para 25 usuários',
+      texto:
+        'Bom dia,\n\nGostaríamos de um orçamento do CRM para 25 usuários, com integração ao WhatsApp.\n\nAguardo retorno.\nRicardo',
+      busca: 'Ricardo Alfa',
+    },
+    {
+      canal: canais.emailVendas,
+      de: 'ana.paula@clinicavida.com.br',
+      nome: 'Ana Paula Siqueira',
+      assunto: 'Dúvida sobre período de teste',
+      texto: 'Olá! Existe período de teste gratuito? Quantos dias?',
+      busca: 'Ana Paula',
+    },
+  ];
+  const pendentesEmail = [];
+  for (const item of emailsEntrada) {
+    if (await semConversas(item.canal.canalId)) pendentesEmail.push(item);
+  }
+  const enviarAgora = pendentesEmail;
+  for (const item of enviarAgora) {
+    await enviarEmailSmtp({
+      de: item.de,
+      nomeDe: item.nome,
+      para: item.canal.endereco,
+      replyTo: item.de,
+      assunto: item.assunto,
+      texto: item.texto,
+      messageId: `demo-${randomBytes(6).toString('hex')}@demo.local`,
+    });
+  }
+  if (enviarAgora.length > 0) {
+    nota(
+      `${enviarAgora.length} e-mail(s) entregues no GreenMail; esperando a varredura do IMAP (até ${ESPERA_EMAIL_S}s)…`,
+    );
+    const conversasEmail = [];
+    for (const item of enviarAgora) {
+      try {
+        conversasEmail.push({
+          item,
+          conversa: await esperarAte(
+            `e-mail "${item.assunto}" virar conversa`,
+            async () => {
+              const lista = await admin.get(
+                `/atendimento/conversas${consultar({ canalId: item.canal.canalId, porPagina: 20 })}`,
+              );
+              return (
+                lista.itens.find((c) => c.contato.email === item.de) ?? null
+              );
+            },
+            { ms: ESPERA_EMAIL_S * 1000, passo: 3_000 },
+          ),
+        });
+      } catch (erro) {
+        nota(`aviso: ${erro.message} (rode a etapa de novo mais tarde)`);
+      }
+    }
+    // A conversa de orçamento é respondida (a resposta sai por SMTP, encadeada)
+    const orcamento = conversasEmail.find((e) =>
+      e.item.assunto.startsWith('Solicitação'),
+    );
+    if (orcamento) {
+      await responder(
+        orcamento.conversa,
+        eq.comercial1,
+        'Bom dia, Ricardo! Segue em anexo nossa tabela e já agendamos uma conversa para os detalhes da integração. Quais horários funcionam para você?',
+      );
+    }
+    nota(`${conversasEmail.length} conversa(s) de e-mail criadas`);
+  } else {
+    nota('Os canais de e-mail já têm conversas: nada a fazer');
+  }
+
+  // ------------------------------------------------------- chat interno ---
+  passo('Atendimento: chat interno com menções e referências (R15)');
+  const geral = (await admin.get('/chat/canais')).find(
+    (c) => c.tipo === 'GERAL',
+  );
+  const mensagensGeral = await admin.get(`/chat/canais/${geral.id}/mensagens`);
+  if ((mensagensGeral.itens ?? mensagensGeral).length === 0) {
+    const eu = (sessao) => sessao.usuario.id;
+    const mencao = (chave) => `<@${eq[chave].usuario.id}>`;
+    const enviarChat = (sessao, canalId, texto, extra = {}) =>
+      sessao.post(`/chat/canais/${canalId}/mensagens`, { texto, ...extra });
+
+    await enviarChat(
+      admin,
+      geral.id,
+      'Bem-vindos ao chat da equipe! Aqui ficam os avisos gerais. Para falar com uma pessoa, use uma conversa direta.',
+    );
+    await enviarChat(
+      eq.liderComercial,
+      geral.id,
+      `Bom dia, time! Reunião de pipeline hoje às 10h. ${mencao('comercial1')} e ${mencao('comercial2')}, tragam os negócios em proposta.`,
+    );
+    await enviarChat(
+      eq.liderCs,
+      geral.id,
+      `${mencao('cs1')} ${mencao('cs2')}: o Suporte CS agora recebe pelo WhatsApp Suporte e pelo Messenger. Vejam a fila "Suporte CS".`,
+    );
+    await enviarChat(
+      eq.comercial1,
+      geral.id,
+      'Ok! Já estou com 3 propostas em andamento.',
+    );
+
+    const meusCanais = async (sessao) => sessao.get('/chat/canais');
+    const canalComercial = (await meusCanais(eq.liderComercial)).find(
+      (c) => c.tipo === 'AREA',
+    );
+    if (canalComercial) {
+      const negocios = await eq.comercial2
+        .get(`/negocios${consultar({ porPagina: 1 })}`)
+        .catch(() => null);
+      const negocio = negocios?.itens?.[0];
+      await enviarChat(
+        eq.liderComercial,
+        canalComercial.id,
+        `${mencao('comercial2')} o cliente da Marina Albuquerque pediu proposta até sexta — pode assumir?`,
+      );
+      await enviarChat(
+        eq.comercial2,
+        canalComercial.id,
+        negocio
+          ? `Assumo! Já vou ligar a conversa ao negócio <negocio:${negocio.id}>.`
+          : 'Assumo! Já vou ligar a conversa a um negócio.',
+      );
+    }
+
+    const grupos = await eq.marketing1.get('/chat/canais');
+    if (
+      !grupos.some(
+        (g) => g.tipo === 'GRUPO' && g.nome === 'Campanha Black Friday',
+      )
+    ) {
+      const grupo = await eq.marketing1.post('/chat/grupos', {
+        nome: 'Campanha Black Friday',
+        descricao: 'Planejamento e acompanhamento da campanha de novembro.',
+        membrosIds: [
+          eu(eq.marketing2),
+          eu(eq.liderMarketing),
+          eu(eq.comercial1),
+        ],
+      });
+      await enviarChat(
+        eq.marketing1,
+        grupo.id,
+        `${mencao('marketing2')} pode subir os criativos até quarta? ${mencao('comercial1')} vai alinhar a oferta com o time comercial.`,
+      );
+      await enviarChat(
+        eq.marketing2,
+        grupo.id,
+        'Subo na terça. Vou usar o lead magnet novo na landing.',
+      );
+      await enviarChat(
+        eq.liderMarketing,
+        grupo.id,
+        'Perfeito. Qualquer bloqueio me avisem por aqui.',
+      );
+    }
+
+    const { canal: direta } = await eq.comercial1.post('/chat/diretas', {
+      usuarioId: eu(eq.liderComercial),
+    });
+    await enviarChat(
+      eq.comercial1,
+      direta.id,
+      'Rafael, você consegue olhar a proposta da Marina antes de eu enviar?',
+    );
+    await enviarChat(
+      eq.liderComercial,
+      direta.id,
+      'Consigo sim. Me manda por aqui que eu reviso em 10 minutos.',
+    );
+    nota(
+      'mensagens no Geral, no canal Comercial, no grupo "Campanha Black Friday" e numa conversa direta (privada)',
+    );
+  } else {
+    nota('O chat interno já tem mensagens: nada a fazer');
+  }
+
+  // --------------------------------------------------------------- fim ---
+  for (const sessao of Object.values(eq)) {
+    try {
+      await sessao.post('/auth/sair');
+    } catch {
+      // sessão já encerrada
+    }
+  }
+  const metricas = await (async () => {
+    try {
+      const novo = await entrar(ADMIN_EMAIL, SENHA_ADMIN);
+      const resposta = await novo.get('/atendimento/metricas');
+      await novo.post('/auth/sair');
+      return resposta;
+    } catch {
+      return null;
+    }
+  })();
+  nota(
+    `métricas do Atendimento: ${metricas ? JSON.stringify(metricas).slice(0, 200) : 'indisponíveis'}`,
+  );
+  console.log('\n✓ Atendimento semeado.\n');
+  console.log('Canais:');
+  for (const canal of Object.values(canais)) {
+    console.log(
+      `  ${canal.tipo.padEnd(10)} ${canal.nome}${canal.numeroId ? `  (numeroId ${canal.numeroId})` : ''}${canal.chave ? `  (chave ${canal.chave})` : ''}`,
+    );
+  }
+  console.log(`\nSimular um cliente no WhatsApp (gateway simulado):`);
+  console.log(
+    `  curl -X POST -H "X-Token-Interno: $WHATSAPP_TOKEN_INTERNO" -H 'Content-Type: application/json' \\`,
+  );
+  console.log(
+    `    -d '{"numeroId":"${canais.wppVendas.numeroId}","de":"11999990001","nome":"Fulano","texto":"Oi"}' ${GATEWAY_URL}/simulador/receber`,
+  );
+}
+
 async function principal() {
   console.log(
     `Semeando a demonstração do BRL CRM em ${API} (origem ${ORIGEM})`,
   );
+
+  if (ETAPA === 'atendimento') {
+    // Só a etapa de atendimento, sobre a base já semeada (idempotente).
+    passo('Verificando a API');
+    await verificarApi();
+    await etapaAtendimento();
+    return;
+  }
 
   passo('Verificando a API e a base');
   await verificarApi();
@@ -1751,6 +2869,10 @@ async function principal() {
     await s('comercial1').post(
       `/notificacoes/${notificacoes.itens[0].id}/marcar-lida`,
     );
+
+  if (RODAR_ATENDIMENTO) {
+    await etapaAtendimento();
+  }
 
   // Sai de todas as sessões abertas pelo script (o desligado já perdeu a dele, R2.4)
   for (const [chave, { sessao }] of Object.entries(pessoas)) {

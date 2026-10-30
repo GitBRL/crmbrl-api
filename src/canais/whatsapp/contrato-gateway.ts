@@ -225,6 +225,12 @@ export interface PedidoDeEnvio {
    * pausa (ISO 8601). Passado o prazo, falha.
    */
   adiadoDesde?: string | null;
+  /**
+   * Preenchido pelo gateway: desde quando o envio espera a reconexão do
+   * número ou a vez na ordem da conversa (ISO 8601). Passado o prazo, segue
+   * o fluxo normal (envia ou falha).
+   */
+  esperaDesde?: string | null;
 }
 
 // ---------------------------------------------------------------------------

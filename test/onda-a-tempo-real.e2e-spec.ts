@@ -110,6 +110,31 @@ describe('Tempo real (e2e)', () => {
       await expect(caiu).resolves.toBe('io server disconnect');
     });
 
+    it('R12.5 — trocar o papel do usuário derruba o socket, para reconectar nas salas do papel novo', async () => {
+      const admin = await entrarComo(
+        t,
+        await criarUsuario(t, { papel: 'ADMIN' }),
+      );
+      const liderMarketing = await criarUsuario(t, {
+        papel: 'LIDER_MARKETING',
+      });
+      const usuario = await criarUsuario(t, { papel: 'COMERCIAL' });
+      const socket = await conectar(await entrarComo(t, usuario));
+      const caiu = esperarDesconexao(socket);
+      await admin
+        .patch(`/api/v1/usuarios/${usuario.id}`, {
+          papel: 'MARKETING',
+          liderId: liderMarketing.id,
+        })
+        .expect(200);
+      await expect(caiu).resolves.toBe('io server disconnect');
+
+      const novo = await conectar(await entrarComo(t, usuario));
+      const naAreaAntiga = semEvento(novo, 'nao-lidas');
+      t.tempoReal.emitir(salas.area('COMERCIAL'), 'nao-lidas', { chat: 1 });
+      await naAreaAntiga;
+    });
+
     it('a varredura derruba o socket de uma sessão que expirou', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const socket = await conectar(cliente);

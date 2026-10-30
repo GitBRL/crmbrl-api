@@ -95,6 +95,13 @@ const VALIDADE_DA_VERIFICACAO_MS = 7 * 24 * 60 * 60_000;
 const ESPERA_DO_NUMERO_PAUSADO_MS = 5 * 60_000;
 const PRAZO_DO_NUMERO_PAUSADO_MS = 24 * 60 * 60_000;
 
+/** Espera curta (sem gastar tentativa) por reconexão ou pela vez na ordem da conversa. */
+const ESPERA_CURTA_DO_ENVIO_SEGUNDOS = 2;
+/** Prazo de espera pela reconexão (equivale às tentativas com espera crescente). */
+const PRAZO_DA_RECONEXAO_MS = 30 * 60_000;
+/** Prazo de espera pela mensagem anterior da conversa, para uma presa não travar as outras. */
+const PRAZO_DA_ORDEM_MS = 10 * 60_000;
+
 /** Espalha os envios adiados para o dia seguinte (limite diário) nos primeiros minutos. */
 const ESPALHAMENTO_DO_ADIAMENTO_MS = 30 * 60_000;
 
@@ -759,6 +766,50 @@ export class GerenciadorDeNumeros
     );
   }
 
+  /** Devolve o envio à fila em instantes, sem gastar tentativa. */
+  private async reagendarEnvio(
+    pedido: PedidoDeEnvio,
+    esperaDesde: number,
+  ): Promise<void> {
+    await this.fila.enviar(
+      filaDeEnvio(pedido.numeroId),
+      { ...pedido, esperaDesde: new Date(esperaDesde).toISOString() },
+      {
+        atrasoSegundos: ESPERA_CURTA_DO_ENVIO_SEGUNDOS,
+        tentativas: TENTATIVAS_DE_ENVIO,
+        intervaloEntreTentativasSegundos:
+          ESPERA_ENTRE_TENTATIVAS_DE_ENVIO_SEGUNDOS,
+        esperaExponencial: true,
+      },
+    );
+  }
+
+  /** Há mensagem de saída da mesma conversa, criada antes e ainda pendente? */
+  private async temAnteriorPendente(
+    pedido: PedidoDeEnvio,
+    criadoEm: Date,
+  ): Promise<boolean> {
+    const anteriores = await this.prisma.mensagem.findMany({
+      where: {
+        conversaId: pedido.conversaId,
+        direcao: 'SAIDA',
+        status: 'PENDENTE',
+        excluidaEm: null,
+        id: { not: pedido.mensagemId },
+        OR: [
+          { criadoEm: { lt: criadoEm } },
+          { criadoEm, id: { lt: pedido.mensagemId } },
+        ],
+      },
+      select: { idExterno: true },
+      take: 20,
+    });
+    // Quem este processo já enviou só espera o evento de status voltar.
+    return anteriores.some(
+      ({ idExterno }) => !idExterno || !this.enviadas.has(idExterno),
+    );
+  }
+
   /**
    * Um envio da fila do número, com as proteções anti-banimento (R13). Número
    * desconectado ou falha passageira: lança (o pg-boss tenta de novo); na
@@ -774,7 +825,12 @@ export class GerenciadorDeNumeros
     // Já saiu (job repetido depois de uma queda): não envia de novo.
     const mensagem = await this.prisma.mensagem.findUnique({
       where: { id: pedido.mensagemId },
-      select: { status: true, excluidaEm: true, idExterno: true },
+      select: {
+        status: true,
+        excluidaEm: true,
+        idExterno: true,
+        criadoEm: true,
+      },
     });
     if (mensagem?.excluidaEm) {
       return;
@@ -800,15 +856,29 @@ export class GerenciadorDeNumeros
       return;
     }
 
+    const agoraEspera = this.relogio.agora();
+    const esperaDesde = pedido.esperaDesde
+      ? Date.parse(pedido.esperaDesde)
+      : agoraEspera;
     const ativa = this.ativas.get(pedido.numeroId);
     if (!ativa || ativa.status !== 'CONECTADO') {
-      if (ultima) {
+      if (ultima || agoraEspera - esperaDesde >= PRAZO_DA_RECONEXAO_MS) {
         await falhar('O número de WhatsApp está desconectado.');
         return;
       }
-      throw new Error(
-        `Número ${pedido.numeroId} desconectado: o envio ${pedido.mensagemId} espera a reconexão.`,
-      );
+      // Esperado (queda, reinício, reconexão): volta em instantes, sem gastar
+      // tentativa nem espalhar os envios pela espera crescente (a ordem fica).
+      await this.reagendarEnvio(pedido, esperaDesde);
+      return;
+    }
+    // Ordem da conversa: com uma mensagem anterior ainda pendente, espera a vez.
+    if (
+      mensagem &&
+      agoraEspera - esperaDesde < PRAZO_DA_ORDEM_MS &&
+      (await this.temAnteriorPendente(pedido, mensagem.criadoEm))
+    ) {
+      await this.reagendarEnvio(pedido, esperaDesde);
+      return;
     }
     const numero = await this.prisma.whatsappNumero.findUnique({
       where: { id: pedido.numeroId },

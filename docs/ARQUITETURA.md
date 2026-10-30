@@ -1188,7 +1188,17 @@ Decisões da Fase 1 — base (2026-10-20):
   schema dele: subir de versão é decisão explícita. A fila sobe e para com o
   Nest; com o banco fora na subida, a API sobe e a fila tenta de novo em segundo
   plano. `PROCESSAR_FILAS=false` desliga trabalhadores, agendamentos e
-  despachante (réplica só HTTP, testes); nos testes, `drenar()` executa na hora.
+  despachante (só testes; não serve para réplica, veja abaixo); nos testes,
+  `drenar()` executa na hora.
+- **Tempo real: uma instância só da API.** O Socket.IO não tem adaptador entre
+  processos e as emissões da outbox saem do processo que roda o job; uma réplica
+  (mesmo `PROCESSAR_FILAS=false`) aceitaria sockets que nunca recebem
+  `conversa.nova`/`mensagem.nova`/`mensagem.status`. Notificações e revogação de
+  sessão já usam `LISTEN/NOTIFY`. Para escalar sem dependência nova: o
+  manipulador da outbox faz `NOTIFY` com o id do evento (payload até 8 KB) e cada
+  instância lê e emite aos seus sockets, via `OuvinteDoBanco`. O adaptador
+  `@socket.io/postgres-adapter` seria dependência nova (precisa de aprovação).
+  O limitador do chat do site também é por instância.
   Jobs que dependem de uma alteração são criados na mesma transação (`{ tx }`).
 - **Índices únicos parciais no schema** com o preview `partialIndexes` do Prisma
   7.10, para o `migrate dev` conhecê-los (escritos só no SQL, o próximo
@@ -1354,6 +1364,38 @@ Decisões que valem para os dois repositórios:
   [`tools/doc-updater`](../tools/doc-updater/README.md). Nada de documentação fora
   do repositório. O scanner ignora pastas `generated` (o Prisma Client).
 - **TypeScript 6** e **Prettier** nos dois lados.
+
+Decisões da Fase 2 — Onda A (2026-10-26):
+
+- **Gateway de WhatsApp em processo separado, na mesma imagem** (`node dist/whatsapp/main.js`):
+  uma queda do WhatsApp não derruba a API, e a API continua sendo a única dona das regras.
+  Os dois conversam por HTTP interno com token (comandos síncronos) e por pg-boss (mensagens
+  e envios, duráveis); sem broker novo. Baileys com versão exata fixada, sem navegador.
+- **Sessão do WhatsApp no Postgres, cifrada** (`whatsapp_chaves`, AES-256-GCM): nada em disco,
+  então o contêiner do gateway é descartável. Eventos do gateway consumidos com concorrência 1
+  por causa da ordem.
+- **Modo simulado como transporte de primeira classe** (`WHATSAPP_SIMULADO`): o mesmo código
+  de gerenciamento, fila e proteções roda com um transporte falso; é o que os testes e o
+  ambiente dos agentes usam. Nunca há número real fora do ambiente do usuário.
+- **Todos os canais entram por `AtendimentoService.receber`** (entrada normalizada, idempotente
+  por canal e id externo) e saem por um `AdaptadorCanal` registrado no `RegistroCanais`;
+  o Atendimento não conhece o WhatsApp, o IMAP nem a Meta.
+- **Tempo real emitido depois do commit, pela outbox** (`emitirAposCommit`): o cliente nunca
+  vê algo que ainda pode sofrer rollback. Só "digitando" sai direto. A notificação nova e a
+  sessão revogada usam `LISTEN/NOTIFY` do Postgres, com varredura de segurança a cada 60 s.
+- **Arquivos no MinIO (S3), acesso só pela API:** o armazenamento do multer envia ao S3 em fluxo,
+  conferindo tipo, assinatura e limite no caminho; cada contexto tem seu verificador de
+  permissão (R11.4). SVG e HTML são sempre recusados. O driver em memória serve aos testes.
+- **Widget do chat do site como módulo TS do próprio build**, servido pela API, com pedidos
+  "simples" (sem preflight) por causa do CORS global; namespace `/webchat` com token do visitante.
+- **E-mail por IMAP/SMTP** (`imapflow`, `mailparser`): lê só mensagens novas, guarda texto sem
+  HTML nem citação e encadeia por `In-Reply-To`/`References`. Instagram e Messenger pela Graph
+  API com assinatura do webhook conferida e janela de 24 h na resposta.
+- **Rodízio só entre quem ativou o acesso** (ajuste da R5.8), também no rodízio de leads.
+- **Chat interno separado do Atendimento** (R15): canais padrão por papel e área, grupos e
+  diretas privadas até para o Admin; menções viram notificação com link.
+- **Testes de integração com serviços reais quando existem:** MinIO e GreenMail de teste
+  ativam as suítes de S3 e de e-mail; sem eles essas duas suítes são puladas.
 
 Pendente de decisão — registrar aqui quando resolvido:
 
