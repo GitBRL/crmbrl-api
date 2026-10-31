@@ -992,3 +992,263 @@ do teste) contra um Postgres real.
 68. Opt-out fica de fora das automações de marketing, também no meio da cadência (R19.9).
 69. Data relativa dispara na hora marcada, uma vez (R19.2).
 70. As opções do chatbot chegam ao chat do site como botões (R18.10).
+
+## 27. BI e métricas (R20)
+
+- **R20.1** **Painéis e acesso:** `marketing`, `comercial`, `cs`, `atendimento` e `financeiro`
+  (`GET /bi/paineis` devolve as abas do papel; `GET /bi/:painel` os números). Admin e C-level
+  veem todos; as pessoas de área veem o painel da própria área e o do Atendimento (exceto
+  Marketing, que não usa o Atendimento, R12). O painel Financeiro é de Admin, C-level e CS
+  (R22.1). Painel que o papel não vê dá 403; painel desconhecido, 400.
+- **R20.2** **Visibilidade (R1):** nenhum número revela o que a pessoa não veria na lista
+  correspondente. Os recortes de SQL espelham as funções das listas — negócios como no
+  kanban (R5.9), atividades, conversas (R12.2), campanhas, contratos e parcelas (R22.1) — e
+  cada teste confere o número do BI contra a lista. Membro: só o que é dele (e o sem
+  responsável, como no kanban); líder: a área; diretoria: tudo.
+- **R20.3** **Filtros comuns:** período (`de` e `ate`; padrão, os últimos 30 dias; máximo de
+  366), `area`, `equipeId`, `pessoaId`, `funilId`, `canalId` e `filaId` (cada painel aceita os
+  que fazem sentido). Filtro fora do alcance do usuário (área de outro, equipe de outra área,
+  pessoa de outra área) é recusado e funil de outra área dá 404 — o filtro nunca amplia a
+  visibilidade. Agrupamentos por dia e por hora usam o fuso de São Paulo.
+- **R20.4** **Comparação:** os cartões trazem o valor do período, o valor do **período anterior
+  de mesma duração** e a variação. Indicadores "de agora" (carteira, renovações próximas, MRR
+  atual, abertos) não têm comparação.
+- **R20.5** **Conteúdo dos painéis:** *Marketing* — leads por origem, UTM e dia, passagens
+  para o Comercial (taxa e tempo até a passagem) e campanhas (enviados, entregues, lidos,
+  respondidos e opt-outs, pela data de cada evento). *Comercial* — funil por etapa
+  (quantidade e valor), valor em aberto e ponderado (valor × probabilidade da etapa), taxa de
+  ganho, ciclo médio, motivos de perda, ranking por vendedor e atividades feitas e atrasadas.
+  *CS* — carteira, recorrente, onboarding por etapa, renovações por faixa, renovados e
+  cancelados, satisfação (só das filas de CS) e risco de churn (R23.4). *Atendimento* — volume
+  por canal e por hora, primeira resposta, tempo de atendimento, SLA cumprido, CSAT, por
+  atendente e por fila. *Financeiro* — MRR, inadimplência por faixa e previsto × realizado
+  (R23).
+- **R20.6** **Cache:** resposta guardada por **30 segundos** por pessoa e filtro (no máximo
+  300 entradas); `Cache-Control: no-cache` recalcula. Não há invalidação por evento: o número
+  pode atrasar até 30 s.
+- **R20.7** **Exportação:** `POST /bi/:painel/exportar` com os mesmos filtros devolve CSV
+  (`;`, BOM, sem fórmulas) ou XLSX (uma aba por tabela) com os mesmos números do painel, de
+  quem exporta. Tabela desconhecida, formato inválido ou painel proibido são recusados. A
+  exportação é auditada (`bi.exportado`).
+- **R20.8** **Cliques (front):** o clique num gráfico abre a lista filtrada que sustenta o
+  número — etapa leva a `/funis/<área>?etapaId=…` (o quadro mostra só aquela etapa), canal e fila
+  levam a `/atendimento?canalId=…`/`?filaId=…` (a caixa de entrada abre filtrada), pessoa
+  filtra o próprio painel, negócio e contato abrem o detalhe.
+
+## 28. Análise do BI por IA (R21)
+
+- **R21.1** **Quem usa:** só o **Admin**; os demais papéis recebem 403 e o front nem mostra
+  o botão. Sem sessão, 401.
+- **R21.2** **Entrada:** apenas os **números agregados** do painel e dos filtros atuais — as
+  mesmas tabelas do BI, com no máximo 60 linhas cada. Nenhum dado pessoal de contato (nome,
+  e-mail, telefone) vai ao modelo: listas nominais (risco de churn, renovações) são agregadas
+  antes. A análise respeita os filtros validados como no R20.3 (filtro inválido é 400
+  antes de abrir o fluxo).
+- **R21.3** **Resposta:** em streaming (`text/event-stream`, eventos `inicio`, `fase`,
+  `parcial`, `nova_tentativa`, `concluido` e `erro`), estruturada por JSON Schema — resumo,
+  destaques, riscos e ações recomendadas. Cada ação traz um link para a lista filtrada que a
+  sustenta; links inventados pelo modelo viram o painel correspondente (só rotas do catálogo
+  valem).
+- **R21.4** **Modelo e robustez:** `claude-opus-5-5` pela SDK oficial, raciocínio adaptativo,
+  prompt de sistema com cache, tempo máximo de 120 s por tentativa e **uma nova tentativa**
+  (o parcial da primeira é descartado). Erro ou tempo esgotado na segunda: evento `erro`,
+  análise `FALHOU`, auditada, e **não conta** no limite diário.
+- **R21.5** **Perguntas de acompanhamento:** até **5** por análise, de até 1.000 caracteres,
+  que continuam a mesma conversa (aproveitando o cache) e somam os tokens.
+- **R21.6** **Limite diário:** padrão de 20 análises por dia (fuso de São Paulo, somando os
+  Admins), configurável de 0 a 1.000 pelo Admin (0 desliga; mudança auditada em
+  `bi.analise_ia_configurada`). Passou do limite: 429 com `Retry-After`.
+- **R21.7** **Chave:** `ANTHROPIC_API_KEY` só no servidor — nunca devolvida nem registrada
+  em log. Sem chave, `GET /bi/analise/estado` explica como configurar e a análise é 503, sem
+  chamar a Anthropic. `ANTHROPIC_BASE_URL` existe para testes (API falsa).
+- **R21.8** **Histórico e auditoria:** cada análise e pergunta guarda quem pediu, filtros, a
+  entrada enviada, o resultado e os tokens; o Admin consulta o histórico
+  (`GET /bi/analise/historico`). Auditoria: `bi.analise_ia_concluida`, `bi.analise_ia_falhou`,
+  `bi.analise_ia_pergunta_respondida` e `bi.analise_ia_pergunta_falhou`.
+
+## 29. Contratos e parcelas (R22)
+
+- **R22.1** **Acesso:** Admin, C-level e Líder de CS gerenciam tudo; membro de CS vê e atua
+  nos clientes da **própria carteira** (responsável de CS) e nos sem responsável; Comercial
+  vê, **só leitura**, os contratos dos negócios que ganhou; Marketing não acessa (403). O BI
+  não mostra contrato nem título que a lista não mostra.
+- **R22.2** **Contrato:** cliente (empresa e/ou contato), negócio ganho de origem (negócio
+  aberto é recusado), produto, valor, periodicidade (mensal, anual, cobrança única…), início,
+  fim, renovação automática, responsável de CS e status (`ATIVO`, `SUSPENSO`, `CANCELADO`,
+  `ENCERRADO`). Criar gera as parcelas (no máximo 120 de uma vez) e o movimento **novo** do
+  MRR. O contrato anual rende 1/12 do valor ao mês; a cobrança única não entra no MRR.
+  Suspender, reativar e cancelar são auditados; cancelar cancela as parcelas que ainda não
+  venceram. Contrato ativo com o fim passado é **encerrado** (churn) ou, com renovação
+  automática, estendido com novas parcelas.
+- **R22.3** **Parcela (título):** número único, vencimento, valor, status (`ABERTO`, `PAGO`,
+  `ATRASADO`, `CANCELADO`, `RENEGOCIADO`), link do boleto, link de pagamento, Pix, data e
+  forma de pagamento. Pode ser manual (exige cliente: contrato, contato ou empresa). Depois de
+  paga, não se edita. **Renegociar** marca a parcela como `RENEGOCIADO` e cria outra, com a
+  régua do zero. Mudar o vencimento reinicia a régua (R24.3).
+- **R22.4** **Baixa manual:** marca como paga com data e forma de pagamento, audita
+  (`parcela.baixada`), publica o evento `parcela.paga` e encerra a régua do título (R24.6). A
+  segunda baixa é recusada.
+- **R22.5** **Importação de parcelas** (tipo `PARCELAS`, a importação da Onda B): colunas
+  sugeridas pelo nome; cria clientes que não existem; **reimportar atualiza pelo número**, dá
+  baixa nos pagos e reinicia a régua de quem teve o vencimento alterado; coluna ausente ou
+  célula vazia **não apaga** dado; "ignorar duplicados" não toca nos existentes; erros por
+  linha vão ao relatório. Só quem gerencia o Financeiro importa.
+- **R22.6** **Sugestão ao ganhar:** quando um negócio é ganho, o responsável recebe uma
+  notificação (`contrato.sugerido`) e a tela de contrato abre pré-preenchida com cliente,
+  produto e valor do negócio.
+- **R22.7** **Atraso:** a parcela aberta vencida antes de hoje aparece como `ATRASADO` na
+  hora da consulta; o job diário grava o status, audita (`parcela.atrasada`) e publica o evento
+  `parcela.atrasada`.
+- **R22.8** **Eventos de saída:** `contrato.criado`, `contrato.atualizado`,
+  `contrato.cancelado`, `contrato.encerrado`, `contrato.reativado`, `parcela.paga` e
+  `parcela.atrasada`.
+
+## 30. MRR e inadimplência (R23)
+
+- **R23.1** **MRR por mês:** receita recorrente mensal dos contratos ativos e suspensos, com
+  os movimentos do mês — **novo** (contratos criados), **expansão** e **contração** (mudança
+  de valor) e **churn** (cancelamento ou encerramento, em valor positivo) — e o MRR no fim de
+  cada mês. Datas no fuso de São Paulo.
+- **R23.2** **Inadimplência:** parcelas vencidas e não pagas por faixa de dias de atraso —
+  0–30, 31–60, 61–90 e 90+ —, com valor, parcelas e clientes; a **taxa de inadimplência** é o
+  valor em atraso sobre o valor a receber vencido ou a vencer.
+- **R23.3** **Previsto × realizado:** por mês, o previsto (vencimentos do mês), o realizado
+  (pago), o que segue em aberto e a taxa de realização.
+- **R23.4** **Risco de churn:** pontuação por cliente (limitada a 100) somando **atraso**
+  (1–30 dias: 20; 31–60: 35; mais de 60: 50), **satisfação baixa** (nota até 2: 30; nota 3:
+  15) e **silêncio** (mais de 30 dias sem interação: 10; mais de 60: 20). Níveis: alto a partir
+  de 60, médio a partir de 30, baixo abaixo disso. Aparece no painel de CS, no contato e no
+  negócio de CS, respeitando a visibilidade (R22.1).
+- **R23.5** Os indicadores respeitam a visibilidade do usuário (R22.1) e alimentam o painel
+  Financeiro do BI (R20) e os cartões da tela inicial.
+
+## 31. Régua de cobrança (R24)
+
+- **R24.1** **Etapas:** por marco em dias a partir do vencimento. Padrão: D-7, D-3, D0, D+3,
+  D+5, D+7, D+15, D+30, D+45 e D+60, cada uma com canais (WhatsApp, e-mail, ligação), textos
+  e roteiro de ligação **editáveis**. Variáveis do título aceitas: `titulo.numero`, `.valor`,
+  `.vencimento`, `.dias_atraso`, `.descricao`, `.link_boleto`, `.link_pagamento`, `.pix`,
+  `.promessa` e `contrato.produto`, além das do contato (R17). Marco repetido, variável
+  inválida e membro de CS (que só vê) são recusados.
+- **R24.2** **Execução:** diária, depois do horário configurado (padrão 09:00,
+  America/Sao_Paulo; um cron confere a cada 15 minutos e roda uma vez por dia, respeitando
+  "ativa") e sob demanda por **"Executar agora"** (só a gestão). Cada título recebe a etapa do
+  dia no máximo uma vez. As ações usam o ator `AUTOMACAO` com descrição "Régua de cobrança".
+- **R24.3** **Entrada atrasada e reinício:** quem entra na régua depois do marco recebe **só a
+  etapa mais recente**; etapas além da **tolerância** (padrão 3 dias) são puladas
+  (`regua.etapa_pulada`). Alterar o vencimento (manual ou por importação) reinicia a régua do
+  título.
+- **R24.4** **Envio:** WhatsApp pelo gateway (R13), com **fila própria** em paralelo às
+  campanhas, número do financeiro opcional e intervalo entre mensagens configurável (padrão 20
+  s); e-mail pelo SMTP (sem SMTP o envio falha e "Reenviar falhas" tenta de novo). A mensagem
+  é registrada na conversa do contato. Pausar a régua segura os envios.
+- **R24.5** **Ligação:** a etapa com ligação vira uma **atividade** (tipo ligação) para o
+  responsável de CS e **segura as mensagens** da etapa até o resultado: *promessa de
+  pagamento* com data (suspende a régua do título e envia a confirmação; se a data vence sem
+  pagamento, avisa o responsável e a régua continua), *sem acordo* ou *não atendeu* (liberam a
+  mensagem e o e-mail da etapa) e *já pagou* (dá baixa e encerra a régua). Ligação sem
+  registro até o horário limite libera a mensagem (`regua.ligacao_expirada`).
+- **R24.6** **Pagamento encerra a régua:** a baixa (manual, por importação ou "já pagou")
+  cancela as mensagens, e-mails e ligações que ainda não saíram.
+- **R24.7** **Opt-out e "não contatar":** o opt-out de marketing (R4.6) **não** bloqueia a
+  cobrança, que é uma relação contratual; a marca **"não contatar por WhatsApp"** do contato
+  (etiqueta `nao-contatar-whatsapp` ou campo personalizado `nao_contatar_whatsapp`) **é
+  respeitada**: a régua não envia WhatsApp e segue por e-mail e ligação. No detalhe do contato,
+  o bloco de privacidade tem o controle "Não contatar por WhatsApp", que liga e desliga a
+  marca (desligar remove a etiqueta e o campo).
+- **R24.8** **Respostas** do cliente caem no Atendimento, na mesma conversa.
+- **R24.9** **Histórico e exportação:** linha do tempo por título (etapas, envios, ligações e
+  alterações), envios do dia, execuções e exportação; cada etapa executada, pulada, reenviada,
+  ligação registrada e promessa é auditada (`regua.*`).
+
+## 32. Matriz de acesso (Fase 3 e 4 — Onda C)
+
+| Recurso | Admin | C-level | Líder | Membro |
+| --- | --- | --- | --- | --- |
+| Painéis do BI (R20) | todos | todos | o da área e o Atendimento (Marketing: não) | o da área e o Atendimento (Marketing: não), só o que é dele |
+| Painel Financeiro do BI | ✓ | ✓ | só CS | só CS, a própria carteira |
+| Exportar painel do BI | ✓ | ✓ | do que vê | do que vê |
+| Análise por IA (R21) e histórico | ✓ | — | — | — |
+| Contratos e parcelas (R22) | todos | todos | CS: todos; Comercial: só leitura dos que ganhou | CS: a própria carteira; Comercial: só leitura dos que ganhou |
+| Importar parcelas | ✓ | ✓ | CS | — |
+| Indicadores MRR e inadimplência (R23) | ✓ | ✓ | CS | CS (a própria carteira) |
+| Régua de cobrança: configurar e "Executar agora" (R24) | ✓ | ✓ | CS | — (vê) |
+| Registrar resultado de ligação | ✓ | ✓ | CS | CS (os próprios clientes) |
+
+Marketing não acessa o Financeiro, mas usa o BI do próprio painel.
+
+## 33. Cenários de aceitação (Fase 3 e 4 — Onda C)
+
+Continuam a numeração da seção 26; cada um tem teste automatizado ("cenário N" no nome do
+teste) contra um Postgres real, e os de tela têm spec no front.
+
+71. Cada papel vê só os painéis da sua área; os outros são 403 (R20.1).
+72. O membro vê no BI só os números dos negócios e atividades dele, como na lista (R20.2).
+73. Filtro de área, equipe ou pessoa fora do alcance é recusado (R20.3).
+74. Painel desconhecido, datas inválidas e período grande demais são recusados (R20.3).
+75. Ganhos, perdidos, taxa de ganho e ciclo médio trazem a comparação com o período anterior
+    (R20.4).
+76. O cache curto devolve a mesma resposta e `no-cache` recalcula (R20.6).
+77. Exportação CSV e XLSX com os mesmos números do painel, auditada e respeitando a
+    visibilidade (R20.7).
+78. O clique no gráfico do BI leva à lista filtrada (R20.8).
+79. A caixa de entrada do Atendimento aplica `?canalId` e `?filaId` e o quadro de funis
+    aplica `?etapaId` (R20.8).
+80. Só o Admin usa a análise por IA; os demais recebem 403 (R21.1).
+81. A análise chega em streaming, só com números agregados, e grava histórico e auditoria
+    (R21.2, R21.3, R21.8).
+82. Link inventado pelo modelo vira o painel; filtro inválido é 400 antes do streaming
+    (R21.3).
+83. Pergunta de acompanhamento continua a conversa e soma os tokens, até o limite de 5 (R21.5).
+84. Erro da Anthropic ou tempo esgotado: erro, análise `FALHOU`, auditada, sem contar no
+    limite (R21.4).
+85. O limite diário é configurável (auditado), dá 429 com `Retry-After` e zero desliga
+    (R21.6).
+86. Sem chave, o estado explica como configurar e a análise é 503, sem chamar a Anthropic
+    (R21.7).
+87. Marketing não acessa o Financeiro; CS vê só a carteira, Comercial só lê, líder de CS vê
+    tudo (R22.1).
+88. Contrato de negócio ganho gera parcelas e o MRR "novo"; negócio aberto é recusado
+    (R22.2).
+89. Contrato anual rende 1/12 ao mês; cobrança única não entra no MRR (R22.2).
+90. Contrato vencido é encerrado ou, com renovação automática, estendido (R22.2).
+91. Ao ganhar um negócio, o CRM sugere o contrato com os dados pré-preenchidos (R22.6).
+92. A baixa manual marca como pago, audita e publica `parcela.paga`; a segunda é recusada
+    (R22.4).
+93. Parcela manual tem número único; paga não se edita; renegociar cria outra (R22.3).
+94. A parcela vencida aparece como atrasada e o job grava o status e publica o evento
+    (R22.7).
+95. Importar títulos cria clientes, dá baixa nos pagos e relata erros; só a gestão importa
+    (R22.5).
+96. Reimportar atualiza pelo número, dá baixa, reinicia a régua de quem mudou o vencimento e
+    não apaga colunas ausentes (R22.5).
+97. O MRR por mês traz novo, expansão, contração e churn; cancelar cancela as parcelas a
+    vencer (R23.1).
+98. A inadimplência é separada nas faixas 0–30, 31–60, 61–90 e 90+, só do que o usuário vê
+    (R23.2).
+99. A receita prevista × realizada sai por mês (R23.3).
+100. O risco de churn soma atraso, satisfação baixa e silêncio e aparece no painel de CS
+     (R23.4).
+101. As etapas padrão vêm editáveis; marco repetido, variável inválida e membro de CS são
+     recusados (R24.1).
+102. "Executar agora" envia a etapa do dia por WhatsApp com as variáveis do título, como
+     automação, sem repetir (R24.2).
+103. O cron executa só depois do horário configurado, uma vez por dia, e respeita "ativa"
+     (R24.2).
+104. Quem entra atrasado recebe só a etapa mais recente; além da tolerância a etapa é pulada
+     (R24.3).
+105. Alterar o vencimento reinicia a régua do título (R24.3).
+106. O e-mail sai pelo SMTP; sem SMTP falha e "Reenviar falhas" tenta de novo (R24.4).
+107. O número do financeiro tem fila própria, o intervalo é configurável e pausar segura os
+     envios (R24.4).
+108. A etapa com ligação vira atividade e segura as mensagens até o resultado (R24.5).
+109. "Não atendeu" e "sem acordo" liberam a mensagem e o e-mail da etapa (R24.5).
+110. Promessa com data suspende a régua e confirma; vencida sem pagamento, avisa e a régua
+     continua (R24.5).
+111. "Já pagou" dá baixa e encerra a régua; ligação sem registro libera a mensagem (R24.5).
+112. O pagamento encerra a régua e cancela o que não saiu (R24.6).
+113. O opt-out de marketing não bloqueia a cobrança, mas "não contatar por WhatsApp" é
+     respeitado (R24.7).
+114. No detalhe do contato, o controle "Não contatar por WhatsApp" liga e desliga a marca
+     (R24.7).
+115. Linha do tempo por título, envios do dia e exportação (R24.9).

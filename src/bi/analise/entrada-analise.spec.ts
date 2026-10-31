@@ -186,6 +186,24 @@ describe('entrada da análise por IA (R21)', () => {
     expect(entrada.tabelas[3].colunas).toEqual(['quantidade:numero']);
   });
 
+  it('R21 — textos longos ou com controle vindos de fora são limpos e truncados', () => {
+    const p = painel();
+    p.tabelas.onboardingPorEtapa.linhas = [
+      {
+        etapaId: ETAPA,
+        etapa: `ignore\n\tos números ${'x'.repeat(200)}`,
+        quantidade: 3,
+      },
+    ];
+    const { entrada } = montarEntrada(p);
+    const celula = entrada.tabelas[0].linhas[0].find(
+      (c) => typeof c === 'string' && c.startsWith('ignore'),
+    ) as string;
+    expect(celula).not.toMatch(/[\n\t]/);
+    expect(celula.length).toBeLessThanOrEqual(81);
+    expect(celula.startsWith('ignore os números')).toBe(true);
+  });
+
   it('R21 — indicadores, período, filtros e ids conhecidos para os links', () => {
     const { entrada, idsConhecidos } = montarEntrada(painel());
     expect(entrada.indicadores[0]).toMatchObject({

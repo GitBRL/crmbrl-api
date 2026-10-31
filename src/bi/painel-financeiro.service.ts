@@ -25,7 +25,7 @@ const CARTOES: readonly DefinicaoDeCartao[] = [
   },
   {
     chave: 'contratosAtivos',
-    rotulo: 'Contratos ativos',
+    rotulo: 'Contratos na receita',
     unidade: 'numero',
     melhorQuando: null,
     dica: 'Contratos ativos e suspensos agora (os que compõem o MRR).',

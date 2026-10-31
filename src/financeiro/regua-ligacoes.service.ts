@@ -315,7 +315,7 @@ export class ReguaLigacoesService {
         canal: 'LIGACAO',
         parcela: filtroDeParcelasVisiveis(usuario),
       },
-      select: { id: true },
+      select: { id: true, parcelaId: true },
     });
     if (!visivel) throw new NaoEncontradoException('Ligação não encontrada.');
 
@@ -323,6 +323,8 @@ export class ReguaLigacoesService {
     const config = await this.configuracao.configuracao();
     let parcelaPaga: Parcela | null = null;
     const parcelaId = await this.prisma.$transaction(async (tx) => {
+      // Ordem das travas igual à da baixa: primeiro o título, depois o envio.
+      await tx.$queryRaw`SELECT id FROM parcelas WHERE id = ${visivel.parcelaId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM regua_envios WHERE id = ${envioId}::uuid FOR UPDATE`;
       const ligacao = await tx.reguaEnvio.findUniqueOrThrow({
         where: { id: envioId },

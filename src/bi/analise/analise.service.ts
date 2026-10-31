@@ -51,6 +51,7 @@ import {
 import {
   ChamadaClaudeService,
   FalhaDaChamada,
+  MENSAGENS_DAS_FALHAS,
   type UsoDeTokens,
 } from './chamada-claude.service';
 import type { ParametrosDoFluxo } from './cliente-anthropic';
@@ -352,6 +353,12 @@ export class AnaliseService {
           {
             status: 'EM_ANDAMENTO',
             criadoEm: { gte: new Date(Date.now() - ANDAMENTO_ABANDONADO_MS) },
+          },
+          // Falha que já gastou tokens segue contando: o limite é o teto de custo.
+          {
+            status: 'FALHOU',
+            tokensSaida: { gt: 0 },
+            NOT: { erro: MENSAGENS_DAS_FALHAS.cancelada },
           },
         ],
       },

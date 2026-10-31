@@ -44,7 +44,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
     await clienteAnonimo(t).get('/api/v1/bi/paineis').expect(401);
   });
 
-  it('R1, R20 — cada papel vê só os painéis da sua área; os outros são 403', async () => {
+  it('cenário 71 — R1, R20 — cada papel vê só os painéis da sua área; os outros são 403', async () => {
     const admin = await criarUsuario(t, { papel: 'ADMIN' });
     const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
     const comercial = await criarEquipe(t, 'COMERCIAL', {
@@ -96,7 +96,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
     expect(recusa).toMatchObject({ detalhes: { regra: 'R20' } });
   });
 
-  it('R20 — painel desconhecido, datas inválidas e período grande demais são recusados', async () => {
+  it('cenário 74 — R20 — painel desconhecido, datas inválidas e período grande demais são recusados', async () => {
     const admin = await entrarComo(t, await criarUsuario(t));
     await admin.get('/api/v1/bi/financeiro-inexistente').expect(400);
     await admin.get('/api/v1/bi/comercial').query({ de: 'ontem' }).expect(400);
@@ -114,7 +114,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
       .expect(400);
   });
 
-  it('R1, R20 — filtros fora do alcance: área de outro, equipe de outra área, pessoa de outra área', async () => {
+  it('cenário 73 — R1, R20 — filtros fora do alcance: área de outro, equipe de outra área, pessoa de outra área', async () => {
     const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
     const cs = await criarEquipe(t, 'CS', {
       membros: 1,
@@ -150,7 +150,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
     );
   });
 
-  it('R20 — cache curto: a mesma consulta repetida volta igual; no-cache recalcula', async () => {
+  it('cenário 76 — R20 — cache curto: a mesma consulta repetida volta igual; no-cache recalcula', async () => {
     const { lider, membros } = await criarEquipe(t, 'COMERCIAL', {
       membros: 1,
     });
@@ -183,7 +183,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
     expect(cartao(doMembro, 'novos').valor).toBe(1);
   });
 
-  it('R20, R3 — exporta CSV de uma tabela, com os mesmos números do painel, e audita', async () => {
+  it('cenário 77 — R20, R3 — exporta CSV de uma tabela, com os mesmos números do painel, e audita', async () => {
     const { lider, membros } = await criarEquipe(t, 'COMERCIAL', {
       membros: 1,
     });

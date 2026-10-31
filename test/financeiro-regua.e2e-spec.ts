@@ -127,7 +127,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
 
   // ------------------------------------------------------------------ R24.1
 
-  it('R24.1 — as etapas padrão vêm editáveis; marco repetido, variável inválida e membro de CS são recusados', async () => {
+  it('cenário 101 — R24.1 — as etapas padrão vêm editáveis; marco repetido, variável inválida e membro de CS são recusados', async () => {
     const r = await admin.get('/api/v1/financeiro/regua/etapas').expect(200);
     const lista = r.body as {
       id: string;
@@ -212,7 +212,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
 
   // ------------------------------------------------------------------ R24.2 / R24.4
 
-  it('R24.2 — "Executar agora" envia a etapa do dia pelo WhatsApp com as variáveis do título, como automação, sem repetir', async () => {
+  it('cenário 102 — R24.2 — "Executar agora" envia a etapa do dia pelo WhatsApp com as variáveis do título, como automação, sem repetir', async () => {
     const { canal } = await conectar();
     const contato = await cliente();
     const p = await parcela(contato, 0, { valor: '1234.50' });
@@ -259,7 +259,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     expect(await t.prisma.reguaExecucao.count()).toBe(2);
   });
 
-  it('R24.3 — quem entra atrasado recebe só a etapa mais recente; além da tolerância a etapa é pulada', async () => {
+  it('cenário 104 — R24.3 — quem entra atrasado recebe só a etapa mais recente; além da tolerância a etapa é pulada', async () => {
     await conectar();
     const recente = await parcela(await cliente(), 5);
     const antigo = await parcela(await cliente(), 20);
@@ -294,7 +294,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     ).toEqual(['EMAIL', 'LIGACAO', 'WHATSAPP']);
   });
 
-  it('R24.4 — e-mail pelo SMTP; sem SMTP o envio falha e "reenviar falhas" tenta de novo', async () => {
+  it('cenário 106 — R24.4 — e-mail pelo SMTP; sem SMTP o envio falha e "reenviar falhas" tenta de novo', async () => {
     await conectar();
     await etapas([-3]);
     const comEmail = await cliente();
@@ -333,7 +333,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
       .expect(403);
   });
 
-  it('R24.4 — o número do financeiro tem fila própria e o intervalo entre mensagens é configurável; pausar segura os envios', async () => {
+  it('cenário 107 — R24.4 — o número do financeiro tem fila própria e o intervalo entre mensagens é configurável; pausar segura os envios', async () => {
     await conectar();
     const { canal: doFinanceiro } = await criarCanalWhatsapp(t, {
       status: 'CONECTADO',
@@ -377,7 +377,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     expect((fila.body as { total: number }).total).toBe(2);
   });
 
-  it('R24.2 — o cron só executa depois do horário configurado, uma vez por dia, e respeita "ativa"', async () => {
+  it('cenário 103 — R24.2 — o cron só executa depois do horário configurado, uma vez por dia, e respeita "ativa"', async () => {
     await conectar();
     await etapas([0]);
     const p = await parcela(await cliente(), 0);
@@ -425,7 +425,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
       return { cs, contato, p, ligacao, todos };
     }
 
-    it('R24.5 — a etapa com ligação vira atividade para o CS e segura as mensagens até o resultado', async () => {
+    it('cenário 108 — R24.5 — a etapa com ligação vira atividade para o CS e segura as mensagens até o resultado', async () => {
       const { cs, p, ligacao, todos, contato } = await comLigacao();
       expect(ligacao.situacao).toBe('AGUARDANDO_LIGACAO');
       expect(
@@ -482,7 +482,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
         .expect(404);
     });
 
-    it('R24.5 — "não atendeu" e "sem acordo" liberam a mensagem e o e-mail da etapa', async () => {
+    it('cenário 109 — R24.5 — "não atendeu" e "sem acordo" liberam a mensagem e o e-mail da etapa', async () => {
       const { cs, p, ligacao, contato } = await comLigacao();
       const c = await entrarComo(t, cs.membros[0]);
       await c
@@ -523,7 +523,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
       });
     });
 
-    it('R24.5 — promessa com data suspende a régua e confirma; vencida sem pagamento, avisa e a régua continua', async () => {
+    it('cenário 110 — R24.5 — promessa com data suspende a régua e confirma; vencida sem pagamento, avisa e a régua continua', async () => {
       await conectar();
       await etapas([7, 15]);
       const cs = await criarEquipe(t, 'CS', { membros: 1 });
@@ -616,7 +616,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
       );
     });
 
-    it('R24.5 — "já pagou" dá baixa e encerra a régua; ligação sem registro até o horário limite libera a mensagem', async () => {
+    it('cenário 111 — R24.5 — "já pagou" dá baixa e encerra a régua; ligação sem registro até o horário limite libera a mensagem', async () => {
       const { cs, p, ligacao } = await comLigacao();
       const c = await entrarComo(t, cs.membros[0]);
       await c
@@ -668,7 +668,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
 
   // ------------------------------------------------------------------ R24.6 / R24.7
 
-  it('R24.6 — o pagamento encerra a régua: cancela mensagens, e-mails e ligações que não saíram', async () => {
+  it('cenário 112 — R24.6 — o pagamento encerra a régua: cancela mensagens, e-mails e ligações que não saíram', async () => {
     await conectar();
     await etapas([7]);
     const contato = await cliente();
@@ -711,7 +711,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     expect(await t.prisma.mensagem.count()).toBe(0);
   });
 
-  it('R24.7 — o opt-out de marketing não bloqueia a cobrança, mas "não contatar por WhatsApp" é respeitado', async () => {
+  it('cenário 113 — R24.7 — o opt-out de marketing não bloqueia a cobrança, mas "não contatar por WhatsApp" é respeitado', async () => {
     await conectar();
     await etapas([-3]);
     const optOut = await cliente();
@@ -756,7 +756,7 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     expect(vazio).toBeNull();
   });
 
-  it('R24.3 — alterar o vencimento reinicia a régua do título', async () => {
+  it('cenário 105 — R24.3 — alterar o vencimento reinicia a régua do título', async () => {
     await conectar();
     await etapas([-3, 0]);
     const p = await parcela(await cliente(), 0);
@@ -789,9 +789,75 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     ]);
   });
 
+  // ------------------------------------------------------------ concorrência
+
+  it('cenário 116 — R24.6 — baixa e "Executar agora" em paralelo não deixam pendência de régua num título pago', async () => {
+    await conectar();
+    await etapas([7]);
+    const cs = await criarEquipe(t, 'CS', { membros: 1 });
+    for (let i = 0; i < 4; i++) {
+      const p = await parcela(await cliente({ responsavel: cs.membros[0] }), 7);
+      await Promise.all([
+        admin.post(`/api/v1/financeiro/parcelas/${p.id}/baixa`, {}).expect(200),
+        admin.post('/api/v1/financeiro/regua/executar').expect(200),
+      ]);
+      expect(
+        await t.prisma.parcela.findUniqueOrThrow({ where: { id: p.id } }),
+      ).toMatchObject({ status: 'PAGO' });
+      const pendentes = (await envios(p.id)).filter((e) =>
+        ['AGENDADO', 'RETIDO', 'AGUARDANDO_LIGACAO'].includes(e.situacao),
+      );
+      expect(pendentes).toHaveLength(0);
+    }
+    expect(
+      await t.prisma.atividade.count({ where: { status: 'PENDENTE' } }),
+    ).toBe(0);
+  });
+
+  it('cenário 117 — R24.3 — baixa manual e "já pagou" da ligação ao mesmo tempo dão uma só baixa', async () => {
+    await conectar();
+    await etapas([7]);
+    const cs = await criarEquipe(t, 'CS', { membros: 1 });
+    const p = await parcela(await cliente({ responsavel: cs.membros[0] }), 7);
+    await executar();
+    const ligacao = (await envios(p.id)).find((e) => e.canal === 'LIGACAO')!;
+    const c = await entrarComo(t, cs.membros[0]);
+    const respostas = await Promise.all([
+      admin.post(`/api/v1/financeiro/parcelas/${p.id}/baixa`, {}),
+      c.post(`/api/v1/financeiro/regua/ligacoes/${ligacao.id}/resultado`, {
+        resultado: 'JA_PAGOU',
+      }),
+    ]);
+    expect(respostas.some((r) => r.status === 200)).toBe(true);
+    expect(
+      await t.prisma.eventoAuditoria.count({
+        where: { acao: 'parcela.baixada', entidadeId: p.id },
+      }),
+    ).toBe(1);
+  });
+
+  it('cenário 118 — R24.3 — envio de um ciclo anterior (vencimento alterado) é cancelado e não sai', async () => {
+    await conectar();
+    await etapas([0]);
+    const p = await parcela(await cliente(), 0);
+    await executar();
+    expect((await envios(p.id))[0].situacao).toBe('AGENDADO');
+    // Simula a corrida: o ciclo do título avança sem cancelar o envio agendado.
+    await t.prisma.parcela.update({
+      where: { id: p.id },
+      data: { cicloRegua: { increment: 1 } },
+    });
+    await enviar();
+    expect(await t.prisma.mensagem.count()).toBe(0);
+    expect((await envios(p.id))[0]).toMatchObject({
+      situacao: 'CANCELADO',
+      motivo: 'Vencimento alterado: a régua recomeçou.',
+    });
+  });
+
   // ------------------------------------------------------------------ R24.9
 
-  it('R24.9 — linha do tempo por título, envios do dia e exportação', async () => {
+  it('cenário 115 — R24.9 — linha do tempo por título, envios do dia e exportação', async () => {
     await conectar();
     const cs = await criarEquipe(t, 'CS', { membros: 1 });
     const contato = await cliente({ responsavel: cs.membros[0] });
@@ -838,7 +904,11 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
     const arquivo = exp.body as { id: string; nome: string };
     expect(arquivo.nome).toMatch(/^titulos-.*\.csv$/);
     const conteudo = await t.get(ArquivosService).lerConteudo(arquivo.id);
-    expect(conteudo.conteudo.toString('utf8')).toContain(p.numero);
+    const csv = conteudo.conteudo.toString('utf8');
+    expect(csv).toContain(p.numero);
+    // Excel em português: valor com vírgula decimal e data em dd/mm/aaaa.
+    expect(csv).toContain(';100,00;');
+    expect(csv).toMatch(/;\d{2}\/\d{2}\/\d{4};/);
     // O CS da carteira vê a linha do tempo; quem não tem a parcela, não.
     await (
       await entrarComo(t, cs.membros[0])

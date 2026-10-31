@@ -193,7 +193,7 @@ Nos testes, `PROCESSAR_FILAS=false`: nada roda sozinho, e os utilitários
   `NotificacoesModule`, `AuthModule`, `SeedsModule`, `SaudeModule` e os módulos
   de negócio (`UsuariosModule`, `ContatosModule`, `FunisModule`,
   `AtividadesModule`, `AuditoriaConsultaModule`, `AdministracaoModule`,
-  `WebhooksModule`). Os de infraestrutura são globais: qualquer módulo injeta os
+  `WebhooksModule`, e, na Onda C, `BiModule`, `AnaliseModule` e `FinanceiroModule`, nesta ordem). Os de infraestrutura são globais: qualquer módulo injeta os
   serviços deles sem importá-los.
 - `AmbienteModule`: o ambiente validado, pelo token `AMBIENTE`. Nenhum outro
   arquivo de `src/` lê `process.env`.
@@ -406,6 +406,81 @@ automação/fluxo/campanha), por isso a auditoria e os eventos gerados carregam 
 `importacao.progresso` e `campanha.progresso`. Tipos de notificação novos: `campanha.pausada`,
 `campanha.concluida`, `campanha.aprovacao_pedida`, `campanha.aprovada`,
 `campanha.reprovada`. O front os tipa em `nucleo/tempo-real/eventos.ts`.
+
+### Peças e fluxos da Onda C (BI, análise por IA, financeiro e régua)
+
+Regras: R20 a R24 em `REGRAS-DE-NEGOCIO.md` (seções 27 a 33).
+
+**`BiModule` (`src/bi/`)** — um serviço por painel (`painel-marketing`, `-comercial`, `-cs`,
+`-atendimento`, `-financeiro`), orquestrados pelo `BiService`:
+
+- **Consultas:** SQL agregado (`$queryRaw` com `Prisma.sql`), nunca carregando linhas para somar
+  em memória. A visibilidade vem de `escopo-bi.ts`, que traduz para SQL as mesmas regras das
+  listas (kanban R5.9, atividades, conversas R12.2, campanhas, contratos R22.1): o `WHERE` de
+  cada painel recebe o recorte do usuário, e os testes e2e conferem cada número contra a lista.
+- **Filtros:** `FiltrosBiService` valida período (padrão 30 dias, máximo 366), área, equipe,
+  pessoa, funil, canal e fila contra o alcance do usuário (filtro fora do alcance = 400/404);
+  `periodo.ts` calcula o período anterior de mesma duração para a comparação dos cartões.
+- **Cache:** `CacheBi`, em memória por processo, chave = pessoa + painel + filtros normalizados,
+  TTL de **30 s** e no máximo 300 entradas (as mais antigas saem primeiro); `Cache-Control:
+  no-cache` ignora. Cache por pessoa (não por papel) porque o recorte de visibilidade é pessoal.
+  Sem invalidação por evento: o custo é um número até 30 s atrasado; o ganho, nenhum acoplamento
+  com os módulos que gravam. Com mais de uma instância da API, cada uma tem o seu.
+- **Índices:** a migration `20261031120000_onda_c_indices_bi` cria 15 índices parciais e
+  compostos (negócios por funil e data de criação/ganho/perda, destinatários de campanha por
+  evento, conversas por criação/resolução/CSAT, atividades concluídas, passagens), escolhidos
+  por `EXPLAIN` sobre os 12 meses de dados de demonstração.
+- **Exportação:** `ExportacaoBiService` gera CSV (`;`, BOM, sem fórmulas) ou XLSX (exceljs, uma
+  aba por tabela) com os mesmos dados do painel, salva como arquivo (R11) e audita
+  `bi.exportado`.
+- Rotas: `GET /bi/paineis`, `GET /bi/:painel`, `POST /bi/:painel/exportar`.
+
+**`AnaliseModule` (`src/bi/analise/`) — integração com a Anthropic (R21):**
+
+- **Cliente:** provider `ANTHROPIC_CLIENTE` (SDK oficial `@anthropic-ai/sdk`), criado só quando
+  há `ANTHROPIC_API_KEY`; o ambiente validado expõe apenas se a chave existe e a base da URL
+  (`ANTHROPIC_BASE_URL`, para a API falsa dos testes), nunca o valor. Os testes usam
+  `test/utils/anthropic-falso.ts`; o ambiente dos agentes usa a API falsa do serviço de apoio.
+- **Fluxo:** o controller (só `ADMIN`) abre um `text/event-stream` (`EmissorSse`, com
+  comentário de batimento a cada 15 s); o `AnaliseService` valida filtros, confere o limite
+  diário (`configuracoes.analise-ia`), monta a **entrada** só com agregados (`entrada-analise`:
+  tabelas do BI, no máximo 60 linhas, listas nominais agregadas) e chama o
+  `ChamadaClaudeService`: modelo `claude-opus-5-5`, raciocínio adaptativo, saída estruturada
+  por JSON Schema (`esquema-analise`), prompt de sistema com `cache_control`, timeout de 120 s e
+  uma nova tentativa (descarta o parcial). Perguntas de acompanhamento reaproveitam a conversa
+  (a mensagem inicial é guardada como texto exato em `mensagem_inicial`, porque o JSONB
+  reordena chaves e quebraria o cache do prompt).
+- **Links:** `links-analise` mantém o catálogo de rotas do front; links que o modelo inventa
+  viram o painel correspondente.
+- **Persistência:** `AnaliseIa` e `AnaliseIaPergunta` (quem, filtros, entrada, resultado,
+  tokens, status `EM_ANDAMENTO`/`CONCLUIDA`/`FALHOU`); análise "em andamento" antiga demais é
+  tratada como abandonada.
+
+**`FinanceiroModule` (`src/financeiro/`)** — contratos, parcelas, indicadores e régua:
+
+- **Modelo:** `Contrato` (cliente empresa/contato, negócio de origem, periodicidade, MRR
+  calculado, status), `Parcela` (título, com número único), `MovimentoMrr` (histórico dos
+  movimentos) e `ReguaEtapa`/`ReguaExecucao`/`ReguaEnvio` (a régua);
+  `TipoImportacao` ganhou `PARCELAS` (a importação da Onda B reaproveitada, com
+  `importacao-de-parcelas.service` e `campos-de-parcela`).
+- **Indicadores** (`IndicadoresService`, `RiscoDeChurnService`): MRR por movimento e por mês,
+  inadimplência por faixa, previsto × realizado e risco de churn. O BI (painéis Financeiro e
+  CS) e a tela inicial consomem os mesmos serviços, então os números não divergem.
+- **Régua** (`ReguaService`, `ReguaEnvioService`, `ReguaLigacoesService`,
+  `ReguaConfiguracaoService`): três filas pg-boss — `financeiro.regua.agenda` (cron a cada 15
+  min: decide a execução diária no horário configurado, marca parcelas atrasadas e libera
+  ligações vencidas), `financeiro.regua.whatsapp` e `financeiro.regua.email` (um envio por
+  mensagem). O WhatsApp passa pelo gateway da Onda A, com número e intervalo próprios (fila
+  paralela às campanhas); o e-mail, pelo SMTP. Ligações viram atividades (R6) e seguram as
+  mensagens da etapa até o resultado. Todas as ações usam o ator `AUTOMACAO` (descrição
+  "Régua de cobrança") e são auditadas.
+- **Eventos:** `contrato.*`, `parcela.paga` e `parcela.atrasada` entram nos webhooks de saída;
+  `parcela.atualizada` e `regua.progresso` seguem pelo tempo real para as telas.
+- Rotas sob `/financeiro/*` (contratos, parcelas, indicadores, régua).
+
+**Front:** o gráfico é o componente `ui/grafico` (ECharts 6 em chunk sob demanda, SVG, cores
+lidas dos tokens do tema); BI, tela inicial e indicadores do Financeiro usam o mesmo
+componente.
 
 ### Jornada de um lead (como os módulos conversam)
 
@@ -794,6 +869,8 @@ contagens iniciais do menu vêm da API (`/notificacoes/nao-lidas/contagem`,
 | `ADMIN_EMAIL`, `ADMIN_NOME`, `ADMIN_SENHA_INICIAL` | vazio, `Administrador`, vazia | Admin do primeiro acesso (R2.6); sem senha, uma é gerada e mostrada no log |
 | `SMTP_HOST`, `SMTP_PORTA`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` | vazias, `587` | E-mail; sem `SMTP_HOST`, convite e redefinição por e-mail ficam indisponíveis (R2.8) |
 | `WEBHOOKS_PERMITIR_REDE_INTERNA` | `false` | Libera webhooks de saída para rede interna (R9.1) |
+| `ANTHROPIC_API_KEY` | vazia | Chave da Anthropic da análise do BI por IA (R21); vazia, o estado da análise explica como configurar. Nunca devolvida nem registrada |
+| `ANTHROPIC_BASE_URL` | API da Anthropic | Só para testes: base de uma API falsa |
 | `DOCS_PUBLICAS` | `true` fora de produção | `/api/docs` aberto; senão, só Admin |
 | `PROCESSAR_FILAS` | `true` | Trabalhadores, agendamentos e despachante de eventos |
 | `LOG_FORMATO` | `json` em produção | `json` ou `texto` |
@@ -1528,3 +1605,32 @@ Decisões da Onda B (2026-10-30):
   nesta onda (R18, nota final).
 - **Opções do bot no chat do site** viajam em `metadados.botoes` da mensagem e saem como
   `botoes` no DTO público; nos outros canais continuam como texto numerado.
+
+Decisões da Onda C (2026-10-31):
+
+- **BI em SQL agregado com a visibilidade das listas traduzida para SQL** (`escopo-bi.ts`) em
+  vez de reaproveitar os serviços de lista: contar linhas já filtradas pelos serviços custaria
+  uma consulta por linha. O preço é manter duas implementações da mesma regra; por isso cada
+  número do BI tem teste que o confere contra a lista.
+- **Cache do BI em memória, 30 s, por pessoa e filtro** em vez de Redis ou invalidação por
+  evento: nenhuma dependência nova, sem acoplamento. Limita-se a uma instância da API por
+  cache; com várias, o pior caso é um número até 30 s atrasado em cada uma.
+- **Índices parciais** (`WHERE ganho_em IS NOT NULL` etc.) nas colunas de data de evento, que
+  são nulas na maioria das linhas: índices menores e usados pelo planner nos painéis.
+- **Anthropic só no servidor, só com agregados, só para o Admin:** a chave não sai do `.env`
+  (o ambiente expõe apenas a presença), a entrada nunca leva dado pessoal e o modelo é fixo em
+  `claude-opus-5-5`. O streaming é SSE sobre `fetch` no front (o `EventSource` não aceita POST).
+  O limite diário e o histórico existem para controlar custo e auditar o uso.
+- **Pergunta de acompanhamento com a mensagem inicial guardada como texto** (coluna
+  `mensagem_inicial`), porque o JSONB reordena as chaves e invalidaria o cache de prompt.
+- **MRR por movimentos** (novo, expansão, contração, churn) guardados em `MovimentoMrr`, em vez de
+  recalcular o histórico a cada consulta: o MRR de qualquer mês sai por soma dos movimentos.
+- **Régua com filas próprias** (`financeiro.regua.*`), separadas das campanhas: cobrança não
+  espera disparo em massa. O WhatsApp do financeiro pode usar número próprio; o intervalo entre
+  mensagens é configurável.
+- **Opt-out de marketing não bloqueia a cobrança** (relação contratual), mas a marca "não
+  contatar por WhatsApp" é respeitada; ela é uma etiqueta (ou campo personalizado) com controle
+  no detalhe do contato, sem coluna nova, para a régua e os demais módulos lerem o mesmo dado.
+- **Cliques do BI levam a listas filtradas por query** (`?etapaId`, `?canalId`, `?filaId`): as
+  telas de destino aplicam o filtro e o mostram (quadro com uma coluna e aviso; caixa de
+  entrada com o painel de filtros aberto), em vez de o BI montar listas próprias.

@@ -310,6 +310,7 @@ export class ReguaService implements OnModuleInit {
         const contato = await this.envios.contatoDeCobranca(p);
         await this.prisma.$transaction(async (tx) => {
           await travarChave(tx, 'regua-parcela', p.id);
+          await tx.$queryRaw`SELECT id FROM parcelas WHERE id = ${p.id}::uuid FOR UPDATE`;
           const atual = await tx.parcela.findUniqueOrThrow({
             where: { id: p.id },
           });
@@ -445,6 +446,7 @@ export class ReguaService implements OnModuleInit {
     const dia = paraDataDoBanco(c.hoje);
     await this.prisma.$transaction(async (tx) => {
       await travarChave(tx, 'regua-parcela', parcela.id);
+      await tx.$queryRaw`SELECT id FROM parcelas WHERE id = ${parcela.id}::uuid FOR UPDATE`;
       const atual = await tx.parcela.findUniqueOrThrow({
         where: { id: parcela.id },
       });

@@ -164,7 +164,7 @@ describe('BI — painel Comercial (e2e)', () => {
     return { cLevel, lider, v1, v2 };
   }
 
-  it('R20 — ganhos, perdidos, taxa de ganho, ciclo médio e valor ganho, com comparação', async () => {
+  it('cenário 75 — R20 — ganhos, perdidos, taxa de ganho, ciclo médio e valor ganho, com comparação', async () => {
     const { lider } = await montar();
     const painel = await consultarPainel(
       await entrarComo(t, lider),
@@ -303,7 +303,7 @@ describe('BI — painel Comercial (e2e)', () => {
     });
   });
 
-  it('R1, R20 — o vendedor vê só os números dos negócios e atividades dele (e os sem responsável)', async () => {
+  it('cenário 72 — R1, R20 — o vendedor vê só os números dos negócios e atividades dele (e os sem responsável)', async () => {
     const { v1, v2 } = await montar();
     const doV1 = await consultarPainel(await entrarComo(t, v1), 'comercial');
     const doV2 = await consultarPainel(await entrarComo(t, v2), 'comercial');

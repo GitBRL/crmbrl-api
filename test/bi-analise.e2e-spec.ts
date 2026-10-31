@@ -126,7 +126,7 @@ describe('BI — análise por IA (e2e)', () => {
     return { admin, cliente: await entrarComo(t, admin) };
   }
 
-  it('R21 — sem sessão 401; só o Admin usa (os outros papéis recebem 403)', async () => {
+  it('cenário 80 — R21 — sem sessão 401; só o Admin usa (os outros papéis recebem 403)', async () => {
     await clienteAnonimo(t).get('/api/v1/bi/analise/estado').expect(401);
     const { cLevel, lider, membros } = await criarEquipe(t, 'COMERCIAL', {
       membros: 1,
@@ -148,7 +148,7 @@ describe('BI — análise por IA (e2e)', () => {
     expect(falso.chamadas).toHaveLength(0);
   });
 
-  it('R21 — cenário 1: analisa em streaming, só com números agregados, e grava histórico e auditoria', async () => {
+  it('cenário 81 — R21 — analisa em streaming, só com números agregados, e grava histórico e auditoria', async () => {
     const { admin, cliente } = await montarCs();
     const estadoAntes = await cliente
       .get('/api/v1/bi/analise/estado')
@@ -278,7 +278,7 @@ describe('BI — análise por IA (e2e)', () => {
       .expect(404);
   });
 
-  it('R21 — link inventado pelo modelo vira o painel; filtros inválidos são 400 antes do streaming', async () => {
+  it('cenário 82 — R21 — link inventado pelo modelo vira o painel; filtros inválidos são 400 antes do streaming', async () => {
     const { cliente } = await montarCs();
     falso.enfileirar({
       tipo: 'resposta',
@@ -325,7 +325,7 @@ describe('BI — análise por IA (e2e)', () => {
       .expect(400);
   });
 
-  it('R21 — pergunta de acompanhamento continua a conversa (cache) e soma os tokens; limite de 5', async () => {
+  it('cenário 83 — R21 — pergunta de acompanhamento continua a conversa (cache) e soma os tokens; limite de 5', async () => {
     const { cliente } = await montarCs();
     const r = await transmitir(cliente, '/api/v1/bi/analise', { painel: 'cs' });
     const analiseId = r.eventos.at(-1)!.dados.analiseId as string;
@@ -403,7 +403,7 @@ describe('BI — análise por IA (e2e)', () => {
       .expect(404);
   });
 
-  it('R21 — erro da Anthropic: evento de erro, análise FALHOU, auditada, sem contar no limite', async () => {
+  it('cenário 84 — R21 — erro da Anthropic: evento de erro, análise FALHOU, auditada, sem contar no limite quando não gastou tokens', async () => {
     const { cliente } = await montarCs();
     falso.enfileirar({
       tipo: 'erro',
@@ -426,6 +426,23 @@ describe('BI — análise por IA (e2e)', () => {
     ).toBe(1);
     const estado = await cliente.get('/api/v1/bi/analise/estado').expect(200);
     expect(estado.body.usadasHoje).toBe(0);
+    // Falha que já gastou tokens conta no limite (teto de custo); cancelada não.
+    await t.prisma.analiseIa.update({
+      where: { id: linha.id },
+      data: { tokensSaida: 500 },
+    });
+    expect(
+      (await cliente.get('/api/v1/bi/analise/estado').expect(200)).body
+        .usadasHoje,
+    ).toBe(1);
+    await t.prisma.analiseIa.update({
+      where: { id: linha.id },
+      data: { erro: 'A análise foi cancelada.' },
+    });
+    expect(
+      (await cliente.get('/api/v1/bi/analise/estado').expect(200)).body
+        .usadasHoje,
+    ).toBe(0);
     // Pergunta sobre análise que falhou: 422.
     await cliente
       .post(`/api/v1/bi/analise/${linha.id}/perguntas`, {
@@ -464,7 +481,7 @@ describe('BI — análise por IA (e2e)', () => {
     expect(falhou.tentativas).toBe(2);
   });
 
-  it('R21 — limite diário configurável pelo Admin (auditado): 429 com Retry-After; zero desliga', async () => {
+  it('cenário 85 — R21 — limite diário configurável pelo Admin (auditado): 429 com Retry-After; zero desliga', async () => {
     const { cliente } = await montarCs();
     const mudado = await cliente
       .put('/api/v1/bi/analise/configuracao', { limiteDiario: 1 })
@@ -515,7 +532,7 @@ describe('BI — análise por IA sem chave configurada (e2e)', () => {
   beforeEach(() => t.limparBanco());
   afterAll(() => t.fechar());
 
-  it('R21 — o estado diz como configurar e a análise é 503, sem chamar a Anthropic', async () => {
+  it('cenário 86 — R21 — o estado diz como configurar e a análise é 503, sem chamar a Anthropic', async () => {
     const admin = await criarUsuario(t, { papel: 'ADMIN' });
     const cliente = await entrarComo(t, admin);
     const estado = await cliente.get('/api/v1/bi/analise/estado').expect(200);

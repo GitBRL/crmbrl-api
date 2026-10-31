@@ -94,7 +94,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.1
 
-  it('R22.1 — Marketing não acessa; CS vê só a carteira; Comercial só lê; líder de CS vê tudo', async () => {
+  it('cenário 87 — R22.1 — Marketing não acessa; CS vê só a carteira; Comercial só lê; líder de CS vê tudo', async () => {
     const cs = await criarEquipe(t, 'CS', { membros: 2 });
     const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 2 });
     const marketing = await criarUsuario(t, { papel: 'MARKETING' });
@@ -181,7 +181,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.2 / R22.3
 
-  it('R22.2 — contrato de negócio ganho gera parcelas e o movimento "novo" do MRR; negócio aberto é recusado', async () => {
+  it('cenário 88 — R22.2 — contrato de negócio ganho gera parcelas e o movimento "novo" do MRR; negócio aberto é recusado', async () => {
     const c = await admin();
     const negocioAberto = await criarNegocio(t);
     await c
@@ -226,7 +226,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     expect(auditoria?.entidadeId).toBe(contrato.id);
   });
 
-  it('R22.2 — contrato anual: o MRR é 1/12 do valor; cobrança única não entra no MRR', async () => {
+  it('cenário 89 — R22.2 — contrato anual: o MRR é 1/12 do valor; cobrança única não entra no MRR', async () => {
     const c = await admin();
     const anual = await contratoMensal(c, {
       valor: '1200.00',
@@ -248,7 +248,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R23.1
 
-  it('R23.1 — MRR por mês: novo, expansão, contração e churn; cancelar cancela as parcelas que não venceram', async () => {
+  it('cenário 97 — R23.1 — MRR por mês: novo, expansão, contração e churn; cancelar cancela as parcelas que não venceram', async () => {
     const c = await admin();
     const contrato = await contratoMensal(c);
     await c
@@ -337,7 +337,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     );
   });
 
-  it('R22.2 — contrato sem renovação é encerrado ao fim do prazo (churn); com renovação automática, estende e gera parcelas', async () => {
+  it('cenário 90 — R22.2 — contrato sem renovação é encerrado ao fim do prazo (churn); com renovação automática, estende e gera parcelas', async () => {
     const c = await admin();
     const encerrar = await contratoMensal(c, {
       inicioEm: '2025-01-10',
@@ -370,7 +370,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.4
 
-  it('R22.4 — baixa manual marca como pago, audita e publica parcela.paga; a segunda baixa é recusada', async () => {
+  it('cenário 92 — R22.4 — baixa manual marca como pago, audita e publica parcela.paga; a segunda baixa é recusada', async () => {
     const c = await admin();
     const contrato = await contratoMensal(c);
     const [primeira] = await parcelasDo(c, contrato.id);
@@ -411,7 +411,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     expect((resumo.body as ContratoApi).resumoParcelas?.pagas).toBe(1);
   });
 
-  it('R22.3 — parcela manual: número único, edição bloqueada depois do pagamento, renegociação cria outra parcela', async () => {
+  it('cenário 93 — R22.3 — parcela manual: número único, edição bloqueada depois do pagamento, renegociação cria outra parcela', async () => {
     const c = await admin();
     const contato = await criarContato(t);
     const criar = (extra: object = {}) =>
@@ -469,7 +469,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.7
 
-  it('R22.7 — a parcela vencida aparece como atrasada na hora e o job marca o status e publica parcela.atrasada', async () => {
+  it('cenário 94 — R22.7 — a parcela vencida aparece como atrasada na hora e o job marca o status e publica parcela.atrasada', async () => {
     const c = await admin();
     const contato = await criarContato(t);
     const r = await c
@@ -522,7 +522,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R23.2 / R23.3
 
-  it('R23.2 — inadimplência por faixa: 0–30, 31–60, 61–90 e 90+, só do que o usuário vê', async () => {
+  it('cenário 98 — R23.2 — inadimplência por faixa: 0–30, 31–60, 61–90 e 90+, só do que o usuário vê', async () => {
     const c = await admin();
     const cs = await criarEquipe(t, 'CS', { membros: 1 });
     const meu = await criarContato(t, { responsavel: cs.membros[0] });
@@ -585,7 +585,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     });
   });
 
-  it('R23.3 — receita prevista × realizada por mês', async () => {
+  it('cenário 99 — R23.3 — receita prevista × realizada por mês', async () => {
     const c = await admin();
     const contato = await criarContato(t);
     const mes = hojeLocal().slice(0, 7);
@@ -654,7 +654,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R23.4 / R20
 
-  it('R23.4 — risco de churn soma atraso, satisfação baixa e silêncio; o serviço de leitura serve ao BI (R20)', async () => {
+  it('cenário 100 — R23.4 — risco de churn soma atraso, satisfação baixa e silêncio; o serviço de leitura serve ao BI (R20)', async () => {
     const c = await admin();
     const lider = await criarEquipe(t, 'CS', { membros: 1 });
     const contato = await criarContato(t, { responsavel: lider.membros[0] });
@@ -759,7 +759,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.6
 
-  it('R22.6 — ao ganhar um negócio o CRM sugere criar o contrato (notificação e dados pré-preenchidos)', async () => {
+  it('cenário 91 — R22.6 — ao ganhar um negócio o CRM sugere criar o contrato (notificação e dados pré-preenchidos)', async () => {
     const equipeCs = await criarEquipe(t, 'CS', { membros: 0 });
     const equipeCom = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
     const empresa = await criarEmpresa(t);
@@ -894,7 +894,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
       '',
     ].join('\n');
 
-    it('R22.5 — importa títulos criando clientes, dando baixa nos pagos e relatando os erros; só gestão importa', async () => {
+    it('cenário 95 — R22.5 — importa títulos criando clientes, dando baixa nos pagos e relatando os erros; só gestão importa', async () => {
       const cs = await criarEquipe(t, 'CS', { membros: 1 });
       const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 0 });
       const arquivo = await criarArquivo(t, {
@@ -941,7 +941,7 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
       expect(await t.prisma.parcela.count()).toBe(3);
     });
 
-    it('R22.5 — reimportar atualiza pelo número, baixa os pagos, reinicia a régua de quem mudou o vencimento e não apaga colunas ausentes', async () => {
+    it('cenário 96 — R22.5 — reimportar atualiza pelo número, baixa os pagos, reinicia a régua de quem mudou o vencimento e não apaga colunas ausentes', async () => {
       const c = await entrarComo(t, await criarUsuario(t, { papel: 'ADMIN' }));
       await importar(c, csvInicial);
       const antes = await t.prisma.parcela.findUniqueOrThrow({

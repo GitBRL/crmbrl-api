@@ -54,7 +54,7 @@ import {
   temAcessoAoFinanceiro,
 } from './permissoes-financeiro';
 import { TempoRealFinanceiro } from './tempo-real-financeiro.service';
-import { escreverExportacao } from './exportacao';
+import { escreverExportacao, type CelulaDeExportacao } from './exportacao';
 
 export type OrigemDaBaixa = 'MANUAL' | 'IMPORTACAO' | 'LIGACAO';
 
@@ -77,6 +77,13 @@ const ROTULO_STATUS: Record<StatusParcela, string> = {
  * criação, edição, baixa manual, cancelamento, renegociação e o atraso automático.
  * A baixa (por qualquer origem) encerra a régua do título (R24.6).
  */
+/** 'AAAA-MM-DD' vira data (meia-noite UTC) para a planilha; vazio vira célula vazia. */
+function dataDaPlanilha(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const data = new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isNaN(data.getTime()) ? null : data;
+}
+
 @Injectable()
 export class ParcelasService {
   constructor(
@@ -544,8 +551,8 @@ export class ParcelasService {
     origem: OrigemDaBaixa,
     usuarioId: string | null,
   ): Promise<Parcela> {
-    const paga = await tx.parcela.update({
-      where: { id: atual.id },
+    const { count } = await tx.parcela.updateMany({
+      where: { id: atual.id, status: { in: ['ABERTO', 'ATRASADO'] } },
       data: {
         status: 'PAGO',
         pagoEm: paraDataDoBanco(dados.pagoEm),
@@ -555,6 +562,12 @@ export class ParcelasService {
         baixaPorId: usuarioId,
         promessaAte: null,
       },
+    });
+    if (count === 0) {
+      throw new ConflitoException('Este título já foi baixado ou cancelado.');
+    }
+    const paga = await tx.parcela.findUniqueOrThrow({
+      where: { id: atual.id },
     });
     const cancelados = await this.cancelarPendenciasDaRegua(
       tx,
@@ -696,7 +709,7 @@ export class ParcelasService {
     this.exigirAcesso(usuario);
     const hoje = hojeLocal();
     const where = this.filtro(usuario, filtro, hoje);
-    const linhas: string[][] = [];
+    const linhas: CelulaDeExportacao[][] = [];
     let cursor: string | undefined;
     for (;;) {
       const lote = await this.prisma.parcela.findMany({
@@ -736,14 +749,14 @@ export class ParcelasService {
           d.contato?.nome ?? d.empresa?.nome ?? '',
           d.contato?.telefone ?? '',
           d.contato?.email ?? '',
-          d.vencimento,
-          d.valor,
+          dataDaPlanilha(d.vencimento),
+          Number(d.valor),
           ROTULO_STATUS[d.status],
-          String(d.diasEmAtraso),
-          d.pagoEm ?? '',
-          d.valorPago ?? '',
+          d.diasEmAtraso,
+          dataDaPlanilha(d.pagoEm),
+          d.valorPago === null ? null : Number(d.valorPago),
           d.formaPagamento ?? '',
-          d.promessaAte ?? '',
+          dataDaPlanilha(d.promessaAte),
           ultimoPor.get(p.id) ?? '',
         ]);
       }
@@ -769,6 +782,7 @@ export class ParcelasService {
         'Última etapa da régua',
       ],
       linhas,
+      colunasDeMoeda: [6, 10],
       usuarioId: usuario.id,
     });
     await this.prisma.$transaction((tx) =>

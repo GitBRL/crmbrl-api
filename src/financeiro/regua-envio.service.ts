@@ -420,6 +420,12 @@ export class ReguaEnvioService implements OnModuleInit {
       });
       return;
     }
+    if (envio.ciclo !== envio.parcela.cicloRegua) {
+      await this.finalizar(envio, 'CANCELADO', {
+        motivo: 'Vencimento alterado: a régua recomeçou.',
+      });
+      return;
+    }
     const config = await this.configuracao.configuracao();
     if (config.pausada) {
       // Envios pausados: tenta de novo em 5 minutos, sem gastar tentativa.

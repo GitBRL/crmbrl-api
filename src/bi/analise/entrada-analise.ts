@@ -147,6 +147,18 @@ const AGREGADOS: Readonly<Record<string, (tabela: TabelaBi) => TabelaEntrada>> =
     proximasRenovacoes: agregarRenovacoes,
   };
 
+const MAX_CARACTERES_DA_CELULA = 80;
+
+/** Texto vindo de dados de fora (UTM, nomes): sem controle e com tamanho limitado. */
+export function limparCelula<T>(valor: T): T | string {
+  if (typeof valor !== 'string') return valor;
+  // eslint-disable-next-line no-control-regex
+  const limpo = valor.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim();
+  return limpo.length > MAX_CARACTERES_DA_CELULA
+    ? `${limpo.slice(0, MAX_CARACTERES_DA_CELULA)}…`
+    : limpo;
+}
+
 function tabelaAgregada(
   tabela: TabelaBi,
   ids: Map<string, ClasseDeId>,
@@ -176,7 +188,7 @@ function tabelaAgregada(
   }
   const linhas = tabela.linhas
     .slice(0, MAX_LINHAS_POR_TABELA)
-    .map((linha) => colunas.map((c) => linha[c.chave] ?? null));
+    .map((linha) => colunas.map((c) => limparCelula(linha[c.chave] ?? null)));
   const omitidas = tabela.linhas.length - linhas.length;
   return {
     chave: tabela.chave,

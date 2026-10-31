@@ -52,7 +52,7 @@ export type CodigoDaFalha =
   | 'cancelada'
   | 'erro';
 
-const MENSAGENS_DAS_FALHAS: Readonly<Record<CodigoDaFalha, string>> = {
+export const MENSAGENS_DAS_FALHAS: Readonly<Record<CodigoDaFalha, string>> = {
   tempo_esgotado:
     'A IA demorou demais para responder, mesmo na segunda tentativa. Tente de novo em alguns minutos.',
   indisponivel:

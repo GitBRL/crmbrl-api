@@ -33,6 +33,12 @@ equipe; e, na **Onda B**, a **importação** de contatos e empresas (CSV/XLSX), 
 em passos com versões e simulador e as **automações** com cadências, esperas e modo
 teste (regras R16 a R19).
 
+A **Onda C** trouxe o **BI** por área (Marketing, Comercial, CS, Atendimento e Financeiro, com
+comparação, exportação e cache curto), a **análise por IA** do BI (só Admin, via Anthropic; a
+chave fica em `ANTHROPIC_API_KEY`, sem valor neste repositório) e o **Financeiro**: contratos,
+parcelas, MRR e inadimplência e a **régua de cobrança** por WhatsApp, e-mail e ligação (regras
+R20 a R24).
+
 ## Subir tudo com Docker
 
 O `docker-compose.yml` desta pasta sobe o sistema inteiro: banco, API e front (o

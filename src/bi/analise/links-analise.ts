@@ -190,10 +190,12 @@ export function conferirLink(
   if (url.host !== 'crm.invalido') {
     return reserva;
   }
-  const partes = url.pathname
-    .split('/')
-    .filter(Boolean)
-    .map(decodeURIComponent);
+  let partes: string[];
+  try {
+    partes = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return reserva;
+  }
   const rota = ROTAS_DOS_LINKS.find((r) => casarCaminho(r, partes, ids));
   if (!rota) {
     return reserva;

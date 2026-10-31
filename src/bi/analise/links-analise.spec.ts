@@ -80,6 +80,7 @@ describe('links das ações da análise por IA (R21)', () => {
       'javascript:alert(1)',
       '/funis/financeiro',
       `/disparos/${DESCONHECIDO}`,
+      '/funis/comercial/%E0%A4%A',
       '',
     ]) {
       expect(conferirLink(link, 'x', ids, 'cs')).toEqual({
