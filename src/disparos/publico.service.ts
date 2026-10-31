@@ -1,3 +1,4 @@
+import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { Injectable } from '@nestjs/common';
 import { SegmentosService } from '../comum/segmentos/segmentos.service';
 import type { Segmento } from '../comum/segmentos/segmentos';
@@ -57,6 +58,7 @@ export class PublicoDaCampanha {
   /** Valida a origem do público (segmento válido; importação existente e concluída). */
   async validarOrigem(
     origem: Pick<Campanha, 'tipoPublico' | 'segmento' | 'importacaoId'>,
+    usuario?: UsuarioAutenticado,
   ): Promise<void> {
     if (origem.tipoPublico === 'SEGMENTO') {
       if (!origem.segmento) {
@@ -64,7 +66,11 @@ export class PublicoDaCampanha {
           campos: [{ campo: 'segmento', mensagens: ['é obrigatório'] }],
         });
       }
-      this.segmentos.validar(origem.segmento);
+      if (usuario) {
+        await this.segmentos.validarParaUsuario(origem.segmento, usuario);
+      } else {
+        this.segmentos.validar(origem.segmento);
+      }
       return;
     }
     if (!origem.importacaoId) {
@@ -96,19 +102,26 @@ export class PublicoDaCampanha {
   }
 
   /** Contagem e amostra, sem montar nada. */
-  async previa(origem: OrigemDoPublico): Promise<PreviaDoPublico> {
-    await this.validarOrigem(origem);
+  async previa(
+    origem: OrigemDoPublico,
+    usuario?: UsuarioAutenticado,
+  ): Promise<PreviaDoPublico> {
+    await this.validarOrigem(origem, usuario);
     const campoDeContato: Prisma.ContatoWhereInput =
       origem.canal === 'WHATSAPP'
         ? { telefone: { not: null } }
         : { email: { not: null } };
     if (origem.tipoPublico === 'SEGMENTO') {
       const segmento = this.segmentos.validar(origem.segmento);
+      const restricao = usuario ? this.segmentos.opcoesDoUsuario(usuario) : {};
       const [total, elegiveis, comOptOut, amostra] = await Promise.all([
-        this.segmentos.contar(segmento),
-        this.segmentos.contar(segmento, { escopo: campoDeContato }),
-        this.segmentos.contar(segmento, { excluirOptOut: false }),
-        this.segmentos.amostra(segmento, { limite: 10 }),
+        this.segmentos.contar(segmento, restricao),
+        this.segmentos.contar(segmento, {
+          ...restricao,
+          escopo: campoDeContato,
+        }),
+        this.segmentos.contar(segmento, { ...restricao, excluirOptOut: false }),
+        this.segmentos.amostra(segmento, { ...restricao, limite: 10 }),
       ]);
       return {
         total,

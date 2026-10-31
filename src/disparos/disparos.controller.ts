@@ -42,6 +42,8 @@ import {
   PreviaDoPublicoDto,
   ReprovarCampanhaDto,
 } from './disparos.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { listarCanaisDeOpcao } from '../comum/dados/opcoes-de-canais';
 import { RelatorioDeCampanha } from './relatorio-de-campanha.service';
 
 /**
@@ -59,7 +61,17 @@ export class DisparosController {
     private readonly campanhas: CampanhasService,
     private readonly relatorio: RelatorioDeCampanha,
     private readonly configuracao: ConfiguracaoDisparosService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  @Get('canais')
+  @ApiOperation({
+    summary:
+      'Números de WhatsApp e caixas de e-mail para escolher na campanha (sem dados sensíveis)',
+  })
+  canais() {
+    return listarCanaisDeOpcao(this.prisma, ['WHATSAPP', 'EMAIL']);
+  }
 
   @Get('campanhas')
   @ApiOperation({

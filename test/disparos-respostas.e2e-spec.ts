@@ -75,7 +75,7 @@ describe('Disparos — respostas, aprovação, relatório e modelos (e2e, R17)',
   }
 
   describe('respostas e opt-out (R17.9)', () => {
-    it('R17.9 — a resposta cai no Atendimento, marca o destinatário como respondeu (uma vez) e publica campanha.respondida', async () => {
+    it('cenário 47 — R17.9 — a resposta cai no Atendimento, marca o destinatário como respondeu (uma vez) e publica campanha.respondida', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal, contatos } = await cenarioWhatsapp(t, 2);
       const id = await campanhaEnviada(cliente, canal.id);
@@ -123,7 +123,7 @@ describe('Disparos — respostas, aprovação, relatório e modelos (e2e, R17)',
       expect(respondeu.body.total).toBe(1);
     });
 
-    it('R17.9 — resposta depois de 7 dias do envio não conta; contato sem campanha é ignorado', async () => {
+    it('cenário 49 — R17.9 — resposta depois de 7 dias do envio não conta; contato sem campanha é ignorado', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal, contatos } = await cenarioWhatsapp(t, 1);
       const id = await campanhaEnviada(cliente, canal.id);
@@ -157,7 +157,39 @@ describe('Disparos — respostas, aprovação, relatório e modelos (e2e, R17)',
       ).toBe(false);
     });
 
-    it('R17.9 — palavra de saída aplica o opt-out (R4.6), responde a confirmação e audita como AUTOMACAO', async () => {
+    it('cenário 50 — R17.9 — a palavra de saída vale até 30 dias depois do envio (a resposta, só até 7)', async () => {
+      const cliente = await entrarComo(t, await criarUsuario(t));
+      const { canal, contatos } = await cenarioWhatsapp(t, 2);
+      const id = await campanhaEnviada(cliente, canal.id);
+      const dias = (n: number) => new Date(Date.now() - n * 24 * 3_600_000);
+      const recuar = async (n: number) => {
+        await t.prisma.campanhaDestinatario.updateMany({
+          where: { campanhaId: id },
+          data: { enviadoEm: dias(n) },
+        });
+        await t.prisma.mensagem.updateMany({
+          where: { destinatarioCampanha: { campanhaId: id } },
+          data: { ocorridaEm: dias(n) },
+        });
+      };
+      const optOut = async (indice: number) =>
+        (
+          await t.prisma.contato.findUniqueOrThrow({
+            where: { id: contatos[indice]!.id },
+          })
+        ).optOutMarketing;
+
+      // 20 dias: a resposta já não conta, mas "sair" ainda vale.
+      await recuar(20);
+      await receber(canal.id, contatos[0]!.telefone!, 'sair', 'in-1');
+      expect(await optOut(0)).toBe(true);
+      // 31 dias: nem a saída é aplicada.
+      await recuar(31);
+      await receber(canal.id, contatos[1]!.telefone!, 'sair', 'in-2');
+      expect(await optOut(1)).toBe(false);
+    });
+
+    it('cenário 48 — R17.9 — palavra de saída aplica o opt-out (R4.6), responde a confirmação e audita como AUTOMACAO', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal, contatos } = await cenarioWhatsapp(t, 2);
       const id = await campanhaEnviada(cliente, canal.id);
@@ -273,7 +305,7 @@ describe('Disparos — respostas, aprovação, relatório e modelos (e2e, R17)',
   });
 
   describe('aprovação do líder e configuração (R17.10)', () => {
-    it('R17.10 — com a aprovação ligada, a campanha do membro espera o líder; reprovar volta a rascunho; aprovar inicia', async () => {
+    it('cenário 51 — R17.10 — com a aprovação ligada, a campanha do membro espera o líder; reprovar volta a rascunho; aprovar inicia', async () => {
       const equipe = await criarEquipe(t, 'MARKETING', { membros: 1 });
       const admin = await entrarComo(t, await criarUsuario(t));
       const membro = await entrarComo(t, equipe.membros[0]!);
@@ -429,7 +461,7 @@ describe('Disparos — respostas, aprovação, relatório e modelos (e2e, R17)',
         .expect(400);
     });
 
-    it('R17.11 — exporta em XLSX e CSV; baixa quem enviou ou vê a campanha (líder), não os outros', async () => {
+    it('cenário 52 — R17.11 — exporta em XLSX e CSV; baixa quem enviou ou vê a campanha (líder), não os outros', async () => {
       const equipe = await criarEquipe(t, 'MARKETING', { membros: 2 });
       const dono = await entrarComo(t, equipe.membros[0]!);
       const colega = await entrarComo(t, equipe.membros[1]!);

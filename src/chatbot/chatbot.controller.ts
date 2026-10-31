@@ -37,6 +37,11 @@ import {
 import { FluxosChatbotService } from './fluxos.service';
 import { podeUsarChatbot } from './permissoes-chatbot';
 import { SimuladorDoChatbot } from './simulador.service';
+import {
+  listarCanaisDeOpcao,
+  listarFilasDeOpcao,
+} from '../comum/dados/opcoes-de-canais';
+import { PrismaService } from '../prisma/prisma.service';
 import { SemPermissaoException } from '../comum/erros/excecoes';
 
 /**
@@ -53,7 +58,24 @@ export class ChatbotController {
   constructor(
     private readonly fluxos: FluxosChatbotService,
     private readonly simulador: SimuladorDoChatbot,
+    private readonly prisma: PrismaService,
   ) {}
+
+  @Get('opcoes')
+  @ApiOperation({
+    summary: 'Canais e filas para escolher no editor de fluxos',
+  })
+  async opcoes(@UsuarioAtual() usuario: UsuarioAutenticado) {
+    if (!podeUsarChatbot(usuario)) {
+      throw new SemPermissaoException(
+        'Só Admin, C-level e líderes configuram o chatbot.',
+      );
+    }
+    return {
+      canais: await listarCanaisDeOpcao(this.prisma),
+      filas: await listarFilasDeOpcao(this.prisma),
+    };
+  }
 
   @Get('passos')
   @ApiOperation({

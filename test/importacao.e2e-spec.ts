@@ -90,7 +90,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     return final.body as ImportacaoDaApi;
   }
 
-  it('R16.1 — só Admin, C-level e líderes importam; membro recebe 403', async () => {
+  it('cenário 34 — R16.1 — só Admin, C-level e líderes importam; membro recebe 403', async () => {
     const { membros, cliente: clienteLider, cLevel } = await lider();
     const membro = await entrarComo(t, membros[0]);
     await membro.get('/api/v1/importacoes').expect(403);
@@ -115,7 +115,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     ).toBe(false);
   });
 
-  it('R16.2 — o rascunho traz colunas, prévia e o mapeamento sugerido; separador e codificação detectados', async () => {
+  it('cenário 35 — R16.2/R16.3 — o rascunho traz colunas, prévia e o mapeamento sugerido; separador e codificação detectados', async () => {
     const { cliente } = await lider();
     const criada = await rascunho(
       cliente,
@@ -288,7 +288,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     await cliente.get('/api/v1/importacoes/campos?tipo=EMPRESAS').expect(200);
   });
 
-  it('R16.4/R16.8 — importa contatos: dedup R4.2, normalização R4.1, origem IMPORTACAO, etiquetas, responsável, progresso, relatório, auditoria resumida e evento', async () => {
+  it('cenário 36 — R16.4/R16.8 — importa contatos: dedup R4.2, normalização R4.1, origem IMPORTACAO, etiquetas, responsável, progresso, relatório, auditoria resumida e evento', async () => {
     const { cliente, lider: dono } = await lider();
     const emitido = jest.spyOn(t.tempoReal, 'emitirParaUsuario');
     await criarContato(t, { nome: 'Ana Antiga', email: 'ana@x.com' });
@@ -390,6 +390,15 @@ describe('Importação de contatos e empresas (e2e)', () => {
       'importacao.criada',
       'importacao.iniciada',
     ]);
+    // R16.8: além do resumo, cada contato criado ou reconvertido tem a sua auditoria (ator = quem importou).
+    const porContato = await t.prisma.eventoAuditoria.groupBy({
+      by: ['acao'],
+      where: { acao: { in: ['contato.criado', 'contato.reconvertido'] } },
+      _count: true,
+    });
+    expect(
+      Object.fromEntries(porContato.map((g) => [g.acao, g._count])),
+    ).toEqual({ 'contato.criado': 3, 'contato.reconvertido': 1 });
     const concluida = await t.prisma.eventoDominio.findFirstOrThrow({
       where: { tipo: 'importacao.concluida' },
     });
@@ -432,7 +441,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     expect(problemas.getRow(2).getCell(1).value).toBe(5);
   });
 
-  it('R16.5 — duplicados: ignorar não toca no existente; sobrescrever troca os valores; atualizar vazios só completa', async () => {
+  it('cenário 37 — R16.5 — duplicados: ignorar não toca no existente; sobrescrever troca os valores; atualizar vazios só completa', async () => {
     const { cliente } = await lider();
     const base = async () => {
       const contato = await criarContato(t, {
@@ -493,7 +502,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     expect(igual).toMatchObject({ atualizados: 0, ignorados: 1 });
   });
 
-  it('R16.6 — responsável fixo (ao alcance de quem importa) ou rodízio da área; padrão é quem importou (R4.5)', async () => {
+  it('cenário 38 — R16.6 — responsável fixo (ao alcance de quem importa) ou rodízio da área; padrão é quem importou (R4.5)', async () => {
     const { cliente, membros, lider: dono } = await lider();
     const mapeamento = { Nome: 'nome', 'E-mail': 'email' };
     const fixo = await importar(cliente, 'Nome,E-mail\nA,a@fixo.com\n', {
@@ -615,7 +624,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     expect(motivos[1]).toMatch(/UF/);
   });
 
-  it('R16.7 — cancelar antes de processar: nada é importado; depois de terminada não cancela', async () => {
+  it('cenário 39 — R16.7 — cancelar antes de processar: nada é importado; depois de terminada não cancela', async () => {
     const { cliente } = await lider();
     const criada = await rascunho(cliente, 'Nome,E-mail\nA,a@cancel.com\n');
     await cliente.post(`/api/v1/importacoes/${criada.id}/iniciar`).expect(200);
@@ -715,7 +724,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     expect(await t.prisma.contato.count({ where: { nome: 'Xavier' } })).toBe(0);
   });
 
-  it('R16.9 — a planilha e o relatório só são baixados por quem importou, Admin e C-level', async () => {
+  it('cenário 40 — R16.9 — a planilha e o relatório só são baixados por quem importou, Admin e C-level', async () => {
     const { cliente, cLevel } = await lider();
     const final = await importar(cliente, 'Nome,E-mail\nA,a@acesso.com\n');
     const importacao = await t.prisma.importacao.findUniqueOrThrow({

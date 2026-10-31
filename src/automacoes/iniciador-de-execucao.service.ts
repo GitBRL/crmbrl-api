@@ -279,6 +279,20 @@ export class IniciadorDeExecucao {
       cadeiaDeOrigem: pedido.cadeia ?? null,
       contexto: pedido.contexto ?? {},
     });
+    // "Última vez" da lista: toda execução nova a atualiza. Nos gatilhos de varredura
+    // (negócio parado, atividade atrasada) `ultimaExecucaoEm` é o marco da janela e quem o
+    // move é a própria varredura.
+    if (criada && !EVENTOS_DE_VARREDURA.has(automacao.evento ?? '')) {
+      await this.prisma.automacao.update({
+        where: { id: automacao.id },
+        data: { ultimaExecucaoEm: agora },
+      });
+    }
     return { iniciada: true, execucao, criada };
   }
 }
+
+const EVENTOS_DE_VARREDURA: ReadonlySet<string> = new Set([
+  'negocio.parado',
+  'atividade.atrasada',
+]);

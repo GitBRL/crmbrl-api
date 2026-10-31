@@ -18,14 +18,14 @@ export function podeUsarChatbot(usuario: Usuario): boolean {
   return ehDiretoria(usuario.papel) || ehLider(usuario.papel);
 }
 
-/** Recorte de fluxos que o usuário vê (junte ao `where`): líder vê os da área e os de todas as áreas. */
+/**
+ * Recorte de fluxos que o usuário vê (junte ao `where`): quem usa o chatbot lê
+ * os fluxos de todas as áreas (R18.6); só a edição é limitada (`podeGerenciarFluxo`).
+ */
 export function filtroDeFluxosVisiveis(
-  usuario: Usuario,
+  _usuario: Usuario,
 ): Prisma.FluxoChatbotWhereInput {
-  if (ehDiretoria(usuario.papel)) {
-    return {};
-  }
-  return { OR: [{ area: areaDoPapel(usuario.papel) }, { area: null }] };
+  return {};
 }
 
 /** Pode editar, publicar, ativar e excluir o fluxo? */

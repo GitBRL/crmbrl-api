@@ -308,7 +308,7 @@ export class CampanhasService {
       await this.validarArquivo(usuario, arquivoId);
     }
     if (tipoPublico === 'SEGMENTO' && dto.segmento) {
-      this.segmentos.validar(dto.segmento);
+      await this.segmentos.validarParaUsuario(dto.segmento, usuario);
     }
     if (tipoPublico === 'IMPORTACAO' && dto.importacaoId) {
       await this.publico.validarOrigem({
@@ -443,7 +443,7 @@ export class CampanhasService {
     }
     const tipoPublico = dto.tipoPublico ?? atual.tipoPublico;
     if (dto.segmento) {
-      this.segmentos.validar(dto.segmento);
+      await this.segmentos.validarParaUsuario(dto.segmento, usuario);
     }
     if (tipoPublico === 'IMPORTACAO' && dto.importacaoId) {
       await this.publico.validarOrigem({
@@ -894,15 +894,18 @@ export class CampanhasService {
   }
 
   async previaDoPublico(
-    _usuario: UsuarioAutenticado,
+    usuario: UsuarioAutenticado,
     dto: PreviaDoPublicoDto,
   ): Promise<PreviaDoPublico> {
-    return this.publico.previa({
-      canal: dto.canal,
-      tipoPublico: dto.tipoPublico ?? 'SEGMENTO',
-      segmento: (dto.segmento ?? null) as Prisma.JsonValue,
-      importacaoId: dto.importacaoId ?? null,
-    });
+    return this.publico.previa(
+      {
+        canal: dto.canal,
+        tipoPublico: dto.tipoPublico ?? 'SEGMENTO',
+        segmento: (dto.segmento ?? null) as Prisma.JsonValue,
+        importacaoId: dto.importacaoId ?? null,
+      },
+      usuario,
+    );
   }
 
   async estimativa(_usuario: UsuarioAutenticado, dto: EstimativaDto) {

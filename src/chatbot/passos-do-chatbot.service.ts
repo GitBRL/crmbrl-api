@@ -42,7 +42,11 @@ import {
   ConversaIndisponivel,
   MensagensDoBot,
 } from './mensagens-do-bot.service';
-import { casarOpcao, textoComOpcoes, validarResposta } from './respostas';
+import {
+  casarOpcao,
+  textoDaPerguntaComOpcoes,
+  validarResposta,
+} from './respostas';
 import {
   type ConfigDeTransferir,
   TransferenciaDoBot,
@@ -75,6 +79,11 @@ interface EstadoDaPergunta {
 
 type Ctx<C> = ContextoDoPasso<C>;
 type Variaveis = Record<string, unknown>;
+
+/** No chat do site as opções vão como botões (`metadados.botoes`); o texto não repete a lista numerada. */
+export function ehChatDoSite(ctx: Ctx<unknown>): boolean {
+  return ctx.execucao.variaveis['canal'] === 'WEBCHAT';
+}
 
 function estadoDe(ctx: Ctx<unknown>): EstadoDaPergunta {
   const bruto = ctx.execucao.variaveis[
@@ -348,7 +357,11 @@ export class PassosDoChatbot implements OnModuleInit {
         itemContato,
         maximo: c.tentativas ?? TENTATIVAS_PADRAO_DA_PERGUNTA,
         mensagemInvalida: c.mensagemInvalida,
-        reperguntar: (texto) => textoComOpcoes(texto, c.opcoes),
+        reperguntar: (texto) =>
+          textoDaPerguntaComOpcoes(ehChatDoSite(ctx), texto, c.opcoes),
+        botoes: ehChatDoSite(ctx)
+          ? c.opcoes.map((o) => ({ id: o.id, rotulo: o.rotulo }))
+          : undefined,
         textoPadrao: 'Não entendi. Escolha uma das opções:',
         tempo: c.tempoSemResposta,
         textoDaPergunta: c.texto,
@@ -358,7 +371,7 @@ export class PassosDoChatbot implements OnModuleInit {
       return this.aoEsgotarOTempo(ctx, estado, chave, c.tempoSemResposta);
     }
     const enviada = await this.mensagens.enviar(ctx, {
-      texto: textoComOpcoes(c.texto, c.opcoes),
+      texto: textoDaPerguntaComOpcoes(ehChatDoSite(ctx), c.texto, c.opcoes),
       sufixo: 'pergunta',
       metadados: {
         botoes: c.opcoes.map((o) => ({ id: o.id, rotulo: o.rotulo })),
@@ -465,6 +478,8 @@ export class PassosDoChatbot implements OnModuleInit {
       maximo: number;
       mensagemInvalida: string | undefined;
       reperguntar: (texto: string) => string;
+      /** Chat do site: botões da pergunta, repetidos junto da nova tentativa. */
+      botoes?: { id: string; rotulo: string }[];
       textoPadrao: string;
       tempo: TempoSemResposta | undefined;
       textoDaPergunta: string;
@@ -489,6 +504,7 @@ export class PassosDoChatbot implements OnModuleInit {
     const enviada = await this.mensagens.enviar(ctx, {
       texto: `${aviso}\n\n${p.reperguntar(p.textoDaPergunta)}`,
       sufixo: `invalida:${invalidas}`,
+      ...(p.botoes ? { metadados: { botoes: p.botoes } } : {}),
     });
     return aguardarEntrada({
       ate: primeiroPrazo(p.tempo, ctx.agora),

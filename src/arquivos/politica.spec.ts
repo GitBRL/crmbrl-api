@@ -86,6 +86,13 @@ describe('política de arquivos (R11)', () => {
       expect(descreverTamanho(1.5 * 1024 * 1024)).toBe('1,5 MB');
       expect(descreverTamanho(2048)).toBe('2 KB');
     });
+
+    it('R16.2 — planilha de importação vai até 10 MB', () => {
+      expect(avaliarTipo('text/csv', 'IMPORTACAO')).toMatchObject({
+        aceito: true,
+        limiteBytes: 10 * 1024 * 1024,
+      });
+    });
   });
 
   describe('conteúdo', () => {

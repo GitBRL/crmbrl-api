@@ -9,6 +9,7 @@ import {
   RegraVioladaException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
+import { areaDoPapel, ehDiretoria } from '../comum/dominio/papeis';
 import {
   montarPagina,
   paraSkipTake,
@@ -330,7 +331,7 @@ export class FluxosChatbotService {
       ? this.estruturar(dto.definicao)
       : { passos: [] };
     const criado = await this.prisma.$transaction(async (tx) => {
-      await this.conferirCanais(tx, dto.canalIds ?? []);
+      await this.conferirCanais(tx, usuario, dto.canalIds ?? []);
       const fluxo = await tx.fluxoChatbot.create({
         data: {
           nome: dto.nome,
@@ -371,7 +372,7 @@ export class FluxosChatbotService {
           : antes.palavrasChave;
       this.exigirPalavrasChave(gatilho, palavras);
       if (dto.canalIds) {
-        await this.conferirCanais(tx, dto.canalIds);
+        await this.conferirCanais(tx, usuario, dto.canalIds);
       }
       const dados: Prisma.FluxoChatbotUpdateInput = {
         ...(dto.nome !== undefined ? { nome: dto.nome } : {}),
@@ -683,21 +684,53 @@ export class FluxosChatbotService {
     return fluxo;
   }
 
+  /**
+   * Os canais existem; e o líder só liga o fluxo a canais da própria área (a
+   * fila padrão do canal é da área dele), nunca a "todos os canais" — assim o
+   * fluxo dele não passa na frente do atendimento de outra área (R18.6).
+   */
   private async conferirCanais(
     tx: Tx,
+    usuario: UsuarioAutenticado,
     canalIds: readonly string[],
   ): Promise<void> {
-    if (canalIds.length === 0) {
+    const unicos = [...new Set(canalIds)];
+    const restrito = !ehDiretoria(usuario.papel);
+    if (unicos.length === 0) {
+      if (restrito) {
+        throw new DadosInvalidosException(
+          'Escolha os canais do fluxo: o líder só atende canais da própria área.',
+          {
+            regra: 'R18.6',
+            campos: [
+              { campo: 'canalIds', mensagens: ['escolha ao menos um canal'] },
+            ],
+          },
+        );
+      }
       return;
     }
-    const unicos = [...new Set(canalIds)];
-    const achados = await tx.canal.count({
+    const canais = await tx.canal.findMany({
       where: { id: { in: unicos }, excluidoEm: null },
+      select: { id: true, nome: true, filaPadrao: { select: { area: true } } },
     });
-    if (achados !== unicos.length) {
+    if (canais.length !== unicos.length) {
       throw new DadosInvalidosException('Há canal que não existe mais.', {
         campos: [{ campo: 'canalIds', mensagens: ['canal não encontrado'] }],
       });
+    }
+    if (restrito) {
+      const area = areaDoPapel(usuario.papel);
+      const fora = canais.filter((c) => c.filaPadrao?.area !== area);
+      if (fora.length > 0) {
+        throw new DadosInvalidosException(
+          `Só canais da sua área: ${fora.map((c) => c.nome).join(', ')} não atende(m) a sua fila.`,
+          {
+            regra: 'R18.6',
+            campos: [{ campo: 'canalIds', mensagens: ['canal de outra área'] }],
+          },
+        );
+      }
     }
   }
 

@@ -236,7 +236,7 @@ export class CicloDaCampanha {
           status: 'PAUSADA',
           pausadaEm: new Date(),
           pausaMotivo: motivo ?? (automatica ? null : 'Pausada manualmente.'),
-          proximoEnvioEm: null,
+          // `proximoEnvioEm` fica: ao retomar, o ritmo e a pausa do lote valem (R17.4).
         },
       });
       await this.registrar(
@@ -263,6 +263,11 @@ export class CicloDaCampanha {
   retomar(id: string): Promise<Campanha> {
     return this.transitar(id, ['PAUSADA'], 'retomar', async (tx) => {
       const agora = new Date();
+      const antes = await tx.campanha.findUniqueOrThrow({
+        where: { id },
+        select: { proximoEnvioEm: true },
+      });
+      const quando = naoAntesDoRitmo(agora, antes.proximoEnvioEm);
       const atual = await tx.campanha.update({
         where: { id },
         data: {
@@ -270,7 +275,7 @@ export class CicloDaCampanha {
           pausadaEm: null,
           pausaMotivo: null,
           falhasSeguidas: 0,
-          proximoEnvioEm: agora,
+          proximoEnvioEm: quando,
         },
       });
       await this.registrar(
@@ -280,7 +285,7 @@ export class CicloDaCampanha {
         `Campanha "${atual.nome}" retomada`,
         {},
       );
-      await this.agendador.agendar(id, agora, tx);
+      await this.agendador.agendar(id, quando, tx);
       await this.progresso.atualizar(tx, id, true);
       return atual;
     });
@@ -336,7 +341,7 @@ export class CicloDaCampanha {
         data: {
           status: 'CONCLUIDA',
           concluidaEm: new Date(),
-          proximoEnvioEm: null,
+          // `proximoEnvioEm` fica: "Reenviar falhas" respeita o ritmo do último envio.
         },
       });
       await this.registrar(
@@ -395,6 +400,7 @@ export class CicloDaCampanha {
         );
       }
       const agora = new Date();
+      const quando = naoAntesDoRitmo(agora, campanha.proximoEnvioEm);
       const atual = await tx.campanha.update({
         where: { id },
         data: {
@@ -403,7 +409,7 @@ export class CicloDaCampanha {
           pausadaEm: null,
           pausaMotivo: null,
           falhasSeguidas: 0,
-          proximoEnvioEm: agora,
+          proximoEnvioEm: quando,
         },
       });
       await this.registrar(
@@ -413,7 +419,7 @@ export class CicloDaCampanha {
         `${count} falhas da campanha "${atual.nome}" voltaram para a fila`,
         { reenfileirados: count },
       );
-      await this.agendador.agendar(id, agora, tx);
+      await this.agendador.agendar(id, quando, tx);
       await this.progresso.atualizar(tx, id, true);
       return { campanha: atual, reenfileirados: count };
     });
@@ -479,4 +485,12 @@ export class CicloDaCampanha {
       },
     });
   }
+}
+
+/**
+ * Instante para o próximo envio ao retomar ou reabrir: nunca antes do que o
+ * ritmo (intervalo e pausa do lote) já tinha marcado depois do último envio.
+ */
+export function naoAntesDoRitmo(agora: Date, marcado: Date | null): Date {
+  return marcado && marcado.getTime() > agora.getTime() ? marcado : agora;
 }

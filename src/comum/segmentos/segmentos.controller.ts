@@ -22,6 +22,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { UsuarioAtual } from '../../auth/decorators';
+import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
 import { ModelosService } from '../modelos/modelos.service';
 import { ApiRespostasDeErro } from '../erros/documentacao-erros';
 import {
@@ -80,7 +82,8 @@ export class PreviaDeSegmentoRespostaDto {
 
 /**
  * Construtor de segmentos (Onda B, §2.1): campos/operadores e contagem ao vivo.
- * Todo usuário logado vê contatos (R4), então a prévia não tem restrição extra.
+ * Todo usuário logado vê contatos (R4), mas as condições de negócio respeitam os
+ * funis que a pessoa vê (R5.9): outro funil responde 400.
  */
 @ApiTags('Segmentos')
 @ApiCookieAuth()
@@ -123,10 +126,17 @@ export class SegmentosController {
   @ApiOkResponse({ type: PreviaDeSegmentoRespostaDto })
   @ApiRespostasDeErro(400)
   async previa(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Body() dto: PreviaDeSegmentoDto,
   ): Promise<PreviaDeSegmentoRespostaDto> {
-    const segmento = this.segmentos.validar(dto.segmento);
-    const opcoes = { excluirOptOut: dto.excluirOptOut ?? true };
+    const segmento = await this.segmentos.validarParaUsuario(
+      dto.segmento,
+      usuario,
+    );
+    const opcoes = {
+      ...this.segmentos.opcoesDoUsuario(usuario),
+      excluirOptOut: dto.excluirOptOut ?? true,
+    };
     const limite = dto.amostra ?? 10;
     const [total, amostra] = await Promise.all([
       this.segmentos.contar(segmento, opcoes),

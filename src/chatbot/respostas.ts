@@ -67,6 +67,15 @@ export function textoComOpcoes(
   return `${pergunta.trim()}\n\n${linhas.join('\n')}\n\nResponda com o número da opção.`;
 }
 
+/** Pergunta com opções: numeradas no WhatsApp e no e-mail, só o texto no chat do site (botões à parte). */
+export function textoDaPerguntaComOpcoes(
+  webchat: boolean,
+  texto: string,
+  opcoes: readonly OpcaoDePergunta[],
+): string {
+  return webchat ? texto.trim() : textoComOpcoes(texto, opcoes);
+}
+
 export type ResultadoDaValidacao =
   { valido: true; valor: string | number } | { valido: false; motivo: string };
 

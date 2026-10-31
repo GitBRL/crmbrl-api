@@ -42,6 +42,7 @@
     de: 'visitante' | 'equipe';
     tipo: string;
     texto: string | null;
+    botoes?: { id: string; rotulo: string }[] | null;
     arquivo: {
       nome: string;
       mime: string;
@@ -638,7 +639,9 @@
       );
     }
     let dia = '';
-    for (const mensagem of ordenadas()) {
+    const todas = ordenadas();
+    const ultima = todas[todas.length - 1];
+    for (const mensagem of todas) {
       const data = mensagem.em
         ? new Date(mensagem.em).toLocaleDateString()
         : '';
@@ -646,7 +649,7 @@
         dia = data;
         lista.append(el('div', 'dia', data));
       }
-      lista.append(bolha(mensagem));
+      lista.append(bolha(mensagem, mensagem === ultima && !resolvida));
     }
     if (resolvida) {
       lista.append(
@@ -662,7 +665,7 @@
     }
   }
 
-  function bolha(mensagem: Mensagem): HTMLElement {
+  function bolha(mensagem: Mensagem, comBotoes = false): HTMLElement {
     const item = el(
       'div',
       `msg ${mensagem.de}${mensagem.situacao ? ` ${mensagem.situacao}` : ''}`,
@@ -689,6 +692,18 @@
     }
     if (mensagem.texto) {
       item.append(textoComLinks(mensagem.texto));
+    }
+    if (comBotoes && mensagem.de === 'equipe' && mensagem.botoes?.length) {
+      const opcoes = el('div', 'opcoes');
+      for (const botao of mensagem.botoes) {
+        const b = el('button', 'opcao', botao.rotulo);
+        b.type = 'button';
+        b.onclick = () => {
+          void enviarTexto(botao.rotulo);
+        };
+        opcoes.append(b);
+      }
+      item.append(opcoes);
     }
     const rodapeMsg =
       mensagem.situacao === 'enviando'
@@ -866,6 +881,9 @@ header{display:flex;align-items:center;gap:8px;padding:14px 12px 14px 16px;backg
 .msg a{color:inherit}
 .autor{display:block;font-size:12px;font-weight:600;color:var(--suave);margin-bottom:2px}
 .hora{display:block;font-size:11px;opacity:.7;margin-top:2px;text-align:right}
+.opcoes{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.opcao{border:1px solid var(--cor);background:var(--fundo);color:var(--texto);border-radius:14px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}
+.opcao:hover{background:var(--cor);color:var(--cor-texto)}
 .arquivo img{display:block;max-width:100%;max-height:220px;border-radius:10px;margin-bottom:4px}
 .digitando{color:var(--suave);font-size:12px;min-height:16px}
 .aviso{color:#dc2626;font-size:12px;padding:0 14px}

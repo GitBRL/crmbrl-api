@@ -9,10 +9,12 @@ as cita).
 
 Esta versão cobre a **Fase 1 — núcleo do CRM** e a **primeira parte da Fase 2 (Onda
 A)**: arquivos, atendimento omnichannel, gateway de WhatsApp próprio, chat do site,
-e-mail, Instagram e Messenger, tempo real e chat interno da equipe. As fases seguintes
-estão em [ROADMAP.md](ROADMAP.md) e ganham seções aqui quando forem detalhadas.
+e-mail, Instagram e Messenger, tempo real e chat interno da equipe; e a **segunda parte
+da Fase 2 (Onda B)**: importação de contatos (R16), disparos (R17), chatbot (R18) e
+automações (R19), nas seções 21 a 26. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
+e ganham seções aqui quando forem detalhadas.
 
-> Atualizado em 2026-10-26. Regras marcadas com **(proposta)** dependem de validação do
+> Atualizado em 2026-10-30. Regras marcadas com **(proposta)** dependem de validação do
 > negócio e podem mudar sem quebrar o resto. Trechos marcados com **Ajuste da
 > implementação (2026-10-20)** registram o que a implementação da Fase 1 precisou
 > definir ou mudar em relação ao texto original da regra; os marcados só com **Ajuste**
@@ -718,3 +720,275 @@ real ("cenário N" no nome do teste).
     avisada em tempo real → resposta com resposta rápida até `LIDA` → negócio criado da
     conversa e citado no chat interno → resolução com nota 5 → métricas da fila
     (R12, R13, R15).
+
+---
+
+## 21. Importação de contatos e empresas (R16)
+
+- **R16.1** **Quem importa:** Admin, C-level e líderes (permissão `importarContatos`);
+  membro recebe 403. Cada pessoa vê e baixa só as próprias importações; Admin e C-level
+  veem todas (R16.9).
+- **R16.2** **Arquivo e prévia:** CSV ou XLSX enviado como arquivo do contexto
+  `IMPORTACAO` (R11), até **50 mil linhas** (acima disso, 422). O servidor detecta
+  codificação (UTF-8 ou Windows-1252) e separador (`,` `;` tabulação `|`), lê o cabeçalho
+  e devolve as colunas, a prévia das primeiras linhas e um mapeamento sugerido pelo nome
+  da coluna. Arquivo que não é planilha, planilha sem linhas ou arquivo de outra pessoa
+  são recusados. Planilha XLSX usa a primeira aba (ou a escolhida em `leitura`); é lida
+  em fluxo, recusada ao passar de 50 mil linhas ou de 200 colunas no cabeçalho, e o
+  contexto `IMPORTACAO` aceita até 10 MB.
+- **R16.3** **Mapeamento:** coluna → campo (nome, e-mail, telefone, empresa, cargo,
+  origem, etiquetas, UTM e `campos.<chave>` para campos personalizados; para empresas,
+  nome, CNPJ, UF etc.). Cada campo recebe no máximo uma coluna; para contatos, o início
+  exige **nome** e e-mail ou telefone mapeados. Mapeamentos podem ser salvos como
+  **modelo** (auditado) e aplicados a outra planilha pelos nomes das colunas.
+- **R16.4** **Processamento:** em fila, em lotes de 100 linhas, **linha a linha pelos
+  mesmos serviços da criação manual** (normalização R4.1 e deduplicação R4.2, origem
+  `IMPORTACAO` com o detalhe informado, etiquetas e campos personalizados). A linha
+  inválida (sem nome, e-mail ou telefone inválido, CNPJ inválido) não derruba as outras:
+  vira "erro" com o motivo e o número da linha; telefone inválido com e-mail válido
+  importa e avisa. O progresso vai ao vivo (`importacao.progresso`) a cada lote.
+- **R16.5** **Duplicados** (já existe contato com o e-mail ou telefone, ou empresa com o
+  mesmo CNPJ ou nome): *atualizar só os vazios* (padrão), *ignorar* (não toca no
+  existente) ou *sobrescrever* (troca pelos valores da planilha).
+- **R16.6** **Responsável:** quem importou (R4.5), uma pessoa fixa ao alcance de quem
+  importa, ou rodízio da área (R5.8); só vale para contatos criados, nunca troca o
+  responsável de quem já existe.
+- **R16.7** **Cancelar e retomar:** cancelar antes de processar não importa nada; depois
+  de concluída, não cancela. Se o processo cair, a retomada continua depois da última
+  linha gravada e os contadores somam tudo.
+- **R16.8** **Auditoria e relatório:** o resumo da importação é auditado (`criada`,
+  `iniciada`, `concluida`, `cancelada`, `falhou`, com as contagens) **e** cada contato ou
+  empresa criado ou reconvertido tem o seu próprio evento de auditoria
+  (`contato.criado`, `contato.reconvertido`…), com ator = quem importou. No fim, a API
+  gera o **relatório XLSX** (resumo, problemas com número da linha e motivo, resultado de
+  cada linha) e publica o evento de domínio `importacao.concluida`. Se quem importou foi
+  desligado antes de processar, a importação falha sem importar nada.
+- **R16.9** **Download:** a planilha enviada e o relatório só são baixados por quem
+  importou, Admin e C-level.
+
+## 22. Disparos (R17)
+
+Campanhas de WhatsApp e e-mail para um público de contatos, com ritmo anti-banimento.
+
+- **R17.1** **Permissões:** Admin, C-level, líderes e membros de Marketing, Comercial e
+  CS usam. Membro vê e gerencia só as **próprias** campanhas; líder, as da área (e as
+  próprias); Admin e C-level, todas. A diretoria escolhe a área da campanha (ou nenhuma).
+- **R17.2** **Público:** um **segmento** (filtros em JSON sobre contatos: etiquetas,
+  origem, responsável, funil/etapa, datas, campos personalizados…) ou uma **lista
+  importada** (quem a importação R16 criou ou atualizou). Sempre **excluídos**: quem fez
+  opt-out (R4.6), quem não tem o canal (telefone para WhatsApp, e-mail para e-mail) e
+  duplicados. O número que o gateway diz não ter WhatsApp vira `INVALIDO` (com cache) e
+  **não consome o ritmo**. Opt-out depois da montagem do público também não recebe.
+- **R17.3** **Mensagem:** texto com variáveis (`{{contato.primeiro_nome}}`…), valor
+  padrão e variações (`{a|b|c}`, sorteadas de forma reprodutível por destinatário);
+  variável desconhecida, ritmo invertido, janela ou canal inválidos são recusados. Mídia
+  só do contexto `CAMPANHA`. Há prévia por contato, **envio de teste** ao próprio número,
+  modelos salvos (por área; edita quem criou, o líder da área e a diretoria), duplicar
+  campanha e uma configuração padrão com a estimativa de duração.
+- **R17.4** **Envio:** **um destinatário por vez**, com intervalo aleatório entre o
+  mínimo e o máximo da campanha — nunca menor que o do número (R13) —, lote com pausa e
+  "digitando…". O **limite diário e o aquecimento** do número (R13.7) valem: atingido o
+  limite, a campanha espera o dia seguinte. Com vários números, o rodízio alterna a cada
+  envio. Pausar e retomar (ou "Reenviar falhas") **não antecipa** o próximo envio: vale o
+  que o ritmo e a pausa do lote já tinham marcado. A mensagem é criada **na conversa do contato** pelo mesmo caminho do
+  Atendimento (fila de envio → adaptador do canal → gateway), com autor `AUTOMACAO`
+  (ator = a campanha). **Conversa:** a em aberto do contato no canal; senão a última que
+  nunca recebeu mensagem do contato; senão uma nova **já `RESOLVIDA`**, para não encher a
+  caixa de entrada com conversas sem resposta — quando o contato responde, o Atendimento
+  abre uma conversa nova e a distribui pela fila (R12).
+- **R17.5** **Pausa automática:** número desconectado faz a campanha esperar; ao atingir
+  as falhas seguidas configuradas (`pausarAposFalhas`) ela **pausa sozinha** e avisa o
+  criador (`campanha.pausada`). "Reenviar falhas" devolve os destinatários que falharam
+  à fila.
+- **R17.6** **Janela de envio:** dias e horas permitidos (fuso `America/Sao_Paulo`, mesmo
+  formato do horário de atendimento): fora dela nada sai e a campanha espera a abertura.
+- **R17.7** **Ciclo de vida:** rascunho → (aguardando aprovação) → agendada → em
+  andamento ⇄ pausada → concluída ou cancelada. Transições inválidas dão 422. A
+  **agendada** começa na hora marcada (varredura a cada minuto). Depois de um reinício, a
+  varredura religa a campanha que perdeu o job de envio, sem duplicar o ritmo. A
+  conclusão avisa o criador e publica `campanha.concluida`.
+- **R17.8** **E-mail:** o assunto (com variáveis) vai na conversa do contato. O primeiro
+  contato de uma campanha sai com o assunto **sem o prefixo "Re:"**; respostas depois que
+  o contato escreveu voltam a usar "Re:" (R14.6).
+- **R17.9** **Respostas e saída:** a mensagem do contato **até 7 dias depois do envio**
+  marca o destinatário como "respondeu" (uma vez) e publica `campanha.respondida`; ela já
+  está no Atendimento, como qualquer outra. A **palavra de saída** (`SAIR`, `PARAR`,
+  `CANCELAR`, configuráveis; a mensagem inteira, sem acento nem caixa — "não quero
+  cancelar" não conta) **até 30 dias depois do envio** aplica o opt-out (R4.6), auditado
+  com ator `AUTOMACAO` (descrição = a campanha), tira os envios pendentes do contato de
+  todas as campanhas e responde a confirmação (configurável) uma única vez.
+- **R17.10** **Aprovação (opcional):** com `aprovacaoDoLider` ligada, a campanha de membro
+  espera o líder da área, o C-level ou o Admin; reprovar volta a rascunho; aprovar a
+  inicia. Líder e diretoria começam sem aprovação. Cada passo notifica (`campanha.aprovacao_pedida`,
+  `aprovada`, `reprovada`).
+- **R17.11** **Relatório e exportação:** enviados, entregues, lidos, respondidos, falhas,
+  inválidos, excluídos e opt-outs, taxas, por número, ao longo do tempo e motivos de
+  falha. Exporta em **XLSX** ou **CSV** (separador `;`, com BOM para o Excel e proteção
+  contra fórmulas); baixa quem enviou, quem vê a campanha (líder) e a diretoria. O
+  progresso ao vivo vai pelo evento `campanha.progresso`.
+
+## 23. Chatbot (R18)
+
+Fluxos em passos que atendem a conversa antes (ou no lugar) do atendimento humano, sobre
+o executor de passos compartilhado.
+
+- **R18.1** **Gatilhos:** `NOVA_CONVERSA`, `PALAVRA_CHAVE` (palavra ou expressão inteira,
+  sem acento nem caixa), `FORA_DO_HORARIO` (só com o canal fechado) e `SEMPRE` — os três
+  sem palavra-chave só começam quando **nenhum fluxo rodou ainda** na conversa. O fluxo
+  pode restringir canais. Vários fluxos: vence a **prioridade**; no empate, o gatilho mais
+  específico e depois o mais antigo. Uma execução por conversa.
+- **R18.2** **Passos:** mensagem, pergunta com opções (numeradas no WhatsApp e e-mail,
+  botões no chat do site), pergunta aberta (validação de e-mail, telefone, número, data;
+  salva em variável ou campo do contato), condição (variável, campo, horário, etiqueta,
+  canal → ramos e "senão"), ações (etiquetar, definir campo, mover de fila, atribuir,
+  criar negócio, criar atividade, chamar webhook de saída), aguardar, transferir e
+  encerrar. O rascunho aceita configuração incompleta; a **publicação** aponta cada
+  problema (até 150 passos por fluxo).
+- **R18.3** **Perguntas:** resposta inválida repete a pergunta até o limite de tentativas
+  (3 por padrão, até 10); estourado o limite, o fluxo encerra (`respostas_invalidas`).
+- **R18.4** **Ações e transferência:** as ações passam pelos **mesmos serviços** das
+  ações humanas (R4, R5, R6, R12) e são auditadas com ator `AUTOMACAO` (descrição = o
+  fluxo). Webhook para rede interna é bloqueado como nos webhooks de saída (R9) e o fluxo
+  segue. **Transferir** deixa o **resumo das respostas como nota interna**, move a
+  conversa de fila, atribui pela mesma distribuição do Atendimento, notifica o responsável
+  e publica `chatbot.transferida`. As mensagens do bot têm autor `BOT`.
+- **R18.5** **Tempo sem resposta:** por pergunta, um lembrete após X minutos e/ou o
+  encerramento (ramo `sem_resposta`), até 7 dias.
+- **R18.6** **Permissões:** Admin e C-level gerenciam todos os fluxos; o líder cria e
+  gerencia os da própria área e vê, só para leitura, os das outras e os sem área; membro
+  não acessa (403). O líder só liga o fluxo a canais cuja fila padrão é da área dele
+  (nunca "todos os canais", 400); Admin e C-level escolhem livremente. Os seletores de
+  canais e filas vêm de `GET /disparos/canais`, `/chatbot/opcoes` e `/automacoes/opcoes`
+  (permissão de cada módulo, sem passar pelo Atendimento). O construtor de segmentos
+  só aceita funis, etapas e área de negócio que a pessoa vê (R5.9, 400).
+- **R18.7** **Versões:** publicar cria uma **versão imutável**; editar muda só o
+  rascunho; a conversa em andamento termina na versão em que começou e a nova usa a
+  publicada. Restaurar copia uma versão antiga para o rascunho; também há duplicar,
+  ativar/desativar e excluir (cancela as execuções em andamento).
+- **R18.8** **Humano assume, bot sai:** o atendente que responde, assume, transfere ou
+  resolve a conversa **cancela** o fluxo em andamento; conversa em que o atendente já
+  atuou não inicia fluxo; a resposta do contato depois já não é lida pelo bot.
+- **R18.9** **Simulador:** roda o rascunho no editor sem efeitos reais (transcrição,
+  opções, silêncio, resumo da transferência, "fora do horário"); recusa fluxo com
+  problemas; encerrar a simulação a cancela.
+- **R18.10** **Chat do site:** as opções de uma pergunta chegam ao widget como `botoes`
+  na mensagem pública e aparecem como botões (só na última mensagem da conversa); o
+  clique envia o texto da opção como resposta do visitante.
+- **Comportamento conhecido (2026-10-30):** a conversa nova é **distribuída pela fila
+  antes de o bot entrar** (R12.4), então um atendente pode ser notificado e ter a
+  conversa atribuída enquanto o bot ainda conversa; assim que o atendente responde ou
+  assume, o bot sai (R18.8). Fazer o bot atender sem responsável e distribuir só na
+  transferência exige saber, na chegada, se algum fluxo vai atender (senão a conversa
+  fica sem dono): ficou para a próxima fase.
+
+## 24. Automações e cadências (R19)
+
+- **R19.1** **Permissões:** Admin e C-level veem e gerenciam todas (inclusive as sem
+  área); o líder, as da própria área; membro não usa (403).
+- **R19.2** **Gatilhos:** eventos de domínio — contato criado/atualizado, negócio
+  criado/movido para a etapa (com filtro de funil e etapa)/ganho/perdido, atividade
+  criada, conversa nova/resolvida, mensagem recebida contendo palavra, satisfação
+  recebida, campanha respondida — e gatilhos de **agenda**: *data relativa* ("N dias
+  antes/depois" de um campo de data do contato, negócio ou personalizado), *recorrência*
+  (dispara para o público a cada ocorrência), *negócio parado* na etapa acima do prazo e
+  *atividade atrasada* (varredura a cada 5 minutos, uma vez por permanência/atraso).
+  Gatilho, filtro e passo inválidos são recusados (400).
+- **R19.3** **Condições:** segmento (R17.2) sobre a entidade do gatilho e horário
+  permitido (fora dele, as ações esperam a próxima abertura).
+- **R19.4** **Ações:** WhatsApp por modelo, e-mail, atividade, mover etapa, atribuir
+  (rodízio), etiquetar, criar negócio em outro funil, notificar usuário, chamar webhook
+  de saída (`automacao.acionada`, uma entrega por execução), iniciar fluxo do chatbot e
+  condição; **aguardar** X tempo entre ações forma a *cadência*. Toda ação passa pelos
+  mesmos serviços e regras das ações humanas e é **auditada com ator `AUTOMACAO`**
+  (descrição = nome da automação).
+- **R19.5** **Parada:** critérios por automação — *respondeu* (mensagem recebida ou
+  campanha respondida), *ganhou*, *perdeu* e *saiu do segmento* (conferido ao acordar). A
+  execução em espera é cancelada.
+- **R19.6** **Limite por entidade:** *uma vez*, *uma vez por período* (N dias) ou
+  *sempre*; vale por entidade (contato, negócio…), não global. A reentrega do mesmo
+  evento nunca duplica a execução.
+- **R19.7** **Laços:** o evento gerado por uma automação pode disparar outras, mas a
+  cadeia tem profundidade máxima de **5** e a mesma automação aparece no máximo **3**
+  vezes; além disso a execução não inicia (registrado no log técnico). Uma execução faz no
+  máximo 1.000 passos (proteção contra laço interno).
+- **R19.8** **Histórico, erro e teste:** cada execução guarda o resultado de cada passo.
+  Passo com erro **falha a execução**; reexecutar o passo conclui. Dá para cancelar uma
+  execução em espera. O **modo teste** roda a automação sobre uma entidade escolhida,
+  **sem efeitos externos** (mensagens e webhooks simulados, esperas puladas) e não conta
+  como execução real nem no limite R19.6; informa quando a entidade não atenderia às
+  condições. A lista mostra a **"última vez"** de qualquer execução real (nas de
+  varredura, o marco da janela).
+- **R19.9** **Marketing e opt-out:** automação marcada como de marketing deixa de fora
+  quem tem opt-out (R4.6), inclusive no meio de uma cadência; as demais atendem também
+  quem fez opt-out.
+- **R19.10** **Ciclo de vida:** nasce **pausada**; ativar sem ações dá 422 com as
+  pendências. Editar muda a versão, e a execução em andamento segue na versão em que
+  começou. Pausar impede novas execuções e suspende as em andamento até reativar;
+  duplicar cria cópia pausada; excluir cancela as execuções em andamento. Há quatro
+  **modelos prontos** (boas-vindas ao lead, follow-up de proposta, lembrete de renovação,
+  reativação), sempre criados pausados. Criação, ativação e exclusão são auditadas.
+
+## 25. Matriz de acesso (Fase 2 — Onda B)
+
+| Recurso | Admin | C-level | Líder | Membro |
+| --- | --- | --- | --- | --- |
+| Importar contatos e empresas (R16) | ✓ | ✓ | ✓ | — |
+| Ver o histórico e baixar importações | todas | todas | as próprias | — |
+| Campanhas (R17) | todas | todas | as da área e as suas | as suas |
+| Aprovar campanha | ✓ | ✓ | da área | — |
+| Configuração dos disparos (aprovação, palavras de saída) | ✓ | ✓ | — | — |
+| Chatbot (R18) | todos | todos | os da área (lê os demais) | — |
+| Automações (R19) | todas | todas | as da área | — |
+
+Marketing usa Disparos, mas não o Atendimento (R12); o líder de Marketing importa,
+cria campanhas e automações da própria área.
+
+## 26. Cenários de aceitação (Fase 2 — Onda B)
+
+Continuam a numeração da seção 20; cada um tem teste automatizado ("cenário N" no nome
+do teste) contra um Postgres real.
+
+34. Só Admin, C-level e líderes importam; membro recebe 403 (R16.1).
+35. O rascunho traz colunas, prévia e mapeamento sugerido; o mapeamento é conferido e
+    modelos salvos se aplicam a outro arquivo (R16.2, R16.3).
+36. Importar contatos: deduplicação, normalização, origem `IMPORTACAO`, etiquetas,
+    progresso ao vivo, relatório XLSX, auditoria do resumo e de cada contato (R16.4, R16.8).
+37. Duplicados: ignorar não toca no existente, sobrescrever troca os valores, atualizar
+    vazios só completa (R16.5).
+38. Responsável fixo, rodízio da área ou quem importou (R16.6).
+39. Cancelar antes de processar não importa nada (R16.7).
+40. A planilha e o relatório só são baixados por quem importou, Admin e C-level (R16.9).
+41. Visibilidade das campanhas: membro as suas, líder as da área, diretoria todas (R17.1).
+42. A prévia do público exclui opt-out e conta quem não tem telefone (R17.2).
+43. Envio um a um no ritmo, na conversa do contato, com autor `AUTOMACAO`; conversa nova
+    nasce `RESOLVIDA` (R17.4).
+44. Fora da janela de envio nada sai; a campanha espera a abertura (R17.6).
+45. Limite diário do número atingido: espera o dia seguinte (R17.4, R13.7).
+46. Falhas seguidas pausam a campanha; reenviar falhas devolve à fila (R17.5).
+47. A resposta cai no Atendimento e marca "respondeu" uma única vez (R17.9).
+48. "SAIR" aplica o opt-out, tira os pendentes, confirma e audita como `AUTOMACAO` (R17.9).
+49. Resposta depois de 7 dias do envio não conta (R17.9).
+50. A saída vale até 30 dias; depois disso não é aplicada (R17.9).
+51. Com aprovação ligada, a campanha do membro espera o líder; reprovar volta a rascunho
+    (R17.10).
+52. Exportação em XLSX e CSV (`;`, BOM, sem fórmulas); só quem vê baixa (R17.11).
+53. Gatilho por palavra-chave, prioridade e canal restrito escolhem o fluxo (R18.1).
+54. O rascunho aceita configuração incompleta; a publicação aponta cada problema (R18.2).
+55. Pergunta, resposta inválida, ação e transferência com resumo em nota interna; mensagens
+    `BOT`; auditoria `AUTOMACAO` (R18.2 a R18.4).
+56. Sem resposta: lembrete e depois encerramento (R18.5).
+57. Membro não acessa o chatbot; líder só gerencia a própria área (R18.6).
+58. Publicar cria versões imutáveis; editar não muda a conversa em andamento (R18.7).
+59. O atendente que responde cancela o fluxo (R18.8).
+60. O simulador roda o rascunho sem efeitos reais (R18.9).
+61. Membro não usa automações; líder só as da área (R19.1).
+62. Contato novo dispara a automação; ação com ator `AUTOMACAO`; "última vez" na lista
+    (R19.2, R19.4, R19.8).
+63. Cadência: ações intercaladas por esperas (R19.4).
+64. A resposta do contato cancela a execução em espera (R19.5).
+65. Limite "uma vez por período" volta a valer depois do período (R19.6).
+66. Automação que dispara a si mesma para na terceira vez (R19.7).
+67. Modo teste simula as ações sem efeito e não conta como execução (R19.8).
+68. Opt-out fica de fora das automações de marketing, também no meio da cadência (R19.9).
+69. Data relativa dispara na hora marcada, uma vez (R19.2).
+70. As opções do chatbot chegam ao chat do site como botões (R18.10).

@@ -77,7 +77,7 @@ describe('Automações e cadências (e2e, R19)', () => {
 
   // ---------------------------------------------------------------------
   describe('permissões (R19.1)', () => {
-    it('R19.1 — membro não usa as automações (403); Admin, C-level e líder usam', async () => {
+    it('cenário 61 — R19.1 — membro não usa as automações (403); Admin, C-level e líder usam', async () => {
       const equipe = await criarEquipe(t, 'COMERCIAL');
       const membro = await entrarComo(t, equipe.membros[0]);
       await membro.get('/api/v1/automacoes').expect(403);
@@ -322,7 +322,7 @@ describe('Automações e cadências (e2e, R19)', () => {
 
   // ---------------------------------------------------------------------
   describe('gatilhos, condições e ações (R19.2 a R19.4)', () => {
-    it('R19.2 e R19.4 — contato novo dispara a automação; a ação passa pelo serviço com ator AUTOMACAO', async () => {
+    it('cenário 62 — R19.2 e R19.4 — contato novo dispara a automação; a ação passa pelo serviço com ator AUTOMACAO', async () => {
       const automacao = await criarAtiva(admin, {
         nome: 'Etiqueta de boas-vindas',
         definicao: etiquetar('novo-lead'),
@@ -369,6 +369,15 @@ describe('Automações e cadências (e2e, R19)', () => {
       expect(detalhe.body.passos).toMatchObject([
         { passoId: 'p1', tipo: 'acao.etiquetar', status: 'CONCLUIDO' },
       ]);
+      // "Última vez" da lista: toda execução nova a atualiza (não só os gatilhos de agenda).
+      const lista = await admin.get('/api/v1/automacoes').expect(200);
+      const linha = (
+        lista.body.itens as Array<{
+          id: string;
+          ultimaExecucaoEm: string | null;
+        }>
+      ).find((a) => a.id === automacao.id);
+      expect(linha?.ultimaExecucaoEm).not.toBeNull();
     });
 
     it('R19.2 — filtro do gatilho: só o negócio movido para a etapa escolhida dispara', async () => {
@@ -581,7 +590,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       expect(await t.prisma.mensagem.count()).toBe(total);
     });
 
-    it('R19.4 — cadência: ações intercaladas por esperas, com atividade, notificação e etiqueta', async () => {
+    it('cenário 63 — R19.4 — cadência: ações intercaladas por esperas, com atividade, notificação e etiqueta', async () => {
       const equipe = await criarEquipe(t, 'COMERCIAL');
       const contato = await criarContato(t, { responsavel: equipe.membros[0] });
       const automacao = await criarAtiva(admin, {
@@ -835,7 +844,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       return { contato, automacao, execucao };
     }
 
-    it('R19.5 — RESPONDEU: a resposta do contato cancela a execução em espera', async () => {
+    it('cenário 64 — R19.5 — RESPONDEU: a resposta do contato cancela a execução em espera', async () => {
       const { contato, execucao } = await comExecucaoEsperando(['RESPONDEU']);
       const conversa = await criarConversa(t, { contato });
       await executarComoAtor({ tipoAtor: 'SISTEMA' }, () =>
@@ -979,7 +988,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       ).toEqual([]);
     });
 
-    it('R19.9 — marketing: contato com opt-out fica de fora, também no meio da cadência (R4.6)', async () => {
+    it('cenário 68 — R19.9 — marketing: contato com opt-out fica de fora, também no meio da cadência (R4.6)', async () => {
       const automacao = await criarAtiva(admin, {
         marketing: true,
         definicao: esperaEEtiqueta,
@@ -1092,7 +1101,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       },
     );
 
-    it('R19.6 — UMA_VEZ_POR_PERIODO volta a valer depois do período; limite por contato, não global', async () => {
+    it('cenário 65 — R19.6 — UMA_VEZ_POR_PERIODO volta a valer depois do período; limite por contato, não global', async () => {
       const automacao = await criarAtiva(admin, {
         tipoGatilho: 'EVENTO',
         evento: 'contato.atualizado',
@@ -1116,7 +1125,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       expect(await execucoesDe(automacao.id as string)).toHaveLength(3);
     });
 
-    it('R19.7 — uma automação que dispara a si mesma em cadeia para na terceira vez', async () => {
+    it('cenário 66 — R19.7 — uma automação que dispara a si mesma em cadeia para na terceira vez', async () => {
       const dono = await t.prisma.usuario.findFirstOrThrow();
       const automacao = await criarAtiva(admin, {
         tipoGatilho: 'EVENTO',
@@ -1257,7 +1266,7 @@ describe('Automações e cadências (e2e, R19)', () => {
       });
     });
 
-    it('R19.8 — modo teste: simula as ações (sem efeito), pula as esperas e não conta como execução real', async () => {
+    it('cenário 67 — R19.8 — modo teste: simula as ações (sem efeito), pula as esperas e não conta como execução real', async () => {
       const { canal } = await criarCanalWhatsapp(t, {
         status: 'CONECTADO',
         telefone: '5511900000000',

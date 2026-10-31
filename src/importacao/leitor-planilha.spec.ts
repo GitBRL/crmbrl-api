@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 import ExcelJS from 'exceljs';
 import {
   dividirCsv,
@@ -81,4 +82,45 @@ describe('Leitura de planilhas (R16.2)', () => {
       lerPlanilha(Buffer.from('não é xlsx'), 'xlsx'),
     ).rejects.toBeInstanceOf(PlanilhaIlegivelError);
   });
+
+  async function xlsxEmFluxo(
+    cabecalho: (string | undefined)[],
+    linhas: number,
+  ): Promise<Buffer> {
+    const pedacos: Buffer[] = [];
+    const saida = new PassThrough();
+    saida.on('data', (p: Buffer) => pedacos.push(p));
+    const livro = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: saida,
+      useSharedStrings: false,
+    });
+    const aba = livro.addWorksheet('a');
+    aba.addRow(cabecalho).commit();
+    for (let i = 0; i < linhas; i++) {
+      aba.addRow([`Pessoa ${i}`, `p${i}@ex.com`]).commit();
+    }
+    await livro.commit();
+    return Buffer.concat(pedacos);
+  }
+
+  it('R16.2 — planilha "larga" (célula em XFD1) é recusada sem estourar a memória', async () => {
+    const cabecalho: (string | undefined)[] = ['nome', 'email'];
+    cabecalho[16383] = 'x';
+    const buffer = await xlsxEmFluxo(cabecalho, 100);
+    await expect(lerPlanilha(buffer, 'xlsx')).rejects.toThrow(/colunas/);
+  });
+
+  it('R16.2 — célula solta fora do cabeçalho não alarga as linhas', async () => {
+    const buffer = await xlsxEmFluxo(['nome', 'email'], 3);
+    const planilha = await lerPlanilha(buffer, 'xlsx');
+    expect(planilha.colunas).toEqual(['nome', 'email']);
+    expect(planilha.linhas).toHaveLength(3);
+  });
+
+  it('R16.2 — mais de 50 mil linhas é recusado durante a leitura', async () => {
+    const buffer = await xlsxEmFluxo(['nome', 'email'], 50_001);
+    await expect(lerPlanilha(buffer, 'xlsx')).rejects.toThrow(/50\.000 linhas/);
+    const ok = await xlsxEmFluxo(['nome', 'email'], 50_000);
+    expect((await lerPlanilha(ok, 'xlsx')).linhas).toHaveLength(50_000);
+  }, 60_000);
 });

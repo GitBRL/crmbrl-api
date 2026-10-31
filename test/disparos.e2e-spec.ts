@@ -8,6 +8,7 @@ import {
   criarCanalWhatsapp,
   criarContato,
   criarEquipe,
+  criarNegocio,
   criarUsuario,
   drenarFilas,
   drenarTudo,
@@ -56,7 +57,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
   }
 
   describe('permissões e validação (R17.1)', () => {
-    it('R17.1 — membro vê só as próprias campanhas; líder as da área; outra área e Admin conforme o recorte', async () => {
+    it('cenário 41 — R17.1 — membro vê só as próprias campanhas; líder as da área; outra área e Admin conforme o recorte', async () => {
       const marketing = await criarEquipe(t, 'MARKETING', { membros: 2 });
       const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
       const admin = await criarUsuario(t, { papel: 'ADMIN' });
@@ -92,6 +93,125 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       await outro
         .post(`/api/v1/disparos/campanhas/${campanha.id}/pausar`, {})
         .expect(404);
+    });
+
+    it('R17.1 — Marketing escolhe número e cria/inicia a campanha sem passar pelo Atendimento; Chatbot e Automações têm rotas de opções próprias', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
+      const { canal } = await cenarioWhatsapp(t, 2);
+      const membro = await entrarComo(t, marketing.membros[0]!);
+      const lider = await entrarComo(t, marketing.lider);
+
+      // O Atendimento continua fechado para o papel (R12)...
+      await membro.get('/api/v1/atendimento/canais').expect(403);
+      // ...mas os canais dos Disparos vêm da rota do próprio módulo.
+      const canais = await membro.get('/api/v1/disparos/canais').expect(200);
+      const doNumero = (canais.body as Array<Record<string, unknown>>).find(
+        (c) => c.id === canal.id,
+      );
+      expect(doNumero).toMatchObject({
+        tipo: 'WHATSAPP',
+        ativo: true,
+        disponivel: true,
+        status: 'CONECTADO',
+        pausado: false,
+      });
+      expect(Object.keys(doNumero!).sort()).toEqual(
+        [
+          'ativo',
+          'disponivel',
+          'id',
+          'nome',
+          'pausado',
+          'status',
+          'tipo',
+        ].sort(),
+      );
+
+      const campanha = await criarPelaApi(membro, canal.id);
+      const iniciada = await membro
+        .post(`/api/v1/disparos/campanhas/${campanha.id}/iniciar`, {})
+        .expect(200);
+      expect(iniciada.body.status).toBe('EM_ANDAMENTO');
+
+      // Chatbot e Automações: só líderes e diretoria, com canais e filas.
+      await membro.get('/api/v1/chatbot/opcoes').expect(403);
+      await membro.get('/api/v1/automacoes/opcoes').expect(403);
+      for (const rota of ['chatbot', 'automacoes']) {
+        const { body } = await lider.get(`/api/v1/${rota}/opcoes`).expect(200);
+        expect(body.canais.map((c: { id: string }) => c.id)).toContain(
+          canal.id,
+        );
+        expect(Array.isArray(body.filas)).toBe(true);
+      }
+    });
+
+    it('R5.9 — o construtor de segmentos não revela negócios de funil que a pessoa não vê', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
+      const admin = await criarUsuario(t, { papel: 'ADMIN' });
+      const comercial = await criarNegocio(t, { area: 'COMERCIAL' });
+      const doMarketing = await criarNegocio(t, { area: 'MARKETING' });
+      const membro = await entrarComo(t, marketing.membros[0]!);
+      const diretoria = await entrarComo(t, admin);
+      const previa = (segmento: unknown) => ({ segmento });
+      const negocio = (valor: Record<string, unknown>) =>
+        previa({
+          condicoes: [{ campo: 'negocio', operador: 'tem', valor }],
+        });
+
+      const recusada = await membro
+        .post(
+          '/api/v1/segmentos/previa',
+          negocio({ funilId: comercial.funilId }),
+        )
+        .expect(400);
+      expect(recusada.body.detalhes.regra).toBe('R5.9');
+      await membro
+        .post(
+          '/api/v1/segmentos/previa',
+          negocio({ area: 'COMERCIAL', status: ['GANHO'] }),
+        )
+        .expect(400);
+      await membro
+        .post(
+          '/api/v1/segmentos/previa',
+          negocio({ etapaIds: [comercial.etapaId] }),
+        )
+        .expect(400);
+      // Também na campanha (criar) e na prévia do público.
+      const { canal } = await cenarioWhatsapp(t, 0);
+      await membro
+        .post('/api/v1/disparos/campanhas', {
+          nome: 'Espiã',
+          canal: 'WHATSAPP',
+          canalIds: [canal.id],
+          texto: 'Oi',
+          tipoPublico: 'SEGMENTO',
+          segmento: negocio({ funilId: comercial.funilId }).segmento,
+        })
+        .expect(400);
+      await membro
+        .post('/api/v1/disparos/previa-publico', {
+          canal: 'WHATSAPP',
+          segmento: negocio({ funilId: comercial.funilId }).segmento,
+        })
+        .expect(400);
+
+      // O funil da própria área passa; sem funil, só conta o que é da área dele.
+      const propria = await membro
+        .post(
+          '/api/v1/segmentos/previa',
+          negocio({ funilId: doMarketing.funilId }),
+        )
+        .expect(200);
+      expect(propria.body.total).toBe(1);
+      const qualquer = await membro
+        .post('/api/v1/segmentos/previa', negocio({}))
+        .expect(200);
+      expect(qualquer.body.total).toBe(1);
+      const todos = await diretoria
+        .post('/api/v1/segmentos/previa', negocio({}))
+        .expect(200);
+      expect(todos.body.total).toBe(2);
     });
 
     it('R17.3 — recusa modelo com variável desconhecida, ritmo invertido, janela e canal inválidos', async () => {
@@ -196,7 +316,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
   });
 
   describe('público (R17.2)', () => {
-    it('R17.2 — a prévia exclui opt-out e conta quem não tem telefone', async () => {
+    it('cenário 42 — R17.2 — a prévia exclui opt-out e conta quem não tem telefone', async () => {
       const admin = await entrarComo(t, await criarUsuario(t));
       await criarContato(t, { telefone: '11988001001', email: null });
       await criarContato(t, { telefone: '11988001002', email: null });
@@ -281,7 +401,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
   });
 
   describe('envio, ritmo e ciclo de vida (R17.4)', () => {
-    it('R17.4 — envia um por vez no ritmo, cria a mensagem na conversa do contato como AUTOMACAO e conclui', async () => {
+    it('cenário 43 — R17.4 — envia um por vez no ritmo, cria a mensagem na conversa do contato como AUTOMACAO e conclui', async () => {
       const dono = await criarUsuario(t);
       const cliente = await entrarComo(t, dono);
       const { canal, whatsapp, contatos } = await cenarioWhatsapp(t, 3);
@@ -468,7 +588,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       expect(contatos).toHaveLength(2);
     });
 
-    it('R17.6 — fora da janela de envio nada sai; a campanha espera a abertura (America/Sao_Paulo)', async () => {
+    it('cenário 44 — R17.6 — fora da janela de envio nada sai; a campanha espera a abertura (America/Sao_Paulo)', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal } = await cenarioWhatsapp(t, 2);
       // Janela só amanhã (em São Paulo): agora está fechada.
@@ -503,7 +623,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       );
     });
 
-    it('R17.4 — limite diário do número (R13): atingido, espera o dia seguinte', async () => {
+    it('cenário 45 — R17.4 — limite diário do número (R13): atingido, espera o dia seguinte', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal, whatsapp } = await cenarioWhatsapp(t, 2, {
         limiteDiario: 1,
@@ -566,7 +686,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       ]);
     });
 
-    it('R17.4 — número desconectado: espera e, no limite de falhas seguidas, pausa sozinha e avisa o criador', async () => {
+    it('R17.5 — número desconectado: espera e, no limite de falhas seguidas, pausa sozinha e avisa o criador', async () => {
       const dono = await criarUsuario(t);
       const cliente = await entrarComo(t, dono);
       const { canal, whatsapp } = await cenarioWhatsapp(t, 2);
@@ -619,7 +739,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       expect(await t.prisma.mensagem.count()).toBe(1);
     });
 
-    it('R17.4 — falhas seguidas pausam a campanha; reenviar falhas devolve os destinatários à fila', async () => {
+    it('cenário 46 — R17.5 — falhas seguidas pausam a campanha; reenviar falhas devolve os destinatários à fila', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal } = await cenarioWhatsapp(t, 4);
       const campanha = await criarPelaApi(cliente, canal.id, {
@@ -666,7 +786,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
         .expect(422);
     });
 
-    it('R17.4 — pausar, retomar, cancelar e as transições inválidas (422)', async () => {
+    it('R17.7 — pausar, retomar, cancelar e as transições inválidas (422)', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal } = await cenarioWhatsapp(t, 3);
       const campanha = await criarPelaApi(cliente, canal.id);
@@ -705,7 +825,33 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       await cliente.get(url).expect(404);
     });
 
-    it('R17.4 — agendamento: fica AGENDADA e começa na hora marcada (varredura)', async () => {
+    it('R17.4 — pausar e retomar logo depois de um envio não antecipa o próximo', async () => {
+      const cliente = await entrarComo(t, await criarUsuario(t));
+      const { canal } = await cenarioWhatsapp(t, 3);
+      const campanha = await criarPelaApi(cliente, canal.id);
+      const url = `/api/v1/disparos/campanhas/${campanha.id}`;
+      await cliente.post(`${url}/iniciar`, {}).expect(200);
+      await drenarTudo(t);
+      const antes = await t.prisma.campanha.findUniqueOrThrow({
+        where: { id: campanha.id },
+      });
+      expect(antes.proximoEnvioEm!.getTime()).toBeGreaterThan(
+        Date.now() + 15_000,
+      );
+      await cliente.post(`${url}/pausar`, {}).expect(200);
+      await cliente.post(`${url}/retomar`, {}).expect(200);
+      const depois = await t.prisma.campanha.findUniqueOrThrow({
+        where: { id: campanha.id },
+      });
+      expect(depois.status).toBe('EM_ANDAMENTO');
+      expect(depois.proximoEnvioEm!.getTime()).toBe(
+        antes.proximoEnvioEm!.getTime(),
+      );
+      await drenarTudo(t);
+      expect(await t.prisma.mensagem.count()).toBe(1);
+    });
+
+    it('R17.7 — agendamento: fica AGENDADA e começa na hora marcada (varredura)', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal } = await cenarioWhatsapp(t, 2);
       const campanha = await criarPelaApi(cliente, canal.id);
@@ -740,7 +886,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
         .expect(422);
     });
 
-    it('R17.4 — retomada após reinício: a varredura religa a campanha que perdeu o job; jobs velhos não duplicam o ritmo', async () => {
+    it('R17.7 — retomada após reinício: a varredura religa a campanha que perdeu o job; jobs velhos não duplicam o ritmo', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const { canal } = await cenarioWhatsapp(t, 3);
       const campanha = await criarPelaApi(cliente, canal.id);
@@ -762,6 +908,11 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       await cliente
         .post(`/api/v1/disparos/campanhas/${campanha.id}/pausar`, {})
         .expect(200);
+      // O intervalo do ritmo já passou durante a pausa (retomar o respeita, R17.4).
+      await t.prisma.campanha.update({
+        where: { id: campanha.id },
+        data: { proximoEnvioEm: new Date(Date.now() - 1_000) },
+      });
       await cliente
         .post(`/api/v1/disparos/campanhas/${campanha.id}/retomar`, {})
         .expect(200);
@@ -769,7 +920,7 @@ describe('Disparos — campanhas (e2e, R17)', () => {
       expect(await t.prisma.mensagem.count()).toBe(3);
     });
 
-    it('R17.4 — e-mail: monta a mensagem com o assunto renderizado na conversa do contato', async () => {
+    it('R17.8 — e-mail: monta a mensagem com o assunto renderizado na conversa do contato', async () => {
       const cliente = await entrarComo(t, await criarUsuario(t));
       const caixa = await criarCanal(t, {
         tipo: 'EMAIL',

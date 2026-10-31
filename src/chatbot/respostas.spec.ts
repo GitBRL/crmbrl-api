@@ -3,6 +3,7 @@ import {
   lerData,
   lerNumero,
   textoComOpcoes,
+  textoDaPerguntaComOpcoes,
   validarResposta,
 } from './respostas';
 
@@ -13,6 +14,15 @@ const OPCOES = [
 ];
 
 describe('R18 — respostas do contato às perguntas do bot', () => {
+  it('R18.2 — chat do site manda só o texto (as opções vão como botões); WhatsApp e e-mail, numeradas', () => {
+    expect(textoDaPerguntaComOpcoes(true, ' Como ajudo? ', OPCOES)).toBe(
+      'Como ajudo?',
+    );
+    expect(textoDaPerguntaComOpcoes(false, 'Como ajudo?', OPCOES)).toBe(
+      textoComOpcoes('Como ajudo?', OPCOES),
+    );
+  });
+
   describe('opções numeradas', () => {
     it('R18.3 — aceita o número, com pontuação, ou o texto da opção sem acento nem caixa', () => {
       expect(casarOpcao('2', OPCOES)?.id).toBe('suporte');

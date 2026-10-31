@@ -31,6 +31,13 @@ import {
   PausarAutomacaoDto,
   TestarAutomacaoDto,
 } from './automacoes.dto';
+import {
+  listarCanaisDeOpcao,
+  listarFilasDeOpcao,
+} from '../comum/dados/opcoes-de-canais';
+import { SemPermissaoException } from '../comum/erros/excecoes';
+import { PrismaService } from '../prisma/prisma.service';
+import { podeUsarAutomacoes } from './permissoes-automacoes';
 import { AutomacoesService } from './automacoes.service';
 import { ExecucoesDeAutomacao } from './execucoes-de-automacao.service';
 
@@ -47,7 +54,24 @@ export class AutomacoesController {
   constructor(
     private readonly automacoes: AutomacoesService,
     private readonly execucoes: ExecucoesDeAutomacao,
+    private readonly prisma: PrismaService,
   ) {}
+
+  @Get('opcoes')
+  @ApiOperation({
+    summary: 'Canais e filas para escolher no editor de automações',
+  })
+  async opcoes(@UsuarioAtual() usuario: UsuarioAutenticado) {
+    if (!podeUsarAutomacoes(usuario)) {
+      throw new SemPermissaoException(
+        'Só Admin, C-level e líderes usam as automações.',
+      );
+    }
+    return {
+      canais: await listarCanaisDeOpcao(this.prisma),
+      filas: await listarFilasDeOpcao(this.prisma),
+    };
+  }
 
   @Get()
   @ApiOperation({

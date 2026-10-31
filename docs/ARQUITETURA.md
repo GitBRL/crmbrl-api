@@ -347,6 +347,66 @@ rápida. `GET /arquivos/:id` pergunta ao verificador do contexto (R11.4) e
 devolve o conteúdo com `Range`/`ETag` e cabeçalhos seguros. Canais e gateway
 usam `ArquivosService.salvar` direto (mídia recebida, sem `criadoPorId`).
 
+### Peças e fluxos da Onda B (importação, disparos, chatbot, automações)
+
+**Peças compartilhadas** (`src/comum/`, `AutomacaoComumModule`, global — usadas por mais de
+um módulo da onda):
+
+- `modelos/` — renderizador de modelos de mensagem (`{{contato.primeiro_nome}}`, padrão
+  `{{x|padrão}}`, variações `{a|b}` sorteadas pela semente do destinatário) e a validação de
+  variáveis; rotas `/modelos/*` para o editor do front.
+- `segmentos/` — filtro declarativo em JSON → consulta Prisma, com contagem e amostra
+  (`/segmentos/*`); é o público dos disparos e a condição das automações.
+- `passos/` — **executor de passos** genérico (`PassosService`): definição em lista com
+  ramos, `aguardar` via `startAfter` do pg-boss, estado e histórico por passo, retomada
+  depois de reinício, idempotência por passo e limite de 1.000 passos por execução. Chatbot
+  e automações só registram tipos de passo (`registrarTipo`); as tabelas são `Execucao` e
+  `ExecucaoPasso`.
+- `gatilhos/` — manipulador da outbox que entrega eventos de domínio a quem se registra
+  (automações, chatbot, disparos), com a **cadeia** (profundidade 5, 3 repetições da mesma
+  automação) e o catálogo de gatilhos; `agenda.ts` calcula as ocorrências de data
+  relativa e recorrência.
+
+**Módulos** (cada um registra seus manipuladores e jobs quando `PROCESSAR_FILAS=true`):
+
+| Módulo | Regras | Observações |
+| --- | --- | --- |
+| `ImportacaoModule` (`importacao/`) | R16 | `exceljs` lê CSV/XLSX e gera o relatório; fila `importacao.processar`, lotes de 100 linhas; usa `ContatosService.encontrarOuCriar` e `EmpresasService`, então herda R4.1/R4.2 e a auditoria por contato |
+| `DisparosModule` (`disparos/`) | R17 | motor de envio (`EnvioDeCampanha`) com fila `disparos.enviar` (um destinatário por job, o `quando` do job evita cadeia dupla) e varredura `disparos.varredura` a cada minuto (agendadas, retomada, aprovação); entrega pelo `MotorDoAtendimento.criarSaida`; respostas e opt-out pelo evento `mensagem.recebida` |
+| `ChatbotModule` (`chatbot/`) | R18 | `EntradaDoBot` escuta os eventos do Atendimento e decide o fluxo (`seletor-de-fluxo`); passos `mensagem`, `pergunta.*`, `condicao`, `acao.*`, `transferir`; simulador sobre o mesmo executor com ações simuladas; registra o verificador de acesso da mídia (contexto `CAMPANHA`) dos passos de mensagem |
+| `AutomacoesModule` (`automacoes/`) | R19 | `GatilhosDeAutomacao` (eventos), `AgendasDeAutomacao` (varredura a cada 5 min e agenda), `IniciadorDeExecucao` (escopo, condições, limite por entidade, cadeia, `ultimaExecucaoEm`), ações pelos serviços de domínio, modo teste |
+
+**Importação.** `POST /arquivos?contexto=IMPORTACAO` → `POST /importacoes` (rascunho com
+colunas, prévia e mapeamento sugerido) → `PATCH` do mapeamento e das opções → `iniciar`
+(enfileira) → o processador grava o resultado de cada linha (`ImportacaoLinha`), os
+contadores e o progresso por lote (`importacao.progresso` na sala do usuário) → relatório
+XLSX no MinIO e evento `importacao.concluida`.
+
+**Campanha.** O público é montado em lotes de 500 no início (opt-out, sem canal e duplicados
+fora). Cada envio: confere janela, limite diário do número e verificação de WhatsApp,
+renderiza o modelo, acha ou cria a conversa do contato (nova nasce `RESOLVIDA`), cria a
+mensagem de saída com autor `AUTOMACAO` e agenda o próximo envio com intervalo aleatório.
+Status do destinatário e da campanha seguem o status da mensagem (`mensagem.status`). O
+progresso vai em `campanha.progresso`; pausa, conclusão e aprovação geram notificações
+(`campanha.*`, link `/disparos/:id`). A resposta (7 dias) e a palavra de saída (30 dias)
+são tratadas pelo evento `mensagem.recebida`.
+
+**Chatbot.** Mensagem recebida → `EntradaDoBot` (a conversa já foi criada e distribuída
+pelo Atendimento) → escolhe o fluxo → `PassosService.iniciar` com `executarAgora`. Perguntas
+suspendem a execução (`aguardandoEntrada`); a próxima mensagem do contato a retoma; o prazo
+sem resposta é um `startAfter`. Eventos de atendente (resposta, assumir, transferir,
+resolver) cancelam a execução. O widget do chat do site recebe `botoes` na mensagem pública.
+
+**Automações.** Evento na outbox (ou ocorrência da agenda) → `IniciadorDeExecucao` resolve a
+entidade, confere escopo, filtro, condições e limite → `PassosService` executa as ações por
+passos. Os serviços de domínio rodam com o contexto de ator `AUTOMACAO` (descrição = nome da
+automação/fluxo/campanha), por isso a auditoria e os eventos gerados carregam a cadeia.
+
+**Tempo real e notificações.** Eventos novos no catálogo (`tempo-real/catalogo.ts`):
+`importacao.progresso` e `campanha.progresso`. Tipos de notificação novos: `campanha.pausada`,
+`campanha.concluida`, `campanha.aprovacao_pedida`, `campanha.aprovada`,
+`campanha.reprovada`. O front os tipa em `nucleo/tempo-real/eventos.ts`.
+
 ### Jornada de um lead (como os módulos conversam)
 
 1. `POST /api/v1/webhooks/entrada/{token}` (público, autenticado pelo token e,
@@ -1437,3 +1497,34 @@ Pendente de decisão — registrar aqui quando resolvido:
   mostrados uma vez, prévia, recebimentos, destinos, entregas, reenvio, teste) e
   os destinos dos links das notificações (`/atividades?atividade=…`,
   `/administracao/usuarios`, `/integracoes?webhookSaida=…`).
+
+Decisões da Onda B (2026-10-30):
+
+- **`exceljs` (aprovada pelo usuário)** é a única dependência nova da onda: leitura de
+  CSV/XLSX e geração dos relatórios XLSX. A leitura de CSV detecta codificação e
+  separador; a exportação CSV usa `;` com BOM (abre direto no Excel pt-BR) e neutraliza
+  fórmulas (`=`, `+`, `-`, `@` no início da célula).
+- **Um executor de passos para chatbot e automações** (`PassosService`) em vez de dois
+  motores: a diferença fica nos tipos de passo registrados. O estado vive no banco
+  (`Execucao`, `ExecucaoPasso`) e as esperas no `startAfter` do pg-boss, então nada se
+  perde num reinício. Descartado: máquina de estados em memória.
+- **`Campanha` envia um destinatário por job**, com o horário do próximo envio gravado na
+  campanha (`proximoEnvioEm`) e levado no job: job velho ou duplicado vira no-op, e a
+  varredura de 1 minuto religa o que perdeu o job. Descartado: um job por campanha com
+  `sleep`.
+- **Mensagem de campanha entra na conversa do contato** (e não numa estrutura à parte), pelo
+  mesmo `MotorDoAtendimento` — herda limites do gateway, status de entrega e histórico.
+  Conversa criada só para a campanha nasce `RESOLVIDA` para não lotar a caixa de entrada.
+- **Auditoria por contato na importação**, além do resumo da importação: a deduplicação
+  roda nos mesmos serviços da criação manual, então cada contato tem o seu evento. O custo
+  é um evento por linha criada; o ganho é a linha do tempo do contato completa (R3.5).
+- **`ultimaExecucaoEm` da automação** é o "última vez" da lista. Nos gatilhos de varredura
+  (negócio parado, atividade atrasada) o mesmo campo é o marco da janela, por isso quem o
+  move ali é a varredura; nos demais, o `IniciadorDeExecucao` o atualiza a cada execução
+  nova.
+- **Chatbot depois da distribuição** (limitação conhecida): a conversa nova é distribuída
+  pela fila antes de o bot entrar. Deixar o bot atender sem responsável pede um sinal
+  prévio de que algum fluxo atenderá a conversa (senão ela fica sem dono); não foi feito
+  nesta onda (R18, nota final).
+- **Opções do bot no chat do site** viajam em `metadados.botoes` da mensagem e saem como
+  `botoes` no DTO público; nos outros canais continuam como texto numerado.

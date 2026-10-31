@@ -456,6 +456,44 @@ descrever('Canais — e-mail com GreenMail (e2e)', () => {
     expect(resposta.subject).toBe('Re: Pedido de orçamento');
   });
 
+  it('R17 — e-mail de campanha (primeiro contato): o assunto vai sem o prefixo "Re:"; depois que o contato responde, volta o "Re:"', async () => {
+    const caixa = caixaNova('campanha');
+    const cliente = caixaNova('destino');
+    await enviar({
+      de: 'x@externo.test',
+      para: caixa,
+      assunto: 'cria',
+      texto: 'x',
+    });
+    const { canal } = await criarCanal(caixa);
+    const gravado = await t.prisma.canal.findUniqueOrThrow({
+      where: { id: canal.id },
+    });
+    const contato = await t.prisma.contato.create({
+      data: { nome: 'Dani Destino', email: cliente },
+    });
+    const conversa = await t.prisma.conversa.create({
+      data: {
+        canalId: canal.id,
+        contatoId: contato.id,
+        assunto: 'Novidades, Dani',
+      },
+    });
+    const saida = await t.prisma.mensagem.create({
+      data: {
+        conversaId: conversa.id,
+        canalId: canal.id,
+        direcao: 'SAIDA',
+        texto: 'Conheça as novidades.',
+        status: 'PENDENTE',
+        metadados: { campanhaId: '00000000-0000-4000-8000-000000000001' },
+      },
+    });
+    await t.get(AdaptadorEmail).enviar(saida, conversa, gravado);
+    const [campanha] = await lerCaixa(cliente);
+    expect(campanha.subject).toBe('Novidades, Dani');
+  });
+
   it('senha errada: a varredura não lança e o erro fica no canal; a correção limpa', async () => {
     const caixa = caixaNova('errada');
     await enviar({

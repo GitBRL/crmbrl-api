@@ -26,6 +26,13 @@ Admin do primeiro acesso). As regras estão em
 [docs/REGRAS-DE-NEGOCIO.md](docs/REGRAS-DE-NEGOCIO.md) e o desenho, com a
 tabela de endpoints, em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
+A Fase 2 acrescentou, na Onda A, o atendimento omnichannel (WhatsApp por gateway
+próprio, chat do site, e-mail, Instagram e Messenger), o tempo real e o chat da
+equipe; e, na **Onda B**, a **importação** de contatos e empresas (CSV/XLSX), os
+**disparos** de WhatsApp e e-mail com ritmo anti-banimento e opt-out, o **chatbot**
+em passos com versões e simulador e as **automações** com cadências, esperas e modo
+teste (regras R16 a R19).
+
 ## Subir tudo com Docker
 
 O `docker-compose.yml` desta pasta sobe o sistema inteiro: banco, API e front (o
@@ -301,8 +308,8 @@ cliente)` abre um `socket.io-client` de verdade com o cookie da sessão
 cenários de aceitação da seção 13 das regras levam "cenário N" no nome
 (`--testNamePattern "[Cc]enário"` roda só eles), e `test/integracao.e2e-spec.ts`
 percorre a jornada inteira de um lead, do webhook ao CS. Os 18
-cenários da Onda A (seção 20, cenários 16 a 33) também. A suíte completa (38
-arquivos) leva cerca de 4 minutos, em série num banco só; as suítes de S3 e de
+cenários da Onda A (seção 20, cenários 16 a 33) e os 37 da Onda B (seção 26, cenários 34
+a 70) também. A suíte completa (46 arquivos) leva cerca de 10 minutos, em série num banco só; as suítes de S3 e de
 e-mail só rodam com MinIO e GreenMail de teste (senão são puladas).
 
 ## Saúde da API

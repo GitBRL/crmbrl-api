@@ -56,7 +56,7 @@ describe('Automações — agendas: data relativa, recorrência, negócio parado
       orderBy: { criadoEm: 'asc' },
     });
 
-  it('R19.2 — data relativa: "30 dias antes" do campo personalizado dispara na hora marcada, uma vez', async () => {
+  it('cenário 69 — R19.2 — data relativa: "30 dias antes" do campo personalizado dispara na hora marcada, uma vez', async () => {
     const automacao = await criarAtiva({
       tipoGatilho: 'DATA_RELATIVA',
       gatilhoConfig: {

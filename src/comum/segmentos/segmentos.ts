@@ -510,11 +510,18 @@ export interface OpcoesDoSegmento {
   excluirOptOut?: boolean;
   /** Restringe as condições `negocio` a este negócio (condição de automação sobre um negócio). */
   negocioId?: string;
+  /**
+   * Restringe as condições `negocio` aos funis desta área (R5.9): quem não vê
+   * todos os funis só enxerga negócios dos funis da própria área.
+   */
+  areaDosNegocios?: Area;
   /** Filtro extra (ex.: o escopo de visibilidade), combinado com E. */
   escopo?: Prisma.ContatoWhereInput;
   /** "Agora" das condições relativas (testes). */
   agora?: Date;
 }
+
+type OpcoesDoNegocio = Pick<OpcoesDoSegmento, 'negocioId' | 'areaDosNegocios'>;
 
 /** Monta o `where` de contatos. Sempre exclui os contatos excluídos. Valide antes. */
 export function whereDoSegmento(
@@ -529,7 +536,7 @@ export function whereDoSegmento(
   if (opcoes.escopo) {
     partes.push(opcoes.escopo);
   }
-  const doSegmento = whereDoGrupo(segmento, agora, opcoes.negocioId);
+  const doSegmento = whereDoGrupo(segmento, agora, opcoes);
   if (doSegmento) {
     partes.push(doSegmento);
   }
@@ -539,13 +546,13 @@ export function whereDoSegmento(
 function whereDoGrupo(
   grupo: Segmento,
   agora: Date,
-  negocioId: string | undefined,
+  negocios: OpcoesDoNegocio,
 ): Prisma.ContatoWhereInput | null {
   const partes = grupo.condicoes
     .map((condicao) =>
       'grupo' in condicao
-        ? whereDoGrupo(condicao.grupo, agora, negocioId)
-        : whereDaCondicao(condicao, agora, negocioId),
+        ? whereDoGrupo(condicao.grupo, agora, negocios)
+        : whereDaCondicao(condicao, agora, negocios),
     )
     .filter((parte): parte is Prisma.ContatoWhereInput => parte !== null);
   if (partes.length === 0) {
@@ -558,7 +565,7 @@ function whereDoGrupo(
 function whereDaCondicao(
   { campo, operador, valor }: CondicaoSimples,
   agora: Date,
-  negocioId: string | undefined,
+  negocios: OpcoesDoNegocio,
 ): Prisma.ContatoWhereInput {
   if (campo.startsWith('campos.')) {
     return whereDeCampoPersonalizado(
@@ -630,7 +637,7 @@ function whereDaCondicao(
         ? { [campo]: null }
         : { [campo]: { not: null } };
     case 'negocio': {
-      const filtro = whereDoNegocio(valor as FiltroDeNegocio, negocioId);
+      const filtro = whereDoNegocio(valor as FiltroDeNegocio, negocios);
       return operador === 'tem'
         ? { negocios: { some: filtro } }
         : { negocios: { none: filtro } };
@@ -650,15 +657,17 @@ function whereDaCondicao(
 
 function whereDoNegocio(
   filtro: FiltroDeNegocio,
-  negocioId: string | undefined,
+  negocios: OpcoesDoNegocio,
 ): Prisma.NegocioWhereInput {
   return {
     excluidoEm: null,
-    ...(negocioId ? { id: negocioId } : {}),
+    ...(negocios.negocioId ? { id: negocios.negocioId } : {}),
     ...(filtro.funilId ? { funilId: filtro.funilId } : {}),
     ...(filtro.etapaIds ? { etapaId: { in: filtro.etapaIds } } : {}),
     ...(filtro.status ? { status: { in: filtro.status } } : {}),
-    ...(filtro.area ? { funil: { area: filtro.area } } : {}),
+    ...(filtro.area || negocios.areaDosNegocios
+      ? { funil: { area: filtro.area ?? negocios.areaDosNegocios } }
+      : {}),
   };
 }
 

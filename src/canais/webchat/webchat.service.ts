@@ -568,6 +568,7 @@ export class WebchatService implements OnModuleInit {
       de: mensagem.direcao === 'ENTRADA' ? 'visitante' : 'equipe',
       tipo: mensagem.tipo,
       texto: mensagem.texto,
+      botoes: botoesDaMensagem(mensagem),
       arquivo:
         mensagem.arquivo && !mensagem.arquivo.removidoEm
           ? {
@@ -778,6 +779,31 @@ export class WebchatService implements OnModuleInit {
 export function visitanteDaMensagem(metadados: unknown): string | null {
   const id = objeto(objeto(metadados).webchat).visitanteId;
   return typeof id === 'string' ? id : null;
+}
+
+/** As opções de resposta rápida do bot (`metadados.botoes`), só nas mensagens da equipe. */
+export function botoesDaMensagem(
+  mensagem: Pick<Mensagem, 'direcao' | 'metadados'>,
+): { id: string; rotulo: string }[] | null {
+  if (mensagem.direcao !== 'SAIDA') {
+    return null;
+  }
+  const bruto = objeto(mensagem.metadados).botoes;
+  if (!Array.isArray(bruto)) {
+    return null;
+  }
+  const botoes = bruto.flatMap((b) => {
+    const o = objeto(b);
+    return typeof o.rotulo === 'string' && o.rotulo.trim()
+      ? [
+          {
+            id: typeof o.id === 'string' ? o.id : o.rotulo,
+            rotulo: o.rotulo.trim(),
+          },
+        ]
+      : [];
+  });
+  return botoes.length > 0 ? botoes : null;
 }
 
 function objeto(valor: unknown): Record<string, unknown> {

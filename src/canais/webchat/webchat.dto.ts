@@ -469,6 +469,14 @@ export class AutorPublicoDto {
 }
 
 /** Uma mensagem como o visitante vê. */
+export class BotaoPublicoDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty({ example: 'Quero saber os preços' })
+  rotulo: string;
+}
+
 export class MensagemPublicaDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -484,6 +492,14 @@ export class MensagemPublicaDto {
 
   @ApiProperty({ type: String, nullable: true })
   texto: string | null;
+
+  @ApiProperty({
+    type: [BotaoPublicoDto],
+    nullable: true,
+    description:
+      'Opções de resposta rápida das perguntas do chatbot (o widget as mostra como botões que respondem com o rótulo).',
+  })
+  botoes: BotaoPublicoDto[] | null;
 
   @ApiProperty({ type: ArquivoPublicoDto, nullable: true })
   arquivo: ArquivoPublicoDto | null;

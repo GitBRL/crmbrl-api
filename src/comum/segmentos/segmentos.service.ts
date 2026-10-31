@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '../../generated/prisma/client';
+import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
+import type { Area, Prisma } from '../../generated/prisma/client';
+import { areaDoPapel, ehDiretoria } from '../dominio/papeis';
+import { DadosInvalidosException } from '../erros/excecoes';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import {
+  type CondicaoDeSegmento,
+  type FiltroDeNegocio,
   type OpcoesDoSegmento,
   type Segmento,
   validarSegmento,
@@ -36,6 +41,66 @@ export class SegmentosService {
   /** Valida (aceita JSON vindo do banco ou da requisição). Lança 400. */
   validar(entrada: unknown): Segmento {
     return validarSegmento(entrada);
+  }
+
+  /**
+   * Valida o segmento montado por uma pessoa (R5.9): quem não é Admin nem
+   * C-level só filtra por funis, etapas e área que vê (os da própria área);
+   * outro funil responde 400. Execuções de automação não passam por aqui.
+   */
+  async validarParaUsuario(
+    entrada: unknown,
+    usuario: Pick<UsuarioAutenticado, 'papel'>,
+  ): Promise<Segmento> {
+    const segmento = validarSegmento(entrada);
+    if (ehDiretoria(usuario.papel)) {
+      return segmento;
+    }
+    const area = areaDoPapel(usuario.papel);
+    const filtros: FiltroDeNegocio[] = [];
+    coletarFiltrosDeNegocio(segmento.condicoes, filtros);
+    for (const filtro of filtros) {
+      const funilIds = new Set<string>(filtro.funilId ? [filtro.funilId] : []);
+      let proibido = filtro.area !== undefined && filtro.area !== area;
+      if (funilIds.size > 0 || filtro.etapaIds?.length) {
+        const funis = await this.prisma.funil.findMany({
+          where: {
+            excluidoEm: null,
+            OR: [
+              { id: { in: [...funilIds] } },
+              { etapas: { some: { id: { in: filtro.etapaIds ?? [] } } } },
+            ],
+          },
+          select: { area: true },
+        });
+        proibido = proibido || funis.some((f) => f.area !== area);
+      }
+      if (proibido) {
+        throw new DadosInvalidosException(
+          'O segmento usa um funil que você não vê.',
+          {
+            regra: 'R5.9',
+            campos: [
+              {
+                campo: 'segmento',
+                mensagens: [
+                  'funil, etapa ou área de negócio fora do seu acesso',
+                ],
+              },
+            ],
+          },
+        );
+      }
+    }
+    return segmento;
+  }
+
+  /** Opções para contar/listar contatos de um segmento montado por uma pessoa. */
+  opcoesDoUsuario(usuario: Pick<UsuarioAutenticado, 'papel'>): {
+    areaDosNegocios?: Area;
+  } {
+    const area = areaDoPapel(usuario.papel);
+    return ehDiretoria(usuario.papel) || !area ? {} : { areaDosNegocios: area };
   }
 
   where(
@@ -112,6 +177,19 @@ export class SegmentosService {
         return;
       }
       depoisDe = linhas[linhas.length - 1].id;
+    }
+  }
+}
+
+function coletarFiltrosDeNegocio(
+  condicoes: readonly CondicaoDeSegmento[],
+  saida: FiltroDeNegocio[],
+): void {
+  for (const condicao of condicoes) {
+    if ('grupo' in condicao) {
+      coletarFiltrosDeNegocio(condicao.grupo.condicoes, saida);
+    } else if (condicao.campo === 'negocio' && condicao.valor) {
+      saida.push(condicao.valor as FiltroDeNegocio);
     }
   }
 }

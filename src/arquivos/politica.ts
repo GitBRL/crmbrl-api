@@ -13,6 +13,9 @@ export const LIMITE_PADRAO_BYTES = 25 * MB;
 /** Limite de documentos (PDF, Office, texto, zip): 100 MB. */
 export const LIMITE_DOCUMENTOS_BYTES = 100 * MB;
 
+/** Planilha de importação (CSV/XLSX): 10 MB — o leitor trabalha na memória. */
+export const LIMITE_IMPORTACAO_BYTES = 10 * MB;
+
 /** Foto de perfil: 5 MB. */
 export const LIMITE_AVATAR_BYTES = 5 * MB;
 
@@ -202,7 +205,8 @@ export type ResultadoDaPolitica =
 
 /**
  * O tipo é aceito neste contexto? Devolve a categoria e o limite de tamanho:
- * documentos até 100 MB, o resto até 25 MB, fotos de perfil até 5 MB.
+ * documentos até 100 MB, o resto até 25 MB, fotos de perfil até 5 MB e
+ * planilhas de importação até 10 MB.
  */
 export function avaliarTipo(
   mime: string,
@@ -230,6 +234,9 @@ export function avaliarTipo(
           aceito: false,
           motivo: 'A foto precisa ser uma imagem JPG, PNG, GIF ou WebP.',
         };
+  }
+  if (contexto === 'IMPORTACAO') {
+    return { aceito: true, categoria, limiteBytes: LIMITE_IMPORTACAO_BYTES };
   }
   const documento =
     categoria === 'documento' ||

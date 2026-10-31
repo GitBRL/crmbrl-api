@@ -134,14 +134,19 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
   });
 
   describe('permissões e ciclo de vida dos fluxos', () => {
-    it('R18.6 — membro não acessa o chatbot; líder cria na própria área; líder de outra área não vê', async () => {
+    it('cenário 57 — R18.6 — membro não acessa o chatbot; líder cria na própria área; líder de outra área só lê', async () => {
       const membro = await entrarComo(t, cenario.comercial.membros[0]);
       await membro.get('/api/v1/chatbot/fluxos').expect(403);
       await membro.get('/api/v1/chatbot/passos').expect(403);
 
       const criado = await lider
         .post('/api/v1/chatbot/fluxos')
-        .send({ nome: 'Triagem', gatilho: 'NOVA_CONVERSA', area: 'CS' })
+        .send({
+          nome: 'Triagem',
+          gatilho: 'NOVA_CONVERSA',
+          area: 'CS',
+          canalIds: [cenario.canal.id],
+        })
         .expect(201);
       expect(criado.body).toMatchObject({
         nome: 'Triagem',
@@ -152,9 +157,19 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       });
 
       const liderCs = await entrarComo(t, cenario.cs.lider);
-      await liderCs.get(`/api/v1/chatbot/fluxos/${criado.body.id}`).expect(404);
+      // R18.6 — o líder de outra área lê (só leitura) o fluxo, mas não altera.
+      const lida = await liderCs
+        .get(`/api/v1/chatbot/fluxos/${criado.body.id}`)
+        .expect(200);
+      expect(lida.body.podeEditar).toBe(false);
       const lista = await liderCs.get('/api/v1/chatbot/fluxos').expect(200);
-      expect(lista.body.itens).toHaveLength(0);
+      expect(lista.body.itens.map((f: { id: string }) => f.id)).toContain(
+        criado.body.id,
+      );
+      await liderCs
+        .patch(`/api/v1/chatbot/fluxos/${criado.body.id}`)
+        .send({ nome: 'Invadido' })
+        .expect(403);
 
       const global = await admin
         .post('/api/v1/chatbot/fluxos')
@@ -176,10 +191,36 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
         .expect(403);
     });
 
-    it('R18.2 — rascunho aceita configuração incompleta, mas a publicação aponta cada problema', async () => {
+    it('R18.6 — líder só liga o fluxo a canais da própria área (nunca a todos)', async () => {
+      const semCanais = await lider
+        .post('/api/v1/chatbot/fluxos')
+        .send({ nome: 'Para todos', gatilho: 'SEMPRE', prioridade: 99 })
+        .expect(400);
+      expect(semCanais.body.detalhes.regra).toBe('R18.6');
+      const liderCs = await entrarComo(t, cenario.cs.lider);
+      const deOutraArea = await liderCs
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'Invasor',
+          gatilho: 'SEMPRE',
+          canalIds: [cenario.canal.id],
+        })
+        .expect(400);
+      expect(deOutraArea.body.detalhes.regra).toBe('R18.6');
+      await admin
+        .post('/api/v1/chatbot/fluxos')
+        .send({ nome: 'Diretoria', gatilho: 'SEMPRE' })
+        .expect(201);
+    });
+
+    it('cenário 54 — R18.2 — rascunho aceita configuração incompleta, mas a publicação aponta cada problema', async () => {
       const { body } = await lider
         .post('/api/v1/chatbot/fluxos')
-        .send({ nome: 'Rascunho', gatilho: 'NOVA_CONVERSA' })
+        .send({
+          nome: 'Rascunho',
+          gatilho: 'NOVA_CONVERSA',
+          canalIds: [cenario.canal.id],
+        })
         .expect(201);
       const id = body.id as string;
 
@@ -239,11 +280,12 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
         .expect(400);
     });
 
-    it('R18.7 — publicar cria versões imutáveis; restaurar copia para o rascunho; duplicar e excluir', async () => {
+    it('cenário 58 — R18.7 — publicar cria versões imutáveis; restaurar copia para o rascunho; duplicar e excluir', async () => {
       const { body } = await lider
         .post('/api/v1/chatbot/fluxos')
         .send({
           nome: 'Versões',
+          canalIds: [cenario.canal.id],
           gatilho: 'NOVA_CONVERSA',
           definicao: {
             passos: [{ id: 'm', tipo: 'mensagem', config: { texto: 'v1' } }],
@@ -358,7 +400,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
   });
 
   describe('conversa de ponta a ponta', () => {
-    it('R18.2/R18.3/R18.4 — pergunta, resposta inválida, resposta aberta, ação e transferência com resumo; mensagens BOT; auditoria AUTOMACAO', async () => {
+    it('cenário 55 — R18.2/R18.3/R18.4 — pergunta, resposta inválida, resposta aberta, ação e transferência com resumo; mensagens BOT; auditoria AUTOMACAO', async () => {
       const fluxo = await criarFluxoChatbot(t, {
         nome: 'Triagem do site',
         gatilho: 'NOVA_CONVERSA',
@@ -366,11 +408,12 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       });
       const { conversaId } = await contatoEscreve('oi');
 
-      // Bot saiu falando: boas-vindas + menu numerado.
+      // Bot saiu falando: boas-vindas + pergunta (botões no chat do site).
       let bot = await mensagensDoBot(conversaId);
       expect(bot.map((m) => m.texto)).toEqual([
         'Olá, Maria!',
-        'Como posso ajudar?\n\n1 - Comprar\n2 - Suporte\n\nResponda com o número da opção.',
+        // Chat do site: só o texto, as opções vão como botões (R18.2).
+        'Como posso ajudar?',
       ]);
       expect(bot[1].metadados).toMatchObject({
         bot: true,
@@ -389,7 +432,10 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       bot = await mensagensDoBot(conversaId);
       expect(bot).toHaveLength(3);
       expect(bot[2].texto).toContain('Não entendi');
-      expect(bot[2].texto).toContain('1 - Comprar');
+      expect(bot[2].texto).not.toContain('1 - Comprar');
+      expect(bot[2].metadados).toMatchObject({
+        botoes: [{ id: 'vendas' }, { id: 'suporte' }],
+      });
 
       // Escolhe "2" (suporte) → pergunta o e-mail.
       await contatoEscreve('2');
@@ -635,7 +681,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       ).toEqual(['Atendimento comum']);
     });
 
-    it('R18.5 — sem resposta: lembrete, depois encerramento (ramo sem_resposta)', async () => {
+    it('cenário 56 — R18.5 — sem resposta: lembrete, depois encerramento (ramo sem_resposta)', async () => {
       await criarFluxoChatbot(t, {
         nome: 'Com prazo',
         definicao: {
@@ -731,7 +777,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
   });
 
   describe('gatilhos e escolha do fluxo', () => {
-    it('R18.1 — palavra-chave, prioridade e canal restrito', async () => {
+    it('cenário 53 — R18.1 — palavra-chave, prioridade e canal restrito', async () => {
       const outroCanal = await criarCanal(t, {
         tipo: 'WEBCHAT',
         nome: 'Outro chat',
@@ -922,7 +968,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       return conversaId;
     }
 
-    it('R18.8 — o atendente que responde cancela o fluxo; a resposta do contato depois já não é lida pelo bot', async () => {
+    it('cenário 59 — R18.8 — o atendente que responde cancela o fluxo; a resposta do contato depois já não é lida pelo bot', async () => {
       const conversaId = await comFluxoEsperando();
       const conversa = await t.prisma.conversa.findUniqueOrThrow({
         where: { id: conversaId },
@@ -1036,11 +1082,12 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
   });
 
   describe('simulador', () => {
-    it('R18.9 — roda o rascunho sem efeitos reais: transcrição, opções, silêncio e resumo da transferência', async () => {
+    it('cenário 60 — R18.9 — roda o rascunho sem efeitos reais: transcrição, opções, silêncio e resumo da transferência', async () => {
       const { body } = await lider
         .post('/api/v1/chatbot/fluxos')
         .send({
           nome: 'Simulado',
+          canalIds: [cenario.canal.id],
           gatilho: 'NOVA_CONVERSA',
           definicao: {
             passos: [
@@ -1191,6 +1238,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
         .post('/api/v1/chatbot/fluxos')
         .send({
           nome: 'Horário',
+          canalIds: [cenario.canal.id],
           gatilho: 'NOVA_CONVERSA',
           definicao: {
             passos: [
@@ -1265,6 +1313,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
         .post('/api/v1/chatbot/fluxos')
         .send({
           nome: 'Parar',
+          canalIds: [cenario.canal.id],
           gatilho: 'SEMPRE',
           definicao: {
             passos: [

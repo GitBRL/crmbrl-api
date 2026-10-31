@@ -4,6 +4,8 @@
  * Linhas totalmente vazias são descartadas.
  */
 import ExcelJS from 'exceljs';
+import { Readable } from 'node:stream';
+import { LIMITE_DE_LINHAS_DA_IMPORTACAO } from './importacao.constantes';
 
 export interface OpcoesDeLeitura {
   /** CSV: `,` `;` tab ou `|`; ausente = detecta. */
@@ -195,39 +197,104 @@ function textoDaCelula(valor: ExcelJS.CellValue): string {
   return '';
 }
 
+/** Colunas aceitas no cabeçalho de um XLSX. */
+export const LIMITE_DE_COLUNAS_DA_IMPORTACAO = 200;
+
+const MENSAGEM_ILEGIVEL_XLSX = 'Não foi possível ler a planilha XLSX.';
+
+/**
+ * Lê o XLSX em fluxo (nada de montar o livro inteiro na memória): para ao passar
+ * do limite de linhas e só guarda as células até a largura do cabeçalho — uma
+ * célula perdida lá na coluna XFD não multiplica linhas por 16 mil colunas.
+ */
 async function lerXlsx(
   conteudo: Buffer,
   opcoes: OpcoesDeLeitura,
 ): Promise<PlanilhaLida> {
-  const livro = new ExcelJS.Workbook();
+  const linhaCabecalho = opcoes.linhaCabecalho ?? 1;
+  const entrada = Readable.from([conteudo]);
+  const leitor = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
+    worksheets: 'emit',
+    sharedStrings: 'cache',
+    styles: 'cache',
+    hyperlinks: 'ignore',
+    entries: 'ignore',
+  });
+  const registros: LinhaLida[] = [];
+  let abas: string[] = [];
+  let nomeDaAba: string | null = null;
+  let largura = 0;
   try {
-    await livro.xlsx.load(conteudo as unknown as ArrayBuffer);
-  } catch {
-    throw new PlanilhaIlegivelError('Não foi possível ler a planilha XLSX.');
+    for await (const aba of leitor) {
+      const modelo = (leitor.model as { sheets?: { name: string }[] }) ?? {};
+      abas = (modelo.sheets ?? []).map((a) => a.name);
+      const nome = (aba as unknown as { name?: string }).name ?? '';
+      const escolhida = opcoes.aba ? nome === opcoes.aba : nome === abas[0];
+      if (!escolhida) {
+        continue;
+      }
+      nomeDaAba = nome;
+      let lidas = 0;
+      for await (const linha of aba) {
+        lidas++;
+        if (lidas > LIMITE_DE_LINHAS_DA_IMPORTACAO + linhaCabecalho) {
+          throw new PlanilhaIlegivelError(
+            `A planilha tem mais de ${LIMITE_DE_LINHAS_DA_IMPORTACAO.toLocaleString('pt-BR')} linhas de dados. Divida o arquivo.`,
+          );
+        }
+        if (linha.number < linhaCabecalho) {
+          continue;
+        }
+        const celulas = linha.values as ExcelJS.CellValue[];
+        if (linha.number === linhaCabecalho) {
+          largura = larguraDoCabecalho(celulas);
+        }
+        const valores: string[] = [];
+        for (let c = 1; c <= largura; c++) {
+          valores.push(textoDaCelula(celulas[c]));
+        }
+        registros.push({ numero: linha.number, valores });
+      }
+      break;
+    }
+  } catch (erro) {
+    if (erro instanceof PlanilhaIlegivelError) {
+      throw erro;
+    }
+    throw new PlanilhaIlegivelError(MENSAGEM_ILEGIVEL_XLSX);
+  } finally {
+    entrada.destroy();
   }
-  const abas = livro.worksheets.map((aba) => aba.name);
-  const aba = opcoes.aba ? livro.getWorksheet(opcoes.aba) : livro.worksheets[0];
-  if (!aba) {
+  if (nomeDaAba === null) {
     throw new PlanilhaIlegivelError(
       opcoes.aba
         ? `A aba "${opcoes.aba}" não existe.`
-        : 'A planilha não tem abas.',
+        : abas.length === 0
+          ? MENSAGEM_ILEGIVEL_XLSX
+          : 'A planilha não tem abas.',
     );
   }
-  const registros: LinhaLida[] = [];
-  const colunasTotais = aba.columnCount;
-  aba.eachRow({ includeEmpty: false }, (linha, numero) => {
-    const valores: string[] = [];
-    for (let c = 1; c <= colunasTotais; c++) {
-      valores.push(textoDaCelula(linha.getCell(c).value));
-    }
-    registros.push({ numero, valores });
-  });
-  return montar(registros, opcoes.linhaCabecalho ?? 1, {
-    aba: aba.name,
+  return montar(registros, linhaCabecalho, {
+    aba: nomeDaAba,
     abas,
-    linhaCabecalho: opcoes.linhaCabecalho ?? 1,
+    linhaCabecalho,
   });
+}
+
+/** Última coluna com texto no cabeçalho (as células vêm num array esparso). */
+function larguraDoCabecalho(celulas: readonly ExcelJS.CellValue[]): number {
+  let ultima = 0;
+  celulas.forEach((valor, indice) => {
+    if (textoDaCelula(valor).trim() !== '') {
+      ultima = Math.max(ultima, indice);
+    }
+  });
+  if (ultima > LIMITE_DE_COLUNAS_DA_IMPORTACAO) {
+    throw new PlanilhaIlegivelError(
+      `A planilha tem mais de ${LIMITE_DE_COLUNAS_DA_IMPORTACAO} colunas no cabeçalho.`,
+    );
+  }
+  return ultima;
 }
 
 // ---------------------------------------------------------------------------

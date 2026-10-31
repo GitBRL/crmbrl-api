@@ -16,9 +16,7 @@ describe('R18 — permissões do chatbot', () => {
 
   it('R18.6 — líder vê os da área e os de todas as áreas, mas só edita os da própria área', () => {
     expect(filtroDeFluxosVisiveis({ papel: 'ADMIN' })).toEqual({});
-    expect(filtroDeFluxosVisiveis({ papel: 'LIDER_COMERCIAL' })).toEqual({
-      OR: [{ area: 'COMERCIAL' }, { area: null }],
-    });
+    expect(filtroDeFluxosVisiveis({ papel: 'LIDER_COMERCIAL' })).toEqual({});
     expect(
       podeGerenciarFluxo({ papel: 'LIDER_COMERCIAL' }, { area: 'COMERCIAL' }),
     ).toBe(true);
