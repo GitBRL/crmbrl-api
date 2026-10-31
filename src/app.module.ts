@@ -6,6 +6,7 @@ import { AtividadesModule } from './atividades/atividades.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
+import { BiModule } from './bi/bi.module';
 import { AutomacoesModule } from './automacoes/automacoes.module';
 import { CanaisModule } from './canais/canais.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
@@ -19,6 +20,7 @@ import { DisparosModule } from './disparos/disparos.module';
 import { EmailModule } from './email/email.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FilaModule } from './fila/fila.module';
+import { FinanceiroModule } from './financeiro/financeiro.module';
 import { FunisModule } from './funis/funis.module';
 import { ImportacaoModule } from './importacao/importacao.module';
 import { LogsModule } from './logs/logs.module';
@@ -87,6 +89,10 @@ export class AppModule {
         DisparosModule,
         ChatbotModule,
         AutomacoesModule,
+        // Módulos de negócio (Onda C): BI.
+        BiModule,
+        // Onda C: financeiro (contratos, parcelas, régua de cobrança).
+        FinanceiroModule,
       ],
     };
   }

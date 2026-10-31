@@ -31,11 +31,14 @@
 //                             ver tentativas e falhas (assina só negocio.perdido).
 //   SEMEAR_CONVITE            "false" pula o usuário convidado por e-mail (exige SMTP)
 //   SEMEAR_ETAPA             "onda-b": só a etapa da Onda B (importação, disparos, chatbot, automações; idempotente)
+//   SEMEAR_ETAPA             "onda-c": só o histórico de 12 meses e o Financeiro (BI, Onda C); grava direto no banco
+//                             em SEMEAR_BANCO_URL (só no ambiente dos agentes); idempotente. SEMEAR_ONDA_C=false pula na completa.
 //   SEMEAR_ETAPA             "atendimento" (ou o argumento `atendimento`): só a etapa de atendimento, sobre a base
 //                             já semeada (idempotente). Veja o cabeçalho da etapa, mais abaixo.
 
 import { createHmac, randomBytes } from 'node:crypto';
 import net from 'node:net';
+import { semearOndaC } from './semear-onda-c.mjs';
 
 // ---------------------------------------------------------------- config ---
 
@@ -1958,7 +1961,8 @@ async function etapaOndaB() {
       canalDe('Chat do site'),
       canalDe('WhatsApp Suporte'),
     ].filter(Boolean);
-    const criado = await lider.post('/chatbot/fluxos', {
+    // Admin: o WhatsApp Suporte é da fila de CS, e o líder do Comercial só liga canais da própria área (R18.6).
+    const criado = await admin.post('/chatbot/fluxos', {
       nome: 'Boas-vindas do site',
       descricao:
         'Menu inicial: planos, suporte ou outro assunto, com transferência para a fila certa.',
@@ -1968,14 +1972,14 @@ async function etapaOndaB() {
       prioridade: 10,
       definicao,
     });
-    await lider.post(`/chatbot/fluxos/${criado.id}/publicar`, {});
-    await lider.post(`/chatbot/fluxos/${criado.id}/ativar`, {});
+    await admin.post(`/chatbot/fluxos/${criado.id}/publicar`, {});
+    await admin.post(`/chatbot/fluxos/${criado.id}/ativar`, {});
     nota(
       'fluxo "Boas-vindas do site" publicado e ativo (Chat do site e WhatsApp Suporte)',
     );
   }
   if (!fluxos.some((f) => f.nome === 'Segunda via de boleto')) {
-    await lider.post('/chatbot/fluxos', {
+    await admin.post('/chatbot/fluxos', {
       nome: 'Segunda via de boleto',
       descricao:
         'Rascunho: dispara pela palavra "boleto" e transfere ao suporte.',
@@ -2110,6 +2114,23 @@ async function etapaOndaB() {
   console.log('\n✓ Etapa onda-b concluída.');
 }
 
+const RODAR_ONDA_C = AMBIENTE.SEMEAR_ONDA_C !== 'false' && !!AMBIENTE.SEMEAR_BANCO_URL;
+
+async function etapaOndaC() {
+  if (!AMBIENTE.SEMEAR_BANCO_URL) {
+    parar('A etapa "onda-c" grava no banco: defina SEMEAR_BANCO_URL (só do ambiente dos agentes).');
+  }
+  passo('Onda C: entrando como Admin');
+  const admin = await entrar(ADMIN_EMAIL, SENHA_ADMIN);
+  await semearOndaC({
+    bancoUrl: AMBIENTE.SEMEAR_BANCO_URL,
+    admin,
+    passo,
+    nota,
+    email,
+  });
+}
+
 async function principal() {
   console.log(
     `Semeando a demonstração do BRL CRM em ${API} (origem ${ORIGEM})`,
@@ -2119,6 +2140,13 @@ async function principal() {
     passo('Verificando a API');
     await verificarApi();
     await etapaOndaB();
+    return;
+  }
+
+  if (ETAPA === 'onda-c') {
+    passo('Verificando a API');
+    await verificarApi();
+    await etapaOndaC();
     return;
   }
 
@@ -3434,6 +3462,7 @@ async function principal() {
   if (RODAR_ATENDIMENTO) {
     await etapaAtendimento();
     if (RODAR_ONDA_B) await etapaOndaB();
+    if (RODAR_ONDA_C) await etapaOndaC();
   }
 
   // Sai de todas as sessões abertas pelo script (o desligado já perdeu a dele, R2.4)
