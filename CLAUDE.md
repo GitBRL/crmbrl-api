@@ -15,6 +15,7 @@ npm run lint                  # oxlint --type-aware
 npm run format:verificar      # Prettier (npm run format corrige)
 npm test -- -w 2 2>&1 | tail -n 30                  # unidade (no máximo 2 workers)
 DATABASE_URL_TESTE=postgresql://crmbrl:crmbrl@localhost:<porta>/crmbrl npm run test:e2e -- <arquivo>   # integração (1 worker, o padrão; nunca -w: os workers disputam o mesmo banco)
+# suíte e2e completa: rode em lotes de ~8 arquivos (num só processo estoura o heap de 4 GB do Node)
 ```
 Banco de teste descartável (os testes APAGAM tudo):
 `docker run -d --name crmbrl-teste-<rotulo> -e POSTGRES_USER=crmbrl -e POSTGRES_PASSWORD=crmbrl -e POSTGRES_DB=crmbrl -p 127.0.0.1:<porta>:5432 postgres:17-alpine`.

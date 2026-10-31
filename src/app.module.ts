@@ -3,6 +3,7 @@ import { AdministracaoModule } from './administracao/administracao.module';
 import { ArquivosHttpModule, ArquivosModule } from './arquivos/arquivos.module';
 import { AtendimentoModule } from './atendimento/atendimento.module';
 import { AtividadesModule } from './atividades/atividades.module';
+import { AssistenteModule } from './assistente/assistente.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
@@ -95,6 +96,8 @@ export class AppModule {
         AnaliseModule,
         // Onda C: financeiro (contratos, parcelas, régua de cobrança).
         FinanceiroModule,
+        // Onda D: assistente de IA e chamados.
+        AssistenteModule,
       ],
     };
   }

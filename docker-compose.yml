@@ -134,6 +134,11 @@ services:
       # como configurar).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Chamados do assistente de IA no TicketHub (R25): conta de serviço. O
+      # Admin também pode configurar pela tela (cifrado no banco).
+      TICKETHUB_URL: ${TICKETHUB_URL:-}
+      TICKETHUB_EMAIL: ${TICKETHUB_EMAIL:-}
+      TICKETHUB_SENHA: ${TICKETHUB_SENHA:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crmbrl.local}
       ADMIN_NOME: ${ADMIN_NOME:-Administrador}
       ADMIN_SENHA_INICIAL: ${ADMIN_SENHA_INICIAL:-}

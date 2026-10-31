@@ -6,7 +6,9 @@ coverage
 .git
 .env
 .env.*
-docs
+# docs fica de fora, menos a base de conhecimento do assistente (R25).
+docs/*
+!docs/ajuda
 test
 src/generated
 *.tsbuildinfo

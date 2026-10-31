@@ -91,6 +91,13 @@ describe('lerAmbiente', () => {
         graphVersao: META_GRAPH_VERSAO_PADRAO,
       },
       anthropic: { configurada: false, urlBase: null },
+      ticketHub: {
+        url: null,
+        email: null,
+        senhaDefinida: false,
+        configurado: false,
+        senha: expect.any(Function),
+      },
       avisos: [
         'CHAVE_CRIPTOGRAFIA não definida: usando a chave de desenvolvimento (não use em produção).',
         expect.stringContaining(
@@ -479,6 +486,25 @@ describe('lerAmbiente', () => {
         ANTHROPIC_BASE_URL: 'ftp://x',
       }),
     ).toEqual([expect.stringContaining('ANTHROPIC_BASE_URL precisa ser')]);
+  });
+
+  it('R25 — TicketHub: senha só pela função (fora do JSON), URL normalizada', () => {
+    const ambiente = ler({
+      TICKETHUB_URL: 'http://apoio:8093/',
+      TICKETHUB_EMAIL: ' Conta@TicketHub.local ',
+      TICKETHUB_SENHA: 'senha-que-nao-pode-vazar',
+    });
+    expect(ambiente.ticketHub).toMatchObject({
+      url: 'http://apoio:8093',
+      email: 'conta@tickethub.local',
+      senhaDefinida: true,
+      configurado: true,
+    });
+    expect(ambiente.ticketHub.senha()).toBe('senha-que-nao-pode-vazar');
+    expect(JSON.stringify(ambiente)).not.toContain('nao-pode-vazar');
+    expect(ler({ TICKETHUB_URL: 'http://x' }).ticketHub.configurado).toBe(
+      false,
+    );
   });
 
   it('lê o formato do log', () => {

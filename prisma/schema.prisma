@@ -283,6 +283,9 @@ model Usuario {
   // Onda C
   contratosCs                Contrato[]                      @relation("ContratoResponsavelCs")
   analisesIa                 AnaliseIa[]                     @relation("AnaliseIaSolicitadaPor")
+  // Onda D
+  conversasAssistente        AssistenteConversa[]            @relation("AssistenteConversaDe")
+  chamadosAssistente         AssistenteChamado[]             @relation("AssistenteChamadoDe")
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -2819,4 +2822,121 @@ model AnaliseIaPergunta {
 
   @@index([analiseId, criadoEm])
   @@map("analises_ia_perguntas")
+}
+
+// ---------------------------------------------------------------------------
+// Assistente de IA e chamados (R25)
+// ---------------------------------------------------------------------------
+
+enum CategoriaAssistente {
+  duvida_de_uso
+  funcionalidade_inexistente_no_escopo
+  fora_do_escopo
+  erro_do_sistema
+}
+
+enum AvaliacaoAssistente {
+  UTIL
+  NAO_UTIL
+}
+
+enum DestinoChamado {
+  TICKETHUB
+  WEBHOOK
+}
+
+enum StatusChamado {
+  PENDENTE
+  ENVIADO
+  FALHOU
+}
+
+/// Conversa de uma pessoa com o assistente de ajuda (R25). O papel e a área
+/// são os do momento da conversa (o histórico do Admin filtra por eles).
+model AssistenteConversa {
+  id           String   @id @default(uuid()) @db.Uuid
+  usuarioId    String   @map("usuario_id") @db.Uuid
+  usuario      Usuario  @relation("AssistenteConversaDe", fields: [usuarioId], references: [id], onDelete: Restrict)
+  papel        Papel
+  area         Area?
+  /// A primeira pergunta, cortada (título da conversa nas listas).
+  titulo       String
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  perguntas AssistentePergunta[]
+  chamados  AssistenteChamado[]
+
+  @@index([usuarioId, atualizadoEm])
+  @@index([criadoEm])
+  @@map("assistente_conversas")
+}
+
+/// Uma pergunta e a resposta do Claude (R25). `tela` é a rota sem consulta e
+/// com os ids trocados por `:id` (o que foi enviado à IA); `modulo` é o 1º
+/// trecho dela. Conta no limite diário da pessoa e no orçamento do mês.
+model AssistentePergunta {
+  id                 String               @id @default(uuid()) @db.Uuid
+  conversaId         String               @map("conversa_id") @db.Uuid
+  conversa           AssistenteConversa   @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  /// Repetidos da conversa para os filtros e contagens do histórico.
+  usuarioId          String               @map("usuario_id") @db.Uuid
+  area               Area?
+  pergunta           String
+  tela               String
+  modulo             String
+  resposta           String?
+  resolvido          Boolean?
+  categoria          CategoriaAssistente?
+  resumoDoPedido     String?              @map("resumo_do_pedido")
+  status             StatusAnaliseIa      @default(EM_ANDAMENTO)
+  erro               String?
+  modelo             String
+  tentativas         Int                  @default(0)
+  tokensEntrada      Int                  @default(0) @map("tokens_entrada")
+  tokensSaida        Int                  @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int                  @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int                  @default(0) @map("tokens_cache_escrita")
+  duracaoMs          Int?                 @map("duracao_ms")
+  avaliacao          AvaliacaoAssistente?
+  avaliadoEm         DateTime?            @map("avaliado_em") @db.Timestamptz(3)
+  criadoEm           DateTime             @default(now()) @map("criado_em") @db.Timestamptz(3)
+  concluidoEm        DateTime?            @map("concluido_em") @db.Timestamptz(3)
+
+  chamado AssistenteChamado?
+
+  @@index([conversaId, criadoEm])
+  @@index([usuarioId, criadoEm])
+  @@index([criadoEm])
+  @@map("assistente_perguntas")
+}
+
+/// Chamado aberto a partir de uma resposta (R25), só com a confirmação da
+/// pessoa. Sai pela fila, com novas tentativas, para o TicketHub ou para um
+/// webhook; `numero` e `link` vêm do destino.
+model AssistenteChamado {
+  id                 String             @id @default(uuid()) @db.Uuid
+  conversaId         String             @map("conversa_id") @db.Uuid
+  conversa           AssistenteConversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  perguntaId         String             @unique @map("pergunta_id") @db.Uuid
+  pergunta           AssistentePergunta @relation(fields: [perguntaId], references: [id], onDelete: Cascade)
+  usuarioId          String             @map("usuario_id") @db.Uuid
+  usuario            Usuario            @relation("AssistenteChamadoDe", fields: [usuarioId], references: [id], onDelete: Restrict)
+  titulo             String
+  descricao          String
+  tela               String
+  categoria          CategoriaAssistente
+  destino            DestinoChamado
+  status             StatusChamado      @default(PENDENTE)
+  tentativas         Int                @default(0)
+  proximaTentativaEm DateTime?          @map("proxima_tentativa_em") @db.Timestamptz(3)
+  ultimoErro         String?            @map("ultimo_erro")
+  numero             String?
+  link               String?
+  criadoEm           DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
+  enviadoEm          DateTime?          @map("enviado_em") @db.Timestamptz(3)
+
+  @@index([status, criadoEm])
+  @@index([usuarioId, criadoEm])
+  @@map("assistente_chamados")
 }

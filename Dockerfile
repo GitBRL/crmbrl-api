@@ -41,6 +41,8 @@ WORKDIR /app
 COPY --from=producao /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
+# Base de conhecimento do assistente de IA (R25), lida na subida da API.
+COPY --from=build /app/docs/ajuda ./docs/ajuda
 COPY package.json prisma.config.ts docker-entrypoint.sh ./
 USER node
 # 3000: API. O gateway de WhatsApp ouve em WHATSAPP_PORTA (3100), só na rede

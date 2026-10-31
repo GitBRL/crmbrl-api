@@ -89,6 +89,24 @@ export interface ConfiguracaoAnthropic {
   readonly urlBase: string | null;
 }
 
+/**
+ * TicketHub (R25): conta de serviço que abre os chamados do assistente.
+ * A senha fica atrás de uma função (não entra em `JSON.stringify`, logs ou
+ * respostas); a configuração do Admin, quando preenchida, tem prioridade.
+ */
+export interface ConfiguracaoTicketHub {
+  /** `TICKETHUB_URL` (origem do TicketHub, sem barra no fim). */
+  readonly url: string | null;
+  /** `TICKETHUB_EMAIL`. */
+  readonly email: string | null;
+  /** `TICKETHUB_SENHA` preenchida. */
+  readonly senhaDefinida: boolean;
+  /** As três preenchidas. */
+  readonly configurado: boolean;
+  /** O valor de `TICKETHUB_SENHA` (só para o login do conector). */
+  senha(): string | null;
+}
+
 export interface ConfiguracaoSessao {
   /** Sem uso por tanto tempo, a sessão expira (R2.2, padrão 7 dias). */
   readonly inatividadeDias: number;
@@ -160,6 +178,7 @@ export interface Ambiente {
   /** Graph API da Meta (Instagram e Messenger, R14). */
   readonly meta: ConfiguracaoMeta;
   readonly anthropic: ConfiguracaoAnthropic;
+  readonly ticketHub: ConfiguracaoTicketHub;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -206,6 +225,9 @@ export interface VariaveisDeAmbiente {
   META_GRAPH_VERSAO?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
+  TICKETHUB_URL?: string;
+  TICKETHUB_EMAIL?: string;
+  TICKETHUB_SENHA?: string;
 }
 
 const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
@@ -249,6 +271,9 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'META_GRAPH_VERSAO',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'TICKETHUB_URL',
+  'TICKETHUB_EMAIL',
+  'TICKETHUB_SENHA',
 ];
 
 export function variaveisDoProcesso(): VariaveisDeAmbiente {
@@ -334,6 +359,7 @@ export function lerAmbiente(
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
+    ticketHub: lerTicketHub(variaveis, problemas),
     avisos,
   };
 
@@ -715,6 +741,33 @@ function lerEnderecoHttp(
     return padrao;
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/**
+ * `TICKETHUB_*` (R25): endereço, e-mail e senha da conta de serviço. A senha
+ * nunca entra no objeto serializável (só pela função `senha()`).
+ */
+function lerTicketHub(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoTicketHub {
+  const url = lerEnderecoHttp(
+    'TICKETHUB_URL',
+    variaveis.TICKETHUB_URL,
+    null,
+    problemas,
+  );
+  const email = limpar(variaveis.TICKETHUB_EMAIL)?.toLowerCase() ?? null;
+  const senha = variaveis.TICKETHUB_SENHA?.length
+    ? variaveis.TICKETHUB_SENHA
+    : null;
+  return {
+    url,
+    email,
+    senhaDefinida: senha !== null,
+    configurado: url !== null && email !== null && senha !== null,
+    senha: () => senha,
+  };
 }
 
 /** Regras de nome de bucket do S3: 3 a 63 caracteres, minúsculas, dígitos, ponto e hífen. */
