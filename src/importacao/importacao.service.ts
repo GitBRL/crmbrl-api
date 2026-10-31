@@ -16,6 +16,7 @@ import {
   paraSkipTake,
   type Pagina,
 } from '../comum/paginacao/paginacao';
+import { podeGerenciarARegua } from '../financeiro/permissoes-financeiro';
 import { PermissoesContatosService } from '../contatos/permissoes-contatos.service';
 import { FilaService } from '../fila/fila.service';
 import type { Importacao, Prisma } from '../generated/prisma/client';
@@ -239,6 +240,12 @@ export class ImportacaoService implements OnModuleInit {
     dto: CriarImportacaoDto,
   ): Promise<CriadaImportacaoDto> {
     this.garantirPodeImportar(usuario);
+    if (dto.tipo === 'PARCELAS' && !podeGerenciarARegua(usuario.papel)) {
+      throw new SemPermissaoException(
+        'Só Admin, C-level e Líder de CS importam parcelas.',
+        { regra: 'R22.1' },
+      );
+    }
     const arquivo = await this.arquivos.obter(dto.arquivoId);
     if (
       arquivo.contexto !== 'IMPORTACAO' ||
@@ -702,6 +709,9 @@ export class ImportacaoService implements OnModuleInit {
 // ---------------------------------------------------------------------------
 
 export function rotuloDoTipo(tipo: Importacao['tipo']): string {
+  if (tipo === 'PARCELAS') {
+    return 'parcelas';
+  }
   return tipo === 'CONTATOS' ? 'contatos' : 'empresas';
 }
 

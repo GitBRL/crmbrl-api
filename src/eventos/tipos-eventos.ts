@@ -13,6 +13,15 @@ export const EVENTOS_DE_WEBHOOK = [
   'atividade.criada',
   'atividade.concluida',
   'usuario.desligado',
+  // Onda C: Financeiro (R22).
+  'contrato.criado',
+  'contrato.atualizado',
+  'contrato.suspenso',
+  'contrato.reativado',
+  'contrato.cancelado',
+  'contrato.encerrado',
+  'parcela.paga',
+  'parcela.atrasada',
   'webhook.teste',
 ] as const;
 

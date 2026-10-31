@@ -3,6 +3,7 @@
  * automática de mapeamento a partir do nome da coluna. Funções puras.
  */
 import type { TipoImportacao } from '../generated/prisma/client';
+import { CAMPOS_DE_PARCELA } from '../financeiro/campos-de-parcela';
 
 export interface CampoDeImportacao {
   /** Chave gravada no mapeamento (`email`, `campos.cidade`…). */
@@ -117,6 +118,9 @@ export const CAMPOS_DE_EMPRESA: readonly CampoDeImportacao[] = [
 export function camposDoTipo(
   tipo: TipoImportacao,
 ): readonly CampoDeImportacao[] {
+  if (tipo === 'PARCELAS') {
+    return CAMPOS_DE_PARCELA;
+  }
   return tipo === 'CONTATOS' ? CAMPOS_DE_CONTATO : CAMPOS_DE_EMPRESA;
 }
 
@@ -249,7 +253,14 @@ export function validarMapeamento(
     }
     usados.set(campo, coluna);
   }
-  if (completo) {
+  if (completo && tipo === 'PARCELAS') {
+    if (!usados.has('numero')) {
+      problemas.push({
+        campo: 'mapeamento',
+        mensagem: 'ligue uma coluna ao campo Número do título',
+      });
+    }
+  } else if (completo) {
     if (!usados.has('nome')) {
       problemas.push({
         campo: 'mapeamento',

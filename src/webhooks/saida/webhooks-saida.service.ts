@@ -56,6 +56,14 @@ const DESCRICAO_DOS_EVENTOS: Readonly<Record<EventoDeWebhook, string>> = {
   'atividade.concluida': 'Atividade concluída.',
   'usuario.desligado':
     'Usuário desligado, com quem recebeu os itens e as contagens.',
+  'contrato.criado': 'Contrato criado no Financeiro.',
+  'contrato.atualizado': 'Contrato alterado (valor, prazo, responsável).',
+  'contrato.suspenso': 'Contrato suspenso.',
+  'contrato.reativado': 'Contrato reativado.',
+  'contrato.cancelado': 'Contrato cancelado, com o motivo.',
+  'contrato.encerrado': 'Contrato encerrado ao fim do prazo.',
+  'parcela.paga': 'Parcela paga (baixa manual, importação ou ligação).',
+  'parcela.atrasada': 'Parcela venceu sem pagamento.',
   'webhook.teste':
     'Evento de teste disparado pelo Admin (sempre entregue ao destino testado).',
 };

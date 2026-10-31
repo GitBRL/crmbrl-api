@@ -33,6 +33,7 @@ import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR } from '../tempo-real/catalogo';
 import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
+import { ImportacaoDeParcelasService } from '../financeiro/importacao-de-parcelas.service';
 import { PREFIXO_CAMPO_PERSONALIZADO } from './campos';
 import { FILA_IMPORTACAO } from './importacao.constantes';
 import {
@@ -78,6 +79,7 @@ export class ImportacaoProcessadorService {
     private readonly eventos: EventosDominioService,
     private readonly publicador: TempoRealPublicador,
     private readonly tempoReal: TempoRealService,
+    private readonly parcelas: ImportacaoDeParcelasService,
   ) {}
 
   /** Manipulador da fila `importacao.processar`. */
@@ -216,15 +218,17 @@ export class ImportacaoProcessadorService {
               resultado: 'IGNORADO',
               motivo: 'Linha sem valores nas colunas ligadas.',
             }
-          : importacao.tipo === 'CONTATOS'
-            ? await this.tratarContato(
-                importacao,
-                usuario,
-                linha.numero,
-                original,
-                valores,
-              )
-            : await this.tratarEmpresa(importacao, usuario, valores);
+          : importacao.tipo === 'PARCELAS'
+            ? await this.parcelas.tratarLinha(importacao, usuario, valores)
+            : importacao.tipo === 'CONTATOS'
+              ? await this.tratarContato(
+                  importacao,
+                  usuario,
+                  linha.numero,
+                  original,
+                  valores,
+                )
+              : await this.tratarEmpresa(importacao, usuario, valores);
     } catch (erro) {
       if (!ehErroDeDados(erro)) {
         throw erro;
@@ -732,7 +736,7 @@ export class ImportacaoProcessadorService {
         acao: 'importacao.concluida',
         entidade: 'importacao',
         entidadeId: final.id,
-        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro`,
+        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : final.tipo === 'PARCELAS' ? 'parcelas' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro`,
         dados: {
           tipo: final.tipo,
           totalLinhas: final.totalLinhas,

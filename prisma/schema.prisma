@@ -280,6 +280,8 @@ model Usuario {
   fluxosChatbotCriados       FluxoChatbot[]                  @relation("FluxoChatbotCriadoPor")
   fluxosVersoesPublicadas    FluxoChatbotVersao[]            @relation("FluxoVersaoPublicadaPor")
   automacoesCriadas          Automacao[]                     @relation("AutomacaoCriadaPor")
+  // Onda C
+  contratosCs                Contrato[]                      @relation("ContratoResponsavelCs")
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -373,6 +375,10 @@ model Empresa {
   negocios   Negocio[]
   atividades Atividade[]
 
+  // Onda C
+  contratos Contrato[]
+  parcelas  Parcela[]
+
   @@unique([cnpj], map: "empresas_cnpj_ativo_key", where: raw("(cnpj IS NOT NULL) AND (excluido_em IS NULL)"))
   @@index([responsavelId])
   @@index([nome])
@@ -430,6 +436,10 @@ model Contato {
   // Onda B
   destinatariosCampanha CampanhaDestinatario[]
   execucoes             Execucao[]
+
+  // Onda C
+  contratos Contrato[]
+  parcelas  Parcela[]
 
   @@unique([email], map: "contatos_email_ativo_key", where: raw("(email IS NOT NULL) AND (excluido_em IS NULL)"))
   @@unique([telefone], map: "contatos_telefone_ativo_key", where: raw("(telefone IS NOT NULL) AND (excluido_em IS NULL)"))
@@ -557,12 +567,19 @@ model Negocio {
   conversas                  Conversa[]
   execucoes                  Execucao[]
 
+  // Onda C
+  contratos Contrato[]
+
   @@index([funilId, etapaId, status])
   @@index([etapaId, posicao])
   @@index([responsavelId, status])
   @@index([contatoId])
   @@index([empresaId])
   @@index([negocioOrigemId])
+  @@index([funilId, criadoEm], map: "negocios_funil_criado_idx")
+  @@index([funilId, ganhoEm], map: "negocios_funil_ganho_idx", where: raw("ganho_em IS NOT NULL"))
+  @@index([funilId, perdidoEm], map: "negocios_funil_perdido_idx", where: raw("perdido_em IS NOT NULL"))
+  @@index([previsaoFechamento], map: "negocios_previsao_aberto_idx", where: raw("(status = 'ABERTO'::status_negocio) AND (previsao_fechamento IS NOT NULL)"))
   @@map("negocios")
 }
 
@@ -634,6 +651,8 @@ model PassagemExecucao {
 
   @@unique([passagemId, negocioOrigemId])
   @@index([negocioDestinoId])
+  @@index([negocioOrigemId], map: "passagem_execucoes_negocio_origem_idx")
+  @@index([criadoEm], map: "passagem_execucoes_criado_idx")
   @@map("passagem_execucoes")
 }
 
@@ -717,6 +736,7 @@ model Atividade {
   @@index([empresaId])
   @@index([negocioId])
   @@index([criadoPorId])
+  @@index([concluidaEm], map: "atividades_concluida_idx", where: raw("status = 'CONCLUIDA'::status_atividade"))
   @@map("atividades")
 }
 
@@ -1397,6 +1417,9 @@ model Conversa {
   @@index([canalId, idExterno])
   @@index([status, ultimaMensagemEm])
   @@index([negocioId])
+  @@index([criadoEm], map: "conversas_criado_idx")
+  @@index([resolvidaEm], map: "conversas_resolvida_idx", where: raw("resolvida_em IS NOT NULL"))
+  @@index([satisfacaoRespondidaEm], map: "conversas_csat_idx", where: raw("satisfacao_respondida_em IS NOT NULL"))
   @@map("conversas")
 }
 
@@ -1729,6 +1752,8 @@ model ChatMensagem {
 enum TipoImportacao {
   CONTATOS
   EMPRESAS
+  /// Onda C: títulos a receber do Financeiro (R22.5).
+  PARCELAS
 
   @@map("tipo_importacao")
 }
@@ -2170,6 +2195,11 @@ model CampanhaDestinatario {
   @@index([campanhaId, status, ordem])
   @@index([contatoId, enviadoEm])
   @@index([canalId, enviadoEm])
+  @@index([enviadoEm], map: "campanha_destinatarios_enviado_idx", where: raw("enviado_em IS NOT NULL"))
+  @@index([entregueEm], map: "campanha_destinatarios_entregue_idx", where: raw("entregue_em IS NOT NULL"))
+  @@index([lidoEm], map: "campanha_destinatarios_lido_idx", where: raw("lido_em IS NOT NULL"))
+  @@index([respondeuEm], map: "campanha_destinatarios_respondeu_idx", where: raw("respondeu_em IS NOT NULL"))
+  @@index([optOutEm], map: "campanha_destinatarios_opt_out_idx", where: raw("opt_out_em IS NOT NULL"))
   @@map("campanha_destinatarios")
 }
 
@@ -2384,4 +2414,339 @@ model ExecucaoPasso {
   @@unique([execucaoId, chave])
   @@index([execucaoId, ordem])
   @@map("execucao_passos")
+}
+
+// ---------------------------------------------------------------------------
+// Financeiro — contratos, parcelas e régua de cobrança (Onda C, R22–R24)
+// ---------------------------------------------------------------------------
+
+/// Situação do contrato (R22.2). SUSPENSO continua contando no MRR; CANCELADO e
+/// ENCERRADO geram churn.
+enum StatusContrato {
+  ATIVO
+  SUSPENSO
+  CANCELADO
+  ENCERRADO
+
+  @@map("status_contrato")
+}
+
+enum PeriodicidadeContrato {
+  MENSAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+  /// Cobrança única: não é receita recorrente (MRR 0).
+  UNICO
+
+  @@map("periodicidade_contrato")
+}
+
+/// ABERTO e ATRASADO (vencida e não paga) → PAGO; CANCELADO; RENEGOCIADO (substituída por outra parcela).
+enum StatusParcela {
+  ABERTO
+  PAGO
+  ATRASADO
+  CANCELADO
+  RENEGOCIADO
+
+  @@map("status_parcela")
+}
+
+enum FormaPagamento {
+  PIX
+  BOLETO
+  CARTAO
+  TRANSFERENCIA
+  DINHEIRO
+  OUTRO
+
+  @@map("forma_pagamento")
+}
+
+enum OrigemParcela {
+  MANUAL
+  CONTRATO
+  IMPORTACAO
+  RENEGOCIACAO
+
+  @@map("origem_parcela")
+}
+
+/// Componentes do MRR (R23.1).
+enum TipoMovimentoMrr {
+  NOVO
+  EXPANSAO
+  CONTRACAO
+  CHURN
+
+  @@map("tipo_movimento_mrr")
+}
+
+enum CanalDaRegua {
+  WHATSAPP
+  EMAIL
+  LIGACAO
+
+  @@map("canal_da_regua")
+}
+
+/// RETIDO: mensagem de etapa com ligação, esperando o resultado da ligação.
+enum SituacaoEnvioRegua {
+  RETIDO
+  AGENDADO
+  ENVIADO
+  FALHOU
+  CANCELADO
+  PULADO
+  AGUARDANDO_LIGACAO
+  LIGACAO_REGISTRADA
+
+  @@map("situacao_envio_regua")
+}
+
+enum ResultadoLigacao {
+  PROMESSA
+  SEM_ACORDO
+  NAO_ATENDEU
+  JA_PAGOU
+  /// Passou do horário limite sem registro: a mensagem da etapa saiu sozinha.
+  EXPIRADA
+
+  @@map("resultado_ligacao")
+}
+
+enum TipoExecucaoRegua {
+  AUTOMATICA
+  MANUAL
+
+  @@map("tipo_execucao_regua")
+}
+
+enum StatusExecucaoRegua {
+  EM_ANDAMENTO
+  CONCLUIDA
+  FALHOU
+
+  @@map("status_execucao_regua")
+}
+
+/// Contrato de um cliente (empresa e/ou contato). `valor` é o valor de cada
+/// período de cobrança; `mrr` é o equivalente mensal, mantido pelo serviço
+/// (valor ÷ meses do período; 0 para cobrança única). Mudanças de valor,
+/// cancelamento e encerramento viram `MovimentoMrr` (R23.1).
+model Contrato {
+  id                  String                @id @default(uuid()) @db.Uuid
+  /// Número sequencial legível (exibido como C-000012).
+  numero              Int                   @unique @default(autoincrement())
+  empresaId           String?               @map("empresa_id") @db.Uuid
+  empresa             Empresa?              @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+  contatoId           String?               @map("contato_id") @db.Uuid
+  contato             Contato?              @relation(fields: [contatoId], references: [id], onDelete: Restrict)
+  /// Negócio ganho que originou o contrato.
+  negocioId           String?               @map("negocio_id") @db.Uuid
+  negocio             Negocio?              @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  /// Produto ou plano.
+  produto             String
+  descricao           String?
+  valor               Decimal               @db.Decimal(14, 2)
+  periodicidade       PeriodicidadeContrato @default(MENSAL)
+  mrr                 Decimal               @default(0) @db.Decimal(14, 2)
+  inicioEm            DateTime              @map("inicio_em") @db.Date
+  fimEm               DateTime?             @map("fim_em") @db.Date
+  renovacaoEm         DateTime?             @map("renovacao_em") @db.Date
+  renovacaoAutomatica Boolean               @default(false) @map("renovacao_automatica")
+  /// Dia do mês dos vencimentos gerados (1 a 31; mês curto usa o último dia).
+  diaVencimento       Int?                  @map("dia_vencimento")
+  status              StatusContrato        @default(ATIVO)
+  responsavelCsId     String?               @map("responsavel_cs_id") @db.Uuid
+  responsavelCs       Usuario?              @relation("ContratoResponsavelCs", fields: [responsavelCsId], references: [id], onDelete: SetNull)
+  canceladoEm         DateTime?             @map("cancelado_em") @db.Timestamptz(3)
+  motivoCancelamento  String?               @map("motivo_cancelamento")
+  encerradoEm         DateTime?             @map("encerrado_em") @db.Timestamptz(3)
+  criadoPorId         String?               @map("criado_por_id") @db.Uuid
+  criadoEm            DateTime              @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm        DateTime              @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  parcelas   Parcela[]
+  movimentos MovimentoMrr[]
+
+  @@index([status])
+  @@index([empresaId])
+  @@index([contatoId])
+  @@index([negocioId])
+  @@index([responsavelCsId, status])
+  @@map("contratos")
+}
+
+/// Parcela (título a receber). `numero` identifica o título (único): a
+/// reimportação da planilha atualiza pelo número (R22.5). Pode existir sem
+/// contrato (título avulso importado).
+model Parcela {
+  id                   String          @id @default(uuid()) @db.Uuid
+  numero               String          @unique
+  /// Posição da parcela no contrato (1, 2, 3…).
+  sequencia            Int?
+  contratoId           String?         @map("contrato_id") @db.Uuid
+  contrato             Contrato?       @relation(fields: [contratoId], references: [id], onDelete: Restrict)
+  contatoId            String?         @map("contato_id") @db.Uuid
+  contato              Contato?        @relation(fields: [contatoId], references: [id], onDelete: SetNull)
+  empresaId            String?         @map("empresa_id") @db.Uuid
+  empresa              Empresa?        @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  origem               OrigemParcela   @default(MANUAL)
+  descricao            String?
+  vencimento           DateTime        @db.Date
+  /// Primeiro vencimento (antes de alterações e renegociações).
+  vencimentoOriginal   DateTime        @map("vencimento_original") @db.Date
+  valor                Decimal         @db.Decimal(14, 2)
+  valorPago            Decimal?        @map("valor_pago") @db.Decimal(14, 2)
+  status               StatusParcela   @default(ABERTO)
+  linkBoleto           String?         @map("link_boleto")
+  linkPagamento        String?         @map("link_pagamento")
+  /// Pix copia e cola.
+  pix                  String?
+  pagoEm               DateTime?       @map("pago_em") @db.Date
+  formaPagamento       FormaPagamento? @map("forma_pagamento")
+  /// MANUAL, IMPORTACAO ou LIGACAO.
+  baixaOrigem          String?         @map("baixa_origem")
+  baixaPorId           String?         @map("baixa_por_id") @db.Uuid
+  renegociadaParaId    String?         @map("renegociada_para_id") @db.Uuid
+  renegociadaPara      Parcela?        @relation("ParcelaRenegociada", fields: [renegociadaParaId], references: [id], onDelete: SetNull)
+  renegociadaDe        Parcela[]       @relation("ParcelaRenegociada")
+  /// Promessa de pagamento: a régua fica suspensa até esta data (inclusive).
+  promessaAte          DateTime?       @map("promessa_ate") @db.Date
+  promessaRegistradaEm DateTime?       @map("promessa_registrada_em") @db.Timestamptz(3)
+  /// Muda quando o vencimento é alterado: a régua recomeça (R24.3).
+  cicloRegua           Int             @default(1) @map("ciclo_regua")
+  atrasadaEm           DateTime?       @map("atrasada_em") @db.Timestamptz(3)
+  criadoPorId          String?         @map("criado_por_id") @db.Uuid
+  criadoEm             DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  envios ReguaEnvio[]
+
+  @@index([contratoId, sequencia])
+  @@index([status, vencimento])
+  @@index([contatoId])
+  @@index([empresaId])
+  @@map("parcelas")
+}
+
+/// Movimento de MRR (R23.1): NOVO na criação, EXPANSAO/CONTRACAO quando o valor
+/// mensal muda, CHURN no cancelamento ou encerramento. `delta` pode ser negativo.
+model MovimentoMrr {
+  id            String           @id @default(uuid()) @db.Uuid
+  contratoId    String           @map("contrato_id") @db.Uuid
+  contrato      Contrato         @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  tipo          TipoMovimentoMrr
+  valorAnterior Decimal          @map("valor_anterior") @db.Decimal(14, 2)
+  valorNovo     Decimal          @map("valor_novo") @db.Decimal(14, 2)
+  delta         Decimal          @db.Decimal(14, 2)
+  /// Dia do movimento no fuso de São Paulo.
+  dia           DateTime         @db.Date
+  ocorridoEm    DateTime         @default(now()) @map("ocorrido_em") @db.Timestamptz(3)
+  motivo        String?
+  criadoPorId   String?          @map("criado_por_id") @db.Uuid
+
+  @@index([dia])
+  @@index([contratoId, ocorridoEm])
+  @@map("movimentos_mrr")
+}
+
+/// Etapa da régua de cobrança (R24.1). `marco` = dias a partir do vencimento
+/// (negativo = antes). Os textos aceitam as variáveis `{{titulo.*}}` e as de contato.
+model ReguaEtapa {
+  id               String   @id @default(uuid()) @db.Uuid
+  nome             String
+  marco            Int      @unique
+  ativa            Boolean  @default(true)
+  whatsapp         Boolean  @default(true)
+  email            Boolean  @default(false)
+  ligacao          Boolean  @default(false)
+  modeloWhatsappId String?  @map("modelo_whatsapp_id") @db.Uuid
+  textoWhatsapp    String?  @map("texto_whatsapp")
+  modeloEmailId    String?  @map("modelo_email_id") @db.Uuid
+  assuntoEmail     String?  @map("assunto_email")
+  textoEmail       String?  @map("texto_email")
+  /// Roteiro mostrado na atividade de ligação.
+  roteiroLigacao   String?  @map("roteiro_ligacao")
+  criadoEm         DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm     DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  envios ReguaEnvio[]
+
+  @@map("regua_etapas")
+}
+
+/// Uma execução da régua (diária ou "Executar agora"). Única por dia para as automáticas.
+model ReguaExecucao {
+  id             String              @id @default(uuid()) @db.Uuid
+  tipo           TipoExecucaoRegua
+  /// Dia local (São Paulo) a que a execução se refere.
+  dia            DateTime            @db.Date
+  status         StatusExecucaoRegua @default(EM_ANDAMENTO)
+  disparadaPorId String?             @map("disparada_por_id") @db.Uuid
+  /// Contadores: `{ titulos, etapas, mensagens, ligacoes, pulados, erros }`.
+  resumo         Json                @default("{}")
+  erro           String?
+  iniciadaEm     DateTime            @default(now()) @map("iniciada_em") @db.Timestamptz(3)
+  concluidaEm    DateTime?           @map("concluida_em") @db.Timestamptz(3)
+
+  envios ReguaEnvio[]
+
+  @@unique([dia], map: "regua_execucoes_automatica_dia_key", where: raw("tipo = 'AUTOMATICA'"))
+  @@index([dia, tipo])
+  @@index([iniciadaEm])
+  @@map("regua_execucoes")
+}
+
+/// Registro da régua por título, etapa e canal (R24): a linha do tempo do título.
+/// `canal` nulo = etapa pulada (superada ou além da tolerância).
+model ReguaEnvio {
+  id             String             @id @default(uuid()) @db.Uuid
+  parcelaId      String             @map("parcela_id") @db.Uuid
+  parcela        Parcela            @relation(fields: [parcelaId], references: [id], onDelete: Cascade)
+  ciclo          Int                @default(1)
+  etapaId        String?            @map("etapa_id") @db.Uuid
+  etapa          ReguaEtapa?        @relation(fields: [etapaId], references: [id], onDelete: SetNull)
+  marco          Int?
+  etapaNome      String             @map("etapa_nome")
+  /// ETAPA, PROMESSA_CONFIRMADA ou PROMESSA_NAO_CUMPRIDA.
+  tipo           String             @default("ETAPA")
+  canal          CanalDaRegua?
+  situacao       SituacaoEnvioRegua
+  dia            DateTime           @db.Date
+  execucaoId     String?            @map("execucao_id") @db.Uuid
+  execucao       ReguaExecucao?     @relation(fields: [execucaoId], references: [id], onDelete: SetNull)
+  destino        String?
+  assunto        String?
+  texto          String?
+  agendadoPara   DateTime?          @map("agendado_para") @db.Timestamptz(3)
+  enviadoEm      DateTime?          @map("enviado_em") @db.Timestamptz(3)
+  /// Mensagem do Atendimento (WhatsApp).
+  mensagemId     String?            @map("mensagem_id") @db.Uuid
+  /// Atividade criada para a ligação.
+  atividadeId    String?            @map("atividade_id") @db.Uuid
+  /// Ligação que segura esta mensagem (situação RETIDO).
+  ligacaoId      String?            @map("ligacao_id") @db.Uuid
+  /// Ligação: prazo (horário limite) para registrar o resultado.
+  prazoEm        DateTime?          @map("prazo_em") @db.Timestamptz(3)
+  motivo         String?
+  erro           String?
+  tentativas     Int                @default(0)
+  resultado      ResultadoLigacao?
+  resultadoEm    DateTime?          @map("resultado_em") @db.Timestamptz(3)
+  resultadoPorId String?            @map("resultado_por_id") @db.Uuid
+  observacao     String?
+  promessaAte    DateTime?          @map("promessa_ate") @db.Date
+  criadoEm       DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm   DateTime           @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@index([parcelaId, ciclo, marco])
+  @@index([dia, canal, situacao])
+  @@index([situacao, prazoEm])
+  @@index([execucaoId])
+  @@index([ligacaoId])
+  @@map("regua_envios")
 }

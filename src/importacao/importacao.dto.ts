@@ -74,7 +74,9 @@ export class LeituraDto {
 export class CriarImportacaoDto {
   @ApiProperty({ enum: TipoImportacao, enumName: 'TipoImportacao' })
   @emMaiusculas()
-  @IsEnum(TipoImportacao, { message: 'deve ser CONTATOS ou EMPRESAS' })
+  @IsEnum(TipoImportacao, {
+    message: 'deve ser CONTATOS, EMPRESAS ou PARCELAS',
+  })
   tipo: TipoImportacao;
 
   @ApiProperty({
@@ -180,7 +182,9 @@ export class FiltroImportacoesDto extends PaginacaoDto {
   @ApiPropertyOptional({ enum: TipoImportacao, enumName: 'TipoImportacao' })
   @IsOptional()
   @emMaiusculas()
-  @IsEnum(TipoImportacao, { message: 'deve ser CONTATOS ou EMPRESAS' })
+  @IsEnum(TipoImportacao, {
+    message: 'deve ser CONTATOS, EMPRESAS ou PARCELAS',
+  })
   tipo?: TipoImportacao;
 }
 
@@ -208,7 +212,9 @@ export class FiltroPreviaDto {
 export class FiltroCamposDto {
   @ApiProperty({ enum: TipoImportacao, enumName: 'TipoImportacao' })
   @emMaiusculas()
-  @IsEnum(TipoImportacao, { message: 'deve ser CONTATOS ou EMPRESAS' })
+  @IsEnum(TipoImportacao, {
+    message: 'deve ser CONTATOS, EMPRESAS ou PARCELAS',
+  })
   tipo: TipoImportacao;
 }
 
@@ -216,7 +222,9 @@ export class FiltroModelosDto {
   @ApiPropertyOptional({ enum: TipoImportacao, enumName: 'TipoImportacao' })
   @IsOptional()
   @emMaiusculas()
-  @IsEnum(TipoImportacao, { message: 'deve ser CONTATOS ou EMPRESAS' })
+  @IsEnum(TipoImportacao, {
+    message: 'deve ser CONTATOS, EMPRESAS ou PARCELAS',
+  })
   tipo?: TipoImportacao;
 }
 
@@ -229,7 +237,9 @@ export class CriarModeloDto {
 
   @ApiProperty({ enum: TipoImportacao, enumName: 'TipoImportacao' })
   @emMaiusculas()
-  @IsEnum(TipoImportacao, { message: 'deve ser CONTATOS ou EMPRESAS' })
+  @IsEnum(TipoImportacao, {
+    message: 'deve ser CONTATOS, EMPRESAS ou PARCELAS',
+  })
   tipo: TipoImportacao;
 
   @ApiProperty({ type: 'object', additionalProperties: { type: 'string' } })

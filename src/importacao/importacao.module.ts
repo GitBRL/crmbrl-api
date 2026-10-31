@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ContatosModule } from '../contatos/contatos.module';
+import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { FunisModule } from '../funis/funis.module';
 import { ImportacaoController } from './importacao.controller';
 import { ImportacaoProcessadorService } from './importacao-processador.service';
@@ -17,7 +18,7 @@ import { ModelosDeImportacaoService } from './modelos-de-importacao.service';
  * `importacao.*` e publica `importacao.concluida`.
  */
 @Module({
-  imports: [ContatosModule, FunisModule],
+  imports: [ContatosModule, FunisModule, FinanceiroModule],
   controllers: [ImportacaoController],
   providers: [
     ImportacaoService,

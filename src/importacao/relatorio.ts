@@ -48,7 +48,12 @@ export async function gerarRelatorio(
     { item: 'Arquivo', valor: importacao.nome },
     {
       item: 'Tipo',
-      valor: importacao.tipo === 'CONTATOS' ? 'Contatos' : 'Empresas',
+      valor:
+        importacao.tipo === 'CONTATOS'
+          ? 'Contatos'
+          : importacao.tipo === 'PARCELAS'
+            ? 'Parcelas'
+            : 'Empresas',
     },
     {
       item: 'Situação',

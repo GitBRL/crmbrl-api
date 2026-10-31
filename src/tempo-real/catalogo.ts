@@ -80,6 +80,10 @@ export const EVENTOS_DO_SERVIDOR = {
   NAO_LIDAS: 'nao-lidas',
   /** Progresso de uma importação de planilha (sala `usuario:<quem importou>`). */
   IMPORTACAO_PROGRESSO: 'importacao.progresso',
+  /** Financeiro (Onda C): parcela paga, atrasada, alterada ou renegociada (salas dos gestores e do CS responsável). */
+  PARCELA_ATUALIZADA: 'parcela.atualizada',
+  /** Financeiro (Onda C): andamento de uma execução da régua e dos envios (salas dos gestores). */
+  REGUA_PROGRESSO: 'regua.progresso',
   /** A sessão foi encerrada (sair, desligamento, troca de senha): o socket cai em seguida. */
   SESSAO_ENCERRADA: 'sessao.encerrada',
 } as const;
@@ -192,6 +196,28 @@ export interface CargaImportacaoProgresso {
   relatorioId?: string | null;
 }
 
+export interface CargaParcelaAtualizada {
+  parcelaId: string;
+  numero: string;
+  contratoId: string | null;
+  contatoId: string | null;
+  /** Status já considerando o vencimento. */
+  status: string;
+  motivo:
+    'paga' | 'atrasada' | 'alterada' | 'cancelada' | 'renegociada' | 'promessa';
+}
+
+export interface CargaReguaProgresso {
+  /** Execução em andamento ou concluída; nulo quando é só um envio avulso. */
+  execucaoId: string | null;
+  status: string;
+  /** `{ titulos, etapas, mensagens, ligacoes, pulados, erros }`. */
+  resumo: Record<string, number>;
+  /** Envio que mudou de situação (WhatsApp, e-mail ou ligação). */
+  envioId?: string;
+  situacao?: string;
+}
+
 /** O formato dos dados de cada evento do servidor. */
 export interface CargasDoServidor {
   'notificacao.nova': CargaNotificacaoNova;
@@ -206,6 +232,8 @@ export interface CargasDoServidor {
   'campanha.progresso': CargaCampanhaProgresso;
   'nao-lidas': CargaNaoLidas;
   'importacao.progresso': CargaImportacaoProgresso;
+  'parcela.atualizada': CargaParcelaAtualizada;
+  'regua.progresso': CargaReguaProgresso;
   'sessao.encerrada': CargaSessaoEncerrada;
 }
 
