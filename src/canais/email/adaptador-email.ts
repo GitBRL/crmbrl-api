@@ -114,7 +114,10 @@ export class AdaptadorEmail implements AdaptadorCanal, OnModuleInit {
           address: config.endereco,
         },
         to: destino,
-        subject: `Re: ${assunto}`,
+        // Campanha (primeiro contato, sem e-mail do contato antes): o assunto vai como está.
+        subject: ehPrimeiroContatoDeCampanha(mensagem, entrada)
+          ? assunto
+          : `Re: ${assunto}`,
         text: texto || ' ',
         messageId: `<${messageId}>`,
         ...(entrada?.messageId ? { inReplyTo: `<${entrada.messageId}>` } : {}),
@@ -209,4 +212,19 @@ export class AdaptadorEmail implements AdaptadorCanal, OnModuleInit {
       contentType: arquivo.mime,
     };
   }
+}
+
+/** Mensagem de campanha para quem ainda não escreveu na conversa: sem o "Re:". */
+function ehPrimeiroContatoDeCampanha(
+  mensagem: Mensagem,
+  entrada: unknown,
+): boolean {
+  const metadados = mensagem.metadados;
+  return (
+    !entrada &&
+    typeof metadados === 'object' &&
+    metadados !== null &&
+    !Array.isArray(metadados) &&
+    typeof (metadados as Record<string, unknown>).campanhaId === 'string'
+  );
 }

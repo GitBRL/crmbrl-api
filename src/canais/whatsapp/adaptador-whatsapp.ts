@@ -89,6 +89,8 @@ export class AdaptadorWhatsapp implements AdaptadorCanal, OnModuleInit {
       respondeAIdExterno: citada?.idExterno ?? null,
       respostaAoContato: conversa.ultimaEntradaEm !== null,
       contatoId: conversa.contatoId,
+      // Campanhas podem desligar o "digitando…" (`metadados.digitando = false`).
+      ...(metadados.digitando === false ? { digitando: false } : {}),
     };
     // As tentativas vão no job (a fila pode não ter a configuração do
     // gateway ainda). Um job repetido da mesma mensagem não sai duas vezes:

@@ -65,6 +65,6 @@ import { SlaDoAtendimento } from './sla.service';
     CanaisDoAtendimentoService,
     MetricasDoAtendimentoService,
   ],
-  exports: [AtendimentoService, AcessoAtendimentoService],
+  exports: [AtendimentoService, AcessoAtendimentoService, MotorDoAtendimento],
 })
 export class AtendimentoModule {}
