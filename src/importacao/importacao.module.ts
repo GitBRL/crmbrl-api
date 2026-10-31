@@ -1,4 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ContatosModule } from '../contatos/contatos.module';
+import { FunisModule } from '../funis/funis.module';
+import { ImportacaoController } from './importacao.controller';
+import { ImportacaoProcessadorService } from './importacao-processador.service';
+import { ImportacaoService } from './importacao.service';
+import { ModelosDeImportacaoService } from './modelos-de-importacao.service';
 
 /**
  * Importação de contatos e empresas (R16, contrato da Onda B §2.2): CSV/XLSX
@@ -6,12 +12,18 @@ import { Module } from '@nestjs/common';
  * mapeamento com modelos salvos (`ImportacaoModelo`), processamento na fila
  * `importacao.processar` com progresso ao vivo, relatório XLSX (contexto RELATORIO).
  *
- * Esqueleto da base (`base-api-b`): o `importacao-api` preenche controllers e
- * providers. O schema (`Importacao`, `ImportacaoLinha`, `ImportacaoModelo`) já existe.
+ * Rotas em `/api/v1/importacoes`. Cada linha passa pelos serviços de contatos
+ * e empresas (R4.1, R4.2); a importação inteira é auditada em eventos
+ * `importacao.*` e publica `importacao.concluida`.
  */
 @Module({
-  controllers: [],
-  providers: [],
-  exports: [],
+  imports: [ContatosModule, FunisModule],
+  controllers: [ImportacaoController],
+  providers: [
+    ImportacaoService,
+    ModelosDeImportacaoService,
+    ImportacaoProcessadorService,
+  ],
+  exports: [ImportacaoService],
 })
 export class ImportacaoModule {}

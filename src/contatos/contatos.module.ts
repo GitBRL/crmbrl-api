@@ -24,6 +24,11 @@ import { PermissoesContatosService } from './permissoes-contatos.service';
     LinhaDoTempoService,
     PermissoesContatosService,
   ],
-  exports: [ContatosService, EmpresasService, LinhaDoTempoService],
+  exports: [
+    ContatosService,
+    EmpresasService,
+    LinhaDoTempoService,
+    PermissoesContatosService,
+  ],
 })
 export class ContatosModule {}

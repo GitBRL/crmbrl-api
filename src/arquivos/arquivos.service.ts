@@ -117,7 +117,7 @@ export class ArquivosService
   private readonly logger = new Logger(ArquivosService.name);
   private readonly verificadores = new Map<
     ContextoArquivo,
-    VerificadorDeAcesso
+    VerificadorDeAcesso[]
   >();
   private temporizador?: NodeJS.Timeout;
   private parando = false;
@@ -161,15 +161,19 @@ export class ArquivosService
   }
 
   /**
-   * Registra quem decide o acesso aos arquivos de um contexto (um por
-   * contexto; o último registro vale). Sem verificador, `MENSAGEM` e `CHAT`
-   * ficam restritos a quem enviou.
+   * Registra quem decide o acesso aos arquivos de um contexto. Vários módulos
+   * podem registrar o mesmo contexto (ex.: `RELATORIO` de importações e de
+   * campanhas): o acesso é liberado se algum verificador liberar. Sem
+   * verificador, `MENSAGEM` e `CHAT` ficam restritos a quem enviou.
    */
   registrarVerificadorDeAcesso(
     contexto: ContextoArquivo,
     verificador: VerificadorDeAcesso,
   ): void {
-    this.verificadores.set(contexto, verificador);
+    this.verificadores.set(contexto, [
+      ...(this.verificadores.get(contexto) ?? []),
+      verificador,
+    ]);
   }
 
   /**
@@ -184,9 +188,14 @@ export class ArquivosService
     if (arquivo.criadoPorId && arquivo.criadoPorId === usuario.id) {
       return true;
     }
-    const verificador = this.verificadores.get(arquivo.contexto);
-    if (verificador) {
-      return verificador(usuario, arquivo);
+    const verificadores = this.verificadores.get(arquivo.contexto);
+    if (verificadores?.length) {
+      for (const verificador of verificadores) {
+        if (await verificador(usuario, arquivo)) {
+          return true;
+        }
+      }
+      return false;
     }
     switch (arquivo.contexto) {
       case 'AVATAR':

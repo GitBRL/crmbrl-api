@@ -74,8 +74,12 @@ export const EVENTOS_DO_SERVIDOR = {
   CHAT_ATUALIZADO: 'chat.atualizado',
   /** Conexão de um número de WhatsApp: status e QR (só para quem gerencia canais). */
   WHATSAPP_CONEXAO: 'whatsapp.conexao',
+  /** Progresso de uma campanha de disparos (status e contadores), para quem vê a campanha. */
+  CAMPANHA_PROGRESSO: 'campanha.progresso',
   /** Contagens do menu: notificações, Atendimento e Chat (campos ausentes = sem mudança). */
   NAO_LIDAS: 'nao-lidas',
+  /** Progresso de uma importação de planilha (sala `usuario:<quem importou>`). */
+  IMPORTACAO_PROGRESSO: 'importacao.progresso',
   /** A sessão foi encerrada (sair, desligamento, troca de senha): o socket cai em seguida. */
   SESSAO_ENCERRADA: 'sessao.encerrada',
 } as const;
@@ -150,6 +154,18 @@ export interface CargaWhatsappConexao {
   motivo?: string | null;
 }
 
+export interface CargaCampanhaProgresso {
+  campanhaId: string;
+  status: string;
+  /** Contadores do relatório: total, enviados, entregues, lidos, respondidos, falhas, invalidos, optOuts. */
+  contadores: Record<string, number>;
+  /** Próximo envio previsto (ISO 8601), se a campanha está em andamento. */
+  proximoEnvioEm: string | null;
+  /** Motivo da pausa, se pausada. */
+  pausaMotivo: string | null;
+  em: string;
+}
+
 export interface CargaNaoLidas {
   /** Notificações não lidas (o sino). */
   notificacoes?: number;
@@ -163,6 +179,19 @@ export interface CargaSessaoEncerrada {
   motivo: 'sessao_revogada' | 'sessao_expirada' | 'usuario_inativo';
 }
 
+export interface CargaImportacaoProgresso {
+  importacaoId: string;
+  status: string;
+  totalLinhas: number | null;
+  processadas: number;
+  criados: number;
+  atualizados: number;
+  ignorados: number;
+  erros: number;
+  /** Id do relatório XLSX, quando a importação terminou. */
+  relatorioId?: string | null;
+}
+
 /** O formato dos dados de cada evento do servidor. */
 export interface CargasDoServidor {
   'notificacao.nova': CargaNotificacaoNova;
@@ -174,7 +203,9 @@ export interface CargasDoServidor {
   'chat.mensagem': CargaChatMensagem;
   'chat.atualizado': CargaChatAtualizado;
   'whatsapp.conexao': CargaWhatsappConexao;
+  'campanha.progresso': CargaCampanhaProgresso;
   'nao-lidas': CargaNaoLidas;
+  'importacao.progresso': CargaImportacaoProgresso;
   'sessao.encerrada': CargaSessaoEncerrada;
 }
 

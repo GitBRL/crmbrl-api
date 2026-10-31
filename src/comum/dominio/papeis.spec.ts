@@ -70,6 +70,7 @@ describe('permissões derivadas (matriz da seção 12)', () => {
       reabrirNegocios: 'TODOS',
       verContatos: true,
       editarContatos: 'TODOS',
+      importarContatos: true,
       anonimizarContatos: true,
       verAtividades: 'TODOS',
       configurarPassagens: true,
@@ -122,5 +123,22 @@ describe('permissões derivadas (matriz da seção 12)', () => {
       configurarRodizio: 'NENHUM',
       areasVisiveis: ['MARKETING'],
     });
+  });
+});
+
+describe('permissão de importação (R16.1)', () => {
+  it('R16.1 — Admin, C-level e líderes importam; membros não', () => {
+    for (const papel of [
+      'ADMIN',
+      'C_LEVEL',
+      'LIDER_COMERCIAL',
+      'LIDER_MARKETING',
+      'LIDER_CS',
+    ] as const) {
+      expect(permissoesDoPapel(papel).importarContatos).toBe(true);
+    }
+    for (const papel of ['COMERCIAL', 'MARKETING', 'CS'] as const) {
+      expect(permissoesDoPapel(papel).importarContatos).toBe(false);
+    }
   });
 });

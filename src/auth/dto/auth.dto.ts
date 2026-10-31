@@ -174,6 +174,7 @@ export class PermissoesDto {
   @ApiProperty({ enum: ESCOPOS }) reabrirNegocios: Escopo;
   @ApiProperty() verContatos: boolean;
   @ApiProperty({ enum: ESCOPOS }) editarContatos: Escopo;
+  @ApiProperty() importarContatos: boolean;
   @ApiProperty() anonimizarContatos: boolean;
   @ApiProperty({ enum: ESCOPOS }) verAtividades: Escopo;
   @ApiProperty() configurarPassagens: boolean;

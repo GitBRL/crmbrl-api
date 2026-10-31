@@ -32,6 +32,8 @@ export interface Permissoes {
   readonly verContatos: boolean;
   /** Editar contato/empresa: todos, os da equipe (pelo responsável) ou os seus. */
   readonly editarContatos: Escopo;
+  /** Importar contatos e empresas por planilha (R16): Admin, C-level e líderes. */
+  readonly importarContatos: boolean;
   /** Excluir com anonimização (R4.6). */
   readonly anonimizarContatos: boolean;
   /** Ver atividades (R6.4): todas, as da equipe ou as suas (responsável ou criador). */
@@ -65,6 +67,7 @@ export function permissoesDoPapel(papel: Papel): Permissoes {
     reabrirNegocios: diretoria ? 'TODOS' : lider ? 'AREA' : 'NENHUM',
     verContatos: true,
     editarContatos: diretoria ? 'TODOS' : lider ? 'EQUIPE' : 'PROPRIOS',
+    importarContatos: diretoria || lider,
     anonimizarContatos: admin,
     verAtividades: diretoria ? 'TODOS' : lider ? 'EQUIPE' : 'PROPRIOS',
     configurarPassagens: diretoria,
