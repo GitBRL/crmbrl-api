@@ -330,10 +330,11 @@ describe('Base — infraestrutura (e2e)', () => {
       });
       expect(registro.enfileiradoEm).not.toBeNull();
       expect(registro.processadoEm).not.toBeNull();
-      expect(registro.manipuladoresConcluidos.sort()).toEqual([
-        'teste:especifico',
-        'teste:todos',
-      ]);
+      expect(
+        registro.manipuladoresConcluidos
+          .filter((nome) => !nome.startsWith('gatilhos:'))
+          .sort(),
+      ).toEqual(['teste:especifico', 'teste:todos']);
       expect(await processarEventos(t)).toBe(0);
     });
 

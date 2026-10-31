@@ -37,5 +37,7 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
     WebhooksSaidaService,
     EntregasService,
   ],
+  // Automações (Onda B): a ação "chamar webhook de saída" cria entregas.
+  exports: [EntregasService],
 })
 export class WebhooksModule {}

@@ -30,6 +30,7 @@
 //   SEMEAR_WEBHOOK_SAIDA_FALHA_URL  opcional: um destino que responde erro, para
 //                             ver tentativas e falhas (assina só negocio.perdido).
 //   SEMEAR_CONVITE            "false" pula o usuário convidado por e-mail (exige SMTP)
+//   SEMEAR_ETAPA             "onda-b": só a etapa da Onda B (importação, disparos, chatbot, automações; idempotente)
 //   SEMEAR_ETAPA             "atendimento" (ou o argumento `atendimento`): só a etapa de atendimento, sobre a base
 //                             já semeada (idempotente). Veja o cabeçalho da etapa, mais abaixo.
 
@@ -1556,10 +1557,570 @@ async function etapaAtendimento() {
   );
 }
 
+// ================================================== Etapa: onda-b ===
+//
+// Importação, disparos, chatbot e automações (Onda B). Roda sobre a base já semeada
+// (ou logo depois da semeadura completa) e pode ser repetida: cada peça só é criada
+// se ainda não existir (por nome).
+//
+//   node scripts/semear-demonstracao.mjs onda-b      (ou SEMEAR_ETAPA=onda-b)
+//
+// Variáveis: as do atendimento (WHATSAPP_TOKEN_INTERNO, GATEWAY_URL) e
+//   SEMEAR_ONDA_B  "false" pula a etapa na semeadura completa
+
+const RODAR_ONDA_B = AMBIENTE.SEMEAR_ONDA_B !== 'false';
+
+/** Envia um arquivo (multipart, campo "arquivo") ao contexto indicado. */
+async function enviarArquivo(sessao, contexto, nome, mime, conteudo) {
+  const formulario = new FormData();
+  formulario.append('arquivo', new Blob([conteudo], { type: mime }), nome);
+  const resposta = await fetch(`${API}/api/v1/arquivos?contexto=${contexto}`, {
+    method: 'POST',
+    headers: { Origin: ORIGEM, Cookie: sessao.cookie },
+    body: formulario,
+  });
+  const dados = await lerCorpo(resposta);
+  if (!resposta.ok)
+    throw new ErroDaApi('POST', '/arquivos', resposta.status, dados);
+  return dados;
+}
+
+async function etapaOndaB() {
+  passo('Onda B: entrando com a equipe');
+  const entradas = {
+    admin: [ADMIN_EMAIL, SENHA_ADMIN],
+    liderComercial: [email('lider.comercial'), SENHA_USUARIOS],
+    liderCs: [email('lider.cs'), SENHA_USUARIOS],
+  };
+  const eq = {};
+  for (const [chave, [endereco, senha]] of Object.entries(entradas)) {
+    try {
+      eq[chave] = await entrar(endereco, senha);
+    } catch (erro) {
+      parar(
+        `A etapa "onda-b" roda sobre a base semeada: não consegui entrar como ${endereco} (${erro.message}).`,
+      );
+    }
+  }
+  const { admin, liderComercial: lider } = eq;
+  const itens = (r) => (Array.isArray(r) ? r : (r?.itens ?? []));
+  const etapa = await lerFunis(admin);
+
+  // ------------------------------------------------------- importação ---
+  passo(
+    'Onda B: importação (R16): modelo de mapeamento e uma importação concluída',
+  );
+  const modelos = itens(await lider.get('/importacoes/modelos'));
+  const mapeamentoPadrao = {
+    Nome: 'nome',
+    'E-mail': 'email',
+    Celular: 'telefone',
+    Cargo: 'cargo',
+    Empresa: 'empresa',
+    Etiquetas: 'etiquetas',
+  };
+  let modelo = modelos.find((m) => m.nome === 'Lista de feira (padrão)');
+  if (!modelo) {
+    modelo = await lider.post('/importacoes/modelos', {
+      nome: 'Lista de feira (padrão)',
+      tipo: 'CONTATOS',
+      mapeamento: mapeamentoPadrao,
+      opcoes: { duplicados: 'ATUALIZAR_VAZIOS', etiquetas: ['Feira 2026'] },
+    });
+    nota('modelo "Lista de feira (padrão)" criado');
+  } else {
+    nota('modelo de importação já existe');
+  }
+  const importacoes = itens(await lider.get('/importacoes?porPagina=50'));
+  if (importacoes.some((i) => i.status === 'CONCLUIDA')) {
+    nota('já existe importação concluída');
+  } else {
+    const linhas = [
+      'Nome;E-mail;Celular;Cargo;Empresa;Etiquetas',
+      'Aline Moreira;aline.moreira@feira-demo.example.com;(11) 97100-2001;Diretora comercial;Moreira Alimentos;Feira 2026',
+      'Bruno Casagrande;bruno.casagrande@feira-demo.example.com;(11) 97100-2002;Gerente de TI;Casagrande Logística;Feira 2026',
+      'Cintia Vasconcelos;cintia.v@feira-demo.example.com;(21) 97100-2003;Sócia;Vasconcelos Design;Feira 2026',
+      'Daniel Pires;daniel.pires@feira-demo.example.com;(31) 97100-2004;Comprador;Pires Materiais;',
+      'Elisa Tanaka;elisa.tanaka@feira-demo.example.com;(41) 97100-2005;CEO;Tanaka Tech;Feira 2026',
+      'Fabio Lacerda;fabio.lacerda@feira-demo.example.com;(51) 97100-2006;Analista;Lacerda & Filhos;Feira 2026',
+      'Contato sem e-mail nem telefone;;;Assistente;Sem Dados Ltda;',
+      'Aline Moreira (repetida);aline.moreira@feira-demo.example.com;(11) 97100-2001;Diretora;Moreira Alimentos;',
+      'Gisele Barros;e-mail-invalido;(61) 97100-2007;Gerente;Barros Consultoria;Feira 2026',
+    ];
+    const arquivo = await enviarArquivo(
+      lider,
+      'IMPORTACAO',
+      'lista-feira-2026.csv',
+      'text/csv',
+      `﻿${linhas.join('\n')}\n`,
+    );
+    const rascunho = await lider.post('/importacoes', {
+      tipo: 'CONTATOS',
+      arquivoId: arquivo.id,
+    });
+    await lider.patch(`/importacoes/${rascunho.id}`, {
+      modeloId: modelo.id,
+      origemDetalhe: 'Feira de negócios 2026',
+    });
+    await lider.post(`/importacoes/${rascunho.id}/iniciar`);
+    const final = await esperarAte(
+      'a importação terminar',
+      async () => {
+        const atual = await lider.get(`/importacoes/${rascunho.id}`);
+        return ['CONCLUIDA', 'FALHOU', 'CANCELADA'].includes(atual.status)
+          ? atual
+          : null;
+      },
+      { ms: 60_000 },
+    );
+    nota(
+      `importação "${final.status}": ${final.criados} criados, ${final.atualizados} atualizados, ${final.erros} com erro`,
+    );
+  }
+
+  // ---------------------------------------------------------- disparos ---
+  passo('Onda B: disparos (R17): campanhas em vários estados');
+  const numerosWhats = await admin.get('/whatsapp/numeros');
+  const numero =
+    itens(numerosWhats).find(
+      (n) =>
+        n.status === 'CONECTADO' && /vendas/i.test(n.nome ?? n.apelido ?? ''),
+    ) ?? itens(numerosWhats).find((n) => n.status === 'CONECTADO');
+  if (!numero)
+    parar('Nenhum número de WhatsApp conectado (rode a etapa atendimento).');
+  const campanhas = itens(await lider.get('/disparos/campanhas?porPagina=100'));
+  const jaTem = (nome) => campanhas.find((c) => c.nome === nome);
+
+  const etiqueta = (nome) => ({
+    condicoes: [
+      { campo: 'etiquetas', operador: 'contem_alguma', valor: [nome] },
+    ],
+  });
+  async function contatosDaCampanha(rotulo, quantidade, base) {
+    const lista = [];
+    for (let i = 0; i < quantidade; i++) {
+      const numeroTel = `${base + i}`;
+      const nome = `${rotulo} ${String(i + 1).padStart(2, '0')}`;
+      const { contato } = await lider.post('/contatos', {
+        nome,
+        telefone: numeroTel,
+        origem: 'MANUAL',
+        etiquetas: [rotulo],
+        consentimento: {
+          origem: 'Cadastro de demonstração',
+          em: new Date().toISOString(),
+        },
+      });
+      lista.push(contato);
+    }
+    return lista;
+  }
+  const ritmo = (min, max) => ({
+    intervaloMinimoSegundos: min,
+    intervaloMaximoSegundos: max,
+    simularDigitando: true,
+    pausarAposFalhas: 5,
+  });
+
+  // 1. Rascunho
+  if (!jaTem('Reengajamento de leads frios')) {
+    await lider.post('/disparos/campanhas', {
+      nome: 'Reengajamento de leads frios',
+      descricao: 'Rascunho: ainda falta escolher o público e o texto final.',
+      canal: 'WHATSAPP',
+      canalIds: [numero.canalId],
+      tipoPublico: 'SEGMENTO',
+      segmento: {
+        condicoes: [
+          {
+            campo: 'etiquetas',
+            operador: 'contem_alguma',
+            valor: ['Lead frio'],
+          },
+        ],
+      },
+      texto:
+        'Oi {{contato.primeiro_nome|tudo bem}}! {Faz tempo que não falamos|Sentimos sua falta}. Posso te mostrar as novidades?',
+      ...ritmo(30, 60),
+    });
+    nota('rascunho "Reengajamento de leads frios"');
+  }
+
+  // 2. Agendada (amanhã às 10h)
+  if (!jaTem('Convite para o webinar de março')) {
+    const rotulo = 'Webinar Onda B';
+    await contatosDaCampanha(rotulo, 5, 11970013000);
+    const criada = await lider.post('/disparos/campanhas', {
+      nome: 'Convite para o webinar de março',
+      descricao: 'Agendada para amanhã às 10h.',
+      canal: 'WHATSAPP',
+      canalIds: [numero.canalId],
+      tipoPublico: 'SEGMENTO',
+      segmento: etiqueta(rotulo),
+      texto:
+        'Olá, {{contato.primeiro_nome}}! Vamos falar de {automação|organização} comercial no nosso webinar. Responda SAIR para não receber mais.',
+      janelaEnvio: {
+        fusoHorario: 'America/Sao_Paulo',
+        dias: Object.fromEntries(
+          [1, 2, 3, 4, 5].map((d) => [
+            String(d),
+            [{ inicio: '09:00', fim: '18:00' }],
+          ]),
+        ),
+      },
+      ...ritmo(30, 60),
+    });
+    await lider.post(`/disparos/campanhas/${criada.id}/iniciar`, {
+      agendadaPara: new Date(diaEm(1, 10)).toISOString(),
+    });
+    nota('agendada "Convite para o webinar de março"');
+  }
+
+  // 3. Em andamento (ritmo lento: continua enviando durante a demonstração)
+  if (!jaTem('Oferta de renovação antecipada')) {
+    const rotulo = 'Renovação Onda B';
+    await contatosDaCampanha(rotulo, 14, 11970014000);
+    const criada = await lider.post('/disparos/campanhas', {
+      nome: 'Oferta de renovação antecipada',
+      descricao: 'Em andamento, com intervalos longos (anti-banimento).',
+      canal: 'WHATSAPP',
+      canalIds: [numero.canalId],
+      tipoPublico: 'SEGMENTO',
+      segmento: etiqueta(rotulo),
+      texto:
+        'Oi, {{contato.primeiro_nome}}! Quem renova até o fim do mês ganha {10%|um mês} de desconto. Quer saber mais?',
+      ...ritmo(90, 150),
+    });
+    await lider.post(`/disparos/campanhas/${criada.id}/iniciar`, {});
+    nota(
+      'em andamento "Oferta de renovação antecipada" (14 contatos, 90–150 s entre envios)',
+    );
+  }
+
+  // 4. Concluída com respostas e saídas
+  if (!jaTem('Pesquisa de satisfação — outubro')) {
+    const rotulo = 'Pesquisa Onda B';
+    const lista = await contatosDaCampanha(rotulo, 6, 11970015000);
+    const criada = await lider.post('/disparos/campanhas', {
+      nome: 'Pesquisa de satisfação — outubro',
+      descricao: 'Concluída: duas respostas e uma saída (SAIR).',
+      canal: 'WHATSAPP',
+      canalIds: [numero.canalId],
+      tipoPublico: 'SEGMENTO',
+      segmento: etiqueta(rotulo),
+      texto:
+        'Olá, {{contato.primeiro_nome}}! De 0 a 10, quanto você recomendaria a BRL a um colega?',
+      ...ritmo(1, 2),
+    });
+    await lider.post(`/disparos/campanhas/${criada.id}/iniciar`, {});
+    await esperarAte(
+      'a campanha de pesquisa concluir',
+      async () =>
+        (await lider.get(`/disparos/campanhas/${criada.id}`)).status ===
+        'CONCLUIDA',
+      { ms: 120_000, passo: 2_000 },
+    );
+    await simularWhatsapp(
+      numero.id,
+      '11970015000',
+      lista[0].nome,
+      'Dez! Atendimento nota 10.',
+    );
+    await esperar(800);
+    await simularWhatsapp(
+      numero.id,
+      '11970015001',
+      lista[1].nome,
+      'Nota 8, mas o suporte poderia ser mais rápido.',
+    );
+    await esperar(800);
+    await simularWhatsapp(numero.id, '11970015002', lista[2].nome, 'SAIR');
+    await esperar(2_500);
+    const relatorio = await lider.get(
+      `/disparos/campanhas/${criada.id}/relatorio`,
+    );
+    nota(
+      `concluída "Pesquisa de satisfação — outubro": ${relatorio.contadores?.enviados} enviados, ${relatorio.contadores?.respondidos} respostas, ${relatorio.contadores?.optOuts} saída`,
+    );
+  }
+
+  // ----------------------------------------------------------- chatbot ---
+  passo('Onda B: chatbot (R18): fluxos de atendimento');
+  const fluxos = itens(await lider.get('/chatbot/fluxos?porPagina=100'));
+  const filas = await admin.get('/atendimento/filas');
+  const fila = (nome) => filas.find((f) => f.nome === nome)?.id;
+  const canaisAt = itens(await admin.get('/atendimento/canais'));
+  const canalDe = (nome) => canaisAt.find((c) => c.nome === nome)?.id;
+  if (!fluxos.some((f) => f.nome === 'Boas-vindas do site')) {
+    const definicao = {
+      passos: [
+        {
+          id: 'oi',
+          tipo: 'mensagem',
+          config: {
+            texto: 'Olá! Eu sou o assistente da BRL. Como posso ajudar?',
+          },
+        },
+        {
+          id: 'menu',
+          tipo: 'pergunta.opcoes',
+          rotulo: 'Menu inicial',
+          config: {
+            texto: 'Escolha uma opção:',
+            variavel: 'assunto',
+            tentativas: 2,
+            mensagemInvalida: 'Não entendi. Responda com o número da opção.',
+            opcoes: [
+              { id: 'comercial', rotulo: 'Quero conhecer os planos' },
+              { id: 'suporte', rotulo: 'Preciso de suporte' },
+              { id: 'outro', rotulo: 'Outro assunto' },
+            ],
+            tempoSemResposta: {
+              lembreteAposMinutos: 10,
+              lembrete: 'Ainda por aí? Escolha uma opção para continuarmos.',
+              encerrarAposMinutos: 30,
+            },
+          },
+          ramos: [
+            {
+              id: 'comercial',
+              rotulo: 'Quero conhecer os planos',
+              passos: [
+                {
+                  id: 'nome',
+                  tipo: 'pergunta.aberta',
+                  config: {
+                    texto: 'Perfeito! Qual é o seu nome?',
+                    variavel: 'nome',
+                    campoContato: 'nome',
+                  },
+                },
+                {
+                  id: 'etq',
+                  tipo: 'acao.etiquetar',
+                  config: { etiquetas: ['Lead do chatbot'] },
+                },
+                {
+                  id: 'vai_vendas',
+                  tipo: 'transferir',
+                  config: {
+                    mensagem: 'Obrigado! Vou chamar um consultor comercial.',
+                    filaId: fila('Vendas'),
+                    incluirResumo: true,
+                  },
+                },
+              ],
+            },
+            {
+              id: 'suporte',
+              rotulo: 'Preciso de suporte',
+              passos: [
+                {
+                  id: 'vai_suporte',
+                  tipo: 'transferir',
+                  config: {
+                    mensagem: 'Certo, vou chamar o suporte.',
+                    filaId: fila('Suporte CS'),
+                    incluirResumo: true,
+                  },
+                },
+              ],
+            },
+            {
+              id: 'outro',
+              rotulo: 'Outro assunto',
+              passos: [
+                {
+                  id: 'descricao',
+                  tipo: 'pergunta.aberta',
+                  config: {
+                    texto: 'Conte em uma frase o que você precisa.',
+                    variavel: 'descricao',
+                  },
+                },
+                {
+                  id: 'vai_triagem',
+                  tipo: 'transferir',
+                  config: {
+                    mensagem:
+                      'Anotado! Alguém da equipe responde em instantes.',
+                    filaId: fila('Triagem do site'),
+                    incluirResumo: true,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const canaisIds = [
+      canalDe('Chat do site'),
+      canalDe('WhatsApp Suporte'),
+    ].filter(Boolean);
+    const criado = await lider.post('/chatbot/fluxos', {
+      nome: 'Boas-vindas do site',
+      descricao:
+        'Menu inicial: planos, suporte ou outro assunto, com transferência para a fila certa.',
+      area: 'COMERCIAL',
+      canalIds: canaisIds,
+      gatilho: 'NOVA_CONVERSA',
+      prioridade: 10,
+      definicao,
+    });
+    await lider.post(`/chatbot/fluxos/${criado.id}/publicar`, {});
+    await lider.post(`/chatbot/fluxos/${criado.id}/ativar`, {});
+    nota(
+      'fluxo "Boas-vindas do site" publicado e ativo (Chat do site e WhatsApp Suporte)',
+    );
+  }
+  if (!fluxos.some((f) => f.nome === 'Segunda via de boleto')) {
+    await lider.post('/chatbot/fluxos', {
+      nome: 'Segunda via de boleto',
+      descricao:
+        'Rascunho: dispara pela palavra "boleto" e transfere ao suporte.',
+      area: 'COMERCIAL',
+      gatilho: 'PALAVRA_CHAVE',
+      palavrasChave: ['boleto', 'segunda via'],
+      prioridade: 20,
+      definicao: {
+        passos: [
+          {
+            id: 'msg',
+            tipo: 'mensagem',
+            config: { texto: 'Vou te ajudar com o boleto.' },
+          },
+          {
+            id: 'cpf',
+            tipo: 'pergunta.aberta',
+            config: {
+              texto: 'Qual é o seu e-mail de cadastro?',
+              variavel: 'email_cadastro',
+              validacao: 'EMAIL',
+            },
+          },
+          {
+            id: 'fim',
+            tipo: 'transferir',
+            config: { filaId: fila('Suporte CS'), incluirResumo: true },
+          },
+        ],
+      },
+    });
+    nota('rascunho "Segunda via de boleto"');
+  }
+  // Uma conversa de verdade no chat do site, para o histórico de execuções
+  const fluxoAtivo = itens(
+    await lider.get('/chatbot/fluxos?porPagina=100'),
+  ).find((f) => f.nome === 'Boas-vindas do site');
+  if (fluxoAtivo) {
+    const execs = itens(
+      await lider.get(`/chatbot/fluxos/${fluxoAtivo.id}/execucoes`),
+    );
+    if (execs.length === 0) {
+      const siteCanalId = canalDe('Chat do site');
+      const chave = (await admin.get(`/webchat/canais/${siteCanalId}`))
+        .chavePublica;
+      for (const [nome, textos] of [
+        [
+          'Visitante Onda B Planos',
+          ['Oi, quero saber dos planos', '1', 'Marcelo Prado'],
+        ],
+        ['Visitante Onda B Suporte', ['Bom dia', '2']],
+      ]) {
+        const criado = await widget(chave, '/visitantes', {
+          nome,
+          email: `${nome.toLowerCase().replace(/\s+/g, '.')}@exemplo.com.br`,
+          consentimento: true,
+          pagina: 'https://www.brl-demo.local/precos',
+        });
+        const token =
+          criado.token ?? criado.visitanteToken ?? criado.visitanteId;
+        for (const texto of textos) {
+          await widget(chave, '/mensagens', { token, texto });
+          await esperar(1_200);
+        }
+      }
+      nota(
+        '2 conversas de visitante passaram pelo fluxo (histórico de execuções)',
+      );
+    }
+  }
+
+  // --------------------------------------------------------- automações ---
+  passo('Onda B: automações (R19)');
+  const automacoes = itens(await lider.get('/automacoes?porPagina=100'));
+  const modeloPronto = async (chave, dados) => {
+    const existente = automacoes.find((a) => a.nome === (dados.nome ?? ''));
+    if (existente) return existente;
+    return lider.post(`/automacoes/modelos-prontos/${chave}`, dados);
+  };
+  const boasVindas = await modeloPronto('boas_vindas_lead', {
+    nome: 'Boas-vindas ao lead',
+    area: 'COMERCIAL',
+  });
+  const followUp = await modeloPronto('follow_up_proposta', {
+    nome: 'Follow-up de proposta',
+    area: 'COMERCIAL',
+    gatilhoConfig: { etapaId: etapa('COMERCIAL', 'proposta') },
+  });
+  for (const automacao of [boasVindas, followUp]) {
+    if (!automacao.ativa) {
+      await lider.post(`/automacoes/${automacao.id}/ativar`, {});
+      nota(`"${automacao.nome}" ativada`);
+    }
+  }
+  const execucoesAnt = itens(
+    await lider.get(`/automacoes/execucoes?automacaoId=${boasVindas.id}`),
+  );
+  if (execucoesAnt.length === 0) {
+    // Leads novos disparam a automação de boas-vindas; um negócio na Proposta dispara o follow-up.
+    const novos = [];
+    for (const [nome, tel] of [
+      ['Lead Onda B Patricia Alves', '11970016001'],
+      ['Lead Onda B Renato Siqueira', '11970016002'],
+      ['Lead Onda B Tatiane Gomes', '11970016003'],
+    ]) {
+      const { contato } = await lider.post('/contatos', {
+        nome,
+        telefone: tel,
+        origem: 'SITE',
+        etiquetas: ['Lead Onda B'],
+      });
+      novos.push(contato);
+      await esperar(500);
+    }
+    const negocio = await lider.post('/negocios', {
+      contatoId: novos[0].id,
+      funilId: funis.COMERCIAL.id,
+      titulo: 'Onda B — proposta Alves Consultoria',
+    });
+    await lider.post(`/negocios/${negocio.id}/mover`, {
+      etapaId: etapa('COMERCIAL', 'proposta'),
+    });
+    // Uma execução em modo teste, já terminada, para mostrar o resultado passo a passo.
+    await lider.post(`/automacoes/${boasVindas.id}/testar`, {
+      entidadeId: novos[2].id,
+    });
+    await esperar(6_000);
+    nota('3 leads novos + 1 negócio na Proposta + 1 execução em modo teste');
+  } else {
+    nota('automações já têm histórico');
+  }
+  console.log('\n✓ Etapa onda-b concluída.');
+}
+
 async function principal() {
   console.log(
     `Semeando a demonstração do BRL CRM em ${API} (origem ${ORIGEM})`,
   );
+
+  if (ETAPA === 'onda-b') {
+    passo('Verificando a API');
+    await verificarApi();
+    await etapaOndaB();
+    return;
+  }
 
   if (ETAPA === 'atendimento') {
     // Só a etapa de atendimento, sobre a base já semeada (idempotente).
@@ -2872,6 +3433,7 @@ async function principal() {
 
   if (RODAR_ATENDIMENTO) {
     await etapaAtendimento();
+    if (RODAR_ONDA_B) await etapaOndaB();
   }
 
   // Sai de todas as sessões abertas pelo script (o desligado já perdeu a dele, R2.4)
