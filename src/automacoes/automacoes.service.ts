@@ -46,6 +46,7 @@ import {
 import { MODELOS_PRONTOS, modeloPronto } from './modelos-prontos';
 import {
   areaDaNovaAutomacao,
+  marketingDaNovaAutomacao,
   filtroDeAutomacoesVisiveis,
   podeGerenciarAutomacao,
   podeUsarAutomacoes,
@@ -430,12 +431,13 @@ export class AutomacoesService {
     });
     this.lancarSeInvalida(avaliacao);
     const entidade = avaliacao.entidade!;
+    const area = areaDaNovaAutomacao(usuario, dto.area);
     const criada = await this.prisma.$transaction(async (tx) => {
       const automacao = await tx.automacao.create({
         data: {
           nome: dto.nome,
           descricao: dto.descricao ?? null,
-          area: areaDaNovaAutomacao(usuario, dto.area),
+          area,
           ativa: false,
           tipoGatilho: dto.tipoGatilho,
           evento: dto.tipoGatilho === 'EVENTO' ? dto.evento : null,
@@ -449,7 +451,7 @@ export class AutomacoesService {
             limite === 'UMA_VEZ_POR_PERIODO'
               ? (dto.limitePeriodoDias ?? null)
               : null,
-          marketing: dto.marketing ?? false,
+          marketing: marketingDaNovaAutomacao(area, dto.marketing),
           modelo: dto.modelo ?? null,
           criadoPorId: usuario.id,
         },

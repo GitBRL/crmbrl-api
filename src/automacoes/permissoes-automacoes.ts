@@ -45,3 +45,11 @@ export function areaDaNovaAutomacao(
     ? (pedida ?? null)
     : areaDoPapel(usuario.papel);
 }
+
+/** `marketing` da nova automação: o que veio no pedido; sem ele, verdadeiro numa área de Marketing (R4.6). */
+export function marketingDaNovaAutomacao(
+  area: Area | null,
+  pedido: boolean | null | undefined,
+): boolean {
+  return pedido ?? area === 'MARKETING';
+}

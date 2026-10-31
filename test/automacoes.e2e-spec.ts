@@ -126,6 +126,45 @@ describe('Automações e cadências (e2e, R19)', () => {
         .get(`/api/v1/automacoes/${global.body.id}`)
         .expect(404);
     });
+
+    it('R4.6 — sem o campo marketing, a automação de uma área MARKETING (ou do líder de Marketing) nasce com marketing=true', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING');
+      const liderMarketing = await entrarComo(t, marketing.lider);
+      const doLider = await liderMarketing
+        .post('/api/v1/automacoes', {
+          nome: 'Do líder',
+          ...GATILHO_CONTATO_CRIADO,
+        })
+        .expect(201);
+      expect(doLider.body).toMatchObject({
+        area: 'MARKETING',
+        marketing: true,
+      });
+      const daDiretoria = await admin
+        .post('/api/v1/automacoes', {
+          nome: 'Da diretoria',
+          area: 'MARKETING',
+          ...GATILHO_CONTATO_CRIADO,
+        })
+        .expect(201);
+      expect(daDiretoria.body.marketing).toBe(true);
+      // O que veio no pedido vale; e fora de Marketing o padrão segue falso.
+      const explicita = await liderMarketing
+        .post('/api/v1/automacoes', {
+          nome: 'Explícita',
+          marketing: false,
+          ...GATILHO_CONTATO_CRIADO,
+        })
+        .expect(201);
+      expect(explicita.body.marketing).toBe(false);
+      const global = await admin
+        .post('/api/v1/automacoes', {
+          nome: 'Global',
+          ...GATILHO_CONTATO_CRIADO,
+        })
+        .expect(201);
+      expect(global.body.marketing).toBe(false);
+    });
   });
 
   // ---------------------------------------------------------------------

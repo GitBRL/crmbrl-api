@@ -2,6 +2,7 @@ import type { Papel } from '../generated/prisma/client';
 import {
   areaDaNovaAutomacao,
   filtroDeAutomacoesVisiveis,
+  marketingDaNovaAutomacao,
   podeGerenciarAutomacao,
   podeUsarAutomacoes,
 } from './permissoes-automacoes';
@@ -50,5 +51,15 @@ describe('Permissões das automações (R19.1)', () => {
     );
     expect(areaDaNovaAutomacao(usuario('C_LEVEL'), 'CS')).toBe('CS');
     expect(areaDaNovaAutomacao(usuario('C_LEVEL'), undefined)).toBeNull();
+  });
+
+  it('R4.6 — sem o campo marketing, a automação de uma área MARKETING nasce com marketing=true', () => {
+    expect(marketingDaNovaAutomacao('MARKETING', undefined)).toBe(true);
+    expect(marketingDaNovaAutomacao('MARKETING', null)).toBe(true);
+    expect(marketingDaNovaAutomacao('COMERCIAL', undefined)).toBe(false);
+    expect(marketingDaNovaAutomacao(null, undefined)).toBe(false);
+    // O que veio no pedido vale sempre.
+    expect(marketingDaNovaAutomacao('MARKETING', false)).toBe(false);
+    expect(marketingDaNovaAutomacao('CS', true)).toBe(true);
   });
 });
