@@ -6,6 +6,7 @@ import { AtividadesModule } from './atividades/atividades.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
+import { AnaliseModule } from './bi/analise/analise.module';
 import { BiModule } from './bi/bi.module';
 import { AutomacoesModule } from './automacoes/automacoes.module';
 import { CanaisModule } from './canais/canais.module';
@@ -91,6 +92,7 @@ export class AppModule {
         AutomacoesModule,
         // Módulos de negócio (Onda C): BI.
         BiModule,
+        AnaliseModule,
         // Onda C: financeiro (contratos, parcelas, régua de cobrança).
         FinanceiroModule,
       ],

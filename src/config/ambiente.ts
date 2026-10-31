@@ -78,6 +78,17 @@ export interface ConfiguracaoMeta {
   readonly graphVersao: string;
 }
 
+/**
+ * Claude (Anthropic) para a análise do BI (R21). A chave nunca fica aqui: o SDK
+ * a lê de `ANTHROPIC_API_KEY` no próprio processo; a API só sabe se ela existe.
+ */
+export interface ConfiguracaoAnthropic {
+  /** `ANTHROPIC_API_KEY` preenchida: a análise por IA pode ser usada. */
+  readonly configurada: boolean;
+  /** `ANTHROPIC_BASE_URL` (a API falsa do ambiente dos agentes); `null` = a padrão do SDK. */
+  readonly urlBase: string | null;
+}
+
 export interface ConfiguracaoSessao {
   /** Sem uso por tanto tempo, a sessão expira (R2.2, padrão 7 dias). */
   readonly inatividadeDias: number;
@@ -148,6 +159,7 @@ export interface Ambiente {
   readonly whatsapp: ConfiguracaoWhatsapp;
   /** Graph API da Meta (Instagram e Messenger, R14). */
   readonly meta: ConfiguracaoMeta;
+  readonly anthropic: ConfiguracaoAnthropic;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -192,6 +204,8 @@ export interface VariaveisDeAmbiente {
   WHATSAPP_PORTA?: string;
   META_GRAPH_URL?: string;
   META_GRAPH_VERSAO?: string;
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_BASE_URL?: string;
 }
 
 const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
@@ -233,6 +247,8 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'WHATSAPP_PORTA',
   'META_GRAPH_URL',
   'META_GRAPH_VERSAO',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
 ];
 
 export function variaveisDoProcesso(): VariaveisDeAmbiente {
@@ -317,6 +333,7 @@ export function lerAmbiente(
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
+    anthropic: lerAnthropic(variaveis, problemas),
     avisos,
   };
 
@@ -850,4 +867,23 @@ function lerMeta(
     );
   }
   return { graphUrl, graphVersao: versao };
+}
+
+/**
+ * `ANTHROPIC_*` (R21): só a presença da chave (o valor nunca sai do processo
+ * nem vai para log) e a base opcional da API.
+ */
+function lerAnthropic(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoAnthropic {
+  return {
+    configurada: limpar(variaveis.ANTHROPIC_API_KEY) !== undefined,
+    urlBase: lerEnderecoHttp(
+      'ANTHROPIC_BASE_URL',
+      variaveis.ANTHROPIC_BASE_URL,
+      null,
+      problemas,
+    ),
+  };
 }

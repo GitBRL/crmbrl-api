@@ -282,6 +282,7 @@ model Usuario {
   automacoesCriadas          Automacao[]                     @relation("AutomacaoCriadaPor")
   // Onda C
   contratosCs                Contrato[]                      @relation("ContratoResponsavelCs")
+  analisesIa                 AnaliseIa[]                     @relation("AnaliseIaSolicitadaPor")
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -2749,4 +2750,73 @@ model ReguaEnvio {
   @@index([execucaoId])
   @@index([ligacaoId])
   @@map("regua_envios")
+}
+
+// ---------------------------------------------------------------------------
+// Análise do BI por IA (R21)
+// ---------------------------------------------------------------------------
+
+enum StatusAnaliseIa {
+  EM_ANDAMENTO
+  CONCLUIDA
+  FALHOU
+}
+
+/// Uma análise de painel do BI pelo Claude (R21, só Admin). `entrada` guarda
+/// exatamente os números agregados enviados (nada de dados de contatos);
+/// `resultado` é a análise validada (links conferidos). Os tokens somam as
+/// tentativas e as perguntas de acompanhamento. Conta no limite diário enquanto
+/// não falhar.
+model AnaliseIa {
+  id                 String          @id @default(uuid()) @db.Uuid
+  usuarioId          String          @map("usuario_id") @db.Uuid
+  usuario            Usuario         @relation("AnaliseIaSolicitadaPor", fields: [usuarioId], references: [id], onDelete: Restrict)
+  painel             String
+  /// Período e filtros aplicados (o `filtros` e o `periodo` do painel calculado).
+  filtros            Json
+  entrada            Json
+  /// A 1ª mensagem enviada, byte a byte (o JSONB reordena as chaves de `entrada`;
+  /// as perguntas reenviam este texto para aproveitar o cache de prompt).
+  mensagemInicial    String          @map("mensagem_inicial")
+  resultado          Json?
+  status             StatusAnaliseIa @default(EM_ANDAMENTO)
+  erro               String?
+  modelo             String
+  tentativas         Int             @default(0)
+  tokensEntrada      Int             @default(0) @map("tokens_entrada")
+  tokensSaida        Int             @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int             @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int             @default(0) @map("tokens_cache_escrita")
+  duracaoMs          Int?            @map("duracao_ms")
+  criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  concluidoEm        DateTime?       @map("concluido_em") @db.Timestamptz(3)
+
+  perguntas AnaliseIaPergunta[]
+
+  @@index([criadoEm])
+  @@index([usuarioId, criadoEm])
+  @@map("analises_ia")
+}
+
+/// Pergunta de acompanhamento sobre uma análise (R21): a resposta usa a mesma
+/// conversa (entrada, análise e perguntas anteriores).
+model AnaliseIaPergunta {
+  id                 String          @id @default(uuid()) @db.Uuid
+  analiseId          String          @map("analise_id") @db.Uuid
+  analise            AnaliseIa       @relation(fields: [analiseId], references: [id], onDelete: Cascade)
+  pergunta           String
+  resposta           Json?
+  status             StatusAnaliseIa @default(EM_ANDAMENTO)
+  erro               String?
+  tentativas         Int             @default(0)
+  tokensEntrada      Int             @default(0) @map("tokens_entrada")
+  tokensSaida        Int             @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int             @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int             @default(0) @map("tokens_cache_escrita")
+  duracaoMs          Int?            @map("duracao_ms")
+  criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  concluidoEm        DateTime?       @map("concluido_em") @db.Timestamptz(3)
+
+  @@index([analiseId, criadoEm])
+  @@map("analises_ia_perguntas")
 }

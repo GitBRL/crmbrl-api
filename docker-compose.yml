@@ -130,6 +130,10 @@ services:
       SESSAO_INATIVIDADE_DIAS: ${SESSAO_INATIVIDADE_DIAS:-7}
       SESSAO_DURACAO_MAXIMA_DIAS: ${SESSAO_DURACAO_MAXIMA_DIAS:-30}
       SESSAO_RENOVACAO_MINUTOS: ${SESSAO_RENOVACAO_MINUTOS:-5}
+      # Análise do BI por IA (R21), só na API: vazia = desligada (a tela explica
+      # como configurar).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crmbrl.local}
       ADMIN_NOME: ${ADMIN_NOME:-Administrador}
       ADMIN_SENHA_INICIAL: ${ADMIN_SENHA_INICIAL:-}

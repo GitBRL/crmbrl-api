@@ -90,6 +90,7 @@ describe('lerAmbiente', () => {
         graphUrl: META_GRAPH_URL_PADRAO,
         graphVersao: META_GRAPH_VERSAO_PADRAO,
       },
+      anthropic: { configurada: false, urlBase: null },
       avisos: [
         'CHAVE_CRIPTOGRAFIA não definida: usando a chave de desenvolvimento (não use em produção).',
         expect.stringContaining(
@@ -459,6 +460,25 @@ describe('lerAmbiente', () => {
         problemasDe({ DATABASE_URL: URL_DO_BANCO, META_GRAPH_VERSAO: '24' }),
       ).toEqual([expect.stringContaining('META_GRAPH_VERSAO precisa ter')]);
     });
+  });
+
+  it('R21 — Anthropic: só a presença da chave, nunca o valor; base opcional', () => {
+    const ambiente = ler({
+      ANTHROPIC_API_KEY: '  chave-de-teste-que-nao-pode-vazar  ',
+      ANTHROPIC_BASE_URL: 'http://apoio:8092/',
+    });
+    expect(ambiente.anthropic).toEqual({
+      configurada: true,
+      urlBase: 'http://apoio:8092',
+    });
+    expect(JSON.stringify(ambiente)).not.toContain('nao-pode-vazar');
+    expect(ler({ ANTHROPIC_API_KEY: '   ' }).anthropic.configurada).toBe(false);
+    expect(
+      problemasDe({
+        DATABASE_URL: URL_DO_BANCO,
+        ANTHROPIC_BASE_URL: 'ftp://x',
+      }),
+    ).toEqual([expect.stringContaining('ANTHROPIC_BASE_URL precisa ser')]);
   });
 
   it('lê o formato do log', () => {
