@@ -3,7 +3,8 @@
 Guia para colocar o BRL CRM num servidor Linux com Docker, com HTTPS automático (Caddy + Let's Encrypt),
 backup diário do banco e cópia dos dados para fora da máquina. Tudo roda pelo `docker-compose.yml` deste
 repositório, mais o `docker-compose.producao.yml` (HTTPS e variáveis obrigatórias). Não há deploy
-automático: a CI (GitHub Actions) só testa e constrói; a publicação é manual, como abaixo.
+automático: a CI (GitHub Actions) só testa e constrói; a publicação é manual, como abaixo. Para publicar no
+Railway em vez de um servidor próprio, siga o `DEPLOY-RAILWAY.md`.
 
 Os comandos são feitos dentro de `crmbrl-api/`, com o repositório do front (`crmbrl/`) ao lado, na mesma
 pasta pai (o compose constrói o front de `../crmbrl`; mude com `FRONT_DIR`). Abreviação usada no texto:
