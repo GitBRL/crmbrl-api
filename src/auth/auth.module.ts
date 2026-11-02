@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { LimitadorDeRequisicoes } from '../canais/comum/limitador';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { ForcaBrutaService } from './forca-bruta.service';
@@ -26,6 +27,8 @@ import { SessoesService } from './sessoes.service';
     SessoesService,
     ForcaBrutaService,
     SenhasService,
+    // Limite das rotas públicas de senha (instância própria: contagem separada dos canais).
+    LimitadorDeRequisicoes,
     { provide: APP_GUARD, useClass: OrigemGuard },
     { provide: APP_GUARD, useClass: SessaoGuard },
     { provide: APP_GUARD, useClass: PapeisGuard },

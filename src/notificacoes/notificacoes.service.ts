@@ -9,6 +9,7 @@ import {
   NotificacaoDto,
   type PaginaNotificacoesDto,
 } from './notificacoes.dto';
+import { OuvintesDeNotificacao } from './ouvintes-notificacao';
 import type { TipoNotificacao } from './tipos-notificacao';
 
 export interface NovaNotificacao {
@@ -36,16 +37,21 @@ export interface NovaNotificacao {
  */
 @Injectable()
 export class NotificacoesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ouvintes: OuvintesDeNotificacao,
+  ) {}
 
-  notificar(
+  async notificar(
     tx: Tx,
     usuarioId: string,
     notificacao: NovaNotificacao,
   ): Promise<Notificacao> {
-    return tx.notificacao.create({
+    const criada = await tx.notificacao.create({
       data: this.dadosDe(usuarioId, notificacao),
     });
+    await this.ouvintes.avisar(tx, [criada]);
+    return criada;
   }
 
   /** A mesma notificação para várias pessoas (repetidos são ignorados). Devolve quantas criou. */
@@ -58,10 +64,11 @@ export class NotificacoesService {
     if (unicos.length === 0) {
       return 0;
     }
-    const { count } = await tx.notificacao.createMany({
+    const criadas = await tx.notificacao.createManyAndReturn({
       data: unicos.map((usuarioId) => this.dadosDe(usuarioId, notificacao)),
     });
-    return count;
+    await this.ouvintes.avisar(tx, criadas);
+    return criadas.length;
   }
 
   /** Para todos os Admins ativos — alertas de sistema (R10.2: webhooks, equipe sem líder). */

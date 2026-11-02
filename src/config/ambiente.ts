@@ -90,6 +90,21 @@ export interface ConfiguracaoAnthropic {
 }
 
 /**
+ * Notificações push (R26): par de chaves VAPID e o contato (`mailto:` ou https)
+ * que o serviço de push do navegador vê. A chave privada fica atrás de uma função.
+ */
+export interface ConfiguracaoPush {
+  /** As três variáveis VAPID preenchidas e válidas (R26). */
+  readonly configurada: boolean;
+  /** `VAPID_CHAVE_PUBLICA` (base64url; é pública: o front a usa para inscrever). */
+  readonly chavePublica: string | null;
+  /** `VAPID_ASSUNTO` (`mailto:…` ou endereço https). */
+  readonly assunto: string | null;
+  /** O valor de `VAPID_CHAVE_PRIVADA` (só para assinar os envios; fora de JSON e logs). */
+  chavePrivada(): string | null;
+}
+
+/**
  * TicketHub (R25): conta de serviço que abre os chamados do assistente.
  * A senha fica atrás de uma função (não entra em `JSON.stringify`, logs ou
  * respostas); a configuração do Admin, quando preenchida, tem prioridade.
@@ -179,6 +194,9 @@ export interface Ambiente {
   readonly meta: ConfiguracaoMeta;
   readonly anthropic: ConfiguracaoAnthropic;
   readonly ticketHub: ConfiguracaoTicketHub;
+  readonly push: ConfiguracaoPush;
+  /** Pasta dos backups, montada só para leitura (`BACKUP_DIR`, padrão `/backups`): a saúde lê `ultimo.json`. */
+  readonly backupDir: string;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -217,6 +235,7 @@ export interface VariaveisDeAmbiente {
   ARQUIVOS_CHAVE?: string;
   ARQUIVOS_SEGREDO?: string;
   ARQUIVOS_BUCKET?: string;
+  BACKUP_DIR?: string;
   WHATSAPP_URL_INTERNA?: string;
   WHATSAPP_TOKEN_INTERNO?: string;
   WHATSAPP_SIMULADO?: string;
@@ -228,6 +247,9 @@ export interface VariaveisDeAmbiente {
   TICKETHUB_URL?: string;
   TICKETHUB_EMAIL?: string;
   TICKETHUB_SENHA?: string;
+  VAPID_CHAVE_PUBLICA?: string;
+  VAPID_CHAVE_PRIVADA?: string;
+  VAPID_ASSUNTO?: string;
 }
 
 const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
@@ -263,6 +285,7 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'ARQUIVOS_CHAVE',
   'ARQUIVOS_SEGREDO',
   'ARQUIVOS_BUCKET',
+  'BACKUP_DIR',
   'WHATSAPP_URL_INTERNA',
   'WHATSAPP_TOKEN_INTERNO',
   'WHATSAPP_SIMULADO',
@@ -274,6 +297,9 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'TICKETHUB_URL',
   'TICKETHUB_EMAIL',
   'TICKETHUB_SENHA',
+  'VAPID_CHAVE_PUBLICA',
+  'VAPID_CHAVE_PRIVADA',
+  'VAPID_ASSUNTO',
 ];
 
 export function variaveisDoProcesso(): VariaveisDeAmbiente {
@@ -360,13 +386,64 @@ export function lerAmbiente(
     meta: lerMeta(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
     ticketHub: lerTicketHub(variaveis, problemas),
+    push: lerPush(variaveis, problemas, avisos),
+    backupDir: variaveis.BACKUP_DIR?.trim() || '/backups',
     avisos,
   };
+
+  avisosDeProducao(ambiente, variaveis, avisos);
 
   if (problemas.length > 0) {
     throw new AmbienteInvalidoError(problemas);
   }
   return Object.freeze(ambiente);
+}
+
+/** Segredo público de desenvolvimento do MinIO (o padrão do compose). */
+export const ARQUIVOS_SEGREDO_DESENVOLVIMENTO =
+  'crmbrl-arquivos-desenvolvimento';
+
+/**
+ * Configurações que deixam a produção insegura sem impedir a subida (o compose
+ * de desenvolvimento usa os padrões públicos): viram aviso no log da inicialização.
+ * Nunca incluem o valor do segredo.
+ */
+function avisosDeProducao(
+  ambiente: Ambiente,
+  variaveis: VariaveisDeAmbiente,
+  avisos: string[],
+): void {
+  if (!ambiente.producao) {
+    return;
+  }
+  if (ambiente.urlPublica.startsWith('http://')) {
+    avisos.push(
+      'URL_PUBLICA usa http em produção: a sessão e os dados trafegam sem criptografia (use HTTPS pelo Caddy, veja docs/DEPLOY.md).',
+    );
+  } else if (!ambiente.cookieSeguro) {
+    avisos.push(
+      'COOKIE_SEGURO=false com URL_PUBLICA em https: o cookie de sessão pode vazar em http. Use COOKIE_SEGURO=true.',
+    );
+  }
+  if (limpar(variaveis.ARQUIVOS_SEGREDO) === ARQUIVOS_SEGREDO_DESENVOLVIMENTO) {
+    avisos.push(
+      'ARQUIVOS_SEGREDO é o segredo público de desenvolvimento do MinIO: troque-o antes de usar em produção.',
+    );
+  }
+  if (senhaDoBanco(ambiente.databaseUrl) === 'crmbrl') {
+    avisos.push(
+      'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte.',
+    );
+  }
+}
+
+/** A senha da `DATABASE_URL`, ou `null` quando não dá para ler. */
+function senhaDoBanco(url: string): string | null {
+  try {
+    return decodeURIComponent(new URL(url).password) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Texto sem espaços nas pontas; vazio vira `undefined`. */
@@ -767,6 +844,78 @@ function lerTicketHub(
     senhaDefinida: senha !== null,
     configurado: url !== null && email !== null && senha !== null,
     senha: () => senha,
+  };
+}
+
+/** Chave pública VAPID: ponto P-256 não comprimido (65 bytes) em base64url. */
+const CHAVE_PUBLICA_VAPID = /^[A-Za-z0-9_-]{87}$/;
+/** Chave privada VAPID: 32 bytes em base64url. */
+const CHAVE_PRIVADA_VAPID = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * `VAPID_*` (R26). Sem as três, o push fica desligado (a API sobe; só avisa se faltar parte);
+ * valores malformados impedem a subida, sem repetir o valor na mensagem.
+ */
+function lerPush(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+  avisos: string[],
+): ConfiguracaoPush {
+  const publica = limpar(variaveis.VAPID_CHAVE_PUBLICA) ?? null;
+  const privada = limpar(variaveis.VAPID_CHAVE_PRIVADA) ?? null;
+  const assunto = limpar(variaveis.VAPID_ASSUNTO) ?? null;
+  const desligada: ConfiguracaoPush = {
+    configurada: false,
+    chavePublica: null,
+    assunto: null,
+    chavePrivada: () => null,
+  };
+  if (!publica && !privada && !assunto) {
+    return desligada;
+  }
+  const faltam = [
+    ['VAPID_CHAVE_PUBLICA', publica],
+    ['VAPID_CHAVE_PRIVADA', privada],
+    ['VAPID_ASSUNTO', assunto],
+  ]
+    .filter(([, valor]) => !valor)
+    .map(([nome]) => nome);
+  if (faltam.length > 0) {
+    avisos.push(
+      `${faltam.join(', ')} não definida(s): as notificações push ficam desligadas (elas precisam das três variáveis VAPID).`,
+    );
+    return desligada;
+  }
+  let validas = true;
+  if (!CHAVE_PUBLICA_VAPID.test(publica as string)) {
+    problemas.push(
+      'VAPID_CHAVE_PUBLICA inválida: use a chave pública gerada com `web-push generate-vapid-keys` (base64url, 87 caracteres).',
+    );
+    validas = false;
+  }
+  if (!CHAVE_PRIVADA_VAPID.test(privada as string)) {
+    problemas.push(
+      'VAPID_CHAVE_PRIVADA inválida: use a chave privada gerada com `web-push generate-vapid-keys` (base64url, 43 caracteres).',
+    );
+    validas = false;
+  }
+  if (
+    !(assunto as string).startsWith('mailto:') &&
+    !(assunto as string).startsWith('https://')
+  ) {
+    problemas.push(
+      'VAPID_ASSUNTO precisa começar com mailto: (ou ser um endereço https).',
+    );
+    validas = false;
+  }
+  if (!validas) {
+    return desligada;
+  }
+  return {
+    configurada: true,
+    chavePublica: publica,
+    assunto,
+    chavePrivada: () => privada,
   };
 }
 

@@ -1,3 +1,4 @@
+import { generateVAPIDKeys } from 'web-push';
 import {
   AmbienteInvalidoError,
   CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO,
@@ -49,6 +50,12 @@ function problemasDe(variaveis: VariaveisDeAmbiente): readonly string[] {
 }
 
 describe('lerAmbiente', () => {
+  it('R27 — BACKUP_DIR troca a pasta dos backups lida pela saúde', () => {
+    expect(ler({ BACKUP_DIR: ' /dados/backups ' }).backupDir).toBe(
+      '/dados/backups',
+    );
+  });
+
   it('usa os padrões de desenvolvimento quando só a DATABASE_URL está definida', () => {
     expect(ler({})).toEqual({
       databaseUrl: URL_DO_BANCO,
@@ -98,6 +105,13 @@ describe('lerAmbiente', () => {
         configurado: false,
         senha: expect.any(Function),
       },
+      push: {
+        configurada: false,
+        chavePublica: null,
+        assunto: null,
+        chavePrivada: expect.any(Function),
+      },
+      backupDir: '/backups',
       avisos: [
         'CHAVE_CRIPTOGRAFIA não definida: usando a chave de desenvolvimento (não use em produção).',
         expect.stringContaining(
@@ -505,6 +519,37 @@ describe('lerAmbiente', () => {
     expect(ler({ TICKETHUB_URL: 'http://x' }).ticketHub.configurado).toBe(
       false,
     );
+  });
+
+  it('R26 — VAPID: as três variáveis ligam o push; a chave privada só sai pela função', () => {
+    const chaves = generateVAPIDKeys();
+    const ambiente = ler({
+      VAPID_CHAVE_PUBLICA: chaves.publicKey,
+      VAPID_CHAVE_PRIVADA: chaves.privateKey,
+      VAPID_ASSUNTO: 'mailto:ti@brl.com.br',
+    });
+    expect(ambiente.push).toMatchObject({
+      configurada: true,
+      chavePublica: chaves.publicKey,
+      assunto: 'mailto:ti@brl.com.br',
+    });
+    expect(ambiente.push.chavePrivada()).toBe(chaves.privateKey);
+    expect(JSON.stringify(ambiente)).not.toContain(chaves.privateKey);
+  });
+
+  it('R26 — VAPID incompleta desliga o push com aviso; malformada impede a subida sem repetir o valor', () => {
+    const chaves = generateVAPIDKeys();
+    const parcial = ler({ VAPID_CHAVE_PUBLICA: chaves.publicKey });
+    expect(parcial.push.configurada).toBe(false);
+    expect(parcial.avisos.join(' ')).toContain('VAPID_CHAVE_PRIVADA');
+    const problemas = problemasDe({
+      DATABASE_URL: URL_DO_BANCO,
+      VAPID_CHAVE_PUBLICA: 'curta',
+      VAPID_CHAVE_PRIVADA: 'segredo-invalido',
+      VAPID_ASSUNTO: 'ti@brl.com.br',
+    });
+    expect(problemas).toHaveLength(3);
+    expect(problemas.join(' ')).not.toContain('segredo-invalido');
   });
 
   it('lê o formato do log', () => {

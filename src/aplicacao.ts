@@ -1,6 +1,7 @@
 import { VersioningType } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { reabrirContexto } from './comum/contexto/contexto.middleware';
+import { criarMiddlewareDeCabecalhos } from './comum/http/cabecalhos-de-seguranca';
 import { criarValidationPipe } from './comum/validacao/validacao';
 import type { Ambiente } from './config/ambiente';
 import {
@@ -58,6 +59,10 @@ export function configurarAplicacao(
 
   // Primeiro de tudo: X-Request-Id, contexto da requisição e log HTTP (R3.6, R3.7).
   app.use(criarMiddlewareDeRequisicao());
+  // Cabeçalhos de segurança; HSTS só com HTTPS de ponta a ponta (produção + cookie seguro).
+  app.use(
+    criarMiddlewareDeCabecalhos(ambiente.producao && ambiente.cookieSeguro),
+  );
   app.useBodyParser('json', { limit: LIMITE_CORPO_JSON });
   app.useBodyParser('urlencoded', {
     extended: true,

@@ -22,6 +22,7 @@ import type { Response } from 'express';
 import { definirUsuarioDoContexto } from '../comum/contexto/contexto-requisicao';
 import { ApiRespostasDeErro } from '../comum/erros/documentacao-erros';
 import { type RequisicaoHttp, truncar } from '../comum/http/requisicao-http';
+import { LimitadorDeRequisicoes } from '../canais/comum/limitador';
 import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import { AuthService, type MetadadosDoLogin } from './auth.service';
 import {
@@ -47,6 +48,16 @@ import {
 import { SenhasService } from './senhas.service';
 import type { UsuarioAutenticado } from './usuario-autenticado';
 
+/** Limites das rotas públicas de senha, por IP (e por e-mail no pedido de link). */
+export const LIMITES_DE_SENHA = {
+  /** Pedidos de link de redefinição por IP. */
+  esqueciPorIp: { limite: 10, janelaMs: 15 * 60_000 },
+  /** Pedidos de link por e-mail (conta igual exista o e-mail ou não). */
+  esqueciPorEmail: { limite: 3, janelaMs: 15 * 60_000 },
+  /** Consulta e uso do token por IP: impede adivinhar tokens. */
+  tokenPorIp: { limite: 30, janelaMs: 15 * 60_000 },
+} as const;
+
 /** Login, sessão e senha (R2). */
 @ApiTags('Autenticação')
 @Controller('auth')
@@ -55,6 +66,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly senhas: SenhasService,
     private readonly adaptador: HttpAdapterHost,
+    private readonly limitador: LimitadorDeRequisicoes,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
 
@@ -157,8 +169,22 @@ export class AuthController {
       'Responde igual exista o e-mail ou não. Exige SMTP configurado (422 R2.8 sem ele).',
   })
   @ApiAcceptedResponse({ type: MensagemDto })
-  @ApiRespostasDeErro(400, 422)
-  async esqueciSenha(@Body() dto: EsqueciSenhaDto): Promise<MensagemDto> {
+  @ApiRespostasDeErro(400, 422, 429)
+  async esqueciSenha(
+    @Body() dto: EsqueciSenhaDto,
+    @Req() requisicao: RequisicaoHttp,
+  ): Promise<MensagemDto> {
+    const mensagem = 'Muitos pedidos de redefinição.';
+    this.limitador.exigir(
+      `senha-esqueci:ip:${requisicao.ip ?? '?'}`,
+      LIMITES_DE_SENHA.esqueciPorIp,
+      mensagem,
+    );
+    this.limitador.exigir(
+      `senha-esqueci:email:${dto.email.trim().toLowerCase()}`,
+      LIMITES_DE_SENHA.esqueciPorEmail,
+      mensagem,
+    );
     await this.senhas.solicitarRedefinicao(dto.email);
     return {
       mensagem:
@@ -173,8 +199,12 @@ export class AuthController {
     summary: 'Confere se o link de convite ou de redefinição ainda vale',
   })
   @ApiOkResponse({ type: ConsultaTokenDto })
-  @ApiRespostasDeErro(400)
-  consultarToken(@Body() dto: TokenDeSenhaDto): Promise<ConsultaTokenDto> {
+  @ApiRespostasDeErro(400, 429)
+  consultarToken(
+    @Body() dto: TokenDeSenhaDto,
+    @Req() requisicao: RequisicaoHttp,
+  ): Promise<ConsultaTokenDto> {
+    this.limitarToken(requisicao);
     return this.senhas.consultarToken(dto.token);
   }
 
@@ -187,9 +217,21 @@ export class AuthController {
       'O token é de uso único e vale 24 horas. Encerra todas as sessões do usuário.',
   })
   @ApiNoContentResponse()
-  @ApiRespostasDeErro(400, 422)
-  async redefinirSenha(@Body() dto: RedefinirSenhaDto): Promise<void> {
+  @ApiRespostasDeErro(400, 422, 429)
+  async redefinirSenha(
+    @Body() dto: RedefinirSenhaDto,
+    @Req() requisicao: RequisicaoHttp,
+  ): Promise<void> {
+    this.limitarToken(requisicao);
     await this.senhas.redefinirComToken(dto.token, dto.novaSenha);
+  }
+
+  private limitarToken(requisicao: RequisicaoHttp): void {
+    this.limitador.exigir(
+      `senha-token:ip:${requisicao.ip ?? '?'}`,
+      LIMITES_DE_SENHA.tokenPorIp,
+      'Muitas tentativas com links de senha.',
+    );
   }
 
   private metadados(requisicao: RequisicaoHttp): MetadadosDoLogin {

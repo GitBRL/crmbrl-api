@@ -139,6 +139,11 @@ services:
       TICKETHUB_URL: ${TICKETHUB_URL:-}
       TICKETHUB_EMAIL: ${TICKETHUB_EMAIL:-}
       TICKETHUB_SENHA: ${TICKETHUB_SENHA:-}
+      # Notificações push (R26): par de chaves VAPID e contato. Vazias = push
+      # desligado (a tela explica). Gere com `npx web-push generate-vapid-keys`.
+      VAPID_CHAVE_PUBLICA: ${VAPID_CHAVE_PUBLICA:-}
+      VAPID_CHAVE_PRIVADA: ${VAPID_CHAVE_PRIVADA:-}
+      VAPID_ASSUNTO: ${VAPID_ASSUNTO:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crmbrl.local}
       ADMIN_NOME: ${ADMIN_NOME:-Administrador}
       ADMIN_SENHA_INICIAL: ${ADMIN_SENHA_INICIAL:-}
@@ -152,6 +157,11 @@ services:
       WEBHOOKS_PERMITIR_REDE_INTERNA: ${WEBHOOKS_PERMITIR_REDE_INTERNA:-false}
       # Documentação em /api/docs: false = só o Admin logado.
       DOCS_PUBLICAS: ${DOCS_PUBLICAS:-false}
+      # Pasta do volume dos backups (somente leitura), onde está o ultimo.json.
+      BACKUP_DIR: ${BACKUP_DIR:-/backups}
+    volumes:
+      # Dumps do serviço backup, só leitura: a saúde lê /backups/ultimo.json.
+      - backups:/backups:ro
     depends_on:
       banco:
         condition: service_healthy
@@ -187,6 +197,33 @@ services:
       retries: 3
       start_period: 20s
 
+  backup:
+    # Backup diário do banco: pg_dump (formato custom) no volume "backups", com
+    # retenção por dias, e o resultado de cada execução em /backups/ultimo.json
+    # (a API monta o mesmo volume só leitura e mostra na tela "Saúde do sistema").
+    # Script: scripts/backup.sh. Restauração: scripts/restaurar-backup.sh e
+    # docs/DEPLOY.md. Copie o volume para fora da máquina (veja o DEPLOY.md).
+    image: postgres:17-alpine
+    restart: unless-stopped
+    entrypoint: ['/bin/sh', '/backup.sh']
+    environment:
+      PGHOST: banco
+      PGUSER: ${BANCO_USUARIO:-crmbrl}
+      PGPASSWORD: ${BANCO_SENHA:-crmbrl}
+      PGDATABASE: ${BANCO_NOME:-crmbrl}
+      BACKUP_DIR: /backups
+      # Horário do dump diário (HH:MM, no fuso abaixo) e quantos dias guardar (0 = nunca apagar).
+      BACKUP_HORARIO: ${BACKUP_HORARIO:-03:00}
+      BACKUP_RETENCAO_DIAS: ${BACKUP_RETENCAO_DIAS:-14}
+      BACKUP_AO_INICIAR: ${BACKUP_AO_INICIAR:-false}
+      TZ: ${BACKUP_FUSO:-America/Sao_Paulo}
+    volumes:
+      - backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    depends_on:
+      banco:
+        condition: service_healthy
+
   web:
     build: ${FRONT_DIR:-../crmbrl}
     restart: unless-stopped
@@ -202,3 +239,5 @@ services:
 volumes:
   banco-dados:
   arquivos-dados:
+  # Dumps do banco (serviço backup) e ultimo.json; a API lê só.
+  backups:

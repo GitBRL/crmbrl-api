@@ -286,6 +286,8 @@ model Usuario {
   // Onda D
   conversasAssistente        AssistenteConversa[]            @relation("AssistenteConversaDe")
   chamadosAssistente         AssistenteChamado[]             @relation("AssistenteChamadoDe")
+  pushInscricoes             PushInscricao[]
+  pushPreferencia            PushPreferencia?
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -2915,28 +2917,57 @@ model AssistentePergunta {
 /// pessoa. Sai pela fila, com novas tentativas, para o TicketHub ou para um
 /// webhook; `numero` e `link` vêm do destino.
 model AssistenteChamado {
-  id                 String             @id @default(uuid()) @db.Uuid
-  conversaId         String             @map("conversa_id") @db.Uuid
-  conversa           AssistenteConversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
-  perguntaId         String             @unique @map("pergunta_id") @db.Uuid
-  pergunta           AssistentePergunta @relation(fields: [perguntaId], references: [id], onDelete: Cascade)
-  usuarioId          String             @map("usuario_id") @db.Uuid
-  usuario            Usuario            @relation("AssistenteChamadoDe", fields: [usuarioId], references: [id], onDelete: Restrict)
+  id                 String              @id @default(uuid()) @db.Uuid
+  conversaId         String              @map("conversa_id") @db.Uuid
+  conversa           AssistenteConversa  @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  perguntaId         String              @unique @map("pergunta_id") @db.Uuid
+  pergunta           AssistentePergunta  @relation(fields: [perguntaId], references: [id], onDelete: Cascade)
+  usuarioId          String              @map("usuario_id") @db.Uuid
+  usuario            Usuario             @relation("AssistenteChamadoDe", fields: [usuarioId], references: [id], onDelete: Restrict)
   titulo             String
   descricao          String
   tela               String
   categoria          CategoriaAssistente
   destino            DestinoChamado
-  status             StatusChamado      @default(PENDENTE)
-  tentativas         Int                @default(0)
-  proximaTentativaEm DateTime?          @map("proxima_tentativa_em") @db.Timestamptz(3)
-  ultimoErro         String?            @map("ultimo_erro")
+  status             StatusChamado       @default(PENDENTE)
+  tentativas         Int                 @default(0)
+  proximaTentativaEm DateTime?           @map("proxima_tentativa_em") @db.Timestamptz(3)
+  ultimoErro         String?             @map("ultimo_erro")
   numero             String?
   link               String?
-  criadoEm           DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
-  enviadoEm          DateTime?          @map("enviado_em") @db.Timestamptz(3)
+  criadoEm           DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  enviadoEm          DateTime?           @map("enviado_em") @db.Timestamptz(3)
 
   @@index([status, criadoEm])
   @@index([usuarioId, criadoEm])
   @@map("assistente_chamados")
+}
+
+/// Aparelho inscrito para receber notificações push (R26): um por `endpoint`
+/// (o endereço do serviço de push do navegador). As chaves da inscrição ficam
+/// cifradas (AES-256-GCM) e nunca saem da API.
+model PushInscricao {
+  id             String    @id @default(uuid()) @db.Uuid
+  usuarioId      String    @map("usuario_id") @db.Uuid
+  usuario        Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  endpoint       String    @unique
+  chavesCifradas String    @map("chaves_cifradas")
+  aparelho       String
+  criadoEm       DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  ultimoEnvioEm  DateTime? @map("ultimo_envio_em") @db.Timestamptz(3)
+  ultimoErro     String?   @map("ultimo_erro")
+
+  @@index([usuarioId])
+  @@map("push_inscricoes")
+}
+
+/// Preferências de push por tipo (R26): `{ tipo: boolean }`; o que não está
+/// gravado vale `true`.
+model PushPreferencia {
+  usuarioId    String   @id @map("usuario_id") @db.Uuid
+  usuario      Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipos        Json
+  atualizadoEm DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("push_preferencias")
 }

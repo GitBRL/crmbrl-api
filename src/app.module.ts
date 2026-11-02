@@ -4,6 +4,7 @@ import { ArquivosHttpModule, ArquivosModule } from './arquivos/arquivos.module';
 import { AtendimentoModule } from './atendimento/atendimento.module';
 import { AtividadesModule } from './atividades/atividades.module';
 import { AssistenteModule } from './assistente/assistente.module';
+import { PushModule } from './push/push.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta.module';
 import { AuthModule } from './auth/auth.module';
@@ -28,6 +29,7 @@ import { ImportacaoModule } from './importacao/importacao.module';
 import { LogsModule } from './logs/logs.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { MonitoramentoModule } from './saude/monitoramento/monitoramento.module';
 import { SaudeModule } from './saude/saude.module';
 import { SeedsModule } from './seeds/seeds.module';
 import { TempoRealModule } from './tempo-real/tempo-real.module';
@@ -72,6 +74,7 @@ export class AppModule {
         AutomacaoComumModule,
         SeedsModule,
         SaudeModule,
+        MonitoramentoModule,
         // Módulos de negócio (Fase 1).
         UsuariosModule,
         ContatosModule,
@@ -98,6 +101,8 @@ export class AppModule {
         FinanceiroModule,
         // Onda D: assistente de IA e chamados.
         AssistenteModule,
+        // Onda D: notificações push.
+        PushModule,
       ],
     };
   }
