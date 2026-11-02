@@ -97,6 +97,7 @@ describe('lerAmbiente', () => {
         graphUrl: META_GRAPH_URL_PADRAO,
         graphVersao: META_GRAPH_VERSAO_PADRAO,
       },
+      ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
       anthropic: { configurada: false, urlBase: null },
       ticketHub: {
         url: null,

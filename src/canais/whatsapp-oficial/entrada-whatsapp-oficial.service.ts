@@ -18,6 +18,7 @@ import {
   type ConteudoOficial,
   type EventoOficial,
   eventosDoValor,
+  type RemetenteOficial,
   textoDoConteudo,
 } from './eventos-oficial';
 import { type SegredosOficiais } from './formato-meta';
@@ -40,6 +41,14 @@ export type TratadorDeCampo = (
   canal: Canal,
   valor: Record<string, unknown>,
   segredos: Partial<SegredosOficiais>,
+) => Promise<void>;
+
+/** O que trata a resposta do cliente ao pedido de permissão para ligar (a fatia das ligações registra). */
+export type TratadorDePermissaoDeLigacao = (
+  canal: Canal,
+  remetente: RemetenteOficial,
+  resposta: Extract<ConteudoOficial, { tipo: 'permissao_de_ligacao' }>,
+  mensagem: { id: string; em: Date },
 ) => Promise<void>;
 
 /** Tamanho do status esperado de uma mensagem nossa que ainda não foi gravada (corrida com o envio). */
@@ -103,6 +112,7 @@ export function outraFormaDoCelularBr(telefone: string): string | null {
 export class EntradaWhatsappOficialService implements OnModuleInit {
   private readonly logger = new Logger('WhatsAppOficial');
   private readonly tratadores = new Map<string, TratadorDeCampo>();
+  private tratadorDePermissao: TratadorDePermissaoDeLigacao | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -123,6 +133,8 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
       (trabalho) => this.processar(trabalho),
       {
         concorrencia: 1,
+        // Ligação que toca não espera 2 s para o aviso chegar ao atendente.
+        intervaloDeConsultaSegundos: 1,
         tentativas: 5,
         intervaloEntreTentativasSegundos: 10,
         esperaExponencial: true,
@@ -134,6 +146,28 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
   /** Registra o tratador de um campo do webhook (`calls`, na fatia das ligações). */
   registrarCampo(campo: string, tratador: TratadorDeCampo): void {
     this.tratadores.set(campo, tratador);
+  }
+
+  /** Registra quem trata a resposta ao pedido de permissão para ligar (`interactive.call_permission_reply`). */
+  registrarPermissaoDeLigacao(tratador: TratadorDePermissaoDeLigacao): void {
+    this.tratadorDePermissao = tratador;
+  }
+
+  /**
+   * Antes de a Atendimento ver o remetente: liga o BSUID e a outra forma do
+   * celular brasileiro ao contato que já existe (as ligações usam o mesmo contato único).
+   */
+  async prepararContato(
+    telefone: string | null,
+    bsuid: string | null,
+  ): Promise<void> {
+    await this.ligarBsuidAoContatoDoTelefone(telefone, bsuid);
+    await this.ligarTelefoneBrasileiroAoContato(telefone);
+  }
+
+  /** Depois de o contato existir: guarda o BSUID dele (se for de ninguém). */
+  async registrarBsuid(conversaId: string, bsuid: string): Promise<void> {
+    await this.guardarBsuid(conversaId, bsuid);
   }
 
   /** O campo tem tratador? (o recebimento só enfileira o que alguém trata). */
@@ -188,6 +222,20 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
       select: { id: true },
     });
     if (!conhecida) {
+      // O pedido de permissão para ligar (R29.4) não vira mensagem da conversa: o wamid fica
+      // só no registro da permissão, e os status dele não têm onde ser aplicados.
+      const pedido = await this.prisma.permissaoDeLigacao.findFirst({
+        where: { canalId: canal.id, ultimoPedidoMensagemId: evento.id },
+        select: { id: true },
+      });
+      if (pedido) {
+        if (evento.status === 'FALHOU') {
+          this.logger.warn(
+            `O pedido de permissão para ligar ${evento.id} falhou na entrega (${evento.erro ?? 'sem detalhe'}).`,
+          );
+        }
+        return;
+      }
       // O status pode chegar antes de o envio gravar o wamid: o job tenta de novo.
       if (Date.now() - evento.em.getTime() < ESPERA_PELO_ENVIO_MS) {
         throw new Error(
@@ -214,6 +262,19 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
     segredos: Partial<SegredosOficiais>,
     evento: Extract<EventoOficial, { tipo: 'mensagem' }>,
   ): Promise<void> {
+    if (evento.conteudo.tipo === 'permissao_de_ligacao') {
+      // Não é mensagem da conversa: atualiza a permissão de ligação do contato (R29.4).
+      await this.tratadorDePermissao?.(
+        canal,
+        evento.remetente,
+        evento.conteudo,
+        {
+          id: evento.id,
+          em: evento.em,
+        },
+      );
+      return;
+    }
     const repetida = await this.prisma.mensagem.findUnique({
       where: { canalId_idExterno: { canalId: canal.id, idExterno: evento.id } },
       select: { id: true },
@@ -228,8 +289,7 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
       );
       return;
     }
-    await this.ligarBsuidAoContatoDoTelefone(telefone, bsuid);
-    await this.ligarTelefoneBrasileiroAoContato(telefone);
+    await this.prepararContato(telefone, bsuid);
     const remetente: RemetenteDaEntrada = telefone
       ? { tipo: 'WHATSAPP', valor: telefone, ...(nome ? { nome } : {}) }
       : {
@@ -354,6 +414,13 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
             alvoIdExterno: conteudo.mensagemAlvo,
             removida: conteudo.emoji ? null : true,
           }),
+        };
+      case 'permissao_de_ligacao':
+        // Tratada antes (`receberMensagem`): nunca chega aqui.
+        return {
+          ...base,
+          tipo: 'TEXTO',
+          texto: textoDoConteudo(conteudo) ?? undefined,
         };
       case 'nao_suportado':
         return {

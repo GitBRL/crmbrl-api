@@ -288,6 +288,9 @@ model Usuario {
   chamadosAssistente         AssistenteChamado[]             @relation("AssistenteChamadoDe")
   pushInscricoes             PushInscricao[]
   pushPreferencia            PushPreferencia?
+  // Onda E (ligações)
+  ligacoesAtendidas          Ligacao[]                       @relation("LigacaoAtendente")
+  configuracoesLigacao       CanalLigacaoConfig[]            @relation("CanalLigacaoConfigAtualizadaPor")
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -446,6 +449,10 @@ model Contato {
   // Onda C
   contratos Contrato[]
   parcelas  Parcela[]
+
+  // Onda E
+  ligacoes            Ligacao[]
+  permissoesDeLigacao PermissaoDeLigacao[]
 
   @@unique([email], map: "contatos_email_ativo_key", where: raw("(email IS NOT NULL) AND (excluido_em IS NULL)"))
   @@unique([telefone], map: "contatos_telefone_ativo_key", where: raw("(telefone IS NOT NULL) AND (excluido_em IS NULL)"))
@@ -730,6 +737,8 @@ model Atividade {
   encaminhadaDeId    String?             @map("encaminhada_de_id") @db.Uuid
   encaminhadaDe      Usuario?            @relation("AtividadeEncaminhadaDe", fields: [encaminhadaDeId], references: [id], onDelete: SetNull)
   encaminhadaEm      DateTime?           @map("encaminhada_em") @db.Timestamptz(3)
+  /// Onda E: ligações do WhatsApp ligadas a esta atividade (a perdida gera "Retornar ligação"; o retorno a conclui).
+  ligacoes           Ligacao[]
   /// Lembretes (R6.5).
   lembreteEnviadoEm  DateTime?           @map("lembrete_enviado_em") @db.Timestamptz(3)
   atrasoNotificadoEm DateTime?           @map("atraso_notificado_em") @db.Timestamptz(3)
@@ -1261,16 +1270,20 @@ model Canal {
   atualizadoEm        DateTime         @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   excluidoEm          DateTime?        @map("excluido_em") @db.Timestamptz(3)
 
-  whatsappNumero  WhatsappNumero?
+  whatsappNumero       WhatsappNumero?
   /// Onda E: templates aprovados do WhatsApp oficial (cache da WABA).
-  templatesOficiais WhatsappOficialTemplate[]
-  conversas       Conversa[]
-  mensagens       Mensagem[]
-  identificadores ContatoIdentificador[]
-  visitantes      WebchatVisitante[]
+  templatesOficiais    WhatsappOficialTemplate[]
+  /// Onda E (ligações pelo WhatsApp oficial).
+  ligacoes             Ligacao[]
+  permissoesDeLigacao  PermissaoDeLigacao[]
+  configuracaoLigacoes CanalLigacaoConfig?
+  conversas            Conversa[]
+  mensagens            Mensagem[]
+  identificadores      ContatoIdentificador[]
+  visitantes           WebchatVisitante[]
   // Onda B
-  campanhas       CampanhaCanal[]        @relation("CampanhaCanalCanal")
-  destinatarios   CampanhaDestinatario[] @relation("CampanhaDestinatarioCanal")
+  campanhas            CampanhaCanal[]           @relation("CampanhaCanalCanal")
+  destinatarios        CampanhaDestinatario[]    @relation("CampanhaDestinatarioCanal")
 
   @@unique([tipo, idExterno], map: "canais_tipo_id_externo_ativo_key", where: raw("((id_externo IS NOT NULL) AND (excluido_em IS NULL))"))
   @@index([tipo, ativo])
@@ -1304,6 +1317,8 @@ model FilaAtendimento {
   canaisPadrao    Canal[]
   atribuicoesDe   ConversaAtribuicao[] @relation("AtribuicaoDeFila")
   atribuicoesPara ConversaAtribuicao[] @relation("AtribuicaoParaFila")
+  /// Onda E: canais cujas ligações esta fila atende.
+  canaisDeLigacao CanalLigacaoConfig[]
 
   @@index([area, ativa])
   @@map("filas_atendimento")
@@ -1421,6 +1436,7 @@ model Conversa {
   atribuicoes ConversaAtribuicao[]
   visitantes  WebchatVisitante[]
   execucoes   Execucao[]
+  ligacoes    Ligacao[]
 
   @@unique([canalId, contatoId], map: "conversas_uma_em_aberto_key", where: raw("(status <> 'RESOLVIDA'::status_conversa)"))
   @@index([status, filaId])
@@ -3003,4 +3019,218 @@ model WhatsappOficialTemplate {
   @@unique([canalId, nome, idioma])
   @@index([canalId, status])
   @@map("whatsapp_oficial_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Onda E: ligações pelo WhatsApp (Calling API da Meta, R29)
+// ---------------------------------------------------------------------------
+
+enum DirecaoLigacao {
+  /// O cliente ligou para o número do canal.
+  RECEBIDA
+  /// O atendente ligou para o cliente pelo CRM.
+  FEITA
+
+  @@map("direcao_ligacao")
+}
+
+/// Máquina de estados da ligação (R29): CHAMANDO → TOCANDO → EM_ANDAMENTO → um terminal
+/// (ENCERRADA, PERDIDA, RECUSADA, SEM_RESPOSTA, FALHOU). A recebida nasce TOCANDO.
+enum EstadoLigacao {
+  /// Feita: pedido enviado à Meta, o aparelho do cliente ainda não toca.
+  CHAMANDO
+  /// Recebida: tocando para os atendentes. Feita: tocando no aparelho do cliente.
+  TOCANDO
+  EM_ANDAMENTO
+  /// Atendida e terminada.
+  ENCERRADA
+  /// Recebida que ninguém atendeu (tempo de toque, fora do horário, sem atendente, cliente desistiu).
+  PERDIDA
+  /// Feita: o cliente recusou.
+  RECUSADA
+  /// Feita: o cliente não atendeu (ou o atendente cancelou antes).
+  SEM_RESPOSTA
+  FALHOU
+
+  @@map("estado_ligacao")
+}
+
+enum SituacaoPermissaoLigacao {
+  /// Ainda não há permissão nem pedido pendente.
+  NENHUMA
+  PEDIDA
+  CONCEDIDA
+  NEGADA
+  /// A Meta revogou (4 ligações seguidas sem resposta) ou o cliente retirou.
+  REVOGADA
+
+  @@map("situacao_permissao_ligacao")
+}
+
+enum TipoPermissaoLigacao {
+  /// 7 dias a partir da aprovação.
+  TEMPORARIA
+  PERMANENTE
+
+  @@map("tipo_permissao_ligacao")
+}
+
+/// Reservado para a E3: a gravação da ligação (feita no navegador do atendente).
+enum SituacaoGravacaoLigacao {
+  SEM
+  ENVIANDO
+  PRONTA
+  FALHOU
+
+  @@map("situacao_gravacao_ligacao")
+}
+
+/// Reservado para a E3: a transcrição (whisper.cpp).
+enum SituacaoTranscricaoLigacao {
+  PENDENTE
+  PROCESSANDO
+  PRONTA
+  FALHOU
+  DESATIVADA
+
+  @@map("situacao_transcricao_ligacao")
+}
+
+/// Uma ligação do WhatsApp oficial (recebida ou feita). `idMeta` é o `wacid.…` da Meta.
+/// A oferta e a resposta SDP só ficam gravadas enquanto a ligação precisa delas
+/// (toque / conexão): somem ao entrar em andamento e ao terminar. Os campos de
+/// gravação e transcrição são da E3.
+model Ligacao {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  canalId                  String                      @map("canal_id") @db.Uuid
+  canal                    Canal                       @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  contatoId                String                      @map("contato_id") @db.Uuid
+  contato                  Contato                     @relation(fields: [contatoId], references: [id], onDelete: Restrict)
+  conversaId               String?                     @map("conversa_id") @db.Uuid
+  conversa                 Conversa?                   @relation(fields: [conversaId], references: [id], onDelete: SetNull)
+  direcao                  DirecaoLigacao
+  estado                   EstadoLigacao
+  /// Quem atendeu (recebida) ou quem ligou (feita).
+  atendenteId              String?                     @map("atendente_id") @db.Uuid
+  atendente                Usuario?                    @relation("LigacaoAtendente", fields: [atendenteId], references: [id], onDelete: SetNull)
+  /// Id da ligação na Meta (`wacid.…`). Nulo na feita até a Meta responder ao connect.
+  idMeta                   String?                     @map("id_meta")
+  /// Telefone do cliente (E.164 só com dígitos), quando a Meta o informa.
+  telefone                 String?
+  /// BSUID do cliente, quando a Meta omite o telefone.
+  bsuid                    String?
+  ofertaSdp                String?                     @map("oferta_sdp")
+  respostaSdp              String?                     @map("resposta_sdp")
+  /// Recebida: até quando toca (fim do tempo de toque).
+  expiraEm                 DateTime?                   @map("expira_em") @db.Timestamptz(3)
+  iniciadaEm               DateTime                    @default(now()) @map("iniciada_em") @db.Timestamptz(3)
+  tocouEm                  DateTime?                   @map("tocou_em") @db.Timestamptz(3)
+  atendidaEm               DateTime?                   @map("atendida_em") @db.Timestamptz(3)
+  encerradaEm              DateTime?                   @map("encerrada_em") @db.Timestamptz(3)
+  duracaoSegundos          Int?                        @map("duracao_segundos")
+  /// Código do motivo do desfecho (`tempo_esgotado`, `fora_do_horario`, `cliente_desligou`…).
+  motivo                   String?
+  erroCodigo               Int?                        @map("erro_codigo")
+  erroMensagem             String?                     @map("erro_mensagem")
+  /// Atividade `LIGACAO` gerada (ou concluída) por esta ligação.
+  atividadeId              String?                     @map("atividade_id") @db.Uuid
+  atividade                Atividade?                  @relation(fields: [atividadeId], references: [id], onDelete: SetNull)
+  anotacao                 String?
+  /// Quem foi chamado a atender (recebida).
+  tocouPara                String[]                    @default([]) @map("tocou_para")
+  /// O atendente mandou o `terminate` (o webhook da Meta fecha com a duração).
+  encerramentoSolicitadoEm DateTime?                   @map("encerramento_solicitado_em") @db.Timestamptz(3)
+  /// O navegador do atendente caiu durante a ligação (tolerância curta antes de encerrar).
+  desconectadoEm           DateTime?                   @map("desconectado_em") @db.Timestamptz(3)
+  /// O canal gravava quando a ligação começou (E3).
+  gravar                   Boolean                     @default(false)
+  gravacaoSituacao         SituacaoGravacaoLigacao     @default(SEM) @map("gravacao_situacao")
+  /// E3: id do arquivo da gravação (sem chave estrangeira: a E3 decide).
+  gravacaoArquivoId        String?                     @map("gravacao_arquivo_id") @db.Uuid
+  transcricaoSituacao      SituacaoTranscricaoLigacao? @map("transcricao_situacao")
+  transcricao              Json?
+  resumo                   Json?
+  criadoEm                 DateTime                    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm             DateTime                    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([canalId, idMeta], map: "ligacoes_canal_id_meta_key", where: raw("(id_meta IS NOT NULL)"))
+  @@unique([atendenteId], map: "ligacoes_uma_ativa_por_atendente_key", where: raw("((atendente_id IS NOT NULL) AND (estado IN ('CHAMANDO'::estado_ligacao, 'TOCANDO'::estado_ligacao, 'EM_ANDAMENTO'::estado_ligacao)))"))
+  @@index([estado, criadoEm])
+  @@index([contatoId, criadoEm])
+  @@index([atendenteId, criadoEm])
+  @@index([canalId, criadoEm])
+  @@index([conversaId])
+  @@map("ligacoes")
+}
+
+/// Permissão do cliente para o CRM ligar (Calling API): uma por canal e contato.
+/// Os pedidos feitos ficam em `pedidosEm` para os limites da Meta (1 por 24 h e 2 por 7 dias).
+model PermissaoDeLigacao {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  canalId                String                   @map("canal_id") @db.Uuid
+  canal                  Canal                    @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  contatoId              String                   @map("contato_id") @db.Uuid
+  contato                Contato                  @relation(fields: [contatoId], references: [id], onDelete: Cascade)
+  situacao               SituacaoPermissaoLigacao @default(NENHUMA)
+  tipo                   TipoPermissaoLigacao?
+  /// Temporária: até quando vale (7 dias).
+  validaAte              DateTime?                @map("valida_ate") @db.Timestamptz(3)
+  /// Datas dos pedidos de permissão enviados (os dos últimos 7 dias).
+  pedidosEm              DateTime[]               @default([]) @map("pedidos_em") @db.Timestamptz(3)
+  /// `wamid` da última mensagem de pedido.
+  ultimoPedidoMensagemId String?                  @map("ultimo_pedido_mensagem_id")
+  respondidaEm           DateTime?                @map("respondida_em") @db.Timestamptz(3)
+  /// Ligações feitas seguidas sem resposta (4 revogam na Meta).
+  semRespostaSeguidas    Int                      @default(0) @map("sem_resposta_seguidas")
+  /// Última leitura em `GET call_permissions`.
+  consultadaEm           DateTime?                @map("consultada_em") @db.Timestamptz(3)
+  /// Limites lidos da Meta na última consulta (`actions[].limits`).
+  limitesDaMeta          Json?                    @map("limites_da_meta")
+  criadoEm               DateTime                 @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm           DateTime                 @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([canalId, contatoId])
+  @@index([contatoId])
+  @@map("permissoes_de_ligacao")
+}
+
+/// Configuração das ligações de um canal WHATSAPP_OFICIAL (aba "Ligações").
+model CanalLigacaoConfig {
+  id                   String           @id @default(uuid()) @db.Uuid
+  canalId              String           @unique @map("canal_id") @db.Uuid
+  canal                Canal            @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  /// As chamadas estão ligadas no número (configuração da Meta, `settings`).
+  ativa                Boolean          @default(false)
+  /// Mostra o botão "Ligar" para o cliente no CRM.
+  botaoVisivel         Boolean          @default(true) @map("botao_visivel")
+  /// Horário das ligações (formato do horário de atendimento). Nulo = o horário de atendimento do canal.
+  horario              Json?
+  /// Fila que atende as ligações. Nula = a fila padrão do canal.
+  filaId               String?          @map("fila_id") @db.Uuid
+  fila                 FilaAtendimento? @relation(fields: [filaId], references: [id], onDelete: SetNull)
+  gravar               Boolean          @default(true)
+  /// Segundos tocando antes de virar perdida (abaixo do prazo da Meta).
+  tempoDeToqueSegundos Int              @default(25) @map("tempo_de_toque_segundos")
+  mensagemPerdidaAtiva Boolean          @default(false) @map("mensagem_perdida_ativa")
+  mensagemPerdida      String?          @map("mensagem_perdida")
+  /// Última sincronização com a Meta (`ok` / erro em português).
+  sincronizadaEm       DateTime?        @map("sincronizada_em") @db.Timestamptz(3)
+  ultimoErroMeta       String?          @map("ultimo_erro_meta")
+  atualizadoPorId      String?          @map("atualizado_por_id") @db.Uuid
+  atualizadoPor        Usuario?         @relation("CanalLigacaoConfigAtualizadaPor", fields: [atualizadoPorId], references: [id], onDelete: SetNull)
+  criadoEm             DateTime         @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime         @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("canais_ligacoes")
+}
+
+/// Eventos do webhook de chamadas já processados (a Meta reentrega por até 7 dias).
+/// A chave é gravada na mesma transação que aplica o evento.
+model LigacaoWebhookEvento {
+  id         String   @id @default(uuid()) @db.Uuid
+  chave      String   @unique
+  recebidoEm DateTime @default(now()) @map("recebido_em") @db.Timestamptz(3)
+
+  @@index([recebidoEm])
+  @@map("ligacoes_webhook_eventos")
 }

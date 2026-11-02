@@ -49,6 +49,9 @@ export type OuvinteDeDigitando = (
   aviso: AvisoDeDigitando,
 ) => void | Promise<void>;
 
+/** Um socket de um usuário caiu (ligações: tolerância antes de encerrar a ligação dele). */
+export type OuvinteDeDesconexao = (usuarioId: string) => void | Promise<void>;
+
 /** Opções de uma emissão. */
 export interface OpcoesDeEmissao {
   /** Salas que NÃO recebem (ex.: a sala do próprio autor). */
@@ -80,6 +83,7 @@ export class TempoRealService {
     AutorizadorDeSala
   >();
   private readonly ouvintesDeDigitando: OuvinteDeDigitando[] = [];
+  private readonly ouvintesDeDesconexao: OuvinteDeDesconexao[] = [];
 
   /** Chamado pelo gateway quando o namespace sobe. */
   definirServidor(servidor: Namespace): void {
@@ -243,6 +247,24 @@ export class TempoRealService {
   /** Recebe os "digitando" da equipe (ex.: o WhatsApp repassa "digitando…" ao contato). */
   aoDigitar(ouvinte: OuvinteDeDigitando): void {
     this.ouvintesDeDigitando.push(ouvinte);
+  }
+
+  /** Recebe a queda de qualquer socket de usuário (o ouvinte decide se a pessoa ficou sem nenhum). */
+  aoDesconectar(ouvinte: OuvinteDeDesconexao): void {
+    this.ouvintesDeDesconexao.push(ouvinte);
+  }
+
+  /** Chamado pelo gateway quando um socket cai. */
+  avisarDesconexao(usuarioId: string): void {
+    for (const ouvinte of this.ouvintesDeDesconexao) {
+      Promise.resolve()
+        .then(() => ouvinte(usuarioId))
+        .catch((erro: unknown) =>
+          this.logger.warn(
+            `Ouvinte de desconexão falhou: ${erro instanceof Error ? erro.message : String(erro)}`,
+          ),
+        );
+    }
   }
 
   /** Chamado pelo gateway depois de repassar um "digitando" à sala. */

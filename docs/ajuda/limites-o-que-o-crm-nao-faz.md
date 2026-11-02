@@ -10,7 +10,8 @@ palavras-chave: [não existe, não faz, limite, funcionalidade inexistente, não
 Use esta lista para reconhecer pedidos sem funcionalidade correspondente. Se o pedido está aqui, explique o limite e, se for algo que faria sentido existir, ofereça **Abrir chamado**. Se a lista não cobre o pedido e nenhum artigo o descreve, não invente: diga que não encontrou na documentação.
 
 ## Comunicação
-- Os canais são seis: WhatsApp (por QR code), WhatsApp oficial (API da Meta), chat do site, e-mail, Instagram e Messenger. Não há SMS, Telegram, nem ligação telefônica pelo CRM (a ligação é feita fora; o CRM mostra o telefone e registra o resultado).
+- Os canais são seis: WhatsApp (por QR code), WhatsApp oficial (API da Meta), chat do site, e-mail, Instagram e Messenger. Não há SMS nem Telegram. Ligações de voz existem só pelo WhatsApp oficial, dentro do navegador (veja `atendimento-ligacoes.md`); não há ligação por telefone comum (chip ou linha fixa).
+- Ligações pelo WhatsApp exigem a permissão do cliente, o número só na API oficial e o CRM aberto: com a tela do celular bloqueada a ligação não toca, só chega a notificação. Não há transferência de ligação entre atendentes.
 - O canal "WhatsApp" usa conexão própria por QR code; a API oficial do WhatsApp Business é o canal "WhatsApp oficial", que só envia texto livre até 24 horas depois da última mensagem do cliente e, depois disso, só templates aprovados pela Meta. Mensagens de grupos de WhatsApp, status e canais são ignoradas.
 - Instagram, Messenger e WhatsApp oficial só permitem responder (texto livre) até 24 horas depois da última mensagem do cliente (regra da Meta); no WhatsApp oficial, depois disso vale um template aprovado.
 - Disparos enviam por WhatsApp e e-mail, um destinatário por vez, com intervalos: não é envio instantâneo em massa. Quem pediu opt-out não recebe.

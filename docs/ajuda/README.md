@@ -35,6 +35,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Assumir, transferir, resolver e reabrir uma conversa](atendimento-assumir-transferir-resolver.md)
 - [Caixa de entrada do Atendimento e como as conversas chegam](atendimento-caixa-de-entrada.md)
 - [Configurar filas, SLA, horário, satisfação e respostas rápidas](atendimento-filas-sla-respostas-rapidas.md)
+- [Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente](atendimento-ligacoes.md)
 - [Responder uma conversa: mensagem, nota interna, anexos e respostas rápidas](atendimento-responder-conversa.md)
 
 ## chat

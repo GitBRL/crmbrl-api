@@ -259,6 +259,30 @@ describe('WhatsApp oficial (R28) — webhook', () => {
     });
   });
 
+  it('R29.4 — a resposta ao pedido de permissão de ligação vira um conteúdo próprio (não é mensagem)', () => {
+    const conteudo = conteudoDaMensagem({
+      type: 'interactive',
+      interactive: {
+        type: 'call_permission_reply',
+        call_permission_reply: {
+          response: 'accept',
+          is_permanent: true,
+          response_source: 'user_action',
+        },
+      },
+      context: { id: 'wamid.PEDIDO' },
+    });
+    expect(conteudo).toMatchObject({
+      tipo: 'permissao_de_ligacao',
+      resposta: 'accept',
+      permanente: true,
+      contextoId: 'wamid.PEDIDO',
+    });
+    expect(textoDoConteudo(conteudo)).toBe(
+      'Resposta ao pedido de permissão para ligar',
+    );
+  });
+
   it('telefoneDaMeta aceita + e espaços e recusa o que não é telefone', () => {
     expect(telefoneDaMeta('+55 (11) 99999-0000')).toBe('5511999990000');
     expect(telefoneDaMeta('BR.123')).toBeNull();

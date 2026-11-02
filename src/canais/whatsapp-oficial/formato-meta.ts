@@ -52,8 +52,8 @@ export interface SegredosOficiais {
   tokenVerificacao: string;
 }
 
-/** Campos do webhook que o Admin assina no painel do app (a E2 acrescenta `calls`). */
-export const CAMPOS_DO_WEBHOOK_OFICIAL = ['messages'] as const;
+/** Campos do webhook que o Admin assina no painel do app (`calls`: ligações, R29). */
+export const CAMPOS_DO_WEBHOOK_OFICIAL = ['messages', 'calls'] as const;
 
 /** Lê a configuração gravada (tolerante). */
 export function lerConfiguracaoOficial(valor: unknown): ConfiguracaoOficial {

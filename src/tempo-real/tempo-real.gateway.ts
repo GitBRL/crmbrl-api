@@ -113,6 +113,9 @@ export class TempoRealGateway
 
   handleDisconnect(socket: SocketDoTempoReal): void {
     socket.data?.digitandoEm?.clear();
+    if (socket.data?.usuario) {
+      this.tempoReal.avisarDesconexao(socket.data.usuario.id);
+    }
   }
 
   @SubscribeMessage(EVENTOS_DO_CLIENTE.CONVERSA_ENTRAR)

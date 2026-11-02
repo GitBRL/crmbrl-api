@@ -898,6 +898,92 @@ marca "não contatar por WhatsApp" foi para `contatos/nao-contatar-whatsapp.ts` 
 nome e idioma). A configuração do canal fica em `canais.configuracao`/`segredos_cifrados`; os ids de
 mensagem da Meta ficam em `mensagens.id_externo` (único por canal), que é a chave de idempotência.
 
+### Peças e fluxos da Onda E (ligações pelo WhatsApp)
+
+Regra: R29 em `REGRAS-DE-NEGOCIO.md` (seção 40). Fatia E2 (API); o softphone (front) e a gravação
+(E3) se apoiam nela. O áudio **não passa pela API**: vai direto entre o navegador do atendente e a
+Meta (WebRTC, sem TURN; `LIGACOES_STUN_URLS` opcional). A API só sinaliza.
+
+**`LigacoesModule` (`src/ligacoes/`)**
+
+- **`maquina-de-estados.ts`** — funções puras (`decidir(estado, direcao, evento)`), a única fonte
+  das transições. **`formato-chamadas.ts`** — leitura do webhook `calls` e da resposta de permissão e
+  os corpos das chamadas à Graph, com **todas as "Lacunas" da referência isoladas e comentadas
+  (`LACUNA n`)**. **`permissoes.ts`** — limites de pedido, validade e contagem de "sem resposta".
+  Os três têm testes de unidade.
+- **`GraphLigacoes`** — sobre o `GraphApi`: `POST /{phone_number_id}/calls` (`connect`, `pre_accept`,
+  `accept`, `reject`, `terminate`), `POST …/settings`, `GET …/call_permissions`. O pedido de permissão
+  sai por `GraphWhatsappOficial.enviar` (`POST …/messages`).
+- **`LigacoesService`** (núcleo) — `transicionar(tx, ctx, id, evento)`: trava consultiva por ligação,
+  pergunta à máquina, grava e, no estado terminal, **fecha** (`finalizar`): atividade `LIGACAO`,
+  evento do sistema na conversa (`MotorDoAtendimento.avisoDeSistema`), contagem da permissão,
+  "Retornar ligação" + notificação + mensagem de perdida, auditoria e tempo real. Também: encerrar,
+  anotar, consultas/histórico, queda do navegador (`TempoRealService.aoDesconectar` → job
+  `ligacoes.conexao-perdida` depois de 15 s) e as vigias. As emissões do tempo real e as chamadas à
+  Meta (`reject`, `terminate`) acumulam no `ContextoDaLigacao` e só saem **depois do commit**.
+- **`LigacoesRecebidasService`** — `receber` (dentro da transação do webhook): conversa do
+  Atendimento (`AtendimentoService.conversaDaLigacao`, que também abre a janela de 24 h), config,
+  horário, **quem toca** (responsável online e livre; senão fila online e livre), `ligacao.tocando`
+  + notificação (push), job `ligacoes.toque-esgotado` em `expira_em`; `atender` (trava, `pre_accept` e
+  `accept` com o mesmo SDP) e o job de tempo esgotado (`reject` na Meta).
+- **`LigacoesFeitasService`** — `ligar` (confere permissão e limites na Meta, cria `CHAMANDO`, `connect`,
+  vigia), resposta SDP e status vindos do webhook (ligação achada pelo `wacid` ou, antes de o `connect`
+  gravar o id, pelo `biz_opaque_callback_data` = id da ligação no CRM).
+- **`PermissoesDeLigacaoService`** — registro por canal e contato, pedido (interativo ou template),
+  conferência `GET call_permissions` antes de ligar, resposta do cliente (campo `messages`).
+- **`ConfiguracaoDeLigacoesService`** — `canais_ligacoes` por canal; ativar/desativar chama `settings` na
+  Meta e só grava se ela aceitar.
+- **`WebhookDeLigacoesService`** — registra `calls` no roteamento por campo do canal oficial (E1) e o
+  tratador da resposta de permissão (`EntradaWhatsappOficialService.registrarPermissaoDeLigacao`);
+  **cada evento roda numa transação com a chave de dedupe** (`ligacoes_webhook_eventos`, limpeza
+  diária); evento de ligação ainda desconhecida falha e o job tenta de novo (fora de ordem).
+
+**Máquina de estados**
+
+```
+Recebida:  TOCANDO ──atendida (accept 200)──▶ EM_ANDAMENTO ──terminate──▶ ENCERRADA
+              ├── tempo de toque / cliente desligou / fora do horário / sem atendente / atrasada ──▶ PERDIDA
+              └── falha (accept recusado, terminate com erro) ──▶ FALHOU
+Feita:     CHAMANDO ──RINGING──▶ TOCANDO ──ACCEPTED──▶ EM_ANDAMENTO ──terminate──▶ ENCERRADA
+              │               ├── REJECTED ──▶ RECUSADA
+              │               └── terminate sem atender / cancelada / vigia ──▶ SEM_RESPOSTA
+              └── connect recusado / vigia ──▶ FALHOU
+```
+
+**Fluxo da ligação recebida** (referência §2, "Fluxos em sequência")
+
+```
+Meta ─ webhook calls/connect (oferta SDP, assinado) ─▶ API: dedupe + ligação TOCANDO + conversa/janela
+API ─ ligacao.tocando {ofertaSdp} + push ─▶ navegador(es) ── setRemoteDescription/createAnswer
+navegador ─ POST /ligacoes/:id/atender {sdp} ─▶ API: trava no banco (1º leva; os outros 409)
+API ─ pre_accept + accept (mesmo SDP) ─▶ Meta ; ligação EM_ANDAMENTO ; áudio direto navegador ⇄ Meta
+fim:  atendente POST /encerrar ─▶ API ─ terminate ─▶ Meta ; Meta ─ webhook terminate ─▶ ENCERRADA
+      (duração, motivo, atividade, evento na conversa, ligacao.encerrada)
+sem atendimento: job toque-esgotado ─▶ reject ─▶ PERDIDA (+ "Retornar ligação", notificação, mensagem)
+```
+
+**Fluxo da ligação feita**
+
+```
+navegador ─ POST /ligacoes {contatoId, sdp(oferta)} ─▶ API: GET call_permissions + limites ─▶ CHAMANDO ─ connect ─▶ Meta
+Meta ─ webhook calls/connect (resposta SDP) ─▶ API ─ ligacao.resposta_sdp ─▶ navegador (setRemoteDescription)
+Meta ─ statuses RINGING / ACCEPTED / REJECTED ─▶ ligacao.estado ; Meta ─ terminate ─▶ ligacao.encerrada
+sem permissão: POST /ligacoes/permissoes/pedir (interativo na janela; template fora) ─ resposta do cliente
+(messages/call_permission_reply) ─▶ permissoes_de_ligacao ─▶ ligacao.permissao
+```
+
+**Pontos de contato com outros módulos:** `AtendimentoService.conversaDaLigacao` (contato, conversa,
+distribuição e janela), `DistribuicaoDaFila` exportada, `TempoRealService.aoDesconectar`, eventos
+`ligacao.*` no catálogo do tempo real, preferência de push `ligacao_recebida` (R26: a carga ganhou
+`acoes` e `persistente`), `EntradaWhatsappOficialService` (conteúdo `permissao_de_ligacao`, `prepararContato`,
+`registrarCampo('calls', …)`), campo `calls` em `CAMPOS_DO_WEBHOOK_OFICIAL`.
+
+**Banco (migration `20261102202609_onda_e_ligacoes`):** `ligacoes` (índice único parcial
+`(canal_id, id_meta)` e **um por atendente ativo**; oferta e resposta SDP só enquanto necessárias; campos
+reservados para a E3: `gravar`, `gravacao_situacao`, `gravacao_arquivo_id`, `transcricao_situacao`,
+`transcricao`, `resumo`), `permissoes_de_ligacao` (único por canal e contato; `pedidos_em` para os
+limites), `canais_ligacoes` (configuração) e `ligacoes_webhook_eventos` (dedupe de 7 dias).
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não
@@ -994,6 +1080,7 @@ contagens iniciais do menu vêm da API (`/notificacoes/nao-lidas/contagem`,
 | `ANTHROPIC_BASE_URL` | API da Anthropic | Só para testes: base de uma API falsa |
 | `TICKETHUB_URL`, `TICKETHUB_EMAIL`, `TICKETHUB_SENHA` | vazias | Chamados do assistente (R25): TicketHub e a conta de serviço; a configuração do Admin (cifrada) tem prioridade campo a campo. Nunca devolvidas nem registradas |
 | `VAPID_CHAVE_PUBLICA`, `VAPID_CHAVE_PRIVADA`, `VAPID_ASSUNTO` | vazias | Notificações push (R26): as três juntas ligam o push |
+| `LIGACOES_STUN_URLS`, `LIGACOES_ESPERA_PRE_ACEITE_MS` | vazia, `800` | Ligações pelo WhatsApp (R29): STUN opcional do navegador (sem TURN) e a espera entre `pre_accept` e `accept` |
 | `BACKUP_DIR` | `/backups` | Pasta dos backups vista pela API, somente leitura (R27.3) |
 | `DOCS_PUBLICAS` | `true` fora de produção | `/api/docs` aberto; senão, só Admin |
 | `PROCESSAR_FILAS` | `true` | Trabalhadores, agendamentos e despachante de eventos |

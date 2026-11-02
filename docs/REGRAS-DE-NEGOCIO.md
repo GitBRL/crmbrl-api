@@ -1499,7 +1499,7 @@ e `eventos-oficial.ts`, com comentário.
   vai para o canal oficial, achado por `entry[].changes[].value.metadata.phone_number_id`; a
   assinatura `X-Hub-Signature-256` é conferida com o app secret **do canal** (401 se faltar ou
   não conferir). O roteamento é **por campo** (`changes[].field`): `messages` é tratado aqui; o
-  campo `calls` chega na fatia das ligações (R29) por um tratador registrado; campo
+  campo `calls` é tratado pelas ligações (R29, tratador registrado); campo
   desconhecido é ignorado com log em nível debug. Número sem canal (ou desligado) é ignorado
   com 200. O processamento é por fila (`whatsapp-oficial.webhook`), fora da requisição.
 - **R28.3** **Mesmas regras dos outros canais:** a mensagem recebida entra pelo Atendimento
@@ -1575,7 +1575,7 @@ Postgres real e uma Graph falsa em processo.
 157. Gera outro verify token (o antigo deixa de valer) e exclui o canal (R28.1).
 158. A verificação GET aceita o verify token do canal oficial e recusa o errado (R28.2).
 159. Exige a assinatura do app secret DO canal (401 sem ela ou com a de outro) (R28.2).
-160. Número desconhecido e campos sem tratador (calls) são ignorados com 200 (R28.2).
+160. Número desconhecido e campos sem tratador (account_update) são ignorados com 200 (R28.2).
 161. Cada número usa o seu app secret: uma mudança assinada com o segredo errado de outro canal
      não entra (R28.2).
 162. Texto: contato pelo telefone (E.164), conversa na fila do canal, janela de 24 h e
@@ -1621,3 +1621,184 @@ Postgres real e uma Graph falsa em processo.
      (R28.9).
 192. Template de marketing respeita o opt-out de marketing do contato (R28.9).
 193. A mesma pessoa pode falar pelos dois canais (identificador WHATSAPP compartilhado) (R28.9).
+194. O `wa_id` sem o nono dígito casa com o contato cadastrado com ele (e vice-versa) (R28.3).
+
+## 40. Ligações pelo WhatsApp (R29)
+
+Onda E (fatia E2, API). O atendente atende e liga **pelo navegador**: o áudio vai direto entre o
+navegador e a Meta (WebRTC nativo, sem TURN; STUN opcional em `LIGACOES_STUN_URLS`, vazio por
+padrão) e a API **só sinaliza** (SDP, pela Calling API da Meta e pelo tempo real). Não há trickle
+ICE pela Graph: o navegador espera o fim da coleta de candidatos (com tempo limite) antes de
+mandar o SDP. Nada chama a Meta real nos testes nem no ambiente dos agentes (`META_GRAPH_URL`
+aponta para uma Graph/Calling API falsa). O que a referência `whatsapp-cloud-chamadas.md` marca
+como não confirmado (as "Lacunas") fica isolado em `ligacoes/formato-chamadas.ts` e
+`ligacoes/graph-ligacoes.ts`, cada ponto com `LACUNA n` citando a referência: ajustar depois do
+primeiro teste com a Meta real começa por esses dois arquivos.
+
+- **R29.1** **Máquina de estados** (`ligacoes/maquina-de-estados.ts`, funções puras, testada):
+  *recebida* `TOCANDO → EM_ANDAMENTO → ENCERRADA` ou `PERDIDA` (tempo de toque, cliente
+  desligou, fora do horário, sem atendente, ligação atrasada) ou `FALHOU`; *feita*
+  `CHAMANDO → TOCANDO → EM_ANDAMENTO → ENCERRADA` ou `RECUSADA`, `SEM_RESPOSTA` (o cliente não
+  atendeu, ou o atendente cancelou) e `FALHOU`. Estado terminal **nunca muda**; os estados ativos
+  só avançam; evento que não faz sentido para o estado (ou para a direção) é ignorado, nunca
+  erro. Cada transição é serializada por ligação (trava consultiva) e o estado só muda se a
+  máquina deixar: webhooks **repetidos, fora de ordem ou atrasados** não quebram nem regridem
+  nada (um `terminate` atrasado só completa a duração).
+- **R29.2** **Ligação recebida.** O webhook `calls` (`connect` com a oferta SDP) cria a ligação
+  `TOCANDO` na transação do webhook, junto com a **chave de dedupe** (a Meta reentrega por até 7
+  dias; a chave vale 7 dias e uma limpeza diária remove as vencidas; se o evento falhar, a chave
+  volta junto e o job tenta de novo). O contato e a conversa em aberto do canal são os do
+  Atendimento (R12; criados e distribuídos pela fila se for um contato novo) e **a ligação, atendida
+  ou não, abre a janela de 24 h do canal (R28.4)**.
+  - **Quem toca:** primeiro o responsável pela conversa ou pelo contato, se estiver **online e
+    livre**; senão todos os atendentes online e livres da **fila de ligações** (a escolhida na
+    configuração ou a fila padrão do canal). "Livre" = sem ligação em andamento (chamando, tocando
+    ou em andamento). Cada um recebe `ligacao.tocando` (com a oferta SDP) no tempo real e uma
+    notificação interna (`ligacao.tocando`) que também vira **push** com a ação "Abrir ligação"
+    (preferência de push `ligacao_recebida`, R26).
+  - **Quem atende:** o primeiro `POST /ligacoes/:id/atender` com a resposta SDP leva a ligação (a
+    trava é a linha no banco); os outros recebem **409 `atendida_por_outro`** e o evento
+    `ligacao.deixou_de_tocar`. A API manda `pre_accept` e `accept` com o **mesmo SDP** (com uma
+    espera curta entre os dois, `LIGACOES_ESPERA_PRE_ACEITE_MS`) e só então a ligação entra em
+    andamento. Se a Meta recusar, a ligação vira `FALHOU` e o atendente recebe o motivo (409
+    `meta_recusou`). Só atende quem foi chamado (403 `nao_chamado`) e quem não está em outra ligação
+    (409 `ja_em_ligacao`: **uma ligação por atendente**, garantida por índice único parcial).
+  - **Perdida:** passado o **tempo de toque** (padrão 25 s, de 10 a 40 s: sempre abaixo do prazo
+    de 30 a 60 s da Meta; job do pg-boss agendado na chegada), **fora do horário de ligações**,
+    **sem ninguém disponível**, ligações desativadas no canal ou `connect` que chegou depois de a
+    Meta desistir: a ligação vira `PERDIDA` e a API manda `reject` à Meta (menos no caso do
+    `connect` atrasado). O CRM cria a atividade **"Retornar ligação"** (pendente, prioridade alta,
+    prazo de 4 h) para o responsável da conversa ou do contato (senão o líder da área da fila,
+    senão o Admin), **avisa por notificação** o responsável ou a fila e manda a **mensagem
+    automática** do canal, se estiver ligada (a janela de 24 h acabou de abrir). A recebida que
+    falha antes de atender (a Meta recusa o `accept`) também gera o retorno.
+  - O `terminate` que a Meta manda no fim fecha a ligação com a **duração e o motivo**; o
+    atendente que encerra manda `terminate` à Meta **sempre** (afeta a cobrança) e o webhook fecha
+    (um job fecha sozinho, com o que o CRM sabe, se o webhook não vier em 20 s).
+  - **Navegador que cai** durante a ligação: tolerância de 15 s para o socket reconectar; passado
+    esse prazo sem nenhum socket do atendente, a API manda `terminate` e encerra (`conexao_perdida`).
+- **R29.3** **Ligação feita.** `POST /ligacoes` com a oferta SDP do navegador. A API confere, nesta
+  ordem: ligações ativas e botão visível no canal (422), contato com telefone (ou BSUID), uma
+  ligação por atendente e por cliente (409), e **a permissão e os limites na Meta**
+  (`GET call_permissions`: a Meta não avisa quando a permissão expira, então confere antes de
+  **cada** ligação; sem resposta da Meta, 503: não liga sem conferir). Sem permissão: 422
+  `sem_permissao` com o que o front precisa para oferecer o pedido (`situacao`, `podePedir`,
+  `liberaPedidoEm`, `janelaAberta`, `temTemplateDePermissao`). Limite diário de ligações feitas:
+  lido da Meta (o valor documentado é contraditório, 100 ou 5) e tratado também pelo erro
+  (`limite_diario`, com quando libera). Depois, `CHAMANDO` + `connect`; a **resposta SDP** chega
+  pelo webhook e vai ao navegador por `ligacao.resposta_sdp`; os estados vêm dos webhooks de status
+  (`RINGING` → `TOCANDO`, `ACCEPTED` → `EM_ANDAMENTO`, `REJECTED` → `RECUSADA`) e do `terminate`
+  (sem atender: `SEM_RESPOSTA`). Cancelar enquanto chama manda `terminate` e fecha na hora. Uma
+  vigia fecha a ligação presa em `CHAMANDO`/`TOCANDO` por 2 minutos. Se a ligação nasce de uma
+  atividade de ligação (inclusive a etapa de ligação da régua), `atividadeId` a liga: a atividade
+  é concluída quando o cliente atende. O cliente que atende uma ligação nossa **abre a janela de
+  24 h**.
+- **R29.4** **Permissão do cliente** (`permissoes_de_ligacao`, uma por canal e contato): situação
+  `NENHUMA`, `PEDIDA`, `CONCEDIDA` (temporária, 7 dias, ou permanente), `NEGADA` ou `REVOGADA`
+  (a temporária vencida aparece como `EXPIRADA`). **Pedido:** mensagem interativa
+  `call_permission_request` dentro da janela de 24 h; fora dela, um **template aprovado com o
+  componente de permissão** (sincronizado na E1; sem ele, 422 `sem_template_de_permissao`). Os
+  limites da Meta valem **antes** de enviar: **1 pedido por 24 h e 2 por 7 dias por cliente**
+  (422 `limite_de_pedidos` com `liberaEm`; a conferência na Meta também vale e traz `origem:
+  meta`); permissão que já existe é 409 `permissao_ja_existe`. Qualquer ligação conectada com o
+  cliente zera os pedidos. **A resposta do cliente** (campo `messages`, interativo
+  `call_permission_reply`) atualiza o registro (aceitar: temporária até a data da Meta, ou
+  permanente; recusar: `NEGADA`), vira aviso na conversa (não vira mensagem do cliente), abre a
+  janela de 24 h e emite `ligacao.permissao`; repetida, não duplica. **4 ligações feitas seguidas
+  sem resposta** (recusadas ou não atendidas; o cancelamento do atendente não conta) **revogam**
+  a permissão: o registro passa a `REVOGADA` (a Meta faz o mesmo); atender zera a contagem.
+- **R29.5** **Erros da Calling API em português** (tabela de códigos da referência §5.1:
+  `138006` sem permissão, `138012`/`138005` limites, `138001` cliente sem WhatsApp, `138003`
+  duplicada, `138009` pedidos, `138015` limite de mensagens baixo…): viram 422 com
+  `detalhes.motivo` estável e `detalhes.codigoDaMeta`; falha passageira da Meta (rede, 5xx) é 503.
+  Erros `138019` a `138023` do `terminate` (mídia) viram o motivo `falha_de_midia`.
+- **R29.6** **Configuração (aba "Ligações" do canal, só o Admin):** ativa (liga e desliga as
+  chamadas no número por `POST /{phone_number_id}/settings`; **se a Meta recusar, nada é gravado**
+  e o motivo vem em português), botão "Ligar" visível, horário (formato do horário de
+  atendimento; padrão: o do canal; as ligações fora dele não chegam ao CRM como "fora do horário"
+  porque o CRM **não** manda `call_hours` à Meta: a perdida precisa chegar para gerar o retorno),
+  fila que atende, gravar (padrão sim; usado pela E3), tempo de toque (padrão 25 s) e mensagem
+  automática de perdida (desligada por padrão). O Admin assina o campo `calls` no app da Meta
+  (vem em `webhook.campos` do canal). Tudo é auditado (`canal.ligacoes_ativadas`,
+  `canal.ligacoes_desativadas`, `canal.ligacoes_configuradas`).
+- **R29.7** **Ao encerrar:** a ligação registra duração e motivo; cria ou conclui a **atividade
+  `LIGACAO`** do contato (direção, resultado, duração, quem e a anotação na descrição): a atendida
+  nasce concluída em nome de quem atendeu ou ligou (e conclui os "Retornar ligação" pendentes do
+  contato), a perdida gera o retorno pendente, a feita sem resposta, recusada ou com falha registra
+  a tentativa concluída (se veio de uma atividade pendente, ela fica pendente com a tentativa na
+  descrição); e registra um **evento do sistema na conversa do Atendimento** (a ligação como
+  cartão: `metadados.ligacao`). A anotação rápida (`PATCH /ligacoes/:id`) vale durante e depois da
+  ligação e atualiza a atividade. O fim da ligação limpa as SDPs (a oferta e a resposta só ficam
+  enquanto necessárias) e marca como lidas as notificações de "tocando".
+- **R29.8** **Acesso:** atende, liga, pede permissão, anota e vê o histórico quem pode usar o
+  Atendimento (R12; Marketing, não: 403). O histórico respeita a visibilidade das conversas
+  (quem atendeu, quem foi chamado e quem vê a conversa; Admin e C-level veem todas; os demais, 404).
+  Só quem atendeu ou ligou encerra e anota. Configurar o canal é só do Admin. A **anonimização do
+  contato (R4.6)** limpa o telefone, o BSUID, a anotação e as SDPs das ligações dele e apaga as
+  permissões; o registro (direção, estado, duração e motivo) fica. **Auditoria** de
+  configuração (`canal.ligacoes_*`) e de cada ligação (`ligacao.recebida`, `ligacao.atendida`,
+  `ligacao.iniciada`, `ligacao.encerramento_pedido`, `ligacao.anotada`, `ligacao.encerrada`, `.perdida`,
+  `.recusada`, `.sem_resposta`, `.falhou`) e da
+  permissão (`ligacao.permissao_pedida`, `_concedida`, `_negada`, `_revogada`).
+- **Endpoints:** `GET /ligacoes/configuracao-webrtc`, `GET /ligacoes/canais`, `GET /ligacoes/ativas`,
+  `GET /ligacoes/permissoes`, `POST /ligacoes/permissoes/pedir`, `GET /ligacoes`, `POST /ligacoes`,
+  `GET /ligacoes/:id`, `POST /ligacoes/:id/atender`, `POST /ligacoes/:id/encerrar`, `PATCH
+  /ligacoes/:id`; Admin: `GET|PATCH /whatsapp-oficial/canais/:id/ligacoes`. Tempo real (namespace
+  `/tempo-real`): `ligacao.tocando`, `ligacao.deixou_de_tocar`, `ligacao.resposta_sdp`,
+  `ligacao.estado`, `ligacao.encerrada` e `ligacao.permissao`.
+
+### Cenários de aceitação (Onda E, ligações)
+
+Continuam a numeração dos cenários do canal oficial (até o 194); cada um tem teste automatizado
+("cenário N" no nome, em `test/onda-e-ligacoes.e2e-spec.ts`) contra um Postgres real e uma Graph e
+Calling API falsa em processo; a máquina de estados, o formato do webhook e as regras de permissão
+têm testes de unidade em `src/ligacoes/*.spec.ts`.
+
+195. O Admin liga as chamadas: `settings` na Meta (sem `call_hours`, SIP desligado), padrões do
+     canal e auditoria (R29.6).
+196. Só o Admin configura (403); Marketing não usa as ligações (403) (R29.6, R29.8).
+197. A Meta recusa ativar: nada é gravado e o motivo vem em português (R29.6).
+198. Tempo de toque, horário e mensagem de perdida são validados (R29.6).
+199. Recebida atendida: toca só para o responsável, `pre_accept` e `accept` com o mesmo SDP,
+     termina com a duração, atividade concluída, evento na conversa e janela de 24 h aberta
+     (R29.2, R29.7).
+200. Contato novo: cria contato e conversa na fila e toca para todos os livres da fila (R29.2).
+201. Disputa de dois atendentes: só um leva (409 `atendida_por_outro` para o outro, que recebe
+     `deixou_de_tocar`) (R29.2).
+202. Perdida por tempo de toque: `reject` na Meta, "Retornar ligação", notificação e mensagem
+     automática (R29.2).
+203. Fora do horário de ligações e sem atendente online: `PERDIDA` na hora, com `reject` e retorno
+     (R29.2).
+204. Quem está em ligação não é "livre": a ligação seguinte vai para a fila (R29.2).
+205. Uma ligação por atendente: atender outra com uma em andamento é 409 (R29.2).
+206. A Meta recusa o `accept`: `FALHOU`, motivo ao atendente e retorno para o cliente (R29.2).
+207. O cliente desliga antes de alguém atender: `PERDIDA` e os outros param de tocar (R29.2).
+208. Encerrar manda `terminate`; o webhook fecha com a duração; sem webhook, o job fecha (R29.2).
+209. Anotação rápida vai para a atividade; só quem atendeu anota (R29.7).
+210. Queda do navegador: tolerância curta e depois encerra com `terminate` (R29.2).
+211. Ligar sem permissão: 422 com o que o front precisa e nada vai à Meta (R29.3).
+212. Ligar com permissão: `connect`, resposta SDP pelo tempo real, `RINGING`, `ACCEPTED`, encerrar e
+     atividade (R29.3).
+213. A permissão expirou na Meta: o CRM confere antes de ligar e atualiza o registro (R29.3).
+214. Limite de ligações feitas lido da Meta: 422 com quando libera (R29.3).
+215. A Meta recusa o `connect`; cliente recusa; cliente não atende (R29.3, R29.5).
+216. Cancelar enquanto chama; botão desligado bloqueia (R29.3).
+217. Uma ligação por atendente e por cliente (R29.3).
+218. Ligação feita a partir de uma atividade de ligação: concluída se atendida (R29.3).
+219. Pedido de permissão dentro da janela (interativo); a resposta do cliente atualiza o registro
+     (R29.4).
+220. Pedido fora da janela: template com o componente de permissão; sem template, 422 (R29.4).
+221. Limites de pedido: 1 por 24 h e 2 por 7 dias, e o que a Meta informar (R29.4).
+222. 4 ligações seguidas sem resposta revogam a permissão; atender zera a contagem (R29.4).
+223. Vigia: ligação feita presa em `CHAMANDO` é fechada (R29.3).
+224. `connect` repetido não duplica a ligação nem o toque (R29.2).
+225. `terminate` e status repetidos, `RINGING` depois do `ACCEPTED` e eventos depois do fim não
+     regridem nada (R29.1, R29.2).
+226. `terminate` que chega antes do `connect` espera a ligação existir (R29.2).
+227. `connect` atrasado: `PERDIDA` "atrasada", sem toque e sem `reject` (R29.2).
+228. O webhook só vale assinado com o app secret do canal; as chaves de dedupe vencem em 7 dias
+     (R29.2).
+229. O histórico respeita a visibilidade do Atendimento (R29.8).
+230. O processamento completo termina sem erro nos logs técnicos (R29).
+231. A anonimização do contato (R4.6) limpa o telefone, a anotação e a permissão das ligações e
+     mantém o registro (duração, motivo) (R29.8).

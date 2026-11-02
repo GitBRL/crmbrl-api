@@ -78,6 +78,18 @@ export interface ConfiguracaoMeta {
   readonly graphVersao: string;
 }
 
+/** Ligações pelo WhatsApp oficial (Onda E, R29). */
+export interface ConfiguracaoLigacoes {
+  /** Servidores STUN que o navegador usa na ligação (`LIGACOES_STUN_URLS`, separados por vírgula; vazio = nenhum). */
+  readonly stunUrls: readonly string[];
+  /**
+   * Espera entre o `pre_accept` e o `accept` da ligação recebida, em ms
+   * (`LIGACOES_ESPERA_PRE_ACEITE_MS`, padrão 800): dá tempo de a mídia conectar
+   * antes de a Meta liberar o áudio (referência §2.3, "audio clipping").
+   */
+  readonly esperaPreAceiteMs: number;
+}
+
 /**
  * Claude (Anthropic) para a análise do BI (R21). A chave nunca fica aqui: o SDK
  * a lê de `ANTHROPIC_API_KEY` no próprio processo; a API só sabe se ela existe.
@@ -192,6 +204,8 @@ export interface Ambiente {
   readonly whatsapp: ConfiguracaoWhatsapp;
   /** Graph API da Meta (Instagram e Messenger, R14). */
   readonly meta: ConfiguracaoMeta;
+  /** Ligações pelo WhatsApp oficial (Onda E, R29). */
+  readonly ligacoes: ConfiguracaoLigacoes;
   readonly anthropic: ConfiguracaoAnthropic;
   readonly ticketHub: ConfiguracaoTicketHub;
   readonly push: ConfiguracaoPush;
@@ -242,6 +256,8 @@ export interface VariaveisDeAmbiente {
   WHATSAPP_PORTA?: string;
   META_GRAPH_URL?: string;
   META_GRAPH_VERSAO?: string;
+  LIGACOES_STUN_URLS?: string;
+  LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   TICKETHUB_URL?: string;
@@ -292,6 +308,8 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'WHATSAPP_PORTA',
   'META_GRAPH_URL',
   'META_GRAPH_VERSAO',
+  'LIGACOES_STUN_URLS',
+  'LIGACOES_ESPERA_PRE_ACEITE_MS',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'TICKETHUB_URL',
@@ -384,6 +402,7 @@ export function lerAmbiente(
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
+    ligacoes: lerLigacoes(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
     ticketHub: lerTicketHub(variaveis, problemas),
     push: lerPush(variaveis, problemas, avisos),
@@ -1047,6 +1066,39 @@ function lerWhatsapp(
     ),
     porta,
   };
+}
+
+/**
+ * `LIGACOES_*` (R29): STUN opcional do navegador (vazio por padrão: o áudio vai
+ * direto entre o navegador e a Meta, sem TURN) e a espera entre `pre_accept` e `accept`.
+ */
+function lerLigacoes(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoLigacoes {
+  const stunUrls = (limpar(variaveis.LIGACOES_STUN_URLS) ?? '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter((url) => url !== '');
+  for (const url of stunUrls) {
+    if (!/^stuns?:[^\s,]+$/i.test(url)) {
+      problemas.push(
+        `LIGACOES_STUN_URLS precisa ter endereços stun:host:porta separados por vírgula (recebido: "${url}").`,
+      );
+    }
+  }
+  const espera = limpar(variaveis.LIGACOES_ESPERA_PRE_ACEITE_MS);
+  let esperaPreAceiteMs = 800;
+  if (espera !== undefined) {
+    if (/^\d+$/.test(espera) && Number(espera) <= 10_000) {
+      esperaPreAceiteMs = Number(espera);
+    } else {
+      problemas.push(
+        `LIGACOES_ESPERA_PRE_ACEITE_MS precisa ser um número de 0 a 10000 (recebido: "${espera}").`,
+      );
+    }
+  }
+  return { stunUrls, esperaPreAceiteMs };
 }
 
 /** `META_GRAPH_*` (R14): onde fica a Graph API (a falsa do ambiente dos agentes, nos testes). */

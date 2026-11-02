@@ -28,6 +28,10 @@
  */
 import type { TipoMensagem } from '../../generated/prisma/client';
 import type { StatusDeEntrega } from '../../atendimento/entrada';
+import {
+  type RespostaDePermissao,
+  respostaDePermissao,
+} from '../../ligacoes/formato-chamadas';
 import { traduzirErroDaMeta } from './formato-meta';
 
 /** `object` do webhook do WhatsApp Business. */
@@ -149,6 +153,8 @@ export type ConteudoOficial =
       descricao: string | null;
     }
   | { tipo: 'reacao'; mensagemAlvo: string | null; emoji: string }
+  /** Resposta ao pedido de permissão para ligar (R29): não vira mensagem da conversa. */
+  | ({ tipo: 'permissao_de_ligacao' } & RespostaDePermissao)
   | { tipo: 'nao_suportado'; tipoOriginal: string };
 
 export interface ContatoCompartilhado {
@@ -311,6 +317,12 @@ export function conteudoDaMensagem(mensagem: Json): ConteudoOficial {
           descricao: texto(resposta.description),
         };
       }
+      if (origem === 'call_permission_reply') {
+        const permissao = respostaDePermissao(mensagem);
+        if (permissao) {
+          return { tipo: 'permissao_de_ligacao', ...permissao };
+        }
+      }
       return { tipo: 'nao_suportado', tipoOriginal: `interactive:${origem}` };
     }
     case 'button': {
@@ -422,6 +434,8 @@ export function textoDoConteudo(conteudo: ConteudoOficial): string | null {
       return conteudo.titulo || null;
     case 'reacao':
       return conteudo.emoji;
+    case 'permissao_de_ligacao':
+      return 'Resposta ao pedido de permissão para ligar';
     case 'nao_suportado':
       return '(mensagem não suportada pelo CRM)';
   }

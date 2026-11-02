@@ -404,7 +404,7 @@ describe('Canal WhatsApp oficial (e2e)', () => {
         webhook: {
           url: 'http://localhost:4200/api/v1/publico/meta/webhook',
           tokenVerificacao: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
-          campos: ['messages'],
+          campos: ['messages', 'calls'],
         },
         estado: { situacao: 'NAO_TESTADO', motivo: null },
         templates: { total: 0, aprovados: 0, sincronizadoEm: null },
@@ -566,14 +566,14 @@ describe('Canal WhatsApp oficial (e2e)', () => {
       await postarWebhook(corpo).expect(200, { recebidas: 1 });
     });
 
-    it('cenário 160 — R28.2 — número desconhecido e campos sem tratador (calls) são ignorados com 200', async () => {
+    it('cenário 160 — R28.2 — número desconhecido e campos sem tratador (account_update) são ignorados com 200', async () => {
       await criarOficial();
       await postarWebhook(
         mudanca({ messages: [] }, { numeroId: '999' }),
         'qualquer',
       ).expect(200, { recebidas: 0 });
       await postarWebhook(
-        mudanca({ messages: [] }, { campo: 'calls' }),
+        mudanca({ messages: [] }, { campo: 'account_update' }),
         'qualquer',
       ).expect(200, { recebidas: 0 });
       expect(

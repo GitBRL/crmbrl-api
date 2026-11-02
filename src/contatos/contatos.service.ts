@@ -937,6 +937,22 @@ export class ContatosService {
       where: { entidadeId: contatoId },
       data: { dados: Prisma.DbNull },
     });
+    // Ligações do WhatsApp (R29): o telefone, a anotação e o que a E3 guardar saem; o registro (duração, motivo) fica.
+    const ligacoes = await tx.ligacao.updateMany({
+      where: { contatoId },
+      data: {
+        telefone: null,
+        bsuid: null,
+        anotacao: null,
+        ofertaSdp: null,
+        respostaSdp: null,
+        transcricao: Prisma.DbNull,
+        resumo: Prisma.DbNull,
+      },
+    });
+    const permissoes = await tx.permissaoDeLigacao.deleteMany({
+      where: { contatoId },
+    });
     return {
       identificadoresApagados: identificadores.count,
       conversasEncerradas: encerradas.count,
@@ -945,6 +961,8 @@ export class ContatosService {
       visitantesLimpos: visitantes.count,
       enviosDaReguaLimpos: envios.count,
       linhasDeImportacaoLimpas: linhas.count,
+      ligacoesLimpas: ligacoes.count,
+      permissoesDeLigacaoApagadas: permissoes.count,
     };
   }
 
