@@ -380,6 +380,23 @@ export class DesligamentoService {
       where: { usuarioId: usuario.id, usadoEm: null, invalidadoEm: null },
       data: { invalidadoEm: agora },
     });
+    // Aparelhos de push saem junto (R26.1): quem foi desligado não recebe mais notificações.
+    const aparelhos = await tx.pushInscricao.findMany({
+      where: { usuarioId: usuario.id },
+      select: { id: true, aparelho: true },
+    });
+    if (aparelhos.length > 0) {
+      await tx.pushInscricao.deleteMany({ where: { usuarioId: usuario.id } });
+      for (const { id, aparelho } of aparelhos) {
+        await this.auditoria.registrar(tx, {
+          acao: 'push.inscricao_removida',
+          entidade: 'push_inscricao',
+          entidadeId: id,
+          resumo: `Aparelho "${aparelho}" removido das notificações push: desligamento de ${usuario.nome}`,
+          dados: { aparelho, motivo: 'desligamento', regra: 'R26' },
+        });
+      }
+    }
 
     // O que estava com ele vai para o destinatário (R7.3).
     const atividades = await tx.atividade.updateManyAndReturn({

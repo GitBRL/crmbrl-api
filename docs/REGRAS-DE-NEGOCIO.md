@@ -1328,7 +1328,11 @@ teste) contra um Postgres real, e os de tela têm spec no front.
   máximo **20** aparelhos (o mais antigo sai), lista e remove só os seus (404 para os de
   outras pessoas). As chaves da inscrição ficam **cifradas**; endereços inválidos ou de rede
   interna são recusados. Sem `VAPID_*` no ambiente, chave pública e inscrição dão 503
-  (`nao_configurado`) e a tela explica.
+  (`nao_configurado`) e a tela explica. **Saída dos aparelhos:** sair do CRM remove a inscrição
+  **deste aparelho** (o front pede `DELETE /push/inscricoes/:id` antes de encerrar a sessão; os
+  outros aparelhos da pessoa ficam) e **desligar o usuário (R7) remove todos os aparelhos dele**
+  na mesma transação, com `push.inscricao_removida` (motivo `desligamento`) por aparelho. Trocar
+  ou redefinir a senha encerra as sessões (R2.4), mas não mexe nos aparelhos: eles são da pessoa.
 - **R26.2** **Preferências por tipo:** conversa atribuída, menção, atividade vencendo, SLA
   estourado, negócio atribuído e parcela atrasada da carteira. Tudo ligado por padrão;
   `PUT /push/preferencias` altera só os tipos enviados; tipo desconhecido, valor que não é
@@ -1466,3 +1470,7 @@ teste) contra um Postgres real, e os de tela têm spec no front.
 150. O índice parcial das parcelas pagas por data de pagamento existe (R23.3).
 151. A baixa que encerra a régua e cancela envios pendentes tem uma entrada própria na
      linha do tempo do título (R24.6, R24.9).
+152. Desligar o usuário remove todos os aparelhos de push dele, auditando
+     `push.inscricao_removida` (motivo `desligamento`) sem endereço nem chaves, e não toca nos de
+     outras pessoas (R26.1, R7).
+153. Sair remove a inscrição deste aparelho e mantém os outros da mesma pessoa (R26.1).

@@ -534,4 +534,50 @@ describe('Notificações push (e2e)', () => {
       });
     });
   });
+
+  describe('aparelhos ao sair e ao desligar', () => {
+    it('cenário 152 — R26.1 — desligar o usuário remove todos os aparelhos dele (auditado, motivo desligamento) e mantém os de outras pessoas', async () => {
+      const admin = await entrarComo(
+        t,
+        await criarUsuario(t, { papel: 'ADMIN' }),
+      );
+      const celular = await inscrever(ana, 'Celular da Ana');
+      const notebook = await inscrever(ana, 'Notebook da Ana');
+      await inscrever(bia, 'Celular da Bia');
+      const dela = ana.usuario;
+      if (!dela) throw new Error('sem usuário');
+
+      await admin.post(`/api/v1/usuarios/${dela.id}/desligar`, {}).expect(200);
+
+      expect(
+        await t.prisma.pushInscricao.count({ where: { usuarioId: dela.id } }),
+      ).toBe(0);
+      expect(await t.prisma.pushInscricao.count()).toBe(1);
+      const eventos = await t.prisma.eventoAuditoria.findMany({
+        where: { acao: 'push.inscricao_removida' },
+      });
+      expect(eventos.map((e) => e.entidadeId)).toEqual(
+        expect.arrayContaining([celular.id, notebook.id]),
+      );
+      expect(eventos).toHaveLength(2);
+      for (const e of eventos) {
+        expect(e.dados).toMatchObject({ motivo: 'desligamento', regra: 'R26' });
+      }
+      const saida = texto(eventos);
+      expect(saida).not.toContain(celular.endpoint);
+      expect(saida).not.toContain(celular.keys.auth);
+      expect(saida).not.toContain(notebook.endpoint);
+    });
+
+    it('cenário 153 — R26.1 — sair remove a inscrição deste aparelho (o front pede a remoção antes de encerrar a sessão) e mantém os outros da pessoa', async () => {
+      const este = await inscrever(ana, 'Este aparelho');
+      const outro = await inscrever(ana, 'Outro aparelho');
+      await ana.delete(`${API}/inscricoes/${este.id}`).expect(204);
+      await ana.post('/api/v1/auth/sair').expect(204);
+      const restantes = await t.prisma.pushInscricao.findMany({
+        where: { endpoint: { in: [este.endpoint, outro.endpoint] } },
+      });
+      expect(restantes.map((r) => r.endpoint)).toEqual([outro.endpoint]);
+    });
+  });
 });
