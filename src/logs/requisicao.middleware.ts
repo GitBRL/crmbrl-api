@@ -18,7 +18,9 @@ export const CABECALHO_ID_REQUISICAO = 'X-Request-Id';
 const ID_ACEITAVEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 /** O `X-Request-Id` recebido (se aceitável) ou um id novo (R3.7). */
-export function idDaRequisicao(recebido: string | string[] | undefined): string {
+export function idDaRequisicao(
+  recebido: string | string[] | undefined,
+): string {
   const valor = Array.isArray(recebido) ? recebido[0] : recebido;
   return valor && ID_ACEITAVEL.test(valor) ? valor : randomUUID();
 }

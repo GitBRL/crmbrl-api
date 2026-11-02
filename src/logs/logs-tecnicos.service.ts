@@ -64,7 +64,9 @@ export class LogsTecnicosService {
     const contexto = contextoAtual();
     const dados = sanitizarObjeto({
       ...entrada.dados,
-      ...(entrada.erro !== undefined ? { erro: descreverErro(entrada.erro) } : {}),
+      ...(entrada.erro !== undefined
+        ? { erro: descreverErro(entrada.erro) }
+        : {}),
     });
     this.escreverNoConsole(entrada, contexto.requisicaoId);
     try {
@@ -73,7 +75,10 @@ export class LogsTecnicosService {
           nivel: entrada.nivel,
           contexto: entrada.contexto,
           mensagem: entrada.mensagem.slice(0, 2_000),
-          dados: dados && Object.keys(dados).length > 0 ? (dados as Prisma.InputJsonObject) : undefined,
+          dados:
+            dados && Object.keys(dados).length > 0
+              ? (dados as Prisma.InputJsonObject)
+              : undefined,
           requisicaoId: contexto.requisicaoId,
           usuarioId: contexto.usuario?.id,
           metodo: entrada.http?.metodo,
@@ -89,7 +94,10 @@ export class LogsTecnicosService {
     }
   }
 
-  private escreverNoConsole(entrada: EntradaLogTecnico, requisicaoId: string): void {
+  private escreverNoConsole(
+    entrada: EntradaLogTecnico,
+    requisicaoId: string,
+  ): void {
     const parametros = {
       contexto: entrada.contexto,
       requisicaoId,
