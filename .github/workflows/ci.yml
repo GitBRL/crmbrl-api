@@ -1,0 +1,125 @@
+# CI da crmbrl-api: lint, testes de unidade, testes de integração (com PostgreSQL de serviço),
+# build e build da imagem Docker. Sem push de imagem e sem deploy: a publicação é manual
+# (veja docs/DEPLOY.md).
+name: CI
+
+on:
+  push:
+    branches: [main, fase-1]
+  pull_request:
+
+# Uma execução por branch: um push novo cancela a anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # O Bun instala as dependências (bun.lock); o Node 24 e o npm executam os scripts (como na imagem de produção).
+  NODE_VERSION: '24'
+  CI: 'true'
+
+jobs:
+  lint:
+    name: Lint e formatação
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      # `prelint` gera o Prisma Client; o oxlint com tipos precisa dele.
+      - run: npm run lint
+      - run: npm run format:verificar
+
+  unidade:
+    name: Testes de unidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      # `pretest` gera o Prisma Client. No máximo 2 workers, como no desenvolvimento.
+      - run: npm run test -- -w 2
+
+  integracao:
+    name: Testes de integração
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: crmbrl
+          POSTGRES_PASSWORD: crmbrl
+          POSTGRES_DB: crmbrl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crmbrl -d crmbrl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Os testes APAGAM os dados deste banco: é o banco descartável do serviço acima.
+      DATABASE_URL_TESTE: postgresql://crmbrl:crmbrl@localhost:5432/crmbrl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      # 1 worker (o padrão: os testes compartilham o banco), em lotes de 8 arquivos: a suíte
+      # inteira num só processo estoura o heap do Node.
+      - name: Integração (lotes de 8 arquivos)
+        run: ls test/*.e2e-spec.ts | xargs -n 8 npm run test:e2e --
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      # prisma generate + nest build (dist/main.js e dist/whatsapp/main.js).
+      - run: npm run build
+      - name: Confere as saídas do build
+        run: test -f dist/main.js && test -f dist/whatsapp/main.js
+
+  imagem:
+    name: Imagem Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Só constrói (push: false): confere que o Dockerfile continua válido.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: crmbrl-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

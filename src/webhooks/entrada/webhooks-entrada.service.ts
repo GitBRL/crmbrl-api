@@ -1,0 +1,864 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { PREFIXO_DAS_ROTAS, VERSAO_PADRAO_DA_API } from '../../aplicacao';
+import { AuditoriaService } from '../../auditoria/auditoria.service';
+import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
+import { CriptografiaService } from '../../comum/criptografia/criptografia.service';
+import { calcularAlteracoes } from '../../comum/dados/sanitizar';
+import { normalizarEtiquetas } from '../../comum/dominio/etiquetas';
+import { rotuloDaArea } from '../../comum/dominio/papeis';
+import {
+  ConflitoException,
+  DadosInvalidosException,
+  NaoEncontradoException,
+  RegraVioladaException,
+} from '../../comum/erros/excecoes';
+import {
+  montarPagina,
+  type Pagina,
+  paraSkipTake,
+} from '../../comum/paginacao/paginacao';
+import {
+  type ProblemaDeCampo,
+  resumirProblemas,
+} from '../../comum/validacao/validacao';
+import { AMBIENTE, type Ambiente } from '../../config/ambiente';
+import { podeSerResponsavelNaArea } from '../../funis/acesso-funis';
+import type {
+  EstrategiaDistribuicao,
+  Etapa,
+  Funil,
+  ModeloMapeamento,
+  Prisma,
+  WebhookEntrada,
+} from '../../generated/prisma/client';
+import { PrismaService, type Tx } from '../../prisma/prisma.service';
+import { travarChave } from '../../prisma/travas';
+import {
+  EtapaDoWebhookDto,
+  FunilDoWebhookDto,
+  UsuarioDoWebhookDto,
+} from '../dto-comum';
+import {
+  BYTES_DO_SEGREDO,
+  BYTES_DO_TOKEN,
+  TAMANHO_DO_PREFIXO_DO_TOKEN,
+  TRAVA_NOME_ENTRADA,
+} from '../webhooks.constantes';
+import type {
+  PreviaDeMapeamentoDto,
+  ResultadoDaPreviaDto,
+} from './dto/previa.dto';
+import type { PreviaDoWebhookDto } from './dto/recebimento.dto';
+import type {
+  AtualizarWebhookEntradaDto,
+  CriarWebhookEntradaDto,
+  DefinirSegredoEntradaDto,
+  FiltroWebhooksDto,
+  ModelosDeMapeamentoDto,
+  SegredoDefinidoDto,
+  TokenRegeneradoDto,
+  WebhookEntradaCriadoDto,
+  WebhookEntradaDto,
+} from './dto/webhook-entrada.dto';
+import {
+  aplicarMapeamento,
+  DESTINO_ETIQUETAS,
+  type Mapeamento,
+  mapeamentoEfetivo,
+  MODELOS_PRONTOS,
+  validarMapeamento,
+} from './mapeamento';
+
+/** Caminho do endereço público, sem o token (R8.2). */
+export const CAMINHO_DO_ENDERECO = `/${PREFIXO_DAS_ROTAS}/v${VERSAO_PADRAO_DA_API}/webhooks/entrada/`;
+
+/** Campos comparados na auditoria da edição (R3.1). Segredo e token ficam de fora. */
+const CAMPOS_AUDITADOS = [
+  'nome',
+  'funilId',
+  'etapaId',
+  'estrategia',
+  'responsavelFixoId',
+  'modeloMapeamento',
+  'mapeamento',
+  'etiquetasFixas',
+  'ativo',
+] as const satisfies readonly (keyof WebhookEntrada)[];
+
+const DESCRICOES_DOS_DESTINOS: Readonly<Record<string, string>> = {
+  nome: 'Nome do contato (obrigatório).',
+  email: 'E-mail do contato (gravado em minúsculas).',
+  telefone: 'Telefone do contato (E.164, só dígitos; DDD validado).',
+  empresa: 'Nome da empresa: vincula à empresa com o mesmo nome ou cria uma.',
+  cargo: 'Cargo do contato.',
+  titulo: 'Título do negócio (padrão: o nome do contato).',
+  valor:
+    'Valor do negócio em reais (aceita "1500", "1.500,00", "R$ 1.500,00").',
+  valorRecorrente: 'Valor recorrente mensal do negócio, em reais.',
+  'utm.source': 'UTM source da origem.',
+  'utm.medium': 'UTM medium da origem.',
+  'utm.campaign': 'UTM campaign da origem.',
+  'utm.term': 'UTM term da origem.',
+  'utm.content': 'UTM content da origem.',
+  [DESTINO_ETIQUETAS]:
+    'Etiquetas do contato (lista ou texto separado por vírgula; somam-se às fixas).',
+};
+
+type WebhookCompleto = WebhookEntrada & {
+  funil: Funil;
+  etapa: Etapa;
+  responsavelFixo: { id: string; nome: string } | null;
+  criadoPor: { id: string; nome: string } | null;
+};
+
+const INCLUIR_NO_WEBHOOK = {
+  funil: true,
+  etapa: true,
+  responsavelFixo: { select: { id: true, nome: true } },
+  criadoPor: { select: { id: true, nome: true } },
+} as const satisfies Prisma.WebhookEntradaInclude;
+
+/**
+ * Pontos de entrada de leads (R8.1–R8.3), só para o Admin (§12): cadastro,
+ * token da URL (só o hash fica no banco; o endereço completo aparece ao criar
+ * e ao regenerar), segredo HMAC opcional (cifrado, R10.3), mapeamento e a
+ * prévia dele sobre um corpo de exemplo.
+ *
+ * Toda alteração vai numa transação com a auditoria (R3.1).
+ */
+@Injectable()
+export class WebhooksEntradaService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+    private readonly cripto: CriptografiaService,
+    @Inject(AMBIENTE) private readonly ambiente: Ambiente,
+  ) {}
+
+  // -------------------------------------------------------------------------
+  // Consulta
+  // -------------------------------------------------------------------------
+
+  async listar(filtro: FiltroWebhooksDto): Promise<Pagina<WebhookEntradaDto>> {
+    const where: Prisma.WebhookEntradaWhereInput = {
+      excluidoEm: null,
+      ...(filtro.ativo === undefined ? {} : { ativo: filtro.ativo }),
+      ...(filtro.busca
+        ? { nome: { contains: filtro.busca, mode: 'insensitive' } }
+        : {}),
+    };
+    const [webhooks, total] = await Promise.all([
+      this.prisma.webhookEntrada.findMany({
+        where,
+        include: INCLUIR_NO_WEBHOOK,
+        orderBy: [{ nome: 'asc' }, { id: 'asc' }],
+        ...paraSkipTake(filtro),
+      }),
+      this.prisma.webhookEntrada.count({ where }),
+    ]);
+    const contagens = await this.contarRecebimentos(
+      webhooks.map(({ id }) => id),
+    );
+    return montarPagina(
+      webhooks.map((webhook) => this.paraDto(webhook, contagens)),
+      total,
+      filtro,
+    );
+  }
+
+  async detalhar(id: string): Promise<WebhookEntradaDto> {
+    const webhook = await this.prisma.webhookEntrada.findFirst({
+      where: { id, excluidoEm: null },
+      include: INCLUIR_NO_WEBHOOK,
+    });
+    if (!webhook) {
+      throw new NaoEncontradoException('Webhook de entrada não encontrado.');
+    }
+    return this.paraDto(webhook, await this.contarRecebimentos([id]));
+  }
+
+  modelos(): ModelosDeMapeamentoDto {
+    return {
+      modelos: Object.values(MODELOS_PRONTOS).map((definicao) => ({
+        modelo: definicao.modelo,
+        nome: definicao.nome,
+        descricao: definicao.descricao,
+        mapeamento: copiarMapeamento(definicao.mapeamento),
+        exemplo: { ...definicao.exemplo },
+      })),
+      destinos: Object.entries(DESCRICOES_DOS_DESTINOS).map(
+        ([destino, descricao]) => ({ destino, descricao }),
+      ),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Alteração
+  // -------------------------------------------------------------------------
+
+  async criar(
+    usuario: UsuarioAutenticado,
+    dto: CriarWebhookEntradaDto,
+  ): Promise<WebhookEntradaCriadoDto> {
+    if (dto.segredo !== undefined && dto.gerarSegredo) {
+      throw erroDeCampo('gerarSegredo', 'não combine com `segredo`');
+    }
+    const modelo = dto.modeloMapeamento ?? 'GENERICO';
+    const mapeamento = this.mapeamentoParaGravar(modelo, dto.mapeamento, null);
+    const token = this.cripto.gerarToken(BYTES_DO_TOKEN);
+    const segredo = dto.gerarSegredo
+      ? this.cripto.gerarToken(BYTES_DO_SEGREDO)
+      : (dto.segredo ?? null);
+    const estrategia = dto.estrategia ?? 'RODIZIO';
+    const ativo = dto.ativo ?? true;
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      await this.garantirNomeLivre(tx, dto.nome);
+      const { funil, etapa } = await this.resolverEntrada(
+        tx,
+        dto.funilId,
+        dto.etapaId,
+      );
+      if (ativo) {
+        garantirFunilAtivo(funil);
+      }
+      const responsavelFixoId = await this.resolverResponsavelFixo(
+        tx,
+        estrategia,
+        dto.responsavelFixoId ?? null,
+        funil,
+      );
+      const webhook = await tx.webhookEntrada.create({
+        data: {
+          nome: dto.nome,
+          tokenHash: this.cripto.sha256(token),
+          tokenPrefixo: token.slice(0, TAMANHO_DO_PREFIXO_DO_TOKEN),
+          funilId: funil.id,
+          etapaId: etapa.id,
+          estrategia,
+          responsavelFixoId,
+          modeloMapeamento: modelo,
+          mapeamento,
+          etiquetasFixas: normalizarEtiquetas(dto.etiquetasFixas),
+          segredoCifrado: segredo ? this.cripto.cifrar(segredo) : null,
+          ativo,
+          criadoPorId: usuario.id,
+        },
+      });
+      await this.auditoria.registrar(tx, {
+        acao: 'webhook_entrada.criado',
+        entidade: 'webhook_entrada',
+        entidadeId: webhook.id,
+        resumo: `Webhook de entrada "${webhook.nome}" criado (${funil.nome} / ${etapa.nome})`,
+        dados: {
+          alteracoes: calcularAlteracoes({}, webhook, CAMPOS_AUDITADOS),
+          prefixo: webhook.tokenPrefixo,
+          hmac: segredo ? (dto.gerarSegredo ? 'gerado' : 'informado') : 'sem',
+        },
+        relacionados: { funil: funil.id },
+      });
+      return webhook.id;
+    });
+
+    return {
+      webhook: await this.detalhar(id),
+      url: this.endereco(token),
+      ...(dto.gerarSegredo && segredo ? { segredo } : {}),
+    };
+  }
+
+  async atualizar(
+    id: string,
+    dto: AtualizarWebhookEntradaDto,
+  ): Promise<WebhookEntradaDto> {
+    await this.prisma.$transaction(async (tx) => {
+      const antes = await this.travarAtivo(tx, id);
+      const dados: Prisma.WebhookEntradaUncheckedUpdateInput = {};
+
+      if (dto.nome !== undefined && dto.nome !== antes.nome) {
+        await this.garantirNomeLivre(tx, dto.nome, id);
+        dados.nome = dto.nome;
+      }
+
+      const mudouEntrada =
+        (dto.funilId !== undefined && dto.funilId !== antes.funilId) ||
+        (dto.etapaId !== undefined && dto.etapaId !== antes.etapaId);
+      const { funil, etapa } = mudouEntrada
+        ? await this.resolverEntrada(
+            tx,
+            dto.funilId ?? antes.funilId,
+            dto.funilId !== undefined && dto.funilId !== antes.funilId
+              ? dto.etapaId
+              : (dto.etapaId ?? antes.etapaId),
+          )
+        : await this.entradaAtual(tx, antes);
+      dados.funilId = funil.id;
+      dados.etapaId = etapa.id;
+
+      const estrategia = dto.estrategia ?? antes.estrategia;
+      const responsavelPedido =
+        dto.responsavelFixoId !== undefined
+          ? dto.responsavelFixoId
+          : estrategia === 'RESPONSAVEL_FIXO'
+            ? antes.responsavelFixoId
+            : null;
+      const revalidar =
+        dto.estrategia !== undefined ||
+        dto.responsavelFixoId !== undefined ||
+        funil.id !== antes.funilId;
+      dados.estrategia = estrategia;
+      dados.responsavelFixoId = revalidar
+        ? await this.resolverResponsavelFixo(
+            tx,
+            estrategia,
+            responsavelPedido,
+            funil,
+          )
+        : antes.responsavelFixoId;
+
+      if (dto.modeloMapeamento !== undefined || dto.mapeamento !== undefined) {
+        const modelo =
+          dto.modeloMapeamento ??
+          (dto.mapeamento !== undefined
+            ? 'PERSONALIZADO'
+            : antes.modeloMapeamento);
+        dados.modeloMapeamento = modelo;
+        dados.mapeamento = this.mapeamentoParaGravar(
+          modelo,
+          dto.mapeamento,
+          antes,
+        );
+      }
+      if (dto.etiquetasFixas !== undefined) {
+        dados.etiquetasFixas = normalizarEtiquetas(dto.etiquetasFixas);
+      }
+      const ativo = dto.ativo ?? antes.ativo;
+      if (ativo && (dto.ativo === true || mudouEntrada)) {
+        garantirFunilAtivo(funil);
+      }
+      dados.ativo = ativo;
+
+      const depois = await tx.webhookEntrada.update({
+        where: { id },
+        data: dados,
+      });
+      const alteracoes = calcularAlteracoes(antes, depois, CAMPOS_AUDITADOS);
+      if (Object.keys(alteracoes).length > 0) {
+        await this.auditoria.registrar(tx, {
+          acao: 'webhook_entrada.atualizado',
+          entidade: 'webhook_entrada',
+          entidadeId: id,
+          resumo: resumoDaEdicao(depois.nome, antes, depois),
+          dados: { alteracoes },
+          relacionados: { funil: depois.funilId },
+        });
+      }
+    });
+    return this.detalhar(id);
+  }
+
+  /** Exclusão lógica: o endereço passa a responder 404; os recebimentos ficam (R8.6). */
+  async excluir(id: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const webhook = await this.travarAtivo(tx, id);
+      await tx.webhookEntrada.update({
+        where: { id },
+        data: { excluidoEm: new Date(), ativo: false },
+      });
+      await this.auditoria.registrar(tx, {
+        acao: 'webhook_entrada.excluido',
+        entidade: 'webhook_entrada',
+        entidadeId: id,
+        resumo: `Webhook de entrada "${webhook.nome}" excluído`,
+        dados: { prefixo: webhook.tokenPrefixo },
+        relacionados: { funil: webhook.funilId },
+      });
+    });
+  }
+
+  /** Token novo (R8.2): o endereço antigo para de funcionar na hora. */
+  async regenerarToken(id: string): Promise<TokenRegeneradoDto> {
+    const token = this.cripto.gerarToken(BYTES_DO_TOKEN);
+    await this.prisma.$transaction(async (tx) => {
+      const webhook = await this.travarAtivo(tx, id);
+      const prefixoNovo = token.slice(0, TAMANHO_DO_PREFIXO_DO_TOKEN);
+      await tx.webhookEntrada.update({
+        where: { id },
+        data: {
+          tokenHash: this.cripto.sha256(token),
+          tokenPrefixo: prefixoNovo,
+        },
+      });
+      await this.auditoria.registrar(tx, {
+        acao: 'webhook_entrada.token_regenerado',
+        entidade: 'webhook_entrada',
+        entidadeId: id,
+        resumo: `Endereço do webhook de entrada "${webhook.nome}" regenerado (o anterior deixou de valer)`,
+        dados: { prefixoAnterior: webhook.tokenPrefixo, prefixoNovo },
+        relacionados: { funil: webhook.funilId },
+      });
+    });
+    return { webhook: await this.detalhar(id), url: this.endereco(token) };
+  }
+
+  /** Define (ou gera) o segredo HMAC (R8.3), cifrado no banco (R10.3). */
+  async definirSegredo(
+    id: string,
+    dto: DefinirSegredoEntradaDto,
+  ): Promise<SegredoDefinidoDto> {
+    const gerado = dto.segredo === undefined;
+    const segredo = dto.segredo ?? this.cripto.gerarToken(BYTES_DO_SEGREDO);
+    await this.prisma.$transaction(async (tx) => {
+      const webhook = await this.travarAtivo(tx, id);
+      await tx.webhookEntrada.update({
+        where: { id },
+        data: { segredoCifrado: this.cripto.cifrar(segredo) },
+      });
+      await this.auditoria.registrar(tx, {
+        acao: 'webhook_entrada.segredo_definido',
+        entidade: 'webhook_entrada',
+        entidadeId: id,
+        resumo: `Segredo HMAC do webhook de entrada "${webhook.nome}" ${webhook.segredoCifrado ? 'trocado' : 'definido'}: as chamadas passam a exigir X-Assinatura`,
+        dados: { hmac: gerado ? 'gerado' : 'informado' },
+        relacionados: { funil: webhook.funilId },
+      });
+    });
+    return {
+      webhook: await this.detalhar(id),
+      ...(gerado ? { segredo } : {}),
+    };
+  }
+
+  async removerSegredo(id: string): Promise<WebhookEntradaDto> {
+    await this.prisma.$transaction(async (tx) => {
+      const webhook = await this.travarAtivo(tx, id);
+      if (!webhook.segredoCifrado) {
+        return;
+      }
+      await tx.webhookEntrada.update({
+        where: { id },
+        data: { segredoCifrado: null },
+      });
+      await this.auditoria.registrar(tx, {
+        acao: 'webhook_entrada.segredo_removido',
+        entidade: 'webhook_entrada',
+        entidadeId: id,
+        resumo: `Segredo HMAC do webhook de entrada "${webhook.nome}" removido: as chamadas deixam de exigir assinatura`,
+        relacionados: { funil: webhook.funilId },
+      });
+    });
+    return this.detalhar(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Prévia do mapeamento
+  // -------------------------------------------------------------------------
+
+  /** Aplica uma configuração (ainda não salva) a um corpo de exemplo, sem gravar nada. */
+  previa(dto: PreviaDeMapeamentoDto): ResultadoDaPreviaDto {
+    const modelo = dto.modeloMapeamento ?? 'GENERICO';
+    if (modelo !== 'PERSONALIZADO' && dto.mapeamento !== undefined) {
+      throw erroDeCampo(
+        'mapeamento',
+        'só vale com modeloMapeamento PERSONALIZADO',
+      );
+    }
+    const mapeamento =
+      modelo === 'PERSONALIZADO'
+        ? this.validarOuFalhar(dto.mapeamento)
+        : MODELOS_PRONTOS[modelo].mapeamento;
+    return montarPrevia(
+      mapeamento,
+      dto.exemplo,
+      normalizarEtiquetas(dto.etiquetasFixas),
+    );
+  }
+
+  /** A prévia com a configuração salva do ponto, sobre um exemplo ou um recebimento dele. */
+  async previaDoWebhook(
+    id: string,
+    dto: PreviaDoWebhookDto,
+  ): Promise<ResultadoDaPreviaDto> {
+    if ((dto.exemplo === undefined) === (dto.recebimentoId === undefined)) {
+      throw new DadosInvalidosException(
+        'Informe `exemplo` ou `recebimentoId` (um dos dois).',
+        {
+          campos: [
+            {
+              campo: 'exemplo',
+              mensagens: ['informe exemplo ou recebimentoId'],
+            },
+          ],
+        },
+      );
+    }
+    const webhook = await this.prisma.webhookEntrada.findFirst({
+      where: { id, excluidoEm: null },
+    });
+    if (!webhook) {
+      throw new NaoEncontradoException('Webhook de entrada não encontrado.');
+    }
+    let corpo: unknown = dto.exemplo;
+    if (dto.recebimentoId) {
+      const recebimento = await this.prisma.webhookRecebimento.findFirst({
+        where: { id: dto.recebimentoId, webhookId: id },
+        select: { corpo: true },
+      });
+      if (!recebimento) {
+        throw new NaoEncontradoException('Recebimento não encontrado.');
+      }
+      if (recebimento.corpo === null) {
+        throw new RegraVioladaException(
+          'R8.6',
+          'Este recebimento não tem o corpo guardado (grande demais, tipo não suportado ou apagado na anonimização).',
+        );
+      }
+      corpo = recebimento.corpo;
+    }
+    return montarPrevia(
+      mapeamentoEfetivo(webhook.modeloMapeamento, webhook.mapeamento),
+      corpo,
+      webhook.etiquetasFixas,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Apoio
+  // -------------------------------------------------------------------------
+
+  /** Endereço completo (R8.2): `URL_PUBLICA/api/v1/webhooks/entrada/<token>`. */
+  endereco(token: string): string {
+    return `${this.ambiente.urlPublica}${CAMINHO_DO_ENDERECO}${token}`;
+  }
+
+  private paraDto(
+    webhook: WebhookCompleto,
+    contagens: ReadonlyMap<string, { total: number; erros: number }>,
+  ): WebhookEntradaDto {
+    return {
+      id: webhook.id,
+      nome: webhook.nome,
+      tokenPrefixo: webhook.tokenPrefixo,
+      enderecoMascarado: `${this.endereco(webhook.tokenPrefixo)}…`,
+      funil: FunilDoWebhookDto.de(webhook.funil),
+      etapa: EtapaDoWebhookDto.de(webhook.etapa),
+      estrategia: webhook.estrategia,
+      responsavelFixo: UsuarioDoWebhookDto.de(webhook.responsavelFixo),
+      modeloMapeamento: webhook.modeloMapeamento,
+      mapeamento: copiarMapeamento(
+        mapeamentoEfetivo(webhook.modeloMapeamento, webhook.mapeamento),
+      ),
+      etiquetasFixas: webhook.etiquetasFixas,
+      exigeAssinatura: webhook.segredoCifrado !== null,
+      segredoMascarado: this.mascararSegredo(webhook.segredoCifrado),
+      ativo: webhook.ativo,
+      ultimoRecebimentoEm: webhook.ultimoRecebimentoEm?.toISOString() ?? null,
+      recebimentos24h: contagens.get(webhook.id) ?? { total: 0, erros: 0 },
+      criadoPor: UsuarioDoWebhookDto.de(webhook.criadoPor),
+      criadoEm: webhook.criadoEm.toISOString(),
+      atualizadoEm: webhook.atualizadoEm.toISOString(),
+    };
+  }
+
+  private mascararSegredo(cifrado: string | null): string | null {
+    if (!cifrado) {
+      return null;
+    }
+    try {
+      return this.cripto.mascarar(this.cripto.decifrar(cifrado));
+    } catch {
+      // Chave de criptografia trocada: o segredo não pode ser lido.
+      return '••••••••';
+    }
+  }
+
+  private async contarRecebimentos(
+    ids: readonly string[],
+  ): Promise<Map<string, { total: number; erros: number }>> {
+    const contagens = new Map<string, { total: number; erros: number }>();
+    if (ids.length === 0) {
+      return contagens;
+    }
+    const grupos = await this.prisma.webhookRecebimento.groupBy({
+      by: ['webhookId', 'status'],
+      where: {
+        webhookId: { in: [...ids] },
+        recebidoEm: { gte: new Date(Date.now() - 24 * 3_600_000) },
+      },
+      _count: { _all: true },
+    });
+    for (const grupo of grupos) {
+      const atual = contagens.get(grupo.webhookId) ?? { total: 0, erros: 0 };
+      atual.total += grupo._count._all;
+      if (grupo.status === 'ERRO') {
+        atual.erros += grupo._count._all;
+      }
+      contagens.set(grupo.webhookId, atual);
+    }
+    return contagens;
+  }
+
+  /** Trava a linha do ponto (não excluído) até o fim da transação; 404 se não existir. */
+  private async travarAtivo(tx: Tx, id: string): Promise<WebhookEntrada> {
+    const [linha] = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM webhooks_entrada
+       WHERE id = ${id}::uuid AND excluido_em IS NULL
+         FOR UPDATE`;
+    if (!linha) {
+      throw new NaoEncontradoException('Webhook de entrada não encontrado.');
+    }
+    return tx.webhookEntrada.findUniqueOrThrow({ where: { id } });
+  }
+
+  /** Nome único entre os pontos não excluídos (sem diferenciar maiúsculas). */
+  private async garantirNomeLivre(
+    tx: Tx,
+    nome: string,
+    exceto?: string,
+  ): Promise<void> {
+    await travarChave(tx, TRAVA_NOME_ENTRADA, nome.toLocaleLowerCase('pt-BR'));
+    const outro = await tx.webhookEntrada.findFirst({
+      where: {
+        nome: { equals: nome, mode: 'insensitive' },
+        excluidoEm: null,
+        ...(exceto ? { NOT: { id: exceto } } : {}),
+      },
+      select: { id: true },
+    });
+    if (outro) {
+      throw new ConflitoException(
+        'Já existe um webhook de entrada com esse nome.',
+        { campos: ['nome'], webhookId: outro.id },
+      );
+    }
+  }
+
+  /**
+   * Funil e etapa de entrada (R8.1): padrão Marketing / Novo lead; num funil
+   * escolhido sem etapa, a primeira etapa aberta. A etapa precisa ser do
+   * funil (R5.4) e não pode ser a de perda (R5.5, que exige motivo).
+   */
+  private async resolverEntrada(
+    tx: Tx,
+    funilId: string | undefined,
+    etapaId: string | undefined,
+  ): Promise<{ funil: Funil; etapa: Etapa }> {
+    const funil = funilId
+      ? await tx.funil.findFirst({ where: { id: funilId, excluidoEm: null } })
+      : await tx.funil.findFirst({
+          where: { area: 'MARKETING', base: true, excluidoEm: null },
+        });
+    if (!funil) {
+      throw new RegraVioladaException(
+        'R8.1',
+        funilId
+          ? 'O funil de entrada não existe ou foi excluído.'
+          : 'O funil-base de Marketing não foi encontrado: informe o funil de entrada.',
+        { funilId: funilId ?? null },
+      );
+    }
+    let etapa: Etapa | null;
+    if (etapaId) {
+      etapa = await tx.etapa.findFirst({
+        where: { id: etapaId, funilId: funil.id },
+      });
+      if (!etapa) {
+        throw new RegraVioladaException(
+          'R5.4',
+          `A etapa de entrada não pertence ao funil ${funil.nome}.`,
+          { funilId: funil.id, etapaId },
+        );
+      }
+    } else {
+      etapa =
+        (funil.base && funil.area === 'MARKETING'
+          ? await tx.etapa.findFirst({
+              where: { funilId: funil.id, chave: 'novo_lead' },
+            })
+          : null) ??
+        (await tx.etapa.findFirst({
+          where: { funilId: funil.id, tipo: 'ABERTA' },
+          orderBy: [{ ordem: 'asc' }, { id: 'asc' }],
+        }));
+      if (!etapa) {
+        throw new RegraVioladaException(
+          'R5.2',
+          `O funil ${funil.nome} não tem etapa aberta para receber leads.`,
+          { funilId: funil.id },
+        );
+      }
+    }
+    if (etapa.tipo === 'PERDIDO') {
+      throw new RegraVioladaException(
+        'R5.5',
+        'A etapa de entrada não pode ser a de perda (ela exige motivo).',
+        { etapaId: etapa.id },
+      );
+    }
+    return { funil, etapa };
+  }
+
+  private async entradaAtual(
+    tx: Tx,
+    webhook: WebhookEntrada,
+  ): Promise<{ funil: Funil; etapa: Etapa }> {
+    const funil = await tx.funil.findUniqueOrThrow({
+      where: { id: webhook.funilId },
+    });
+    const etapa = await tx.etapa.findUniqueOrThrow({
+      where: { id: webhook.etapaId },
+    });
+    return { funil, etapa };
+  }
+
+  /**
+   * Responsável fixo (R8.1, R5.8): só com `RESPONSAVEL_FIXO`, e precisa ser um
+   * usuário ativo que pode ser responsável no funil (da área, C-level ou Admin).
+   */
+  private async resolverResponsavelFixo(
+    tx: Tx,
+    estrategia: EstrategiaDistribuicao,
+    responsavelFixoId: string | null,
+    funil: Funil,
+  ): Promise<string | null> {
+    if (estrategia !== 'RESPONSAVEL_FIXO') {
+      if (responsavelFixoId) {
+        throw erroDeCampo(
+          'responsavelFixoId',
+          'só vale com a distribuição RESPONSAVEL_FIXO',
+        );
+      }
+      return null;
+    }
+    if (!responsavelFixoId) {
+      throw erroDeCampo(
+        'responsavelFixoId',
+        'é obrigatório com a distribuição RESPONSAVEL_FIXO',
+      );
+    }
+    const usuario = await tx.usuario.findUnique({
+      where: { id: responsavelFixoId },
+      select: { id: true, ativo: true, papel: true },
+    });
+    if (!usuario?.ativo) {
+      throw new RegraVioladaException(
+        'R8.1',
+        'O responsável fixo precisa ser um usuário ativo.',
+        { responsavelFixoId },
+      );
+    }
+    if (!podeSerResponsavelNaArea(usuario.papel, funil.area)) {
+      throw new RegraVioladaException(
+        'R8.1',
+        `O responsável fixo precisa ser da área ${rotuloDaArea(funil.area)} (ou C-level/Admin), para ver os negócios do funil ${funil.nome}.`,
+        { responsavelFixoId, area: funil.area },
+      );
+    }
+    return usuario.id;
+  }
+
+  /**
+   * O que vai para a coluna `mapeamento`: `{}` nos modelos prontos (o mapeamento
+   * vem do código); no `PERSONALIZADO`, o enviado (validado) ou — numa edição
+   * que só troca o modelo — o que valia antes, como ponto de partida.
+   */
+  private mapeamentoParaGravar(
+    modelo: ModeloMapeamento,
+    enviado: Record<string, unknown> | undefined,
+    antes: WebhookEntrada | null,
+  ): Prisma.InputJsonObject {
+    if (modelo !== 'PERSONALIZADO') {
+      if (enviado !== undefined) {
+        throw erroDeCampo(
+          'mapeamento',
+          'só vale com modeloMapeamento PERSONALIZADO',
+        );
+      }
+      return {};
+    }
+    if (enviado !== undefined) {
+      return paraJson(this.validarOuFalhar(enviado));
+    }
+    if (!antes) {
+      throw erroDeCampo(
+        'mapeamento',
+        'é obrigatório com o modelo PERSONALIZADO',
+      );
+    }
+    return paraJson(
+      mapeamentoEfetivo(antes.modeloMapeamento, antes.mapeamento),
+    );
+  }
+
+  private validarOuFalhar(entrada: unknown): Mapeamento {
+    const resultado = validarMapeamento(entrada);
+    if (!resultado.valido) {
+      throw new DadosInvalidosException(resumirProblemas(resultado.problemas), {
+        regra: 'R8.1',
+        campos: resultado.problemas,
+      });
+    }
+    return resultado.mapeamento;
+  }
+}
+
+function montarPrevia(
+  mapeamento: Mapeamento,
+  corpo: unknown,
+  etiquetasFixas: readonly string[],
+): ResultadoDaPreviaDto {
+  const lead = aplicarMapeamento(mapeamento, corpo, etiquetasFixas);
+  return {
+    valido: lead.ignorado === null && lead.problemas.length === 0,
+    ignorado: lead.ignorado,
+    problemas: [...lead.problemas],
+    avisos: [...lead.avisos],
+    contato: {
+      ...lead.contato,
+      etiquetas: lead.etiquetas,
+      camposPersonalizados: lead.camposPersonalizados,
+    },
+    negocio: { ...lead.negocio },
+    utm: lead.utm,
+    encontrados: lead.encontrados.map((campo) => ({ ...campo })),
+  };
+}
+
+function garantirFunilAtivo(funil: Funil): void {
+  if (!funil.ativo) {
+    throw new RegraVioladaException(
+      'R5.1',
+      `O funil ${funil.nome} está arquivado e não recebe negócios: reative-o ou escolha outro.`,
+      { funilId: funil.id },
+    );
+  }
+}
+
+function copiarMapeamento(mapeamento: Mapeamento) {
+  return {
+    campos: mapeamento.campos.map((regra) => ({ ...regra })),
+    ignorarQuando: mapeamento.ignorarQuando.map((condicao) => ({
+      ...condicao,
+    })),
+  };
+}
+
+function paraJson(mapeamento: Mapeamento): Prisma.InputJsonObject {
+  return copiarMapeamento(mapeamento) as unknown as Prisma.InputJsonObject;
+}
+
+function erroDeCampo(campo: string, mensagem: string): DadosInvalidosException {
+  const campos: ProblemaDeCampo[] = [{ campo, mensagens: [mensagem] }];
+  return new DadosInvalidosException(resumirProblemas(campos), { campos });
+}
+
+function resumoDaEdicao(
+  nome: string,
+  antes: WebhookEntrada,
+  depois: WebhookEntrada,
+): string {
+  if (antes.ativo !== depois.ativo) {
+    return `Webhook de entrada "${nome}" ${depois.ativo ? 'reativado' : 'desativado'}`;
+  }
+  return `Webhook de entrada "${nome}" alterado`;
+}

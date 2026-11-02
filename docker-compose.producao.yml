@@ -1,0 +1,74 @@
+# Acréscimo de PRODUÇÃO ao docker-compose.yml: HTTPS pelo Caddy (serviço "proxy", certificado
+# Let's Encrypt automático), front e banco fora da rede pública e variáveis obrigatórias — o
+# compose se recusa a subir se alguma faltar, em vez de cair nos padrões públicos de desenvolvimento.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.producao.yml up -d --build
+#
+# Passo a passo completo (domínio, .env, primeira subida, atualização, backups): docs/DEPLOY.md.
+
+name: crmbrl
+
+x-ambiente-de-producao: &ambiente-de-producao
+  DATABASE_URL: 'postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA_CODIFICADA:?defina BANCO_SENHA_CODIFICADA (a BANCO_SENHA com caracteres especiais codificados para URL; sem especiais, igual à BANCO_SENHA)}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public'
+  URL_PUBLICA: '${URL_PUBLICA:?defina URL_PUBLICA (ex.: https://crm.suaempresa.com.br)}'
+  ORIGENS_PERMITIDAS: '${ORIGENS_PERMITIDAS:?defina ORIGENS_PERMITIDAS (a mesma origem da URL_PUBLICA)}'
+  CHAVE_CRIPTOGRAFIA: '${CHAVE_CRIPTOGRAFIA:?defina CHAVE_CRIPTOGRAFIA (openssl rand -base64 32)}'
+  ARQUIVOS_CHAVE: '${ARQUIVOS_CHAVE:?defina ARQUIVOS_CHAVE (usuário do MinIO)}'
+  ARQUIVOS_SEGREDO: '${ARQUIVOS_SEGREDO:?defina ARQUIVOS_SEGREDO (senha do MinIO, 12+ caracteres)}'
+  WHATSAPP_TOKEN_INTERNO: '${WHATSAPP_TOKEN_INTERNO:?defina WHATSAPP_TOKEN_INTERNO (openssl rand -base64 32)}'
+  WHATSAPP_SIMULADO: 'false'
+
+services:
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      DOMINIO: '${DOMINIO:?defina DOMINIO (ex.: crm.suaempresa.com.br)}'
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/Caddyfile.producao:/etc/caddy/Caddyfile:ro
+      # Certificados: guarde este volume (perder o volume só obriga a emitir de novo, com limite de emissões).
+      - caddy-dados:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+  banco:
+    environment:
+      POSTGRES_PASSWORD: '${BANCO_SENHA:?defina BANCO_SENHA (senha forte do PostgreSQL)}'
+    # Sem porta publicada: o banco só fala com os serviços do compose.
+    ports: !reset []
+
+  arquivos:
+    environment:
+      MINIO_ROOT_USER: '${ARQUIVOS_CHAVE:?defina ARQUIVOS_CHAVE}'
+      MINIO_ROOT_PASSWORD: '${ARQUIVOS_SEGREDO:?defina ARQUIVOS_SEGREDO}'
+
+  api:
+    environment:
+      <<: *ambiente-de-producao
+      COOKIE_SEGURO: 'true'
+      ADMIN_EMAIL: '${ADMIN_EMAIL:?defina ADMIN_EMAIL (e-mail do primeiro Admin)}'
+      DOCS_PUBLICAS: 'false'
+
+  whatsapp:
+    environment:
+      <<: *ambiente-de-producao
+
+  backup:
+    environment:
+      PGPASSWORD: '${BANCO_SENHA:?defina BANCO_SENHA}'
+
+  web:
+    # O front só é alcançado pelo proxy (rede do compose): sem porta no host.
+    ports: !reset []
+
+volumes:
+  caddy-dados:
+  caddy-config:

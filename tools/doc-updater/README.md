@@ -94,4 +94,6 @@ montado dinamicamente ou rota construída em runtime não aparece. O que o scann
 vê, escreva nas seções à mão.
 
 Ficam fora do inventário: `node_modules`, `dist`, `coverage`, pastas ocultas, a pasta
-`docs/` e a própria `tools/doc-updater/`.
+`docs/`, a própria `tools/doc-updater/`, pastas `generated` (código gerado por
+ferramenta, como o Prisma Client em `src/generated/`, que nem vai para o git) e
+arquivos `*.tsbuildinfo` (cache do build incremental do TypeScript).

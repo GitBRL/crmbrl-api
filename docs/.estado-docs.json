@@ -1,7 +1,7 @@
 {
-  "atualizadoEm": "2026-10-20T17:19:26.776Z",
-  "commit": "b28fd4cba88209492d6ccaf100eb334f63bf93ea",
-  "commitCurto": "b28fd4c",
+  "atualizadoEm": "2026-10-21T19:47:02.784Z",
+  "commit": "8ea7e657f5fc1cf0017e9e4b60929da3275e9b06",
+  "commitCurto": "8ea7e65",
   "inventario": {
     "nome": "crmbrl-api",
     "versao": "0.0.1",
@@ -12,19 +12,27 @@
     },
     "gerenciadorDePacotes": "bun",
     "scripts": {
-      "build": "nest build",
+      "build": "prisma generate && nest build",
       "deploy": "nest deploy",
       "docs": "node tools/doc-updater/index.mjs",
       "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+      "format:verificar": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
       "start": "nest start",
       "start:dev": "nest start --watch",
       "start:debug": "nest start --debug --watch",
       "start:prod": "node dist/main",
+      "prisma:gerar": "prisma generate",
+      "prisma:migrar": "prisma migrate dev",
+      "postprisma:migrar": "prisma generate",
+      "prisma:aplicar": "prisma migrate deploy",
+      "prelint": "prisma generate",
       "lint": "oxlint --type-aware src/ test/",
+      "pretest": "prisma generate",
       "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
       "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
       "test:cov": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
       "test:debug": "node --inspect-brk --experimental-vm-modules -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+      "pretest:e2e": "prisma generate",
       "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
     },
     "dependencias": {
@@ -32,6 +40,15 @@
       "@nestjs/core": "^12.0.1",
       "@nestjs/observe": "^0.3.0",
       "@nestjs/platform-express": "^12.0.1",
+      "@nestjs/swagger": "^12.0.2",
+      "@prisma/adapter-pg": "7.10.1",
+      "@prisma/client": "7.10.1",
+      "class-transformer": "^0.5.1",
+      "class-validator": "^0.15.1",
+      "nodemailer": "^10.1.7",
+      "pg": "^8.23.1",
+      "pg-boss": "12.35.1",
+      "prisma": "7.10.1",
       "reflect-metadata": "^0.2.2",
       "rxjs": "^7.8.1"
     },
@@ -56,32 +73,366 @@
       "tsconfig-paths": "^4.2.0",
       "typescript": "^6.0.2"
     },
-    "totalDeArquivos": 18,
-    "linhasDeCodigo": 139,
+    "totalDeArquivos": 269,
+    "linhasDeCodigo": 54010,
     "porExtensao": {
-      "": 3,
+      "": 5,
+      ".example": 1,
       ".json": 6,
+      ".md": 1,
       ".lock": 1,
-      ".ts": 7,
-      ".md": 1
+      ".yml": 1,
+      ".sh": 1,
+      ".ts": 249,
+      ".sql": 2,
+      ".toml": 1,
+      ".prisma": 1
     },
     "modulos": [
       {
+        "classe": "AdministracaoModule",
+        "arquivo": "src/administracao/administracao.module.ts"
+      },
+      {
         "classe": "AppModule",
         "arquivo": "src/app.module.ts"
+      },
+      {
+        "classe": "AtividadesModule",
+        "arquivo": "src/atividades/atividades.module.ts"
+      },
+      {
+        "classe": "AuditoriaModule",
+        "arquivo": "src/auditoria/auditoria.module.ts"
+      },
+      {
+        "classe": "AuditoriaConsultaModule",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.module.ts"
+      },
+      {
+        "classe": "AuthModule",
+        "arquivo": "src/auth/auth.module.ts"
+      },
+      {
+        "classe": "ComumModule",
+        "arquivo": "src/comum/comum.module.ts"
+      },
+      {
+        "classe": "AmbienteModule",
+        "arquivo": "src/config/ambiente.module.ts"
+      },
+      {
+        "classe": "ContatosModule",
+        "arquivo": "src/contatos/contatos.module.ts"
+      },
+      {
+        "classe": "EmailModule",
+        "arquivo": "src/email/email.module.ts"
+      },
+      {
+        "classe": "EventosModule",
+        "arquivo": "src/eventos/eventos.module.ts"
+      },
+      {
+        "classe": "FilaModule",
+        "arquivo": "src/fila/fila.module.ts"
+      },
+      {
+        "classe": "FunisModule",
+        "arquivo": "src/funis/funis.module.ts"
+      },
+      {
+        "classe": "LogsModule",
+        "arquivo": "src/logs/logs.module.ts"
+      },
+      {
+        "classe": "NotificacoesModule",
+        "arquivo": "src/notificacoes/notificacoes.module.ts"
+      },
+      {
+        "classe": "PrismaModule",
+        "arquivo": "src/prisma/prisma.module.ts"
+      },
+      {
+        "classe": "SaudeModule",
+        "arquivo": "src/saude/saude.module.ts"
+      },
+      {
+        "classe": "SeedsModule",
+        "arquivo": "src/seeds/seeds.module.ts"
+      },
+      {
+        "classe": "UsuariosModule",
+        "arquivo": "src/usuarios/usuarios.module.ts"
+      },
+      {
+        "classe": "WebhooksModule",
+        "arquivo": "src/webhooks/webhooks.module.ts"
       }
     ],
     "controllers": [
       {
-        "classe": "AppController",
-        "arquivo": "src/app.controller.ts",
-        "prefixo": ""
+        "classe": "AdministracaoController",
+        "arquivo": "src/administracao/administracao.controller.ts",
+        "prefixo": "administracao"
+      },
+      {
+        "classe": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts",
+        "prefixo": "atividades"
+      },
+      {
+        "classe": "AuditoriaConsultaController",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.controller.ts",
+        "prefixo": "auditoria"
+      },
+      {
+        "classe": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts",
+        "prefixo": "auth"
+      },
+      {
+        "classe": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts",
+        "prefixo": "contatos"
+      },
+      {
+        "classe": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts",
+        "prefixo": "empresas"
+      },
+      {
+        "classe": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts",
+        "prefixo": "regras-distribuicao"
+      },
+      {
+        "classe": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts",
+        "prefixo": "funis"
+      },
+      {
+        "classe": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts",
+        "prefixo": "negocios"
+      },
+      {
+        "classe": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts",
+        "prefixo": "passagens"
+      },
+      {
+        "classe": "NotificacoesController",
+        "arquivo": "src/notificacoes/notificacoes.controller.ts",
+        "prefixo": "notificacoes"
+      },
+      {
+        "classe": "SaudeController",
+        "arquivo": "src/saude/saude.controller.ts",
+        "prefixo": "saude"
+      },
+      {
+        "classe": "DesligamentoController",
+        "arquivo": "src/usuarios/desligamento.controller.ts",
+        "prefixo": "usuarios"
+      },
+      {
+        "classe": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts",
+        "prefixo": "usuarios"
+      },
+      {
+        "classe": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts",
+        "prefixo": "webhooks/entradas"
+      },
+      {
+        "classe": "WebhookEntradaPublicoController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts",
+        "prefixo": "webhooks/entrada"
+      },
+      {
+        "classe": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts",
+        "prefixo": "webhooks/saidas"
       }
     ],
     "servicos": [
       {
-        "classe": "AppService",
-        "arquivo": "src/app.service.ts"
+        "classe": "LogsTecnicosConsultaService",
+        "arquivo": "src/administracao/logs-tecnicos-consulta.service.ts"
+      },
+      {
+        "classe": "ResumoAdministracaoService",
+        "arquivo": "src/administracao/resumo-administracao.service.ts"
+      },
+      {
+        "classe": "RetencaoService",
+        "arquivo": "src/administracao/retencao.service.ts"
+      },
+      {
+        "classe": "AtividadesService",
+        "arquivo": "src/atividades/atividades.service.ts"
+      },
+      {
+        "classe": "LembretesAtividadesService",
+        "arquivo": "src/atividades/lembretes-atividades.service.ts"
+      },
+      {
+        "classe": "AuditoriaService",
+        "arquivo": "src/auditoria/auditoria.service.ts"
+      },
+      {
+        "classe": "AuditoriaConsultaService",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.service.ts"
+      },
+      {
+        "classe": "ParseIdSequencialPipe",
+        "arquivo": "src/auditoria/consulta/parse-id-sequencial.pipe.ts"
+      },
+      {
+        "classe": "AuthService",
+        "arquivo": "src/auth/auth.service.ts"
+      },
+      {
+        "classe": "ForcaBrutaService",
+        "arquivo": "src/auth/forca-bruta.service.ts"
+      },
+      {
+        "classe": "OrigemGuard",
+        "arquivo": "src/auth/guards/origem.guard.ts"
+      },
+      {
+        "classe": "PapeisGuard",
+        "arquivo": "src/auth/guards/papeis.guard.ts"
+      },
+      {
+        "classe": "SessaoGuard",
+        "arquivo": "src/auth/guards/sessao.guard.ts"
+      },
+      {
+        "classe": "SenhasService",
+        "arquivo": "src/auth/senhas.service.ts"
+      },
+      {
+        "classe": "SessoesService",
+        "arquivo": "src/auth/sessoes.service.ts"
+      },
+      {
+        "classe": "CriptografiaService",
+        "arquivo": "src/comum/criptografia/criptografia.service.ts"
+      },
+      {
+        "classe": "ParseIdPipe",
+        "arquivo": "src/comum/validacao/parse-id.pipe.ts"
+      },
+      {
+        "classe": "ContatosService",
+        "arquivo": "src/contatos/contatos.service.ts"
+      },
+      {
+        "classe": "EmpresasService",
+        "arquivo": "src/contatos/empresas.service.ts"
+      },
+      {
+        "classe": "LinhaDoTempoService",
+        "arquivo": "src/contatos/linha-do-tempo.service.ts"
+      },
+      {
+        "classe": "PermissoesContatosService",
+        "arquivo": "src/contatos/permissoes-contatos.service.ts"
+      },
+      {
+        "classe": "EmailService",
+        "arquivo": "src/email/email.service.ts"
+      },
+      {
+        "classe": "EventosDominioService",
+        "arquivo": "src/eventos/eventos-dominio.service.ts"
+      },
+      {
+        "classe": "FilaService",
+        "arquivo": "src/fila/fila.service.ts"
+      },
+      {
+        "classe": "DistribuicaoService",
+        "arquivo": "src/funis/distribuicao.service.ts"
+      },
+      {
+        "classe": "FunisService",
+        "arquivo": "src/funis/funis.service.ts"
+      },
+      {
+        "classe": "MetricasService",
+        "arquivo": "src/funis/metricas.service.ts"
+      },
+      {
+        "classe": "MotorDeNegociosService",
+        "arquivo": "src/funis/motor-de-negocios.service.ts"
+      },
+      {
+        "classe": "NegociosConsultaService",
+        "arquivo": "src/funis/negocios-consulta.service.ts"
+      },
+      {
+        "classe": "NegociosService",
+        "arquivo": "src/funis/negocios.service.ts"
+      },
+      {
+        "classe": "ParseAreaPipe",
+        "arquivo": "src/funis/parse-area.pipe.ts"
+      },
+      {
+        "classe": "PassagensService",
+        "arquivo": "src/funis/passagens.service.ts"
+      },
+      {
+        "classe": "LogsTecnicosService",
+        "arquivo": "src/logs/logs-tecnicos.service.ts"
+      },
+      {
+        "classe": "NotificacoesService",
+        "arquivo": "src/notificacoes/notificacoes.service.ts"
+      },
+      {
+        "classe": "PrismaService",
+        "arquivo": "src/prisma/prisma.service.ts"
+      },
+      {
+        "classe": "SaudeService",
+        "arquivo": "src/saude/saude.service.ts"
+      },
+      {
+        "classe": "SeedsService",
+        "arquivo": "src/seeds/seeds.service.ts"
+      },
+      {
+        "classe": "DesligamentoService",
+        "arquivo": "src/usuarios/desligamento.service.ts"
+      },
+      {
+        "classe": "UsuariosService",
+        "arquivo": "src/usuarios/usuarios.service.ts"
+      },
+      {
+        "classe": "ProcessamentoEntradaService",
+        "arquivo": "src/webhooks/entrada/processamento-entrada.service.ts"
+      },
+      {
+        "classe": "RecebimentosService",
+        "arquivo": "src/webhooks/entrada/recebimentos.service.ts"
+      },
+      {
+        "classe": "WebhooksEntradaService",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.service.ts"
+      },
+      {
+        "classe": "EntregasService",
+        "arquivo": "src/webhooks/saida/entregas.service.ts"
+      },
+      {
+        "classe": "WebhooksSaidaService",
+        "arquivo": "src/webhooks/saida/webhooks-saida.service.ts"
       }
     ],
     "componentes": [],
@@ -90,29 +441,845 @@
     "rotasHttp": [
       {
         "metodo": "GET",
-        "caminho": "/",
-        "handler": "getHello",
-        "controller": "AppController",
-        "arquivo": "src/app.controller.ts"
+        "caminho": "/administracao/resumo",
+        "handler": "resumo",
+        "controller": "AdministracaoController",
+        "arquivo": "src/administracao/administracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/administracao/logs-tecnicos",
+        "handler": "listarLogs",
+        "controller": "AdministracaoController",
+        "arquivo": "src/administracao/administracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/administracao/logs-tecnicos/:id",
+        "handler": "detalharLog",
+        "controller": "AdministracaoController",
+        "arquivo": "src/administracao/administracao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atividades",
+        "handler": "criar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atividades",
+        "handler": "listar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atividades/agrupadas",
+        "handler": "agrupar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atividades/:id",
+        "handler": "detalhar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/atividades/:id",
+        "handler": "atualizar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atividades/:id/concluir",
+        "handler": "concluir",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atividades/:id/cancelar",
+        "handler": "cancelar",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atividades/:id/reabrir",
+        "handler": "reabrir",
+        "controller": "AtividadesController",
+        "arquivo": "src/atividades/atividades.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/auditoria",
+        "handler": "listar",
+        "controller": "AuditoriaConsultaController",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/auditoria/filtros",
+        "handler": "filtros",
+        "controller": "AuditoriaConsultaController",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/auditoria/:id",
+        "handler": "detalhar",
+        "controller": "AuditoriaConsultaController",
+        "arquivo": "src/auditoria/consulta/auditoria-consulta.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/entrar",
+        "handler": "entrar",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/sair",
+        "handler": "sair",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/auth/eu",
+        "handler": "eu",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/senha",
+        "handler": "trocarSenha",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/senha/esqueci",
+        "handler": "esqueciSenha",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/senha/token",
+        "handler": "consultarToken",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/senha/redefinir",
+        "handler": "redefinirSenha",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/contatos",
+        "handler": "listar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/contatos/etiquetas",
+        "handler": "etiquetas",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/contatos",
+        "handler": "criar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/contatos/:id",
+        "handler": "detalhar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/contatos/:id",
+        "handler": "atualizar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/contatos/:id/anonimizar",
+        "handler": "anonimizar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/contatos/:id/linha-do-tempo",
+        "handler": "linhaDoTempo",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/empresas",
+        "handler": "listar",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/empresas/etiquetas",
+        "handler": "etiquetas",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/empresas",
+        "handler": "criar",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/empresas/:id",
+        "handler": "detalhar",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/empresas/:id",
+        "handler": "atualizar",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/empresas/:id/linha-do-tempo",
+        "handler": "linhaDoTempo",
+        "controller": "EmpresasController",
+        "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/regras-distribuicao",
+        "handler": "listar",
+        "controller": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/regras-distribuicao/:area",
+        "handler": "detalhar",
+        "controller": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/regras-distribuicao/:area",
+        "handler": "atualizar",
+        "controller": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/regras-distribuicao/:area/participantes/:usuarioId",
+        "handler": "definirParticipacao",
+        "controller": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/regras-distribuicao/:area/participantes/:usuarioId",
+        "handler": "removerAjuste",
+        "controller": "DistribuicaoController",
+        "arquivo": "src/funis/distribuicao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/funis",
+        "handler": "listar",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/funis",
+        "handler": "criar",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/funis/:id",
+        "handler": "detalhar",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/funis/:id",
+        "handler": "atualizar",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/funis/:id",
+        "handler": "excluir",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/funis/:id/etapas",
+        "handler": "criarEtapa",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/funis/:id/etapas/reordenar",
+        "handler": "reordenarEtapas",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/funis/:id/etapas/:etapaId",
+        "handler": "atualizarEtapa",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/funis/:id/etapas/:etapaId",
+        "handler": "excluirEtapa",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/funis/:id/quadro",
+        "handler": "quadro",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/funis/:id/metricas",
+        "handler": "metricasDoFunil",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/negocios",
+        "handler": "listar",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/negocios",
+        "handler": "criar",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/negocios/:id",
+        "handler": "detalhar",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/negocios/:id",
+        "handler": "atualizar",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/negocios/:id",
+        "handler": "excluir",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/negocios/:id/mover",
+        "handler": "mover",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/negocios/:id/reabrir",
+        "handler": "reabrir",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/negocios/:id/assumir",
+        "handler": "assumir",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/negocios/:id/movimentacoes",
+        "handler": "movimentacoes",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/negocios/:id/linha-do-tempo",
+        "handler": "linhaDoTempo",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/passagens",
+        "handler": "listar",
+        "controller": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/passagens",
+        "handler": "criar",
+        "controller": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/passagens/:id",
+        "handler": "detalhar",
+        "controller": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/passagens/:id",
+        "handler": "atualizar",
+        "controller": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/passagens/:id",
+        "handler": "excluir",
+        "controller": "PassagensController",
+        "arquivo": "src/funis/passagens.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/notificacoes",
+        "handler": "listar",
+        "controller": "NotificacoesController",
+        "arquivo": "src/notificacoes/notificacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/notificacoes/nao-lidas/contagem",
+        "handler": "contarNaoLidas",
+        "controller": "NotificacoesController",
+        "arquivo": "src/notificacoes/notificacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/notificacoes/marcar-todas-lidas",
+        "handler": "marcarTodasComoLidas",
+        "controller": "NotificacoesController",
+        "arquivo": "src/notificacoes/notificacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/notificacoes/:id/marcar-lida",
+        "handler": "marcarComoLida",
+        "controller": "NotificacoesController",
+        "arquivo": "src/notificacoes/notificacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/saude",
+        "handler": "consultar",
+        "controller": "SaudeController",
+        "arquivo": "src/saude/saude.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/usuarios/:id/desligamento/previa",
+        "handler": "previa",
+        "controller": "DesligamentoController",
+        "arquivo": "src/usuarios/desligamento.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/usuarios/:id/desligar",
+        "handler": "desligar",
+        "controller": "DesligamentoController",
+        "arquivo": "src/usuarios/desligamento.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/usuarios/:id/reativar",
+        "handler": "reativar",
+        "controller": "DesligamentoController",
+        "arquivo": "src/usuarios/desligamento.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/usuarios",
+        "handler": "listar",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/usuarios/equipes",
+        "handler": "equipes",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/usuarios/:id",
+        "handler": "detalhar",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/usuarios",
+        "handler": "criar",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/usuarios/:id",
+        "handler": "atualizar",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/usuarios/:id/senha-temporaria",
+        "handler": "definirSenhaTemporaria",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/usuarios/:id/convite",
+        "handler": "enviarConvite",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/modelos",
+        "handler": "modelos",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/previa",
+        "handler": "previa",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas",
+        "handler": "listar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas",
+        "handler": "criar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id",
+        "handler": "detalhar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/webhooks/entradas/:id",
+        "handler": "atualizar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/webhooks/entradas/:id",
+        "handler": "excluir",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/regenerar-token",
+        "handler": "regenerarToken",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/segredo",
+        "handler": "definirSegredo",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/webhooks/entradas/:id/segredo",
+        "handler": "removerSegredo",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/previa",
+        "handler": "previaDoWebhook",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/recebimentos",
+        "handler": "listarRecebimentos",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/recebimentos/:recebimentoId",
+        "handler": "detalharRecebimento",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/recebimentos/:recebimentoId/reprocessar",
+        "handler": "reprocessar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entrada/:token",
+        "handler": "receber",
+        "controller": "WebhookEntradaPublicoController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas/eventos",
+        "handler": "eventos",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas",
+        "handler": "listar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/saidas",
+        "handler": "criar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas/:id",
+        "handler": "detalhar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/webhooks/saidas/:id",
+        "handler": "atualizar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/webhooks/saidas/:id",
+        "handler": "excluir",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/saidas/:id/regenerar-segredo",
+        "handler": "regenerarSegredo",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/saidas/:id/testar",
+        "handler": "testar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas/:id/entregas",
+        "handler": "listarEntregas",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas/:id/entregas/:entregaId",
+        "handler": "detalharEntrega",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/saidas/:id/entregas/:entregaId/reenviar",
+        "handler": "reenviar",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
       }
     ],
     "rotasFront": [],
-    "chamadasHttp": [],
+    "chamadasHttp": [
+      {
+        "metodo": "POST",
+        "url": "/api/v1/negocios/${negocioId}/mover",
+        "arquivo": "test/funis-apoio.ts"
+      },
+      {
+        "metodo": "POST",
+        "url": "/api/v1/negocios",
+        "arquivo": "test/utils/clientes.ts"
+      },
+      {
+        "metodo": "POST",
+        "url": "/api/v1/auth/entrar",
+        "arquivo": "test/utils/clientes.ts"
+      },
+      {
+        "metodo": "POST",
+        "url": "/api/v1/contatos",
+        "arquivo": "test/utils/index.ts"
+      },
+      {
+        "metodo": "POST",
+        "url": "/api/v1/webhooks/entrada/${token}",
+        "arquivo": "test/webhooks-apoio.ts"
+      }
+    ],
     "variaveisDeAmbiente": [
-      "PORT"
+      "DATABASE_URL",
+      "DATABASE_URL_TESTE"
     ],
     "testes": [
-      "src/app.controller.spec.ts",
-      "test/app.e2e-spec.ts"
+      "src/atividades/dto/transformacoes.spec.ts",
+      "src/atividades/fuso-horario.spec.ts",
+      "src/atividades/lembretes-atividades.spec.ts",
+      "src/atividades/regras-atividades.spec.ts",
+      "src/auditoria/consulta/alteracoes.spec.ts",
+      "src/auditoria/consulta/auditoria-consulta.dto.spec.ts",
+      "src/auditoria/consulta/consulta-comum.spec.ts",
+      "src/comum/contexto/contexto-requisicao.spec.ts",
+      "src/comum/criptografia/criptografia.service.spec.ts",
+      "src/comum/dados/sanitizar.spec.ts",
+      "src/comum/dominio/normalizacoes.spec.ts",
+      "src/comum/dominio/papeis.spec.ts",
+      "src/comum/erros/filtro-de-erros.spec.ts",
+      "src/comum/validacao/validacao.spec.ts",
+      "src/config/ambiente.spec.ts",
+      "src/contatos/contatos.service.spec.ts",
+      "src/contatos/deduplicacao.spec.ts",
+      "src/documentacao.spec.ts",
+      "src/funis/acesso-funis.spec.ts",
+      "src/funis/metricas-calculo.spec.ts",
+      "src/funis/negocio-completo.spec.ts",
+      "src/funis/posicao.spec.ts",
+      "src/funis/rodizio.spec.ts",
+      "src/observabilidade.spec.ts",
+      "src/saude/falha-do-banco.spec.ts",
+      "src/saude/saude.service.spec.ts",
+      "src/usuarios/dominio/destinatario.spec.ts",
+      "src/usuarios/dominio/encaminhamento.spec.ts",
+      "src/usuarios/dominio/hierarquia.spec.ts",
+      "src/usuarios/dominio/visibilidade.spec.ts",
+      "src/usuarios/repeticao.spec.ts",
+      "src/webhooks/entrada/mapeamento.spec.ts",
+      "src/webhooks/saida/envelope.spec.ts",
+      "src/webhooks/saida/envio-http.spec.ts",
+      "src/webhooks/saida/protecao-ssrf.spec.ts",
+      "test/atividades-lembretes.e2e-spec.ts",
+      "test/atividades.e2e-spec.ts",
+      "test/auditoria-administracao.e2e-spec.ts",
+      "test/auditoria-consulta.e2e-spec.ts",
+      "test/base-auth.e2e-spec.ts",
+      "test/base-infraestrutura.e2e-spec.ts",
+      "test/contatos-empresas.e2e-spec.ts",
+      "test/contatos-linha-do-tempo.e2e-spec.ts",
+      "test/contatos.e2e-spec.ts",
+      "test/funis-configuracao.e2e-spec.ts",
+      "test/funis-distribuicao.e2e-spec.ts",
+      "test/funis-metricas.e2e-spec.ts",
+      "test/funis-negocios.e2e-spec.ts",
+      "test/funis-passagens.e2e-spec.ts",
+      "test/integracao.e2e-spec.ts",
+      "test/saude.e2e-spec.ts",
+      "test/usuarios-desligamento.e2e-spec.ts",
+      "test/usuarios.e2e-spec.ts",
+      "test/webhooks-entrada.e2e-spec.ts",
+      "test/webhooks-saida-ssrf.e2e-spec.ts",
+      "test/webhooks-saida.e2e-spec.ts"
     ],
     "git": {
       "repositorio": true,
-      "head": "b28fd4cba88209492d6ccaf100eb334f63bf93ea",
-      "headCurto": "b28fd4c",
-      "branch": "dev",
+      "head": "8ea7e657f5fc1cf0017e9e4b60929da3275e9b06",
+      "headCurto": "8ea7e65",
+      "branch": "main",
       "remoto": "https://github.com/GitBRL/crmbrl-api.git",
       "sujo": true,
-      "totalDeCommits": 1
+      "totalDeCommits": 3
     }
   }
 }
