@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { contextoAtual } from '../comum/contexto/contexto-requisicao';
@@ -108,6 +109,9 @@ const ORDENACAO: Readonly<
  * de domínio (R10.1) e as notificações (R10.2). Ver contatos, todos veem;
  * editar segue a matriz §12; anonimizar, só o Admin (R4.6).
  */
+/** Texto que substitui o das mensagens do titular na anonimização (R4.6). */
+const TEXTO_DA_MENSAGEM_REMOVIDA = '[removido — LGPD]';
+
 @Injectable()
 export class ContatosService {
   constructor(
@@ -118,6 +122,7 @@ export class ContatosService {
     private readonly empresas: EmpresasService,
     private readonly permissoes: PermissoesContatosService,
     private readonly linhaDoTempoService: LinhaDoTempoService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   // ===========================================================================
@@ -536,6 +541,7 @@ export class ContatosService {
         contato.id,
         termos,
       );
+      const lgpd = await this.apagarRastrosDoAtendimento(tx, contato.id);
       await this.auditoria.registrar(tx, {
         acao: 'contato.anonimizado',
         entidade: 'contato',
@@ -547,6 +553,7 @@ export class ContatosService {
           camposAnonimizados: [...CAMPOS_ANONIMIZADOS],
           negociosAtualizados: negocios,
           atividadesAtualizadas: atividades,
+          ...lgpd,
         },
         relacionados: { empresa: contato.empresaId },
       });
@@ -869,6 +876,150 @@ export class ContatosService {
       throw new NaoEncontradoException('Contato não encontrado.');
     }
     return tx.contato.findUniqueOrThrow({ where: { id } });
+  }
+
+  /**
+   * R4.6: o que o atendimento e a cobrança guardam do contato. Apaga os
+   * identificadores de canal, encerra as conversas abertas, troca o texto das
+   * mensagens, desvincula os arquivos (o conteúdo sai do bucket por job) e
+   * limpa os dados pessoais de visitantes do chat, envios da régua e linhas de
+   * importação. Devolve só contagens, para a auditoria.
+   */
+  private async apagarRastrosDoAtendimento(
+    tx: Tx,
+    contatoId: string,
+  ): Promise<Record<string, number>> {
+    const agora = new Date();
+    const identificadores = await tx.contatoIdentificador.deleteMany({
+      where: { contatoId },
+    });
+    const conversas = await tx.conversa.findMany({
+      where: { contatoId },
+      select: { id: true },
+    });
+    const conversaIds = conversas.map((c) => c.id);
+    const encerradas = await tx.conversa.updateMany({
+      where: { contatoId, status: { not: 'RESOLVIDA' } },
+      data: {
+        status: 'RESOLVIDA',
+        resolvidaEm: agora,
+        aguardandoDesde: null,
+        naoLidas: 0,
+      },
+    });
+    const comArquivo = await tx.mensagem.findMany({
+      where: { conversaId: { in: conversaIds }, arquivoId: { not: null } },
+      select: { arquivoId: true },
+    });
+    const arquivoIds = [
+      ...new Set(comArquivo.map((m) => m.arquivoId as string)),
+    ];
+    const comTexto = await tx.mensagem.updateMany({
+      where: { conversaId: { in: conversaIds }, texto: { not: null } },
+      data: { texto: TEXTO_DA_MENSAGEM_REMOVIDA },
+    });
+    await tx.mensagem.updateMany({
+      where: { conversaId: { in: conversaIds } },
+      data: { arquivoId: null, metadados: Prisma.DbNull },
+    });
+    for (const arquivoId of arquivoIds) {
+      await this.arquivos.remover(arquivoId, { tx, motivo: 'LGPD (R4.6)' });
+    }
+    const visitantes = await tx.webchatVisitante.updateMany({
+      where: { contatoId },
+      data: { ip: null, userAgent: null, pagina: null, consentimentoEm: null },
+    });
+    const envios = await tx.reguaEnvio.updateMany({
+      where: { parcela: { contatoId } },
+      data: { destino: null, assunto: null, texto: null, observacao: null },
+    });
+    const linhas = await tx.importacaoLinha.updateMany({
+      where: { entidadeId: contatoId },
+      data: { dados: Prisma.DbNull },
+    });
+    return {
+      identificadoresApagados: identificadores.count,
+      conversasEncerradas: encerradas.count,
+      mensagensLimpas: comTexto.count,
+      arquivosRemovidos: arquivoIds.length,
+      visitantesLimpos: visitantes.count,
+      enviosDaReguaLimpos: envios.count,
+      linhasDeImportacaoLimpas: linhas.count,
+    };
+  }
+
+  /**
+   * Direito de acesso e portabilidade (LGPD art. 18, só Admin): devolve em JSON
+   * tudo o que o CRM guarda do titular. Auditado, sem os dados na auditoria.
+   */
+  async dadosPessoais(
+    usuario: UsuarioAutenticado,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    if (!permissoesDoPapel(usuario.papel).anonimizarContatos) {
+      throw new SemPermissaoException(
+        'Só o Admin exporta os dados pessoais de um contato.',
+        { regra: 'R4.6' },
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const contato = await tx.contato.findFirst({
+        where: { id, excluidoEm: null },
+      });
+      if (!contato) {
+        throw new NaoEncontradoException('Contato não encontrado.');
+      }
+      const [identificadores, negocios, atividades, conversas] =
+        await Promise.all([
+          tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
+          tx.negocio.findMany({ where: { contatoId: id } }),
+          tx.atividade.findMany({ where: { contatoId: id } }),
+          tx.conversa.findMany({
+            where: { contatoId: id },
+            include: {
+              mensagens: {
+                orderBy: { ocorridaEm: 'asc' },
+                select: {
+                  id: true,
+                  direcao: true,
+                  tipo: true,
+                  texto: true,
+                  ocorridaEm: true,
+                  arquivo: {
+                    select: { nome: true, mime: true, tamanho: true },
+                  },
+                },
+              },
+            },
+          }),
+        ]);
+      await this.auditoria.registrar(tx, {
+        acao: 'contato.dados-exportados',
+        entidade: 'contato',
+        entidadeId: id,
+        resumo: 'Dados pessoais do contato exportados (LGPD)',
+        dados: {
+          regra: 'R4.6',
+          conversas: conversas.length,
+          negocios: negocios.length,
+          atividades: atividades.length,
+        },
+      });
+      return {
+        geradoEm: new Date().toISOString(),
+        contato,
+        consentimento: {
+          em: contato.consentimentoEm,
+          origem: contato.consentimentoOrigem,
+          optOutMarketing: contato.optOutMarketing,
+          optOutEm: contato.optOutEm,
+        },
+        identificadores,
+        negocios,
+        atividades,
+        conversas,
+      };
+    });
   }
 
   /** Títulos de negócios do contato com nome, e-mail ou telefone dele (R4.6). */

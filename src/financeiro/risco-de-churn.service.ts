@@ -1,13 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { deDataDoBanco, diasEntre, hojeLocal } from './datas';
 import {
-  filtroDeContratosVisiveis,
-  filtroDeParcelasVisiveis,
-} from './permissoes-financeiro';
+  sqlContratosDasPessoas,
+  sqlContratosVisiveis,
+  sqlParcelasDasPessoas,
+  sqlParcelasVisiveis,
+} from './permissoes-financeiro-sql';
 
 type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+
+const NENHUM_ID = '00000000-0000-0000-0000-000000000000';
 
 export type NivelDeRisco = 'BAIXO' | 'MEDIO' | 'ALTO';
 
@@ -88,42 +93,15 @@ export class RiscoDeChurnService {
       pessoas?: readonly string[] | null;
     } = {},
   ): Promise<(RiscoDeChurn & { contato: { id: string; nome: string } })[]> {
-    const [contratos, parcelas] = await Promise.all([
-      this.prisma.contrato.findMany({
-        where: {
-          AND: [
-            { status: { in: ['ATIVO', 'SUSPENSO'] } },
-            filtroDeContratosVisiveis(usuario),
-            opcoes.pessoas
-              ? { responsavelCsId: { in: [...opcoes.pessoas] } }
-              : {},
-          ],
-        },
-        select: { contatoId: true },
-      }),
-      this.prisma.parcela.findMany({
-        where: {
-          AND: [
-            {
-              status: { in: ['ABERTO', 'ATRASADO'] },
-              contatoId: { not: null },
-            },
-            filtroDeParcelasVisiveis(usuario),
-            opcoes.pessoas
-              ? { contrato: { responsavelCsId: { in: [...opcoes.pessoas] } } }
-              : {},
-          ],
-        },
-        select: { contatoId: true },
-      }),
-    ]);
-    const ids = [
-      ...new Set(
-        [...contratos, ...parcelas].flatMap((x) =>
-          x.contatoId ? [x.contatoId] : [],
-        ),
-      ),
-    ];
+    const candidatos = await this.prisma.$queryRaw<{ contato_id: string }[]>`
+      SELECT DISTINCT c.contato_id FROM contratos c
+      WHERE c.contato_id IS NOT NULL AND c.status::text IN ('ATIVO', 'SUSPENSO')
+        AND ${sqlContratosVisiveis(usuario)} AND ${sqlContratosDasPessoas(opcoes.pessoas)}
+      UNION
+      SELECT DISTINCT p.contato_id FROM parcelas p
+      WHERE p.contato_id IS NOT NULL AND p.status::text IN ('ABERTO', 'ATRASADO')
+        AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(opcoes.pessoas)}`;
+    const ids = candidatos.map((x) => x.contato_id);
     const mapa = await this.calcular(usuario, ids);
     const ordem = { BAIXO: 0, MEDIO: 1, ALTO: 2 } as const;
     const minimo = ordem[opcoes.nivelMinimo ?? 'MEDIO'];
@@ -173,64 +151,61 @@ export class RiscoDeChurnService {
     const empresas = [
       ...new Set(contatos.flatMap((c) => (c.empresaId ? [c.empresaId] : []))),
     ];
-    const [contratos, parcelas, conversas, atividades] = await Promise.all([
-      this.prisma.contrato.findMany({
-        where: {
-          AND: [
-            {
-              status: { in: ['ATIVO', 'SUSPENSO'] },
-              OR: [
-                { contatoId: { in: contatos.map((c) => c.id) } },
-                { empresaId: { in: empresas } },
-              ],
-            },
-            filtroDeContratosVisiveis(usuario),
-          ],
-        },
-        select: { contatoId: true, empresaId: true, inicioEm: true },
-      }),
-      this.prisma.parcela.findMany({
-        where: {
-          AND: [
-            {
-              status: { in: ['ABERTO', 'ATRASADO'] },
-              OR: [
-                { contatoId: { in: contatos.map((c) => c.id) } },
-                { contatoId: null, empresaId: { in: empresas } },
-              ],
-            },
-            filtroDeParcelasVisiveis(usuario),
-          ],
-        },
-        select: { contatoId: true, empresaId: true, vencimento: true },
-      }),
-      this.prisma.conversa.findMany({
-        where: { contatoId: { in: contatos.map((c) => c.id) } },
-        orderBy: { criadoEm: 'desc' },
-        select: {
-          contatoId: true,
-          ultimaMensagemEm: true,
-          satisfacaoNota: true,
-          satisfacaoRespondidaEm: true,
-        },
-      }),
-      this.prisma.atividade.findMany({
-        where: {
-          contatoId: { in: contatos.map((c) => c.id) },
-          status: 'CONCLUIDA',
-        },
-        select: { contatoId: true, concluidaEm: true },
-      }),
-    ]);
+    if (contatos.length === 0) return resultado;
+    const idsContatos = contatos.map((c) => c.id);
+    const idsEmpresas = empresas.length > 0 ? empresas : [NENHUM_ID];
+    const [contratos, parcelas, conversas, notas, atividades] =
+      await Promise.all([
+        // Agregados no banco: só o que a pontuação usa (início mais antigo, vencimento mais antigo, últimas datas).
+        this.prisma.$queryRaw<
+          {
+            contato_id: string | null;
+            empresa_id: string | null;
+            inicio: Date;
+          }[]
+        >`SELECT c.contato_id, c.empresa_id, MIN(c.inicio_em) AS inicio FROM contratos c
+          WHERE c.status::text IN ('ATIVO', 'SUSPENSO')
+            AND (c.contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
+              OR c.empresa_id IN (${Prisma.join(idsEmpresas.map((i) => Prisma.sql`${i}::uuid`))}))
+            AND ${sqlContratosVisiveis(usuario)}
+          GROUP BY 1, 2`,
+        this.prisma.$queryRaw<
+          {
+            contato_id: string | null;
+            empresa_id: string | null;
+            vencimento: Date;
+          }[]
+        >`SELECT p.contato_id, p.empresa_id, MIN(p.vencimento) AS vencimento FROM parcelas p
+          WHERE p.status::text IN ('ABERTO', 'ATRASADO')
+            AND (p.contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
+              OR (p.contato_id IS NULL AND p.empresa_id IN (${Prisma.join(idsEmpresas.map((i) => Prisma.sql`${i}::uuid`))})))
+            AND ${sqlParcelasVisiveis(usuario)}
+          GROUP BY 1, 2`,
+        this.prisma.$queryRaw<{ contato_id: string; ultima: Date | null }[]>`
+          SELECT contato_id, MAX(ultima_mensagem_em) AS ultima FROM conversas
+          WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
+          GROUP BY 1`,
+        this.prisma.$queryRaw<{ contato_id: string; nota: number }[]>`
+          SELECT DISTINCT ON (contato_id) contato_id, satisfacao_nota AS nota FROM conversas
+          WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
+            AND satisfacao_nota IS NOT NULL AND satisfacao_respondida_em IS NOT NULL
+          ORDER BY contato_id, satisfacao_respondida_em DESC`,
+        this.prisma.$queryRaw<{ contato_id: string; ultima: Date | null }[]>`
+          SELECT contato_id, MAX(concluida_em) AS ultima FROM atividades
+          WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
+            AND status::text = 'CONCLUIDA'
+          GROUP BY 1`,
+      ]);
     for (const c of contatos) {
       const contratosDele = contratos.filter(
         (x) =>
-          x.contatoId === c.id || (x.empresaId && x.empresaId === c.empresaId),
+          x.contato_id === c.id ||
+          (x.empresa_id && x.empresa_id === c.empresaId),
       );
       const parcelasDele = parcelas.filter(
         (x) =>
-          x.contatoId === c.id ||
-          (x.contatoId === null && x.empresaId === c.empresaId),
+          x.contato_id === c.id ||
+          (x.contato_id === null && x.empresa_id === c.empresaId),
       );
       if (contratosDele.length === 0 && parcelasDele.length === 0) continue;
       const fatores: FatorDeRisco[] = [];
@@ -248,19 +223,7 @@ export class RiscoDeChurnService {
           detalhe: `Título atrasado há ${maiorAtraso} dia(s)`,
         });
       }
-      const respondidas = conversas
-        .filter(
-          (x) =>
-            x.contatoId === c.id &&
-            x.satisfacaoNota !== null &&
-            x.satisfacaoRespondidaEm,
-        )
-        .sort(
-          (a, b) =>
-            (b.satisfacaoRespondidaEm?.getTime() ?? 0) -
-            (a.satisfacaoRespondidaEm?.getTime() ?? 0),
-        );
-      const nota = respondidas[0]?.satisfacaoNota ?? null;
+      const nota = notas.find((x) => x.contato_id === c.id)?.nota ?? null;
       const ps = pontosDeSatisfacao(nota);
       if (ps > 0) {
         fatores.push({
@@ -270,15 +233,11 @@ export class RiscoDeChurnService {
         });
       }
       const datas = [
-        ...conversas
-          .filter((x) => x.contatoId === c.id)
-          .map((x) => x.ultimaMensagemEm),
-        ...atividades
-          .filter((x) => x.contatoId === c.id)
-          .map((x) => x.concluidaEm),
+        conversas.find((x) => x.contato_id === c.id)?.ultima,
+        atividades.find((x) => x.contato_id === c.id)?.ultima,
       ].flatMap((d) => (d ? [d.getTime()] : []));
       const inicioMaisAntigo = Math.min(
-        ...contratosDele.map((x) => x.inicioEm.getTime()),
+        ...contratosDele.map((x) => x.inicio.getTime()),
         agora.getTime(),
       );
       const ultima = datas.length > 0 ? Math.max(...datas) : null;

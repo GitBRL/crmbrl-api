@@ -72,7 +72,7 @@ describe('Notificações push (e2e)', () => {
   };
 
   describe('chave pública e inscrição', () => {
-    it('R26.1 — exige sessão e devolve a chave pública VAPID', async () => {
+    it('cenário 131 — R26.1 — exige sessão e devolve a chave pública VAPID', async () => {
       await clienteAnonimo(t).get(`${API}/chave-publica`).expect(401);
       const resposta = await ana.get(`${API}/chave-publica`).expect(200);
       expect(resposta.body).toEqual({
@@ -83,7 +83,7 @@ describe('Notificações push (e2e)', () => {
       );
     });
 
-    it('R26.1 — inscreve o aparelho, idempotente por endpoint, e lista só os meus', async () => {
+    it('cenário 132 — R26.1 — inscreve o aparelho, idempotente por endpoint, e lista só os meus', async () => {
       const dados = inscricaoDeTeste('Chrome no Android');
       const primeira = await ana.post(`${API}/inscricoes`, dados).expect(201);
       const id = (primeira.body as { id: string }).id;
@@ -109,7 +109,7 @@ describe('Notificações push (e2e)', () => {
       expect(saida).not.toContain(dados.keys.p256dh);
     });
 
-    it('R26.1 — as chaves ficam cifradas no banco', async () => {
+    it('cenário 133 — R26.1 — as chaves ficam cifradas no banco', async () => {
       const dados = inscricaoDeTeste();
       await ana.post(`${API}/inscricoes`, dados).expect(201);
       const linha = await t.prisma.pushInscricao.findUniqueOrThrow({
@@ -119,7 +119,7 @@ describe('Notificações push (e2e)', () => {
       expect(linha.chavesCifradas).not.toContain(dados.keys.p256dh);
     });
 
-    it('R26.1 — o mesmo aparelho passa para quem entrou por último', async () => {
+    it('cenário 132 — R26.1 — o mesmo aparelho passa para quem entrou por último', async () => {
       const dados = inscricaoDeTeste();
       const { body } = await ana.post(`${API}/inscricoes`, dados).expect(201);
       await bia.post(`${API}/inscricoes`, dados).expect(200);
@@ -129,7 +129,7 @@ describe('Notificações push (e2e)', () => {
       ]);
     });
 
-    it('R26.1 — recusa dados inválidos e endereços de rede interna sem a liberação', async () => {
+    it('cenário 133 — R26.1 — recusa dados inválidos e endereços de rede interna sem a liberação', async () => {
       const dados = inscricaoDeTeste();
       await ana
         .post(`${API}/inscricoes`, {
@@ -165,7 +165,7 @@ describe('Notificações push (e2e)', () => {
       }
     });
 
-    it('R26.1 — remove só o meu aparelho (404 para o de outra pessoa)', async () => {
+    it('cenário 132 — R26.1 — remove só o meu aparelho (404 para o de outra pessoa)', async () => {
       const dela = await inscrever(bia);
       const meu = await inscrever(ana);
       await ana.delete(`${API}/inscricoes/${dela.id}`).expect(404);
@@ -175,7 +175,7 @@ describe('Notificações push (e2e)', () => {
       expect((await bia.get(`${API}/inscricoes`)).body).toHaveLength(1);
     });
 
-    it('R26.1 — guarda no máximo 20 aparelhos por pessoa (o mais antigo sai)', async () => {
+    it('cenário 132 — R26.1 — guarda no máximo 20 aparelhos por pessoa (o mais antigo sai)', async () => {
       const primeira = await inscrever(ana, 'Primeiro');
       for (let i = 0; i < 20; i++) {
         await inscrever(ana, `Aparelho ${i}`);
@@ -187,7 +187,7 @@ describe('Notificações push (e2e)', () => {
       expect(lista.map(({ id }) => id)).not.toContain(primeira.id);
     });
 
-    it('R26.1 — sem VAPID: chave pública e inscrição dão 503 com motivo nao_configurado', async () => {
+    it('cenário 131 — R26.1 — sem VAPID: chave pública e inscrição dão 503 com motivo nao_configurado', async () => {
       const sem = await criarAppTeste({
         variaveis: { WEBHOOKS_PERMITIR_REDE_INTERNA: 'true' },
       });
@@ -220,7 +220,7 @@ describe('Notificações push (e2e)', () => {
   });
 
   describe('preferências', () => {
-    it('R26.2 — tudo ligado por padrão; PUT muda só os tipos enviados', async () => {
+    it('cenário 134 — R26.2 — tudo ligado por padrão; PUT muda só os tipos enviados', async () => {
       const padrao = await ana.get(`${API}/preferencias`).expect(200);
       expect(padrao.body).toEqual({
         tipos: {
@@ -253,7 +253,7 @@ describe('Notificações push (e2e)', () => {
       ).toBe(true);
     });
 
-    it('R26.2 — recusa tipo desconhecido, valor que não é booleano e corpo vazio', async () => {
+    it('cenário 134 — R26.2 — recusa tipo desconhecido, valor que não é booleano e corpo vazio', async () => {
       await ana
         .put(`${API}/preferencias`, { tipos: { inventado: true } })
         .expect(400);
@@ -264,7 +264,7 @@ describe('Notificações push (e2e)', () => {
       await ana.put(`${API}/preferencias`, {}).expect(400);
     });
 
-    it('R26.6 — audita a alteração (e só quando algo muda)', async () => {
+    it('cenário 134 — R26.6 — audita a alteração (e só quando algo muda)', async () => {
       await ana
         .put(`${API}/preferencias`, { tipos: { mencao: true } })
         .expect(200);
@@ -282,7 +282,7 @@ describe('Notificações push (e2e)', () => {
   });
 
   describe('envio a partir das notificações internas', () => {
-    it('R26.3 — cada tipo mapeado vira push com a url do front; os demais não', async () => {
+    it('cenário 135 — R26.3 — cada tipo mapeado vira push com a url do front; os demais não', async () => {
       const aparelho = await inscrever(ana);
       const casos: [string, string | null][] = [
         ['conversa.atribuida', '/atendimento?conversa=1'],
@@ -320,7 +320,7 @@ describe('Notificações push (e2e)', () => {
       expect(falso.enviados[0].keys).toEqual(aparelho.keys);
     });
 
-    it('R26.3 — a carga leva titulo, corpo, url, tag e notificacaoId; sem link abre a lista', async () => {
+    it('cenário 135 — R26.3 — a carga leva titulo, corpo, url, tag e notificacaoId; sem link abre a lista', async () => {
       await inscrever(ana);
       const comLink = await notificar(ana.usuario!.id, 'negocio.atribuido', {
         titulo: 'Novo lead para você',
@@ -348,7 +348,7 @@ describe('Notificações push (e2e)', () => {
       expect(porId.get(externo.id)?.url).toBe('/notificacoes');
     });
 
-    it('R26.3 — envia a todos os aparelhos da pessoa e a ninguém mais', async () => {
+    it('cenário 135 — R26.3 — envia a todos os aparelhos da pessoa e a ninguém mais', async () => {
       const a1 = await inscrever(ana, 'Celular');
       const a2 = await inscrever(ana, 'Notebook');
       await inscrever(bia);
@@ -362,7 +362,7 @@ describe('Notificações push (e2e)', () => {
       );
     });
 
-    it('R26.3 — respeita as preferências por tipo', async () => {
+    it('cenário 135 — R26.3 — respeita as preferências por tipo', async () => {
       await inscrever(ana);
       await ana
         .put(`${API}/preferencias`, { tipos: { atividade_vencendo: false } })
@@ -376,7 +376,7 @@ describe('Notificações push (e2e)', () => {
       ]);
     });
 
-    it('R26.3 — desligar o tipo depois da notificação e antes do envio também vale', async () => {
+    it('cenário 135 — R26.3 — desligar o tipo depois da notificação e antes do envio também vale', async () => {
       await inscrever(ana);
       await notificar(ana.usuario!.id, 'negocio.atribuido');
       await ana
@@ -386,7 +386,7 @@ describe('Notificações push (e2e)', () => {
       expect(falso.enviados).toHaveLength(0);
     });
 
-    it('R26.3 — o job só existe se a transação da regra de negócio confirmar', async () => {
+    it('cenário 136 — R26.3 — o job só existe se a transação da regra de negócio confirmar', async () => {
       await inscrever(ana);
       await expect(
         t.prisma.$transaction(async (tx) => {
@@ -401,7 +401,7 @@ describe('Notificações push (e2e)', () => {
       expect(falso.enviados).toHaveLength(0);
     });
 
-    it('R26.3 — notificarVarios e o fluxo real (lembrete de atividade) disparam o push', async () => {
+    it('cenário 136 — R26.3 — notificarVarios e o fluxo real (lembrete de atividade) disparam o push', async () => {
       await inscrever(ana);
       await inscrever(bia);
       await t.prisma.$transaction((tx) =>
@@ -431,7 +431,7 @@ describe('Notificações push (e2e)', () => {
       });
     });
 
-    it('R26.4 — 404 e 410 do serviço de push removem a inscrição e auditam; as outras ficam', async () => {
+    it('cenário 137 — R26.4 — 404 e 410 do serviço de push removem a inscrição e auditam; as outras ficam', async () => {
       const morta = await inscrever(ana, 'Morta');
       const gone = await inscrever(ana, 'Gone');
       const viva = await inscrever(ana, 'Viva');
@@ -457,7 +457,7 @@ describe('Notificações push (e2e)', () => {
       expect(texto(auditoria)).not.toContain(morta.keys.auth);
     });
 
-    it('R26.4 — falha passageira (503) é tentada de novo pela fila; a inscrição fica com o erro', async () => {
+    it('cenário 137 — R26.4 — falha passageira (503) é tentada de novo pela fila; a inscrição fica com o erro', async () => {
       const aparelho = await inscrever(ana);
       falso.responder(
         aparelho.endpoint,
@@ -480,7 +480,7 @@ describe('Notificações push (e2e)', () => {
       expect(ok.ultimoEnvioEm).not.toBeNull();
     });
 
-    it('R26.4 — recusa definitiva (401) não é repetida e não remove a inscrição', async () => {
+    it('cenário 137 — R26.4 — recusa definitiva (401) não é repetida e não remove a inscrição', async () => {
       const aparelho = await inscrever(ana);
       falso.responder(aparelho.endpoint, {
         ok: false,
@@ -496,7 +496,7 @@ describe('Notificações push (e2e)', () => {
   });
 
   describe('teste e auditoria', () => {
-    it('R26.5 — o push de teste vai para os meus aparelhos e conta o resultado', async () => {
+    it('cenário 138 — R26.5 — o push de teste vai para os meus aparelhos e conta o resultado', async () => {
       await inscrever(bia);
       await ana.post(`${API}/teste`).expect(422);
       const a1 = await inscrever(ana);
@@ -511,7 +511,7 @@ describe('Notificações push (e2e)', () => {
       });
     });
 
-    it('R26.6 — audita inscrição, remoção e teste sem endereço nem chaves', async () => {
+    it('cenário 138 — R26.6 — audita inscrição, remoção e teste sem endereço nem chaves', async () => {
       const aparelho = await inscrever(ana, 'Chrome no Android');
       await ana.post(`${API}/teste`).expect(200);
       await ana.delete(`${API}/inscricoes/${aparelho.id}`).expect(204);

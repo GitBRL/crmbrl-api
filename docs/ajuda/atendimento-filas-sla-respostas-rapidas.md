@@ -7,7 +7,7 @@ palavras-chave: [fila, sla, rodízio, menor carga, manual, horário de atendimen
 ---
 # Configurar filas, SLA, horário, satisfação e respostas rápidas
 
-Abra o endereço `/configuracoes/atendimento` (não há aba para ele na barra de seções de Configurações). Há três abas.
+Abra **Configurações > Atendimento**. Há três abas.
 
 ## Filas e SLA
 1. Clique para criar ou editar uma fila.

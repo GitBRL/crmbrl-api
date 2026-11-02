@@ -142,7 +142,11 @@ e ganham seções aqui quando forem detalhadas.
   responsável do negócio que os originou.
 - **R4.6** LGPD: contato com `optOutMarketing` não recebe disparos nem automações de
   marketing; o consentimento guarda origem e data. A exclusão é lógica, com anonimização dos
-  dados pessoais, só pelo Admin, e auditada.
+  dados pessoais, só pelo Admin, e auditada. A anonimização também apaga os identificadores de
+  canal, encerra as conversas abertas, troca o texto das mensagens por `[removido — LGPD]`,
+  desvincula os arquivos (o conteúdo sai do bucket por job) e limpa visitantes do chat, envios
+  da régua e linhas de importação do contato. `GET /contatos/:id/dados-pessoais` (só Admin,
+  auditado) entrega em JSON os dados do titular (direito de acesso e portabilidade).
 - **R4.7** Etiquetas livres, normalizadas (aparadas, sem duplicatas); campos personalizados
   em JSON.
 
@@ -1120,7 +1124,10 @@ do teste) contra um Postgres real.
   de 60, médio a partir de 30, baixo abaixo disso. Aparece no painel de CS, no contato e no
   negócio de CS, respeitando a visibilidade (R22.1).
 - **R23.5** Os indicadores respeitam a visibilidade do usuário (R22.1) e alimentam o painel
-  Financeiro do BI (R20) e os cartões da tela inicial.
+  Financeiro do BI (R20) e os cartões da tela inicial. São **agregados no banco** (`$queryRaw`
+  com `GROUP BY`, sem carregar as linhas), com o mesmo filtro de visibilidade das listas
+  escrito em SQL (`permissoes-financeiro-sql.ts`); o índice parcial `parcelas(pago_em) WHERE
+  status = 'PAGO'` atende os recebimentos por data de pagamento.
 
 ## 31. Régua de cobrança (R24)
 
@@ -1149,7 +1156,8 @@ do teste) contra um Postgres real.
   mensagem e o e-mail da etapa) e *já pagou* (dá baixa e encerra a régua). Ligação sem
   registro até o horário limite libera a mensagem (`regua.ligacao_expirada`).
 - **R24.6** **Pagamento encerra a régua:** a baixa (manual, por importação ou "já pagou")
-  cancela as mensagens, e-mails e ligações que ainda não saíram.
+  cancela as mensagens, e-mails e ligações que ainda não saíram. Quando há algo a cancelar, a
+  linha do tempo do título ganha uma entrada própria (`parcela.regua_encerrada`) além da baixa.
 - **R24.7** **Opt-out e "não contatar":** o opt-out de marketing (R4.6) **não** bloqueia a
   cobrança, que é uma relação contratual; a marca **"não contatar por WhatsApp"** do contato
   (etiqueta `nao-contatar-whatsapp` ou campo personalizado `nao_contatar_whatsapp`) **é
@@ -1252,3 +1260,209 @@ teste) contra um Postgres real, e os de tela têm spec no front.
 114. No detalhe do contato, o controle "Não contatar por WhatsApp" liga e desliga a marca
      (R24.7).
 115. Linha do tempo por título, envios do dia e exportação (R24.9).
+116. Baixa e "Executar agora" em paralelo não deixam pendência de régua num título pago
+     (R24.6).
+117. Baixa manual e "já pagou" da ligação ao mesmo tempo dão uma só baixa (R24.3).
+118. O envio de um ciclo anterior (vencimento alterado) é cancelado e não sai (R24.3).
+119. Os indicadores do Financeiro e o risco de churn, agregados no banco, enxergam os mesmos
+     contratos e títulos que as listas, papel a papel (R22.1, R23).
+
+## 34. Assistente de IA e chamados (R25)
+
+- **R25.1** **Quem usa:** todos os papéis, por um botão **Ajuda** na barra superior de qualquer
+  tela, que abre um painel de conversa. O painel avisa que as perguntas e as respostas ficam
+  registradas e podem ser lidas pelo Admin, e pede para não escrever dados de clientes.
+  Só o Admin vê o histórico (R25.7) e configura (R25.4, R25.5). O assistente fica desligado
+  enquanto não houver chave da Anthropic (`ANTHROPIC_API_KEY`) ou o limite diário for zero; o
+  estado do painel explica o motivo.
+- **R25.2** **Pergunta e resposta:** a base de conhecimento são os artigos curtos de
+  `docs/ajuda/*.md` (um por área e tarefa), lidos ao iniciar e entregues ao modelo
+  `claude-opus-5-5` com *prompt caching*. A API manda também o papel da pessoa e a tela de
+  onde ela perguntou; o assistente **não ensina o que o papel não pode fazer**, diz quem pode.
+  A resposta chega em streaming (SSE: `inicio`, `fase`, `parcial`, `concluido`, `erro`) e é
+  uma saída estruturada `{resposta, resolvido, categoria, resumoDoPedido}`, com `categoria` em
+  `duvida_de_uso`, `funcionalidade_inexistente_no_escopo`, `fora_do_escopo` ou
+  `erro_do_sistema`. Nenhum dado de cliente vai para a IA além do que a pessoa escreveu. As
+  perguntas têm de 2 a 2.000 caracteres; uma conversa guarda até 30 perguntas e reenvia as 10
+  últimas ao modelo; conversa de outra pessoa é 404. Se a IA falha, há uma nova tentativa;
+  falhando de novo, a pergunta fica `FALHOU` e não conta no limite — **a não ser que já tenha gastado tokens** (entrada, cache ou saída): a falha com gasto e a pergunta **cancelada** depois do início da resposta contam no limite diário. No cancelamento o uso final não chega, então a saída é estimada pelo texto recebido.
+- **R25.3** **Chamado:** quando a categoria é `funcionalidade_inexistente_no_escopo` ou
+  `erro_do_sistema`, o painel oferece **Abrir chamado**. **Só com a confirmação da pessoa**, e
+  uma vez por resposta, o CRM envia título, descrição, usuário, tela e a conversa ao destino
+  configurado pelo Admin: o conector **TicketHub** (conta de serviço: login + `POST
+  /api/chamados`; credenciais em `TICKETHUB_*` ou na configuração, cifradas e nunca devolvidas)
+  ou um **webhook** (R25.4). O envio é feito pela fila `assistente.enviar-chamado`, com até 6
+  tentativas (1 min, 5 min, 15 min, 1 h e 3 h); esgotadas, o chamado fica `FALHOU`, o Admin é
+  avisado e pode reenviar. A pessoa vê o número do chamado e o link (o identificador do
+  TicketHub, um UUID, aparece abreviado, com o completo no título e na cópia) e recebe uma
+  notificação quando ele é aberto.
+- **R25.4** **Destino configurável (Admin):** TicketHub (URL, e-mail e senha da conta de
+  serviço, URL pública para o link) ou webhook genérico (URL, cabeçalhos, assinatura HMAC
+  `X-CRM-Assinatura: sha256=…` sobre `timestamp.corpo`, modelo do corpo com variáveis). Segredos
+  cifrados e mascarados; as credenciais `TICKETHUB_*` do servidor só valem para a URL do servidor (com outra URL, o Admin informa e-mail e senha gravados, senão o destino fica não configurado); há "Testar conexão" e a opção de nenhum destino (desliga o chamado).
+  Tudo auditado.
+- **R25.5** **Limites:** perguntas por pessoa por dia (padrão 30, máximo 1.000, fuso de São
+  Paulo; **0 desliga**) e orçamento mensal de tokens (padrão 20 milhões, somando entrada,
+  saída e cache de todos, mais uma reserva — base de conhecimento e saída máxima — para cada pergunta em andamento, de modo que perguntas simultâneas não passem do teto). Passado o limite a API responde 429 com o motivo
+  (`limite_diario` ou `orcamento_mensal`) e o painel explica. Mudar os limites é do Admin e é
+  auditado.
+- **R25.6** **Segurança contra injeção:** a pergunta e os artigos vão delimitados e tratados
+  como dados (os marcadores que fechariam um delimitador são removidos); o prompt de sistema
+  não é revelado; a base nunca muda as instruções; o modelo **não abre chamado sozinho**
+  (`podeAbrirChamado` vem da API, não do texto). A tela da resposta é sanitizada (markdown
+  simples, links seguros).
+- **R25.7** **Avaliação e histórico do Admin:** cada resposta pode ser marcada *útil* ou *não
+  útil*. O histórico (só Admin) lista todas as conversas com filtros por categoria, área,
+  pessoa e período, os **temas mais pedidos sem resposta**, os chamados abertos e a
+  exportação (CSV/XLSX, auditada).
+- **R25.8** **Auditoria:** `assistente.configurado`, `assistente.resposta_avaliada`,
+  `assistente.chamado_solicitado`, `assistente.chamado_enviado`, `assistente.chamado_falhou`,
+  `assistente.chamado_reenviado` e `assistente.historico_exportado`. Nunca registram o texto
+  das perguntas, só ids, categoria e contagens.
+
+## 35. PWA e notificações push (R26)
+
+- **R26.1** **Aparelhos inscritos:** com a chave pública VAPID (`GET /push/chave-publica`,
+  exige sessão) o front inscreve o aparelho (`POST /push/inscricoes`, idempotente por
+  *endpoint*; o mesmo aparelho passa para quem entrou por último). Cada pessoa guarda no
+  máximo **20** aparelhos (o mais antigo sai), lista e remove só os seus (404 para os de
+  outras pessoas). As chaves da inscrição ficam **cifradas**; endereços inválidos ou de rede
+  interna são recusados. Sem `VAPID_*` no ambiente, chave pública e inscrição dão 503
+  (`nao_configurado`) e a tela explica.
+- **R26.2** **Preferências por tipo:** conversa atribuída, menção, atividade vencendo, SLA
+  estourado, negócio atribuído e parcela atrasada da carteira. Tudo ligado por padrão;
+  `PUT /push/preferencias` altera só os tipos enviados; tipo desconhecido, valor que não é
+  booleano e corpo vazio são recusados.
+- **R26.3** **Envio:** sai das **notificações internas** que já existem (cada tipo mapeado
+  vira push; os demais não) e só depois que a transação da regra de negócio confirma (o job
+  entra na fila `push.enviar` na mesma transação). Um job por aparelho; a carga leva título,
+  corpo, `url` do front, `tag` e `notificacaoId` (sem link, abre a lista de notificações);
+  vai a todos os aparelhos da pessoa e a ninguém mais; desligar o tipo antes do envio vale.
+- **R26.4** **Falhas:** 404 e 410 do serviço de push removem a inscrição (auditado, tipo
+  expirado); falha passageira (5xx, rede) é tentada de novo pela fila e a inscrição guarda o
+  erro; recusa definitiva (401/403) não é repetida e não remove a inscrição.
+- **R26.5** **Teste:** `POST /push/teste` envia um push aos meus aparelhos e conta o resultado.
+- **R26.6** **Auditoria:** `push.inscricao_criada`, `push.inscricao_removida`,
+  `push.inscricao_expirada`, `push.preferencias_alteradas` (só quando algo muda) e
+  `push.teste_enviado`, sem endereço nem chaves.
+- **R26.7** **App instalável:** manifesto (nome BRL CRM, ícones do símbolo, cores do tema) e
+  `@angular/service-worker` com o *app shell* em cache. **Os dados da API nunca ficam em cache**
+  (`/api/**` fora do service worker). Sem conexão aparece uma faixa "sem conexão" e as
+  ações que dependem da rede avisam; quando uma versão nova está pronta, a faixa oferece
+  **Atualizar** (recarrega no momento que a pessoa escolhe). Há uma dica de instalação para
+  Android (pedido de instalação do navegador) e iOS (Compartilhar → Adicionar à Tela de
+  Início). Em desenvolvimento (sem service worker) nada disso liga.
+- **R26.8** **Uso em campo:** em telas pequenas, navegação inferior (Início, Atendimento,
+  Atividades, Funis, Notificações), ações rápidas (responder, registrar atividade, mover
+  negócio) e alvos de toque grandes. O clique na notificação abre a tela certa.
+- **R26.9** **Preferências de push no Meu perfil:** ativar neste aparelho (pede a permissão do
+  navegador), desativar, ver a permissão bloqueada e ligar/desligar cada tipo.
+
+## 36. Operação: backups, monitoramento e produção (R27)
+
+- **R27.1** **Filas:** a tela mostra, por fila do pg-boss, pendentes, ativas e falhas
+  recentes. Uma fila está **travada** quando o job pronto mais antigo espera há mais de 10
+  minutos ou um job está ativo há mais de 1 hora.
+- **R27.2** **Gateway e números:** estado do gateway de WhatsApp e de cada número. Um número
+  que cai tem 2 minutos de carência para a reconexão automática; passado isso vira alerta
+  **crítico** (com o caminho para reconectar).
+- **R27.3** **Backups:** o serviço `backup` do compose (`postgres:17-alpine`) faz `pg_dump` diário
+  (`BACKUP_HORARIO`, `BACKUP_FUSO`), valida o arquivo, aplica a retenção (`BACKUP_RETENCAO_DIAS`)
+  e grava `ultimo.json` no volume de backups, que a API lê (somente leitura, `BACKUP_DIR`). A
+  tela mostra o último backup. **Sem `ultimo.json`: aviso "nenhum backup registrado"; com
+  `ok=false`: crítico; sem backup concluído há mais de 36 horas: atrasado.** A restauração
+  tem script e passo a passo testados em `docs/DEPLOY.md`.
+- **R27.4** **Banco e disco:** tamanho do banco e espaço livre; abaixo de 15% livre é aviso e
+  de 5% é crítico.
+- **R27.5** **Canais e erros:** canais com erro recente e os últimos erros técnicos.
+- **R27.6** **Revisão de produção:** cabeçalhos de segurança em toda resposta
+  (`X-Content-Type-Options: nosniff`, `X-Frame-Options`, `Referrer-Policy`, sem
+  `X-Powered-By`; `Strict-Transport-Security` só em produção), limites de requisição nas
+  rotas públicas de senha (R2.8: pedido de link 3 por e-mail e consulta de token 30 por IP
+  em 15 minutos, resposta 429 com `Retry-After`), variáveis obrigatórias em produção
+  (a API não sobe sem elas) e HTTPS pelo Caddy (`docker-compose.producao.yml`). O passo a
+  passo está em `docs/DEPLOY.md`.
+- **R27.7** **Alertas por e-mail:** a cada 5 minutos o job `saude.monitorar` avalia os fatos e
+  avisa **todos os Admins ativos** por e-mail quando um número desconecta, uma fila trava ou
+  o backup falha, agrupando num só e-mail. **Cada ocorrência avisa uma vez**; se persistir,
+  um lembrete só depois de 6 horas; resolvida e voltando a ocorrer, avisa de novo. Sem SMTP
+  nada é enviado nem registrado (volta a tentar depois) e a tela avisa que os alertas ficam
+  só na tela. Alertas de tela (aviso de disco, por exemplo) não geram e-mail.
+- **R27.8** **Acesso:** a tela **Saúde do sistema** (`GET /administracao/saude-do-sistema`) é
+  **só do Admin** (401 sem sessão, 403 aos demais) e se atualiza sozinha.
+
+## 37. Matriz de acesso (Fase 5 e 6 e produção — Onda D)
+
+| Recurso | Admin | C-level | Líder | Membro |
+| --- | --- | --- | --- | --- |
+| Perguntar ao assistente de ajuda (R25.1) | ✓ | ✓ | ✓ | ✓ |
+| Abrir chamado a partir da resposta (R25.3) | ✓ | ✓ | ✓ | ✓ (com confirmação) |
+| Histórico de dúvidas, temas e chamados (R25.7) | ✓ | — | — | — |
+| Configurar assistente, limites e destino do chamado (R25.4, R25.5) | ✓ | — | — | — |
+| Reenviar chamado que falhou | ✓ | — | — | — |
+| Inscrever aparelhos e escolher tipos de push (R26) | ✓ | ✓ | ✓ | ✓ (os próprios) |
+| Saúde do sistema e alertas por e-mail (R27) | ✓ | — | — | — |
+| Guia do usuário e ajuda das telas | ✓ | ✓ | ✓ | ✓ |
+
+## 38. Cenários de aceitação (Fase 5 e 6 e produção — Onda D)
+
+Continuam a numeração da seção 33; cada um tem teste automatizado ("cenário N" no nome do
+teste) contra um Postgres real, e os de tela têm spec no front.
+
+120. Todos os papéis usam o assistente; só o Admin vê o histórico (os demais 403); o aviso de
+     registro aparece (R25.1).
+121. A pergunta chega em streaming, com modelo, saída estruturada, base em cache, papel e
+     tela, e sem dados de cliente (R25.2).
+122. Continuar a conversa reenvia o histórico; conversa de outra pessoa é 404 (R25.2).
+123. O limite de perguntas por pessoa por dia e o orçamento mensal de tokens valem e são
+     configurados pelo Admin, com auditoria (R25.5).
+124. A pergunta não fecha o delimitador, o prompt não vaza e o modelo não abre chamado
+     (R25.6).
+125. O chamado no TicketHub só sai com confirmação, mostra número e link, notifica e acontece
+     uma vez por resposta (R25.3).
+126. Falhas do destino: novas tentativas pela fila; a falha final avisa e o Admin reenvia
+     (R25.3).
+127. Webhook genérico: cabeçalhos, HMAC e modelo do corpo; segredos cifrados e mascarados
+     (R25.4).
+128. TicketHub configurado pelo Admin: senha cifrada e nunca devolvida; teste de login;
+     "nenhum" desliga (R25.3, R25.4).
+129. Avaliação e histórico do Admin: filtros, temas sem resposta, chamados e exportação
+     (R25.7).
+130. Falha da IA: nova tentativa, evento de erro e pergunta `FALHOU` que não conta no
+     limite (R25.2).
+131. A chave pública VAPID exige sessão e, sem VAPID, dá 503 `nao_configurado` (R26.1).
+132. A inscrição é idempotente por *endpoint*, lista só os meus aparelhos, passa para quem
+     entrou por último, guarda no máximo 20 e remove só o meu (R26.1).
+133. As chaves ficam cifradas; dados inválidos e endereços de rede interna são recusados
+     (R26.1).
+134. As preferências vêm todas ligadas, mudam só os tipos enviados, recusam o inválido e são
+     auditadas só quando algo muda (R26.2, R26.6).
+135. Cada tipo mapeado vira push com a `url` certa, só para os aparelhos da pessoa e
+     respeitando as preferências, inclusive as desligadas antes do envio (R26.3).
+136. O job de push só existe se a transação da regra de negócio confirma; o fluxo real
+     (lembrete de atividade) dispara o push (R26.3).
+137. 404/410 removem a inscrição; falha passageira é tentada de novo; recusa definitiva não
+     é repetida e não remove (R26.4).
+138. O push de teste conta o resultado e a auditoria não guarda endereço nem chaves (R26.5,
+     R26.6).
+139. O app instalável mostra a faixa sem conexão e o aviso de versão nova, pede a instalação
+     só quando a pessoa pede e liga o push nas preferências (R26.7, R26.9; specs do front).
+140. Só o Admin vê a Saúde do sistema: 401 sem sessão e 403 aos demais (R27.8).
+141. Sistema saudável: situação ok, gateway no ar, banco e disco medidos (R27.4).
+142. Sem `ultimo.json` o aviso é "nenhum backup registrado"; com `ok=false` é crítico (R27.3).
+143. Um número desconectado vira alerta crítico e aparece na lista (R27.2).
+144. Um job pronto parado há mais de 10 minutos trava a fila (R27.1).
+145. Canal com erro recente e erros técnicos aparecem no painel (R27.5).
+146. O backup que falhou avisa todos os Admins por e-mail uma só vez; resolvido e de novo com
+     problema, avisa outra vez; o lembrete só vem depois de 6 horas; número e fila saem
+     juntos num e-mail; sem SMTP nada é enviado; alertas só de tela não geram e-mail
+     (R27.2, R27.7).
+147. O pedido de link e a consulta de token de senha têm limite (429 com `Retry-After`) e toda
+     resposta leva os cabeçalhos de segurança (R27.6).
+148. Inadimplência por faixa, previsto × realizado, MRR e recebimentos, agregados no banco,
+     respeitam a carteira de cada pessoa (R23.1–R23.3, R22.1).
+149. O risco de churn, agregado no banco, pontua atraso e silêncio e respeita a carteira
+     (R23.4).
+150. O índice parcial das parcelas pagas por data de pagamento existe (R23.3).
+151. A baixa que encerra a régua e cancela envios pendentes tem uma entrada própria na
+     linha do tempo do título (R24.6, R24.9).

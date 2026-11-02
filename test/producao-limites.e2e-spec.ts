@@ -12,7 +12,7 @@ describe('Produção — limites das rotas públicas de senha (e2e)', () => {
     await t.fechar();
   });
 
-  it('R2.8 — o pedido de link passa de 3 por e-mail em 15 min: 429 com Retry-After, igual exista o e-mail ou não', async () => {
+  it('cenário 147 — R2.8 — o pedido de link passa de 3 por e-mail em 15 min: 429 com Retry-After, igual exista o e-mail ou não', async () => {
     const email = 'ninguem@teste.local';
     for (let i = 0; i < LIMITES_DE_SENHA.esqueciPorEmail.limite; i += 1) {
       await clienteAnonimo(t)
@@ -26,7 +26,7 @@ describe('Produção — limites das rotas públicas de senha (e2e)', () => {
     expect(Number(resposta.headers['retry-after'])).toBeGreaterThan(0);
   });
 
-  it('R2.8 — a consulta de token passa de 30 por IP em 15 min: 429', async () => {
+  it('cenário 147 — R2.8 — a consulta de token passa de 30 por IP em 15 min: 429', async () => {
     for (let i = 0; i < LIMITES_DE_SENHA.tokenPorIp.limite; i += 1) {
       await clienteAnonimo(t)
         .post('/api/v1/auth/senha/token', { token: `invalido-${i}` })
@@ -55,7 +55,7 @@ describe('Produção — cabeçalhos de segurança da API (e2e)', () => {
     await t.fechar();
   });
 
-  it('toda resposta leva nosniff, X-Frame-Options e Referrer-Policy; sem X-Powered-By e sem HSTS fora de produção', async () => {
+  it('cenário 147 — toda resposta leva nosniff, X-Frame-Options e Referrer-Policy; sem X-Powered-By e sem HSTS fora de produção', async () => {
     const resposta = await clienteAnonimo(t).get('/api/saude');
     expect(resposta.headers['x-content-type-options']).toBe('nosniff');
     expect(resposta.headers['x-frame-options']).toBe('DENY');

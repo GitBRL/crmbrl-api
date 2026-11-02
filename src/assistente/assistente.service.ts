@@ -38,7 +38,7 @@ import type {
   AssistentePergunta,
   Prisma,
 } from '../generated/prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
 import {
   ANDAMENTO_ABANDONADO_MS,
@@ -209,11 +209,16 @@ export class AssistenteService {
             status: 'EM_ANDAMENTO',
             criadoEm: { gte: new Date(Date.now() - ANDAMENTO_ABANDONADO_MS) },
           },
-          // Falha que já gastou tokens segue contando (teto de custo).
+          // Falha que já gastou tokens segue contando (teto de custo), a
+          // cancelada inclusive. Só a falha sem nenhum token fica de fora.
           {
             status: 'FALHOU',
-            tokensSaida: { gt: 0 },
-            NOT: { erro: MENSAGENS_DO_ASSISTENTE.cancelada },
+            OR: [
+              { tokensEntrada: { gt: 0 } },
+              { tokensSaida: { gt: 0 } },
+              { tokensCacheLeitura: { gt: 0 } },
+              { tokensCacheEscrita: { gt: 0 } },
+            ],
           },
         ],
       },
@@ -239,6 +244,22 @@ export class AssistenteService {
       tokensCacheLeitura: soma._sum.tokensCacheLeitura ?? 0,
       tokensCacheEscrita: soma._sum.tokensCacheEscrita ?? 0,
     });
+  }
+
+  /**
+   * Estimativa do que as perguntas em andamento ainda vão gastar (base em
+   * cache + saída máxima de cada uma). Sem isso, várias pessoas perguntando
+   * ao mesmo tempo passariam do orçamento do mês (R25.5).
+   */
+  async reservaEmAndamento(tx: Tx): Promise<number> {
+    const emAndamento = await tx.assistentePergunta.count({
+      where: {
+        status: 'EM_ANDAMENTO',
+        criadoEm: { gte: new Date(Date.now() - ANDAMENTO_ABANDONADO_MS) },
+      },
+    });
+    const baseEmTokens = Math.ceil(this.base.atual().texto.length / 3);
+    return emAndamento * (baseEmTokens + MAX_TOKENS_ASSISTENTE);
   }
 
   /** Por que o assistente não pode responder agora (independe da pessoa). */
@@ -332,7 +353,11 @@ export class AssistenteService {
     const texto = dto.pergunta.trim();
     return this.prisma.$transaction(async (tx) => {
       await travarChave(tx, 'assistente-ia', usuario.id);
-      const motivo = this.motivoGeral(config, await this.tokensNoMes(tx));
+      // Trava global do orçamento (sempre depois da da pessoa: mesma ordem para todos).
+      await travarChave(tx, 'assistente-ia', 'orcamento');
+      const gasto =
+        (await this.tokensNoMes(tx)) + (await this.reservaEmAndamento(tx));
+      const motivo = this.motivoGeral(config, gasto);
       if (motivo) {
         if (!this.ambiente.anthropic.configurada) {
           throw new ServicoIndisponivelException(motivo, {
@@ -503,6 +528,7 @@ export class AssistenteService {
     });
     let ultimoParcial = 0;
     let ultimoTexto = '';
+    let caracteresRecebidos = 0;
     try {
       const resultado = await this.chamada.executar(
         pedido.parametros,
@@ -516,6 +542,7 @@ export class AssistenteService {
           },
           aoMudarDeFase: (fase) => canal.enviar('fase', { fase }),
           aoReceberTexto: (acumulado) => {
+            caracteresRecebidos = acumulado.length;
             const agora = Date.now();
             if (agora - ultimoParcial < INTERVALO_PARCIAL_MS) {
               return;
@@ -577,6 +604,14 @@ export class AssistenteService {
               0,
             );
       const mensagem = MENSAGENS_DO_ASSISTENTE[falha.codigo];
+      if (falha.codigo === 'cancelada') {
+        // O fluxo cortado não traz o uso final: estima a saída pelo texto que
+        // já chegou, para o orçamento não ficar abaixo do que foi cobrado.
+        falha.uso.saida = Math.max(
+          falha.uso.saida,
+          Math.ceil(caracteresRecebidos / 3),
+        );
+      }
       try {
         await this.gravar(
           pedido,

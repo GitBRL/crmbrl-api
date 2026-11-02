@@ -590,6 +590,16 @@ export class ParcelasService {
       },
       relacionados: relacionadosDe(paga),
     });
+    if (cancelados > 0) {
+      await this.auditoria.registrar(tx, {
+        acao: 'parcela.regua_encerrada',
+        entidade: 'parcela',
+        entidadeId: atual.id,
+        resumo: `Régua encerrada pelo pagamento: ${cancelados} envio(s) pendente(s) cancelado(s)`,
+        dados: { origem, pendenciasCanceladas: cancelados, regra: 'R24.6' },
+        relacionados: relacionadosDe(paga),
+      });
+    }
     await this.eventos.publicar(tx, 'parcela.paga', {
       parcelaId: paga.id,
       numero: paga.numero,

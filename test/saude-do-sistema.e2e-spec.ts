@@ -71,7 +71,7 @@ describe('Saúde do sistema (e2e)', () => {
     rmSync(pasta, { recursive: true, force: true });
   });
 
-  it('R27.8 — só o Admin vê o painel (401 sem sessão, 403 aos demais papéis)', async () => {
+  it('cenário 140 — R27.8 — só o Admin vê o painel (401 sem sessão, 403 aos demais papéis)', async () => {
     await clienteAnonimo(t).get(API).expect(401);
     for (const papel of ['C_LEVEL', 'COMERCIAL', 'CS'] as const) {
       const cliente = await entrarComo(t, await criarUsuario(t, { papel }));
@@ -80,7 +80,7 @@ describe('Saúde do sistema (e2e)', () => {
     await painel();
   });
 
-  it('R27.8 — sistema saudável: situação ok, gateway no ar, banco e disco medidos', async () => {
+  it('cenário 141 — R27.8 — sistema saudável: situação ok, gateway no ar, banco e disco medidos', async () => {
     emitirBackup();
     const corpo = await painel();
     expect(corpo.situacao).toBe('ok');
@@ -94,7 +94,7 @@ describe('Saúde do sistema (e2e)', () => {
     expect(corpo.erros.total24h).toBe(0);
   });
 
-  it('R27.3 — sem ultimo.json: "nenhum backup registrado" (aviso), com ok=false: crítico', async () => {
+  it('cenário 142 — R27.3 — sem ultimo.json: "nenhum backup registrado" (aviso), com ok=false: crítico', async () => {
     let corpo = await painel();
     expect(corpo.backup).toMatchObject({ situacao: 'nenhum', ultimo: null });
     expect(corpo.situacao).toBe('atencao');
@@ -108,7 +108,7 @@ describe('Saúde do sistema (e2e)', () => {
     });
   });
 
-  it('R27.2 — número desconectado vira alerta crítico e aparece na lista', async () => {
+  it('cenário 143 — R27.2 — número desconectado vira alerta crítico e aparece na lista', async () => {
     const { numero } = await criarCanalWhatsapp(t, {
       nome: 'Vendas',
       status: 'CONECTADO',
@@ -134,7 +134,7 @@ describe('Saúde do sistema (e2e)', () => {
     expect(corpo.alertas.map((a) => a.codigo)).toEqual(['numero_desconectado']);
   });
 
-  it('R27.1 — job pronto parado há mais de 10 minutos trava a fila', async () => {
+  it('cenário 144 — R27.1 — job pronto parado há mais de 10 minutos trava a fila', async () => {
     emitirBackup();
     await t.fila.enviar('teste.saude.travada', { x: 1 });
     await t.prisma.$executeRaw`UPDATE pgboss.job
@@ -151,7 +151,7 @@ describe('Saúde do sistema (e2e)', () => {
     );
   });
 
-  it('R27.5 — canal com erro recente e erros técnicos recentes aparecem no painel', async () => {
+  it('cenário 145 — R27.5 — canal com erro recente e erros técnicos recentes aparecem no painel', async () => {
     emitirBackup();
     const canal = await criarCanal(t, { tipo: 'EMAIL', nome: 'Caixa suporte' });
     await t.prisma.canal.update({
@@ -180,7 +180,7 @@ describe('Saúde do sistema (e2e)', () => {
   describe('alertas por e-mail', () => {
     const monitorar = () => t.get(AlertasDeSaudeService).monitorar();
 
-    it('R27.7 — backup que falhou avisa todos os Admins ativos, uma vez só', async () => {
+    it('cenário 146 — R27.7 — backup que falhou avisa todos os Admins ativos, uma vez só', async () => {
       const ana = await criarUsuario(t, { papel: 'ADMIN' });
       const bia = await criarUsuario(t, { papel: 'ADMIN' });
       await t.prisma.usuario.update({
@@ -203,7 +203,7 @@ describe('Saúde do sistema (e2e)', () => {
       expect(t.email.enviados).toHaveLength(1);
     });
 
-    it('R27.7 — resolvido e de novo com problema: avisa outra vez', async () => {
+    it('cenário 146 — R27.7 — resolvido e de novo com problema: avisa outra vez', async () => {
       await criarUsuario(t, { papel: 'ADMIN' });
       emitirBackup({ ok: false, erro: 'x' });
       await monitorar();
@@ -218,7 +218,7 @@ describe('Saúde do sistema (e2e)', () => {
       expect(t.email.enviados).toHaveLength(2);
     });
 
-    it('R27.7 — lembrete só depois de 6 horas', async () => {
+    it('cenário 146 — R27.7 — lembrete só depois de 6 horas', async () => {
       await criarUsuario(t, { papel: 'ADMIN' });
       emitirBackup({ ok: false, erro: 'x' });
       await monitorar();
@@ -234,7 +234,7 @@ describe('Saúde do sistema (e2e)', () => {
       expect(t.email.enviados).toHaveLength(2);
     });
 
-    it('R27.2 — número que desconecta e fila que trava saem juntos num só e-mail', async () => {
+    it('cenário 146 — R27.2 — número que desconecta e fila que trava saem juntos num só e-mail', async () => {
       await criarUsuario(t, { papel: 'ADMIN' });
       emitirBackup();
       const { numero } = await criarCanalWhatsapp(t, {
@@ -258,7 +258,7 @@ describe('Saúde do sistema (e2e)', () => {
       expect(t.email.enviados[0]?.assunto).toContain('2 alertas');
     });
 
-    it('R27.7 — sem SMTP nada é enviado nem registrado (volta a tentar depois)', async () => {
+    it('cenário 146 — R27.7 — sem SMTP nada é enviado nem registrado (volta a tentar depois)', async () => {
       await criarUsuario(t, { papel: 'ADMIN' });
       emitirBackup({ ok: false, erro: 'x' });
       t.email.configurado = false;
@@ -269,7 +269,7 @@ describe('Saúde do sistema (e2e)', () => {
       expect((await monitorar()).enviados).toBe(1);
     });
 
-    it('R27.7 — alertas só de tela (sem e-mail) não geram mensagem', async () => {
+    it('cenário 146 — R27.7 — alertas só de tela (sem e-mail) não geram mensagem', async () => {
       await criarUsuario(t, { papel: 'ADMIN' });
       // sem ultimo.json: "nenhum backup registrado"
       const r = await monitorar();

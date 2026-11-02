@@ -9,7 +9,7 @@ sozinhas para qualquer pessoa conseguir usar.
 As regras de cada fase ficam em [REGRAS-DE-NEGOCIO.md](REGRAS-DE-NEGOCIO.md); as decisões
 técnicas, em [ARQUITETURA.md](ARQUITETURA.md).
 
-> Atualizado em 2026-10-21.
+> Atualizado em 2026-11-02.
 
 ## Tecnologias aprovadas
 
@@ -37,7 +37,7 @@ Qualquer tecnologia fora desta lista passa por aprovação antes de entrar.
 Design system (claro e escuro), shell com navegação por papel, dashboard de exemplo,
 catálogo do design system, API com Postgres e migrations, Docker e documentação.
 
-### Fase 1 — Núcleo do CRM
+### Fase 1 — Núcleo do CRM ✅
 Regras de negócio na API: **concluídas** em 2026-10-21 (todas as regras da Fase 1 e os
 15 cenários de aceitação com teste). As telas ficam no repositório `crmbrl`.
 
@@ -55,7 +55,7 @@ Regras de negócio na API: **concluídas** em 2026-10-21 (todas as regras da Fas
 - Telas: login, funis, contatos, atividades, configurações, integrações e administração;
   dashboard com dados reais.
 
-### Fase 2 — Atendimento e comunicação
+### Fase 2 — Atendimento e comunicação ✅
 - **Gateway de WhatsApp próprio** (Baileys): vários números, conexão por QR code, envio e
   recebimento de texto e mídia, status de entrega e leitura, proteções contra banimento
   (intervalos, limites diários, aquecimento).
@@ -74,7 +74,7 @@ Regras de negócio na API: **concluídas** em 2026-10-21 (todas as regras da Fas
 - **Automações configuráveis**: gatilhos, condições, ações e cadências.
 - Mídias e anexos no MinIO.
 
-### Fase 3 — BI
+### Fase 3 — BI ✅
 - Painéis por área (Marketing, Comercial, CS, Atendimento) com filtros por período, equipe
   e pessoa, e exportação.
 - Métricas de atendimento (tempo de resposta, SLA, CSAT/NPS) e integração com ferramentas
@@ -82,24 +82,50 @@ Regras de negócio na API: **concluídas** em 2026-10-21 (todas as regras da Fas
 - **Análise por IA** (Claude) que lê o painel e propõe ações: botão visível só ao Admin,
   que abre um modal.
 
-### Fase 4 — Financeiro
+### Fase 4 — Financeiro ✅
 Contratos e parcelas por cliente, status de pagamento, inadimplência e MRR, com baixa
 manual ou por importação (sem gateway nesta fase), ligados ao CS para o risco de churn.
 A **régua de cobrança** que hoje vive no sistema de disparos (lembretes de D-7 a D+60 por
 WhatsApp e e-mail, promessa de pagamento, tarefas de ligação) migra para cá — a confirmar.
 
-### Fase 5 — Assistente de IA e chamados
-- Assistente (Claude) que tira dúvidas de uso com base na documentação do CRM.
-- Histórico de dúvidas visível **só ao Admin**, para descobrir evoluções que ninguém pediu.
-- Quando a IA não resolve, e a pergunta está no escopo mas a funcionalidade ainda não
-  existe, o sistema abre um chamado por webhook no **TicketHub** (destino configurável para
-  outros sistemas de chamados). O TicketHub ainda não tem webhook de entrada: o conector
-  usa uma conta de serviço (login + `POST /api/chamados`), o que funciona sem mudar o
-  TicketHub; um endpoint de integração próprio nele é uma melhoria recomendada.
+### Fase 5 — Assistente de IA e chamados ✅
+**Entregue (Onda D):** botão **Ajuda** em todas as telas com um assistente (Claude) que tira
+dúvidas de uso com base em 40 artigos curtos (mais um índice) (`docs/ajuda`), levando em conta a tela e o papel
+(não ensina o que o papel não pode). Quando a funcionalidade não existe no escopo (ou há um erro
+do sistema), oferece **abrir um chamado**, só com a confirmação da pessoa: conector do
+**TicketHub** (conta de serviço: login + `POST /api/chamados`) ou webhook genérico com HMAC,
+pela fila com novas tentativas; a pessoa vê o número do chamado. **Histórico só do Admin** com
+filtros, temas sem resposta, chamados e exportação; limite por pessoa por dia, orçamento
+mensal de tokens, avaliação de cada resposta e defesa contra injeção de prompt.
 
-### Fase 6 — PWA mobile
-App instalável e separado, pensado para o celular: atendimento, atividades, funis e
-notificações push.
+**Fica para depois:** um endpoint de integração próprio no TicketHub (hoje o conector usa a
+conta de serviço); resposta do TicketHub de volta ao CRM (status do chamado); mais de um
+idioma na base de conhecimento; sugestão automática de artigos novos a partir dos temas sem
+resposta.
+
+### Fase 6 — PWA mobile ✅
+**Entregue (Onda D):** o próprio CRM ficou **instalável** (manifesto, ícones, service worker
+com o *app shell* em cache, dados sempre pela rede, estado "sem conexão", aviso de versão
+nova e dica de instalação para Android e iOS), com **notificações push** por tipo (conversa
+atribuída, menção, atividade vencendo, SLA estourado, negócio atribuído e parcela atrasada da
+carteira) e **navegação inferior** com ações rápidas no celular. Em vez de um app separado,
+optou-se por um PWA do mesmo front.
+
+**Fica para depois:** funcionamento offline de dados (fila de ações para sincronizar depois),
+push para clientes, push em iOS fora do modo "tela de início" e agrupamento de notificações.
+
+### Produção ✅
+**Entregue (Onda D):** CI no GitHub Actions nos dois repositórios (lint, unidade, integração
+com Postgres de serviço, build e imagem Docker; sem deploy automático), **backups** diários
+com `pg_dump` e retenção, script de restauração testado, tela **Saúde do sistema** (filas,
+gateway e números, canais, erros, disco, último backup) com **alertas por e-mail** ao Admin,
+cabeçalhos de segurança, limites de requisição, variáveis obrigatórias, `DEPLOY.md` com HTTPS
+pelo Caddy e o **Guia do usuário**.
+
+**Fica para depois:** cópia automática dos backups e do volume do MinIO para fora da máquina
+(hoje é orientação no `DEPLOY.md`), deploy automático, métricas históricas e painel de
+observabilidade, rotação automática de segredos e alta disponibilidade (a API roda em uma
+instância só por causa do Socket.IO sem adaptador).
 
 ### Em todas as fases
 Dicas nas telas explicando cada funcionalidade, auditoria de tudo, testes automatizados,

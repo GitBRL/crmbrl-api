@@ -327,6 +327,85 @@ describe('Assistente de IA e chamados (e2e)', () => {
       .expect(400);
   });
 
+  it('R25.5 — pergunta cancelada que já gastou tokens conta no limite diário; sem token, não; em andamento reserva o orçamento do mês', async () => {
+    const a = await admin();
+    await a
+      .put(`${API}/admin/configuracao`, { perguntasPorDia: 1 })
+      .expect(200);
+    const { u, c } = await comercial();
+    const conversa = await t.prisma.assistenteConversa.create({
+      data: { usuarioId: u.id, papel: u.papel, titulo: 'x' },
+    });
+    const gravarCancelada = (tokens: {
+      tokensCacheLeitura: number;
+      tokensSaida: number;
+    }) =>
+      t.prisma.assistentePergunta.create({
+        data: {
+          conversaId: conversa.id,
+          usuarioId: u.id,
+          pergunta: 'cancelada',
+          tela: '/x',
+          modulo: 'x',
+          modelo: 'claude-opus-5-5',
+          status: 'FALHOU',
+          erro: 'A pergunta foi cancelada.',
+          ...tokens,
+        },
+      });
+    // Cancelada sem nenhum token: não conta.
+    const vazia = await gravarCancelada({
+      tokensCacheLeitura: 0,
+      tokensSaida: 0,
+    });
+    expect((await c.get(`${API}/estado`)).body.usadasHoje).toBe(0);
+    await t.prisma.assistentePergunta.delete({ where: { id: vazia.id } });
+    // Cancelada depois do message_start (só cache lido): conta.
+    await gravarCancelada({ tokensCacheLeitura: 16_684, tokensSaida: 1 });
+    expect((await c.get(`${API}/estado`)).body.usadasHoje).toBe(1);
+    responder(DUVIDA);
+    const bloqueada = await perguntar(c, 'de novo');
+    expect(bloqueada.status).toBe(429);
+    expect(bloqueada.corpoJson).toMatchObject({
+      detalhes: { motivo: 'limite_diario' },
+    });
+
+    // Orçamento: uma pergunta em andamento reserva a saída máxima.
+    await a
+      .put(`${API}/admin/configuracao`, {
+        perguntasPorDia: 10,
+        orcamentoMensalTokens: 10_000,
+      })
+      .expect(200);
+    const { u: outro, c: co } = await comercial();
+    await t.prisma.assistentePergunta.create({
+      data: {
+        conversaId: (
+          await t.prisma.assistenteConversa.create({
+            data: {
+              usuarioId: outro.id,
+              papel: outro.papel,
+              titulo: 'y',
+            },
+          })
+        ).id,
+        usuarioId: outro.id,
+        pergunta: 'em andamento',
+        tela: '/x',
+        modulo: 'x',
+        modelo: 'claude-opus-5-5',
+        status: 'EM_ANDAMENTO',
+      },
+    });
+    const { c: terceiro } = await comercial();
+    const semOrcamento = await perguntar(terceiro, 'ao mesmo tempo');
+    expect(semOrcamento.status).toBe(429);
+    expect(semOrcamento.corpoJson).toMatchObject({
+      detalhes: { motivo: 'orcamento_mensal' },
+    });
+    void co;
+  });
+
   it('cenário 124 — R25.6 — injeção: a pergunta não fecha o delimitador, o prompt não vaza e o modelo não abre chamado', async () => {
     const { c } = await comercial();
     // 1) Pedido para revelar as instruções; o modelo "obedece" e é barrado.

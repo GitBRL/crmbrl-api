@@ -482,6 +482,75 @@ Regras: R20 a R24 em `REGRAS-DE-NEGOCIO.md` (seções 27 a 33).
 lidas dos tokens do tema); BI, tela inicial e indicadores do Financeiro usam o mesmo
 componente.
 
+### Peças e fluxos da Onda D (assistente de IA, push, monitoramento e produção)
+
+Regras: R25 a R27 em `REGRAS-DE-NEGOCIO.md` (seções 34 a 38).
+
+**`AssistenteModule` (`src/assistente/`)** — a ajuda por IA e os chamados:
+
+- **Base de conhecimento** (`docs/ajuda/*.md`, um artigo por área e tarefa): lida ao subir por
+  `ler-base.ts`, copiada para a imagem (o `Dockerfile` leva `docs/ajuda`; o `.dockerignore`
+  deixa só essa pasta de `docs/`) e escrita a partir das telas e regras existentes.
+- **Pergunta** (`POST /assistente/perguntas`, SSE): `AssistenteService` monta o prompt
+  (`prompt-assistente.ts`: instruções fixas + base em *prompt caching* `ephemeral` + contexto
+  de papel e tela + a pergunta delimitada como dado), chama `claude-opus-5-5` com saída
+  estruturada (`esquema-assistente.ts`) e esforço `low`, e emite `inicio`, `fase`, `parcial`
+  (no máximo a cada 100 ms), `concluido` ou `erro`. Grava pergunta, resposta, categoria,
+  tokens e (se houver) o motivo da falha; os limites (R25.5) são conferidos antes de chamar.
+  A API nunca manda ao modelo dado de cliente que a pessoa não tenha escrito.
+- **Chamado** (`chamados/`): `ChamadosAssistenteService` grava o chamado `PENDENTE` com a
+  confirmação e agenda a fila `assistente.enviar-chamado` (6 tentativas, esperas de 1 min a
+  3 h); `ConectorChamadosService` entrega ao TicketHub (login com a conta de serviço, token
+  em memória, `POST /api/chamados`, formato tirado do código do TicketHub) ou ao webhook
+  (HMAC `X-CRM-Assinatura`, modelo do corpo em `modelo-corpo.ts`). Credenciais e segredos em
+  `configuracoes` (chave `assistente-ia`), cifrados, com prioridade da tela sobre o `.env`.
+- **Admin** (`/assistente/admin/*`, só Admin): configuração e "Testar conexão", histórico
+  com filtros, temas mais pedidos sem resposta, chamados (com reenvio) e exportação.
+- **Testes:** `test/assistente-apoio.ts` sobe um TicketHub falso e um receptor; a Anthropic é
+  um cliente falso injetado (`ANTHROPIC_BASE_URL` aponta para o serviço de apoio no ambiente
+  dos agentes). Nunca se chama a Anthropic nem o TicketHub reais em teste.
+
+**`PushModule` (`src/push/`)** — notificações push com `web-push` e chaves VAPID:
+
+- **Gancho:** o ouvinte de `NotificacoesService` (`OuvintesDeNotificacao`) olha cada
+  notificação interna criada, consulta `PREFERENCIA_POR_TIPO_DE_NOTIFICACAO` e, para cada
+  aparelho da pessoa, enfileira um job `push.enviar` **na mesma transação** da regra de
+  negócio (se ela desfaz, o push não existe).
+- **Envio:** `ServicoDePush` (porta para o `web-push`, trocável nos testes) com prazo de 10 s
+  e validade de 1 h; 404/410 removem a inscrição, 5xx/rede repetem pela fila, 401/403 não
+  repetem. As chaves de cada inscrição ficam cifradas (AES-256-GCM, R10.3).
+- Rotas sob `/push/*` (chave pública, inscrições, preferências, teste).
+- **Front (PWA):** `@angular/service-worker` (`ngsw-config.json`: *app shell* em
+  `prefetch`, `/api/**` fora), `sw-crm.js` (trata `push` e `notificationclick`),
+  `nucleo/pwa/*` (rede, atualização, instalação, push), faixa de "sem conexão" e de versão
+  nova na casca, cartão de push no Meu perfil e navegação inferior em telas pequenas.
+
+**Operação (`src/saude/monitoramento/`, `scripts/`, `deploy/`)**:
+
+- **`MonitoramentoModule`:** `SaudeDoSistemaService` coleta os fatos (filas do pg-boss por
+  SQL, gateway e números, canais, erros recentes, banco, disco com `statfs`, `ultimo.json` do
+  backup) e `avaliacao.ts` (funções puras) decide filas travadas, backup, disco e alertas.
+  `GET /administracao/saude-do-sistema` (só Admin). `AlertasDeSaudeService` roda no job
+  `saude.monitorar` (cron `*/5`), com antirrepetição em `configuracoes` (avisa uma vez, lembra
+  depois de 6 h, esquece o resolvido) e e-mail a todos os Admins ativos pelo SMTP.
+- **Backups:** serviço `backup` do compose (`postgres:17-alpine` + `scripts/backup.sh`):
+  `pg_dump -Fc` diário, validação com `pg_restore --list`, retenção e `ultimo.json`; volume
+  `backups`, montado somente leitura na API (`BACKUP_DIR`). `scripts/restaurar-backup.sh`
+  restaura (passo a passo em `docs/DEPLOY.md`).
+- **Produção:** `docker-compose.producao.yml` acrescenta o serviço `proxy` (Caddy, HTTPS
+  automático, `deploy/Caddyfile.producao`) e exige as variáveis obrigatórias; a API põe os
+  cabeçalhos de segurança por middleware, avisa configurações fracas ao subir e limita as
+  rotas públicas de senha. **CI** no GitHub Actions nos dois repositórios
+  (`.github/workflows/ci.yml`: lint, unidade, integração com Postgres de serviço, build e
+  build da imagem; sem deploy).
+
+**Agregação no banco (Financeiro):** `indicadores.service.ts` e `risco-de-churn.service.ts`
+somam no PostgreSQL (`$queryRaw` com `GROUP BY`/`DISTINCT ON`), e o filtro de visibilidade de
+`permissoes-financeiro.ts` tem o equivalente em SQL em `permissoes-financeiro-sql.ts`
+(testado contra o filtro do Prisma papel a papel). A migration manual
+`20261102000000_onda_d_indice_parcelas_pagas` cria o índice parcial
+`parcelas(pago_em) WHERE status = 'PAGO'`.
+
 ### Jornada de um lead (como os módulos conversam)
 
 1. `POST /api/v1/webhooks/entrada/{token}` (público, autenticado pelo token e,
@@ -871,6 +940,9 @@ contagens iniciais do menu vêm da API (`/notificacoes/nao-lidas/contagem`,
 | `WEBHOOKS_PERMITIR_REDE_INTERNA` | `false` | Libera webhooks de saída para rede interna (R9.1) |
 | `ANTHROPIC_API_KEY` | vazia | Chave da Anthropic da análise do BI por IA (R21); vazia, o estado da análise explica como configurar. Nunca devolvida nem registrada |
 | `ANTHROPIC_BASE_URL` | API da Anthropic | Só para testes: base de uma API falsa |
+| `TICKETHUB_URL`, `TICKETHUB_EMAIL`, `TICKETHUB_SENHA` | vazias | Chamados do assistente (R25): TicketHub e a conta de serviço; a configuração do Admin (cifrada) tem prioridade campo a campo. Nunca devolvidas nem registradas |
+| `VAPID_CHAVE_PUBLICA`, `VAPID_CHAVE_PRIVADA`, `VAPID_ASSUNTO` | vazias | Notificações push (R26): as três juntas ligam o push |
+| `BACKUP_DIR` | `/backups` | Pasta dos backups vista pela API, somente leitura (R27.3) |
 | `DOCS_PUBLICAS` | `true` fora de produção | `/api/docs` aberto; senão, só Admin |
 | `PROCESSAR_FILAS` | `true` | Trabalhadores, agendamentos e despachante de eventos |
 | `LOG_FORMATO` | `json` em produção | `json` ou `texto` |
@@ -891,6 +963,8 @@ flowchart LR
   Api -- "banco:5432" --> Banco[("banco<br/>PostgreSQL 17<br/>volume banco-dados")]
 ```
 
+- Desde a Onda D o compose também tem o serviço `backup` (e o volume `backups`) e, em
+  produção, o `proxy` do Caddy (`docker-compose.producao.yml`); ver a seção da Onda D.
 - Projeto compose `crmbrl`, versionado neste repositório. O serviço `web` é
   construído a partir de `${FRONT_DIR:-../crmbrl}`.
 - Portas publicadas: `web` em 8080 (a porta de entrada do CRM), `api` só em

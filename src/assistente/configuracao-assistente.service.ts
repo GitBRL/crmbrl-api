@@ -158,10 +158,23 @@ export class ConfiguracaoAssistenteService {
     }
     const amb = this.ambiente.ticketHub;
     const url = c.ticketHub.url ?? amb.url;
-    const email = c.ticketHub.email ?? amb.email;
+    // A conta de serviço do servidor (.env) só vai para a URL do servidor: com
+    // outra URL informada pelo Admin, e-mail e senha têm de estar gravados na configuração.
+    const urlDoAmbiente =
+      c.ticketHub.url === null || c.ticketHub.url === amb.url;
+    const email = c.ticketHub.email ?? (urlDoAmbiente ? amb.email : null);
     const senha = c.ticketHub.senhaCifrada
       ? this.decifrar(c.ticketHub.senhaCifrada)
-      : amb.senha();
+      : urlDoAmbiente
+        ? amb.senha()
+        : null;
+    if (!urlDoAmbiente && (!c.ticketHub.email || !senha)) {
+      return {
+        pronto: false,
+        motivo:
+          'Com uma URL do TicketHub diferente da do servidor, informe também o e-mail e a senha da conta de serviço dessa URL: as credenciais do servidor não são enviadas para outro endereço.',
+      };
+    }
     if (!url || !email || !senha) {
       return {
         pronto: false,

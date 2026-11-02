@@ -1,3 +1,4 @@
+import type { ArquivosService } from '../arquivos/arquivos.service';
 import type { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   DadosInvalidosException,
@@ -138,6 +139,7 @@ function servico() {
     empresas as unknown as EmpresasService,
     permissoes as unknown as PermissoesContatosService,
     {} as LinhaDoTempoService,
+    {} as ArquivosService,
   );
   return { contatos, auditoria, eventos, empresas, permissoes };
 }

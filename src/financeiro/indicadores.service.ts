@@ -3,9 +3,6 @@ import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { Prisma, type TipoMovimentoMrr } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  deDataDoBanco,
-  diasEntre,
-  faixaDeAtraso,
   fimDoMes,
   hojeLocal,
   inicioDoMes,
@@ -15,10 +12,13 @@ import {
   somarMeses,
 } from './datas';
 import { FAIXAS_DE_ATRASO, type FaixaDeAtraso } from './financeiro.constantes';
+import { filtroDeContratosVisiveis } from './permissoes-financeiro';
 import {
-  filtroDeContratosVisiveis,
-  filtroDeParcelasVisiveis,
-} from './permissoes-financeiro';
+  sqlContratosDasPessoas,
+  sqlContratosVisiveis,
+  sqlParcelasDasPessoas,
+  sqlParcelasVisiveis,
+} from './permissoes-financeiro-sql';
 
 type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
 
@@ -29,12 +29,6 @@ function contratosDasPessoas(
   pessoas: PessoasDoRecorte,
 ): Prisma.ContratoWhereInput {
   return pessoas ? { responsavelCsId: { in: [...pessoas] } } : {};
-}
-
-function parcelasDasPessoas(
-  pessoas: PessoasDoRecorte,
-): Prisma.ParcelaWhereInput {
-  return pessoas ? { contrato: contratosDasPessoas(pessoas) } : {};
 }
 
 export interface MovimentosDoPeriodo {
@@ -158,16 +152,14 @@ export class IndicadoresFinanceirosService {
         where: { ...onde, dia: { lt: paraDataDoBanco(`${de}-01`) } },
         _sum: { delta: true },
       }),
-      this.prisma.movimentoMrr.findMany({
-        where: {
-          ...onde,
-          dia: {
-            gte: paraDataDoBanco(`${de}-01`),
-            lte: paraDataDoBanco(fimDoMes(ate)),
-          },
-        },
-        select: { tipo: true, delta: true, dia: true },
-      }),
+      this.prisma.$queryRaw<
+        { mes: string; tipo: TipoMovimentoMrr; delta: Prisma.Decimal }[]
+      >`SELECT to_char(m.dia, 'YYYY-MM') AS mes, m.tipo::text AS tipo, SUM(m.delta) AS delta
+        FROM movimentos_mrr m JOIN contratos c ON c.id = m.contrato_id
+        WHERE m.dia >= ${paraDataDoBanco(`${de}-01`)}::date
+          AND m.dia <= ${paraDataDoBanco(fimDoMes(ate))}::date
+          AND ${sqlContratosVisiveis(usuario)} AND ${sqlContratosDasPessoas(pessoas)}
+        GROUP BY 1, 2`,
       this.prisma.contrato.aggregate({
         where: {
           AND: [{ status: { in: ['ATIVO', 'SUSPENSO'] } }, contratoVisivel],
@@ -178,14 +170,14 @@ export class IndicadoresFinanceirosService {
     ]);
     const porMes = new Map<string, Record<TipoMovimentoMrr, Prisma.Decimal>>();
     for (const m of movimentos) {
-      const mes = mesDe(deDataDoBanco(m.dia));
+      const mes = m.mes;
       const atual = porMes.get(mes) ?? {
         NOVO: D(0),
         EXPANSAO: D(0),
         CONTRACAO: D(0),
         CHURN: D(0),
       };
-      atual[m.tipo] = atual[m.tipo].plus(m.delta);
+      atual[m.tipo] = atual[m.tipo].plus(D(m.delta));
       porMes.set(mes, atual);
     }
     let acumulado = D(anteriores._sum.delta);
@@ -225,44 +217,45 @@ export class IndicadoresFinanceirosService {
     hoje: string = hojeLocal(),
     pessoas?: PessoasDoRecorte,
   ): Promise<Inadimplencia> {
-    const parcelas = await this.prisma.parcela.findMany({
-      where: {
-        AND: [
-          { status: { in: ['ABERTO', 'ATRASADO'] } },
-          filtroDeParcelasVisiveis(usuario),
-          parcelasDasPessoas(pessoas),
-        ],
-      },
-      select: {
-        vencimento: true,
-        valor: true,
-        contatoId: true,
-        empresaId: true,
-        id: true,
-      },
-    });
-    const acc = new Map<
-      FaixaDeAtraso,
-      { q: number; v: Prisma.Decimal; c: Set<string> }
-    >(
-      FAIXAS_DE_ATRASO.map((f) => [f, { q: 0, v: D(0), c: new Set<string>() }]),
+    const linhas = await this.prisma.$queryRaw<
+      {
+        faixa: FaixaDeAtraso | null;
+        quantidade: bigint;
+        valor: Prisma.Decimal;
+        clientes: bigint;
+      }[]
+    >`SELECT CASE WHEN d < 1 THEN NULL WHEN d <= 30 THEN '0-30' WHEN d <= 60 THEN '31-60'
+                  WHEN d <= 90 THEN '61-90' ELSE '90+' END AS faixa,
+             COUNT(*) AS quantidade, SUM(valor) AS valor,
+             COUNT(DISTINCT COALESCE(contato_id, empresa_id, id)) AS clientes
+      FROM (SELECT p.id, p.valor, p.contato_id, p.empresa_id, (${hoje}::date - p.vencimento) AS d
+            FROM parcelas p
+            WHERE p.status::text IN ('ABERTO', 'ATRASADO')
+              AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}) x
+      GROUP BY 1`;
+    const [{ clientes: totalClientes }] = await this.prisma.$queryRaw<
+      { clientes: bigint }[]
+    >`SELECT COUNT(DISTINCT COALESCE(p.contato_id, p.empresa_id, p.id)) AS clientes
+      FROM parcelas p
+      WHERE p.status::text IN ('ABERTO', 'ATRASADO')
+        AND (${hoje}::date - p.vencimento) >= 1
+        AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}`;
+    const acc = new Map(
+      FAIXAS_DE_ATRASO.map((f) => [f, { q: 0, v: D(0), c: 0 }]),
     );
-    const todos = new Set<string>();
     let aReceber = D(0);
     let atrasado = D(0);
     let quantidade = 0;
-    for (const p of parcelas) {
-      aReceber = aReceber.plus(p.valor);
-      const faixa = faixaDeAtraso(diasEntre(deDataDoBanco(p.vencimento), hoje));
-      if (!faixa) continue;
-      const a = acc.get(faixa)!;
-      const cliente = p.contatoId ?? p.empresaId ?? p.id;
-      a.q += 1;
-      a.v = a.v.plus(p.valor);
-      a.c.add(cliente);
-      todos.add(cliente);
-      atrasado = atrasado.plus(p.valor);
-      quantidade += 1;
+    for (const l of linhas) {
+      aReceber = aReceber.plus(D(l.valor));
+      if (!l.faixa) continue;
+      acc.set(l.faixa, {
+        q: Number(l.quantidade),
+        v: D(l.valor),
+        c: Number(l.clientes),
+      });
+      atrasado = atrasado.plus(D(l.valor));
+      quantidade += Number(l.quantidade);
     }
     return {
       referencia: hoje,
@@ -272,10 +265,14 @@ export class IndicadoresFinanceirosService {
           faixa,
           quantidade: a.q,
           valor: a.v.toFixed(2),
-          clientes: a.c.size,
+          clientes: a.c,
         };
       }),
-      total: { quantidade, valor: atrasado.toFixed(2), clientes: todos.size },
+      total: {
+        quantidade,
+        valor: atrasado.toFixed(2),
+        clientes: Number(totalClientes),
+      },
       taxa: aReceber.isZero()
         ? 0
         : Number(atrasado.div(aReceber).mul(100).toFixed(1)),
@@ -289,35 +286,24 @@ export class IndicadoresFinanceirosService {
     pessoas?: PessoasDoRecorte,
   ): Promise<PrevistoRealizado> {
     const { de, ate } = this.periodo(p, hojeLocal());
-    const visivel: Prisma.ParcelaWhereInput = {
-      AND: [filtroDeParcelasVisiveis(usuario), parcelasDasPessoas(pessoas)],
-    };
     const inicio = paraDataDoBanco(`${de}-01`);
     const fim = paraDataDoBanco(fimDoMes(ate));
     const [devidas, pagas] = await Promise.all([
-      this.prisma.parcela.findMany({
-        where: {
-          AND: [
-            {
-              status: { notIn: ['CANCELADO', 'RENEGOCIADO'] },
-              vencimento: { gte: inicio, lte: fim },
-            },
-            visivel,
-          ],
-        },
-        select: {
-          vencimento: true,
-          valor: true,
-          valorPago: true,
-          status: true,
-        },
-      }),
-      this.prisma.parcela.findMany({
-        where: {
-          AND: [{ status: 'PAGO', pagoEm: { gte: inicio, lte: fim } }, visivel],
-        },
-        select: { pagoEm: true, valorPago: true, valor: true },
-      }),
+      this.prisma.$queryRaw<
+        { mes: string; previsto: Prisma.Decimal; realizado: Prisma.Decimal }[]
+      >`SELECT to_char(p.vencimento, 'YYYY-MM') AS mes, SUM(p.valor) AS previsto,
+               COALESCE(SUM(CASE WHEN p.status::text = 'PAGO' THEN COALESCE(p.valor_pago, p.valor) END), 0) AS realizado
+        FROM parcelas p
+        WHERE p.status::text NOT IN ('CANCELADO', 'RENEGOCIADO')
+          AND p.vencimento BETWEEN ${inicio}::date AND ${fim}::date
+          AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}
+        GROUP BY 1`,
+      this.prisma.$queryRaw<{ mes: string; recebido: Prisma.Decimal }[]>`
+        SELECT to_char(p.pago_em, 'YYYY-MM') AS mes, SUM(COALESCE(p.valor_pago, p.valor)) AS recebido
+        FROM parcelas p
+        WHERE p.status = 'PAGO' AND p.pago_em BETWEEN ${inicio}::date AND ${fim}::date
+          AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}
+        GROUP BY 1`,
     ]);
     const linhas = new Map(
       mesesEntre(de, ate).map((mes) => [
@@ -326,17 +312,14 @@ export class IndicadoresFinanceirosService {
       ]),
     );
     for (const x of devidas) {
-      const l = linhas.get(mesDe(deDataDoBanco(x.vencimento)));
+      const l = linhas.get(x.mes);
       if (!l) continue;
-      l.previsto = l.previsto.plus(x.valor);
-      if (x.status === 'PAGO')
-        l.realizado = l.realizado.plus(x.valorPago ?? x.valor);
+      l.previsto = D(x.previsto);
+      l.realizado = D(x.realizado);
     }
     for (const x of pagas) {
-      const l = x.pagoEm
-        ? linhas.get(mesDe(deDataDoBanco(x.pagoEm)))
-        : undefined;
-      if (l) l.recebido = l.recebido.plus(x.valorPago ?? x.valor);
+      const l = linhas.get(x.mes);
+      if (l) l.recebido = D(x.recebido);
     }
     let tp = D(0);
     let tr = D(0);
@@ -411,44 +394,27 @@ export class IndicadoresFinanceirosService {
     ateDia: string,
     pessoas?: PessoasDoRecorte,
   ): Promise<RecebimentosDoPeriodo> {
-    const visivel: Prisma.ParcelaWhereInput = {
-      AND: [filtroDeParcelasVisiveis(usuario), parcelasDasPessoas(pessoas)],
-    };
-    const faixa = {
-      gte: paraDataDoBanco(deDia),
-      lte: paraDataDoBanco(ateDia),
-    };
-    const [devidas, pagas] = await Promise.all([
-      this.prisma.parcela.findMany({
-        where: {
-          AND: [
-            {
-              status: { notIn: ['CANCELADO', 'RENEGOCIADO'] },
-              vencimento: faixa,
-            },
-            visivel,
-          ],
-        },
-        select: { valor: true, valorPago: true, status: true },
-      }),
-      this.prisma.parcela.findMany({
-        where: { AND: [{ status: 'PAGO', pagoEm: faixa }, visivel] },
-        select: { valorPago: true, valor: true },
-      }),
+    const de = paraDataDoBanco(deDia);
+    const ate = paraDataDoBanco(ateDia);
+    const [[devidas], [pagas]] = await Promise.all([
+      this.prisma.$queryRaw<
+        { previsto: Prisma.Decimal; realizado: Prisma.Decimal }[]
+      >`SELECT COALESCE(SUM(p.valor), 0) AS previsto,
+               COALESCE(SUM(CASE WHEN p.status::text = 'PAGO' THEN COALESCE(p.valor_pago, p.valor) END), 0) AS realizado
+        FROM parcelas p
+        WHERE p.status::text NOT IN ('CANCELADO', 'RENEGOCIADO')
+          AND p.vencimento BETWEEN ${de}::date AND ${ate}::date
+          AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}`,
+      this.prisma.$queryRaw<{ recebido: Prisma.Decimal }[]>`
+        SELECT COALESCE(SUM(COALESCE(p.valor_pago, p.valor)), 0) AS recebido
+        FROM parcelas p
+        WHERE p.status = 'PAGO' AND p.pago_em BETWEEN ${de}::date AND ${ate}::date
+          AND ${sqlParcelasVisiveis(usuario)} AND ${sqlParcelasDasPessoas(pessoas)}`,
     ]);
-    let previsto = D(0);
-    let realizado = D(0);
-    let recebido = D(0);
-    for (const x of devidas) {
-      previsto = previsto.plus(x.valor);
-      if (x.status === 'PAGO')
-        realizado = realizado.plus(x.valorPago ?? x.valor);
-    }
-    for (const x of pagas) recebido = recebido.plus(x.valorPago ?? x.valor);
     return {
-      previsto: Number(previsto.toFixed(2)),
-      realizado: Number(realizado.toFixed(2)),
-      recebido: Number(recebido.toFixed(2)),
+      previsto: Number(D(devidas.previsto).toFixed(2)),
+      realizado: Number(D(devidas.realizado).toFixed(2)),
+      recebido: Number(D(pagas.recebido).toFixed(2)),
     };
   }
 

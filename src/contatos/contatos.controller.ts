@@ -134,6 +134,21 @@ export class ContatosController {
     await this.contatos.anonimizar(usuario, id, dto);
   }
 
+  @Get(':id/dados-pessoais')
+  @Papeis('ADMIN')
+  @ApiOperation({
+    summary: 'Exporta os dados pessoais do contato (LGPD art. 18, só Admin)',
+    description:
+      'Devolve em JSON o contato, o consentimento, os identificadores de canal, os negócios, as atividades e as conversas com as mensagens. A consulta é auditada (`contato.dados-exportados`), sem os dados.',
+  })
+  @ApiRespostasDeErro(403, 404)
+  dadosPessoais(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<Record<string, unknown>> {
+    return this.contatos.dadosPessoais(usuario, id);
+  }
+
   @Get(':id/linha-do-tempo')
   @ApiOperation({
     summary: 'Linha do tempo do contato: auditoria e atividades (R3.5)',

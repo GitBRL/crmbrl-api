@@ -857,6 +857,38 @@ describe('Financeiro — régua de cobrança (e2e)', () => {
 
   // ------------------------------------------------------------------ R24.9
 
+  it('cenário 151 — R24.9 — a baixa que encerra a régua e cancela envios pendentes tem entrada própria na linha do tempo', async () => {
+    await conectar();
+    await etapas([0]);
+    const comPendencia = await parcela(await cliente(), 0);
+    await executar();
+    const semPendencia = await parcela(await cliente(), 0);
+    await admin
+      .post(`/api/v1/financeiro/parcelas/${comPendencia.id}/baixa`, {})
+      .expect(200);
+    await admin
+      .post(`/api/v1/financeiro/parcelas/${semPendencia.id}/baixa`, {})
+      .expect(200);
+    const linha = async (id: string) =>
+      (
+        (
+          await admin
+            .get(`/api/v1/financeiro/parcelas/${id}/linha-do-tempo`)
+            .expect(200)
+        ).body as { historico: { acao: string; resumo: string }[] }
+      ).historico;
+    const a = await linha(comPendencia.id);
+    expect(a.map((h) => h.acao)).toEqual(
+      expect.arrayContaining(['parcela.baixada', 'parcela.regua_encerrada']),
+    );
+    expect(a.find((h) => h.acao === 'parcela.regua_encerrada')?.resumo).toMatch(
+      /1 envio/,
+    );
+    expect((await linha(semPendencia.id)).map((h) => h.acao)).not.toContain(
+      'parcela.regua_encerrada',
+    );
+  });
+
   it('cenário 115 — R24.9 — linha do tempo por título, envios do dia e exportação', async () => {
     await conectar();
     const cs = await criarEquipe(t, 'CS', { membros: 1 });

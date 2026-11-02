@@ -4,7 +4,11 @@ import {
   type AppTeste,
   clienteAnonimo,
   criarAppTeste,
+  criarArquivo,
   criarAtividade,
+  criarCanal,
+  criarConversa,
+  criarMensagem,
   criarContato,
   criarEmpresa,
   criarEquipe,
@@ -986,6 +990,82 @@ describe('Contatos (e2e)', () => {
         optOutMarketing: false,
         optOutEm: null,
       });
+    });
+
+    it('R4.6 — anonimizar apaga identificadores, encerra conversas, limpa mensagens e arquivos; exportar os dados do titular é só do Admin e fica auditado', async () => {
+      const {
+        membros: [ana],
+      } = await criarEquipe(t);
+      const admin = await entrarComo(t, await criarUsuario(t));
+      const contato = await criarContato(t, {
+        nome: 'Titular Lgpd',
+        email: 'titular@x.com',
+        responsavel: ana,
+      });
+      const canal = await criarCanal(t);
+      await t.prisma.contatoIdentificador.create({
+        data: {
+          contatoId: contato.id,
+          canalId: canal.id,
+          tipo: 'WHATSAPP',
+          valor: '5511977770431',
+          nomeExibicao: 'Titular Lgpd',
+        },
+      });
+      const conversa = await criarConversa(t, { canal, contato });
+      const arquivo = await criarArquivo(t, { contexto: 'MENSAGEM' });
+      await criarMensagem(t, {
+        conversa,
+        texto: 'meu CPF é 123.456.789-00',
+        arquivo,
+      });
+
+      const exportado = await admin
+        .get(`/api/v1/contatos/${contato.id}/dados-pessoais`)
+        .expect(200);
+      expect(exportado.body.contato.email).toBe('titular@x.com');
+      expect(exportado.body.identificadores).toHaveLength(1);
+      expect(exportado.body.conversas[0].mensagens[0].texto).toContain('CPF');
+      const comoMembro = await entrarComo(t, ana);
+      await comoMembro
+        .get(`/api/v1/contatos/${contato.id}/dados-pessoais`)
+        .expect(403);
+      await t.prisma.eventoAuditoria.findFirstOrThrow({
+        where: { acao: 'contato.dados-exportados', entidadeId: contato.id },
+      });
+
+      await admin
+        .post(`/api/v1/contatos/${contato.id}/anonimizar`, {})
+        .expect(204);
+
+      expect(
+        await t.prisma.contatoIdentificador.count({
+          where: { contatoId: contato.id },
+        }),
+      ).toBe(0);
+      const depois = await t.prisma.conversa.findUniqueOrThrow({
+        where: { id: conversa.id },
+      });
+      expect(depois.status).toBe('RESOLVIDA');
+      const mensagens = await t.prisma.mensagem.findMany({
+        where: { conversaId: conversa.id },
+      });
+      expect(mensagens.map((m) => m.texto)).toEqual(['[removido — LGPD]']);
+      expect(mensagens[0].arquivoId).toBeNull();
+      expect(
+        (
+          await t.prisma.arquivo.findUniqueOrThrow({
+            where: { id: arquivo.id },
+          })
+        ).removidoEm,
+      ).not.toBeNull();
+      const auditoria = await t.prisma.eventoAuditoria.findFirstOrThrow({
+        where: { acao: 'contato.anonimizado', entidadeId: contato.id },
+      });
+      expect(JSON.stringify(auditoria.dados)).not.toContain('CPF');
+      await admin
+        .get(`/api/v1/contatos/${contato.id}/dados-pessoais`)
+        .expect(404);
     });
 
     it('R4.6 — só o Admin anonimiza (C-level e membro recebem 403)', async () => {
