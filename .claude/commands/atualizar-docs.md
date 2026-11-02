@@ -8,7 +8,7 @@ allowed-tools: Bash(bun run docs:*), Bash(node tools/doc-updater/index.mjs:*), B
 
 Argumentos recebidos: `$ARGUMENTS`
 
-Você vai atualizar a documentação deste projeto (API NestJS do CRM BRL), combinando
+Você vai atualizar a documentação deste projeto (API NestJS do BRL CRM), combinando
 duas coisas: o inventário técnico, que a ferramenta gera sozinha, e a parte
 narrativa, que é você quem escreve.
 

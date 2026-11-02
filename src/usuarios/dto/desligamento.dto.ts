@@ -1,0 +1,168 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { Papel } from '../../generated/prisma/client';
+import {
+  MOTIVOS_DESTINATARIO,
+  type MotivoDestinatario,
+} from '../dominio/destinatario';
+import { MENSAGEM_PAPEL, MENSAGEM_UUID } from './criar-usuario.dto';
+import { idEmMinusculas } from './transformacoes';
+import { UsuarioDto, UsuarioResumoDto } from './usuario.dto';
+
+const DESCRICAO_DESTINATARIO =
+  'Obrigatório no desligamento de um C-level: o outro C-level ativo que recebe (R7.2). ' +
+  'Nos demais casos é opcional e serve de confirmação: se vier, precisa ser o destinatário ' +
+  'calculado (o da prévia); se a situação mudou desde a prévia, a resposta é 409.';
+
+/** Pedido de desligamento (R7). */
+export class DesligarUsuarioDto {
+  @ApiPropertyOptional({ format: 'uuid', description: DESCRICAO_DESTINATARIO })
+  @IsOptional()
+  @Transform(idEmMinusculas)
+  @IsUUID('all', { message: MENSAGEM_UUID })
+  destinatarioId?: string;
+}
+
+/** Query da prévia do desligamento (R7.1). */
+export class ConsultaPreviaDesligamentoDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'C-level desligado: o C-level escolhido, para a prévia já mostrar o destinatário.',
+  })
+  @IsOptional()
+  @Transform(idEmMinusculas)
+  @IsUUID('all', { message: MENSAGEM_UUID })
+  destinatarioId?: string;
+}
+
+/** O que vai (ou foi) para o destinatário. */
+export class ContagensEncaminhamentoDto {
+  @ApiProperty({ description: 'Atividades pendentes.', example: 12 })
+  atividades: number;
+
+  @ApiProperty({ description: 'Negócios abertos.', example: 3 })
+  negocios: number;
+
+  @ApiProperty({ example: 40 })
+  contatos: number;
+
+  @ApiProperty({ example: 2 })
+  empresas: number;
+
+  @ApiProperty({
+    description: 'Liderados ativos, que passam a responder ao destinatário.',
+    example: 0,
+  })
+  liderados: number;
+
+  @ApiProperty({
+    description:
+      'Webhooks de entrada e passagens com o usuário como responsável fixo (passam para o destinatário).',
+    example: 0,
+  })
+  responsavelFixo: number;
+}
+
+/** Prévia do desligamento (R7.1): quem recebe e quanto, antes de confirmar. */
+export class PreviaDesligamentoDto {
+  @ApiProperty({ type: UsuarioResumoDto })
+  usuario: UsuarioResumoDto;
+
+  @ApiPropertyOptional({
+    type: UsuarioResumoDto,
+    nullable: true,
+    description: 'Nulo enquanto o Admin não escolhe (C-level desligado).',
+  })
+  destinatario: UsuarioResumoDto | null;
+
+  @ApiPropertyOptional({
+    enum: MOTIVOS_DESTINATARIO,
+    nullable: true,
+    description: 'Por que este destinatário (R7.2).',
+  })
+  motivoDestinatario: MotivoDestinatario | null;
+
+  @ApiProperty({
+    example: 'O que está com Pedro (Comercial) vai para o líder, Ana.',
+  })
+  explicacao: string;
+
+  @ApiProperty({
+    description: 'C-level: o Admin precisa escolher outro C-level ativo.',
+  })
+  exigeEscolha: boolean;
+
+  @ApiProperty({
+    type: [UsuarioResumoDto],
+    description: 'Quem pode ser escolhido (C-level desligado).',
+  })
+  candidatos: UsuarioResumoDto[];
+
+  @ApiProperty({
+    type: [UsuarioResumoDto],
+    description: 'Líderes desligados pulados ao subir na cadeia.',
+  })
+  ignorados: UsuarioResumoDto[];
+
+  @ApiProperty({ type: ContagensEncaminhamentoDto })
+  contagens: ContagensEncaminhamentoDto;
+
+  @ApiProperty({
+    type: [UsuarioResumoDto],
+    description: 'Liderados ativos, que passam a responder ao destinatário.',
+  })
+  liderados: UsuarioResumoDto[];
+
+  @ApiProperty({
+    description:
+      'Desligamento de um líder: os Admins recebem o alerta "equipe sem líder" (R7.3).',
+  })
+  alertaEquipeSemLider: boolean;
+}
+
+/** Contagens do que foi feito no desligamento. */
+export class ContagensDesligamentoDto extends ContagensEncaminhamentoDto {
+  @ApiProperty({ description: 'Sessões encerradas (R2.4).', example: 2 })
+  sessoesRevogadas: number;
+}
+
+/** Resultado do desligamento (R7.3, R7.4). */
+export class ResultadoDesligamentoDto {
+  @ApiProperty({ type: UsuarioDto })
+  usuario: UsuarioDto;
+
+  @ApiProperty({ type: UsuarioResumoDto })
+  destinatario: UsuarioResumoDto;
+
+  @ApiProperty({ enum: MOTIVOS_DESTINATARIO })
+  motivoDestinatario: MotivoDestinatario;
+
+  @ApiProperty({ type: ContagensDesligamentoDto })
+  contagens: ContagensDesligamentoDto;
+}
+
+/** Reativação (R7.5): exige um líder válido; nada do que foi encaminhado volta. */
+export class ReativarUsuarioDto {
+  @ApiPropertyOptional({
+    enum: Papel,
+    enumName: 'Papel',
+    description:
+      'Novo papel, se a pessoa volta em outra função (padrão: o de antes).',
+  })
+  @IsOptional()
+  @IsEnum(Papel, { message: MENSAGEM_PAPEL })
+  papel?: Papel;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'Obrigatório para membro (líder ativo da área) e líder (C-level ativo); Admin e C-level não têm (R1.2, R7.5).',
+  })
+  @IsOptional()
+  @Transform(idEmMinusculas)
+  @IsUUID('all', { message: MENSAGEM_UUID })
+  liderId?: string | null;
+}

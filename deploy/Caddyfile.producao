@@ -1,0 +1,33 @@
+# Caddy de borda (HTTPS) do BRL CRM em produção: certificado Let's Encrypt automático para o
+# DOMINIO, HSTS e os cabeçalhos de segurança. Usado pelo serviço "proxy" do
+# docker-compose.producao.yml (veja docs/DEPLOY.md).
+#
+# O tráfego de /api vai direto para a API (e o resto para o Caddy do front, que serve o
+# Angular e a Content-Security-Policy): assim a API enxerga o IP real do visitante em
+# X-Forwarded-For (um salto de proxy, como a API espera para os limites por IP).
+#
+# Variável: DOMINIO (ex.: crm.suaempresa.com.br; o DNS já precisa apontar para o servidor e as
+# portas 80 e 443 estar abertas).
+{$DOMINIO} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+		-Server
+	}
+
+	# API, inclusive o tempo real (WebSocket em /api/socket.io).
+	@api path /api /api/*
+	handle @api {
+		reverse_proxy api:3000
+	}
+
+	# Front (SPA).
+	handle {
+		reverse_proxy web:8080
+	}
+}

@@ -3,6 +3,9 @@
 /node_modules
 /build
 
+# Prisma Client gerado (bun run prisma:gerar)
+/src/generated
+
 # TypeScript build cache
 *.tsbuildinfo
 
