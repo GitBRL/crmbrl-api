@@ -27,7 +27,9 @@ import type {
   Conversa,
   Mensagem,
   TipoCanal,
+  TipoMensagem,
 } from '../generated/prisma/client';
+import type { TemplateDoCanalDto } from './templates-canal.dto';
 
 /**
  * O que o envio devolve. Grave o `idExterno` na mensagem (é por ele que os
@@ -55,6 +57,35 @@ export interface PermissaoDeResposta {
   pode: boolean;
   /** Em português, para a tela: por que não dá. */
   motivo?: string;
+  /**
+   * Não dá para mensagem livre, mas dá para enviar um template aprovado (WhatsApp
+   * oficial fora da janela de 24 h, R28): a tela troca o compositor pela lista de templates.
+   */
+  apenasTemplate?: boolean;
+}
+
+/** Valores das variáveis de um template, por componente (na ordem em que aparecem). */
+export interface VariaveisDoTemplate {
+  cabecalho?: string[];
+  corpo?: string[];
+  /** Um valor por botão (`null` nos que não têm variável). */
+  botoes?: Array<string | null>;
+}
+
+/** O template que o Atendimento pede para enviar (canais que aceitam templates). */
+export interface PedidoDeTemplate {
+  templateId: string;
+  variaveis?: VariaveisDoTemplate;
+}
+
+/** O template validado e preenchido: o que o Atendimento grava na mensagem. */
+export interface TemplatePreparado {
+  /** `TEXTO`, ou o tipo da mídia do cabeçalho (o arquivo vai em `arquivoId`). */
+  tipo: TipoMensagem;
+  /** Texto como o contato o vê (cabeçalho, corpo e rodapé preenchidos). */
+  texto: string;
+  /** Vai em `mensagens.metadados` (`{ template: { id, nome, idioma, categoria, variaveis } }`). */
+  metadados: Record<string, unknown>;
 }
 
 /** Um canal de atendimento. */
@@ -72,6 +103,24 @@ export interface AdaptadorCanal {
   ): Promise<ResultadoEnvio>;
   /** Se a conversa aceita resposta comum agora (padrão: sim). */
   podeResponder?(conversa: Conversa, canal: Canal): PermissaoDeResposta;
+  /**
+   * Só nos canais com templates (WhatsApp oficial): os templates do canal, para o
+   * compositor (com as variáveis); `somenteUsaveis` deixa só os aprovados.
+   */
+  listarTemplates?(
+    canal: Canal,
+    opcoes?: { somenteUsaveis?: boolean },
+  ): Promise<TemplateDoCanalDto[]>;
+  /**
+   * Só nos canais com templates (WhatsApp oficial): confere o template (existe,
+   * aprovado, variáveis completas, arquivo do cabeçalho quando ele pede mídia) e
+   * devolve o texto preenchido. Lança `DadosInvalidosException` (400) se não serve.
+   */
+  prepararTemplate?(
+    canal: Canal,
+    pedido: PedidoDeTemplate,
+    opcoes: { arquivoMime?: string | null },
+  ): Promise<TemplatePreparado>;
 }
 
 /**

@@ -165,6 +165,8 @@ apagam os dados pessoais dos recebimentos e das entregas daquele contato
 | `whatsapp.envio.<numeroId>` | `AdaptadorWhatsapp` (API), um job por mensagem | **consumida pelo gateway**: proteções (R13.6, R13.7) e envio pelo Baileys, uma por vez por número; as tentativas ficam no contrato (`contrato-gateway.ts`), gravadas pela API em cada job |
 | `whatsapp.evento` | gateway (mensagem recebida, status, conexão, digitando) | **consumida pela API** (`EventosWhatsappService`): `receber`, `atualizarStatus`, `whatsapp.conexao` em tempo real |
 | `meta.webhook` | `POST /publico/meta/webhook` assinado | entrega os eventos da Meta ao Atendimento (mensagens, anexos, entregas, leituras) |
+| `whatsapp-oficial.webhook` | `POST /publico/meta/webhook` com `object: whatsapp_business_account`, uma mudança por job | entrega mensagens e status do WhatsApp oficial ao Atendimento (R28.2, R28.3, R28.7); roteia por campo (`messages`; `calls` na fatia das ligações); 5 tentativas com espera crescente |
+| `whatsapp-oficial.templates` | agendamento `0 3 * * *` (America/Sao_Paulo) | sincroniza os templates de todos os canais oficiais ativos (R28.8) |
 | `email.varrer` | agendamento `* * * * *` | lê as caixas IMAP (só UIDs novos) e entrega ao Atendimento (R14.5) |
 | `chat-interno.sincronizar` | agendamento a cada minuto | acerta os membros dos canais padrão pelo papel (R15.1) |
 | `arquivos.apagar-conteudo` | `ArquivosService.remover`, na transação da remoção | apaga o objeto do MinIO depois do commit (R11.7) |
@@ -241,7 +243,7 @@ Módulos de negócio (Fase 1), cada um na sua pasta de `src/`:
 | `AdministracaoModule` (`administracao/`) | logs técnicos e resumo do Admin, retenção de 90 dias (R3.6, R8.6) | `RetencaoService` |
 | `WebhooksModule` (`webhooks/`) | R8 (entrada) e R9 (saída) | — |
 | `AtendimentoModule` (`atendimento/`, Onda A) | R12 (conversas, filas, distribuição, SLA, horário, satisfação, respostas rápidas, métricas) | `AtendimentoService.receber(entrada)`, `atualizarStatus(canalId, idExterno, status, erro?, quando?)` e `avaliar(conversaId, nota, comentário?)`, chamados pelos canais; `AcessoAtendimentoService` (sala `conversa:<id>` e mídia `MENSAGEM`) |
-| `CanaisModule` (`canais/`, Onda A) | R13 (lado da API do WhatsApp) e R14 — submódulos `whatsapp/`, `webchat/` (com o widget), `email/`, `meta/` e `comum/` (segredos cifrados, limitador, configuração auditada, links públicos assinados) | um `AdaptadorCanal` por tipo no `RegistroCanais`; `ClienteGatewayWhatsapp` (HTTP interno do gateway) |
+| `CanaisModule` (`canais/`, Onda A) | R13 (lado da API do WhatsApp) e R14 — submódulos `whatsapp/`, `webchat/` (com o widget), `email/`, `meta/`, `whatsapp-oficial/` (Onda E, R28) e `comum/` (segredos cifrados, limitador, configuração auditada, links públicos assinados) | um `AdaptadorCanal` por tipo no `RegistroCanais`; `ClienteGatewayWhatsapp` (HTTP interno do gateway) |
 | `ChatInternoModule` (`chat-interno/`, Onda A) | R15 | `AcessoChatService` (sala `chat:<canalId>` e anexos `CHAT`) |
 
 O **gateway de WhatsApp** (`src/whatsapp/`) é outro processo, com o próprio
@@ -848,6 +850,54 @@ Na Onda A (constantes nos módulos donos): `conversa.atribuida`,
 escolhe o ícone pelo prefixo `conversa.`) e `chat.mencao` (link
 `/chat/<canalId>?mensagem=<id>`).
 
+### Peças e fluxos da Onda E (canal WhatsApp oficial)
+
+Regra: R28 em `REGRAS-DE-NEGOCIO.md` (seção 39). Fatia E1; as ligações (E2) e a gravação (E3) se
+apoiam nesta base.
+
+**`WhatsappOficialModule` (`src/canais/whatsapp-oficial/`)** — a Cloud API da Meta, ao lado do Baileys:
+
+- **`formato-meta.ts` e `eventos-oficial.ts`** — funções puras. Tudo que a referência da Meta
+  não confirma (corpos de mídia, parâmetros nomeados de template, botão de template, tabela de
+  erros de mensagem, BSUID em `recipient`) fica só aqui, com comentário "NAO CONFIRMADO". Ajuste
+  depois do primeiro teste com a Meta real começa por estes dois arquivos.
+- **`GraphWhatsappOficial`** — cliente sobre o `GraphApi` (`META_GRAPH_URL` + `META_GRAPH_VERSAO`):
+  `POST /{phone_number_id}/messages` e `/media` (multipart), `GET /{media_id}` + `GET url` com
+  Bearer, `GET /{phone_number_id}?fields=…`, `GET /{waba_id}/message_templates` (paginado). O
+  `GraphApi` ganhou `postar`, `postarArquivo`, `consultar` e o `token` opcional em `baixar` (o
+  Bearer só vai para o mesmo domínio do pedido, nunca em redirecionamento para outro).
+- **`AdaptadorWhatsappOficial`** (`tipo: WHATSAPP_OFICIAL`) — `podeResponder` aplica a janela de 24 h
+  (`conversa.janelaAte`, agora também para este canal) e devolve `apenasTemplate`; `enviar` faz
+  texto, mídia (upload + envio por id), voz (`ConversorDeMidia` do gateway: webm/opus → ogg/opus) e
+  template (`metadados.template`); grava o `wamid` na mensagem logo após a Graph aceitar;
+  `prepararTemplate` e `listarTemplates` são chamados pelo Atendimento (R28.4, R28.8). Opt-out do
+  contato conferido na hora do envio (R28.9).
+- **`WebhookWhatsappOficialService`** — chamado pelo `WebhookMetaService` quando `object` é
+  `whatsapp_business_account` (o `MetaModule` importa este módulo; a verificação `GET` consulta
+  também os verify tokens daqui). Acha o canal por `metadata.phone_number_id`, confere a assinatura com
+  o app secret **do canal** e enfileira uma mudança por job em `whatsapp-oficial.webhook`.
+- **`EntradaWhatsappOficialService`** — o job. Roteia por **campo** (`registrarCampo(campo, tratador)`;
+  `messages` vem registrado, a fatia das ligações registra `calls`; campo sem tratador é ignorado com
+  log debug e nem entra na fila). `messages`: mensagem → `AtendimentoService.receber` (idempotência pelo
+  `wamid`, mídia para o `ArquivosService`, telefone ou BSUID como remetente, `WHATSAPP_BSUID` ligado ao
+  mesmo contato) e status → `atualizarStatus` (repete se a mensagem ainda não foi gravada).
+- **`TemplatesOficiaisService`** — cache em `whatsapp_oficial_templates` por canal, sincronização manual
+  e diária (`whatsapp-oficial.templates`, 03:00).
+- **`WhatsappOficialCanaisService/Controller`** — CRUD do Admin sobre `ConfiguracaoDeCanais`
+  (`phoneNumberId` = `canais.id_externo`; segredos no JSON cifrado `{ token, appSecret,
+  tokenVerificacao }`; o que o teste de conexão aprende fica em `canais.estado`).
+
+**Mudanças no Atendimento:** `AdaptadorCanal` ganhou `listarTemplates`, `prepararTemplate` e
+`PermissaoDeResposta.apenasTemplate`; `EnviarMensagemDto` e `IniciarConversaDto` aceitam `template`;
+`GET /atendimento/conversas/:id/templates`; `PodeResponderDto.apenasTemplate` e
+`AcoesDaConversaDto.enviarTemplate`; `janelaAte` passa a valer também para `WHATSAPP_OFICIAL`. A
+marca "não contatar por WhatsApp" foi para `contatos/nao-contatar-whatsapp.ts` (a régua a reexporta).
+
+**Banco (migration `20261102120000_onda_e_whatsapp_oficial`):** `tipo_canal` ganha `WHATSAPP_OFICIAL`,
+`tipo_identificador` ganha `WHATSAPP_BSUID` e a tabela `whatsapp_oficial_templates` (único por canal,
+nome e idioma). A configuração do canal fica em `canais.configuracao`/`segredos_cifrados`; os ids de
+mensagem da Meta ficam em `mensagens.id_externo` (único por canal), que é a chave de idempotência.
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não
@@ -891,13 +941,15 @@ real está no catálogo (`src/tempo-real/catalogo.ts`) e no resumo abaixo.
 | `GET`/`POST /email/canais` · `POST /email/canais/testar` · `GET`/`PATCH`/`DELETE /email/canais/:id` · `POST …/:id/testar` | `{ nome, endereco, nomeRemetente?, imap: { host, porta, tls, usuario?, pasta? }, smtp?: { host?, porta, seguranca: TLS\|STARTTLS\|NENHUMA }, senha, senhaSmtp?, assinatura? }` → `CanalEmail` (senhas mascaradas, `ultimaVarreduraEm`, `ultimoErro`) · teste `{ imap, smtp }` com o resultado de cada um |
 | `GET`/`POST /meta/canais` · `GET`/`PATCH`/`DELETE /meta/canais/:id` · `POST …/:id/testar` · `POST …/:id/token-verificacao` | `{ tipo: INSTAGRAM\|MESSENGER, nome, appId, appSecret, pageId, tokenPagina, instagramId? }` → `CanalMeta` (segredos mascarados, `webhook: { url, tokenVerificacao, campos }`) · testa o token na Graph · gera outro token de verificação |
 
+| `GET`/`POST /whatsapp-oficial/canais` · `GET`/`PATCH`/`DELETE /whatsapp-oficial/canais/:id` · `POST …/:id/testar` · `POST …/:id/token-verificacao` · `GET …/:id/templates` · `POST …/:id/templates/sincronizar` | `{ nome, phoneNumberId, wabaId, numeroExibido?, token, appSecret, filaPadraoId?, … }` → `CanalOficial` (`token` e `appSecret` mascarados; `webhook: { url, tokenVerificacao, campos }`; `estado: { situacao: CONECTADO\|ERRO\|NAO_TESTADO, motivo, … }`; `templates: { total, aprovados, sincronizadoEm }`) · testa o número na Graph · gera outro verify token · templates em cache · sincroniza com a Meta (R28) |
+
 **Rotas públicas dos canais** (sem sessão nem CSRF; limites por IP)
 
 | Método e rota | Uso |
 | --- | --- |
 | `GET /publico/webchat/widget.js` | o script do widget (cache 5 min, ETag) |
 | `GET /publico/webchat/:chave/configuracao` · `POST …/visitantes` · `…/sessao` · `…/historico` · `…/mensagens` · `…/anexos` · `…/sair` · `GET …/arquivos/:id` | o widget (CORS só dos domínios do canal; token do visitante no corpo; R14.1–R14.4) |
-| `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7) · anexo enviado à Meta por link assinado |
+| `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7; o WhatsApp oficial usa o mesmo endereço, R28.2) · anexo enviado à Meta por link assinado |
 
 **Chat interno** (`ChatInternoController`, todos os papéis; só membros veem um canal — R15)
 

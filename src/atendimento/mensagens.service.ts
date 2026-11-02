@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import type {
+  AdaptadorCanal,
+  TemplatePreparado,
+} from '../canais/adaptador-canal';
 import { gerarIdDeMensagemWhatsapp } from '../canais/whatsapp/contrato-gateway';
 import {
   RegistroCanais,
@@ -18,6 +22,7 @@ import type {
   Arquivo,
   Canal,
   Conversa,
+  Prisma,
   TipoMensagem,
 } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -129,7 +134,17 @@ export class MensagensService {
     dto: EnviarMensagemDto,
   ): Promise<MensagemDaConversaDto> {
     const texto = dto.texto?.trim() || null;
-    if (!texto && !dto.arquivoId) {
+    if (dto.template && texto) {
+      throw new DadosInvalidosException(
+        'Com template, o texto vem do próprio template: não envie `texto`.',
+        {
+          campos: [
+            { campo: 'texto', mensagens: ['não vale junto com template'] },
+          ],
+        },
+      );
+    }
+    if (!texto && !dto.arquivoId && !dto.template) {
       throw new DadosInvalidosException(
         'Escreva a mensagem ou anexe um arquivo.',
         {
@@ -150,7 +165,12 @@ export class MensagensService {
       const canal = await tx.canal.findUniqueOrThrow({
         where: { id: conversa.canalId },
       });
-      this.exigirCanalQueResponde(conversa, canal);
+      const preparado = dto.template
+        ? await this.prepararTemplate(canal, dto.template, arquivo)
+        : null;
+      if (!preparado) {
+        this.exigirCanalQueResponde(conversa, canal);
+      }
       if (dto.respostaAId) {
         const citada = await tx.mensagem.findFirst({
           where: { id: dto.respostaAId, conversaId },
@@ -190,11 +210,18 @@ export class MensagensService {
       }
       const salasAntes = this.motor.salas(conversa);
       const criada = await this.motor.criarSaida(tx, atual, canal, {
-        tipo: arquivo ? tipoDoAnexo(arquivo.mime) : 'TEXTO',
-        texto,
+        tipo: preparado
+          ? preparado.tipo
+          : arquivo
+            ? tipoDoAnexo(arquivo.mime)
+            : 'TEXTO',
+        texto: preparado ? preparado.texto : texto,
         arquivoId: arquivo?.id ?? null,
         respostaAId: dto.respostaAId ?? null,
         autorId: usuario.id,
+        ...(preparado
+          ? { metadados: preparado.metadados as Prisma.InputJsonObject }
+          : {}),
       });
       await this.motor.emitirConversa(tx, conversaId, { salasAntes });
       await this.motor.publicarContagens(tx, {
@@ -271,7 +298,12 @@ export class MensagensService {
       const canal = await tx.canal.findUniqueOrThrow({
         where: { id: conversa.canalId },
       });
-      this.exigirCanalQueResponde(conversa, canal);
+      if (ehMensagemDeTemplate(original.metadados)) {
+        // Template vale fora da janela de 24 h: só confere se o canal está no ar.
+        this.exigirCanalDisponivel(canal);
+      } else {
+        this.exigirCanalQueResponde(conversa, canal);
+      }
       const atualizada = await tx.mensagem.update({
         where: { id: mensagemId },
         data: {
@@ -302,7 +334,7 @@ export class MensagensService {
   ): Promise<ConversaDetalheDto> {
     exigirAtendimento(usuario);
     const texto = dto.texto?.trim() || null;
-    if (!texto && !dto.arquivoId) {
+    if (!texto && !dto.arquivoId && !dto.template) {
       throw new DadosInvalidosException(
         'Escreva a mensagem ou anexe um arquivo.',
         {
@@ -358,6 +390,12 @@ export class MensagensService {
       }
       this.registro.obter(canal.tipo);
       this.exigirDestino(canal, contato);
+      if (dto.template) {
+        this.exigirCanalComTemplates(canal);
+      } else if (canal.tipo === 'WHATSAPP_OFICIAL') {
+        // Conversa nova não tem janela aberta: a primeira mensagem é um template (R28.4).
+        this.exigirCanalQueResponde({ janelaAte: null } as Conversa, canal);
+      }
       const fila =
         canal.filaPadrao &&
         canal.filaPadrao.ativa &&
@@ -406,8 +444,9 @@ export class MensagensService {
       return conversa.id;
     });
     await this.enviar(usuario, conversaId, {
-      ...(texto ? { texto } : {}),
+      ...(texto && !dto.template ? { texto } : {}),
       ...(arquivo ? { arquivoId: arquivo.id } : {}),
+      ...(dto.template ? { template: dto.template } : {}),
     });
     return this.conversas.detalhar(usuario, conversaId);
   }
@@ -444,8 +483,8 @@ export class MensagensService {
     return arquivo;
   }
 
-  /** O canal está ligado, instalado e aceita resposta comum agora? (422 se não.) */
-  private exigirCanalQueResponde(conversa: Conversa, canal: Canal): void {
+  /** O canal está ligado e instalado? (422 se não.) */
+  private exigirCanalDisponivel(canal: Canal): void {
     if (!canal.ativo || canal.excluidoEm) {
       throw new RegraVioladaException(
         REGRA_ATENDIMENTO,
@@ -454,16 +493,52 @@ export class MensagensService {
       );
     }
     this.registro.obter(canal.tipo);
+  }
+
+  /** O canal está ligado, instalado e aceita resposta comum agora? (422 se não.) */
+  private exigirCanalQueResponde(conversa: Conversa, canal: Canal): void {
+    this.exigirCanalDisponivel(canal);
     const permissao = this.registro.podeResponder(conversa, canal);
     if (!permissao.pode) {
       throw new RegraVioladaException(
         canal.tipo === 'INSTAGRAM' || canal.tipo === 'MESSENGER'
           ? 'R14'
-          : REGRA_ATENDIMENTO,
+          : canal.tipo === 'WHATSAPP_OFICIAL'
+            ? 'R28'
+            : REGRA_ATENDIMENTO,
         permissao.motivo ?? 'Este canal não aceita resposta agora.',
-        { motivo: 'canal_nao_aceita_resposta' },
+        {
+          motivo: 'canal_nao_aceita_resposta',
+          ...(permissao.apenasTemplate ? { apenasTemplate: true } : {}),
+        },
       );
     }
+  }
+
+  /** O canal trabalha com templates? (422 se não.) */
+  private exigirCanalComTemplates(canal: Canal): void {
+    this.exigirCanalDisponivel(canal);
+    if (!this.registro.obter(canal.tipo).prepararTemplate) {
+      throw new RegraVioladaException(
+        REGRA_ATENDIMENTO,
+        `O canal ${ROTULO_DO_TIPO_DE_CANAL[canal.tipo]} não trabalha com templates.`,
+        { motivo: 'canal_sem_templates' },
+      );
+    }
+  }
+
+  /** Confere e preenche o template no canal (o canal sabe o que a Meta aceita). */
+  private async prepararTemplate(
+    canal: Canal,
+    template: NonNullable<EnviarMensagemDto['template']>,
+    arquivo: Arquivo | null,
+  ): Promise<TemplatePreparado> {
+    this.exigirCanalComTemplates(canal);
+    return (
+      this.registro.obter(canal.tipo) as Required<
+        Pick<AdaptadorCanal, 'prepararTemplate'>
+      >
+    ).prepararTemplate(canal, template, { arquivoMime: arquivo?.mime ?? null });
   }
 
   /** Dá para falar com o contato por este canal sem ele ter escrito antes? */
@@ -489,6 +564,10 @@ export class MensagensService {
           return contato.email || tem('EMAIL')
             ? null
             : 'O contato não tem e-mail.';
+        case 'WHATSAPP_OFICIAL':
+          return contato.telefone || tem('WHATSAPP') || tem('WHATSAPP_BSUID')
+            ? null
+            : 'O contato não tem telefone para o WhatsApp.';
         case 'WEBCHAT':
           return 'O chat do site só continua conversas que o visitante começou no site.';
         case 'INSTAGRAM':
@@ -502,6 +581,16 @@ export class MensagensService {
       });
     }
   }
+}
+
+/** A mensagem foi enviada por template (`metadados.template`)? */
+function ehMensagemDeTemplate(metadados: unknown): boolean {
+  return (
+    typeof metadados === 'object' &&
+    metadados !== null &&
+    typeof (metadados as { template?: unknown }).template === 'object' &&
+    (metadados as { template?: unknown }).template !== null
+  );
 }
 
 /** Cursor opaco das mensagens: `<ocorridaEm ISO>|<id>` em base64url. */

@@ -1474,3 +1474,150 @@ teste) contra um Postgres real, e os de tela têm spec no front.
      `push.inscricao_removida` (motivo `desligamento`) sem endereço nem chaves, e não toca nos de
      outras pessoas (R26.1, R7).
 153. Sair remove a inscrição deste aparelho e mantém os outros da mesma pessoa (R26.1).
+
+## 39. Canal WhatsApp oficial (R28)
+
+Onda E (fatia E1). O WhatsApp pela **Cloud API da Meta** é um canal novo (`WHATSAPP_OFICIAL`), ao
+lado do WhatsApp pelo Baileys (R13), que segue igual. Os disparos (R17) continuam só pelo
+Baileys. Nada aqui chama a Meta real nos testes nem no ambiente dos agentes: usa-se uma Graph
+falsa (`META_GRAPH_URL`). Formatos conferidos na referência `whatsapp-cloud-chamadas.md` (§6);
+o que ela marca como não confirmado fica isolado em `canais/whatsapp-oficial/formato-meta.ts`
+e `eventos-oficial.ts`, com comentário.
+
+- **R28.1** **Configuração (só o Admin, como os outros canais):** `phoneNumberId` (vira o
+  `idExterno` do canal: o mesmo número não tem dois canais, 409), id da conta (WABA), número
+  exibido, token de usuário do sistema e app secret. **Token, app secret e verify token ficam
+  cifrados** (R10.3) e nunca saem inteiros (a tela vê `••••••••abcd`); o verify token é gerado
+  pelo CRM, e a tela mostra a **URL do webhook** (a mesma do Instagram e do Messenger) e os
+  campos a assinar para o Admin copiar. "Testar conexão" lê o número na Graph
+  (`display_phone_number`, `verified_name`, `quality_rating`): sucesso mostra o estado
+  *conectado* e guarda o que a Meta informou; falha mostra o motivo em português e grava o erro
+  do canal (estado *erro*, que também vem de falha de envio ou de sincronização). Criar, alterar
+  e excluir são auditados (`canal.*`) sem os segredos.
+- **R28.2** **Webhook:** `GET` e `POST /publico/meta/webhook`. A verificação aceita o verify token
+  de qualquer canal da Meta ou do WhatsApp oficial. No `POST`, `object: whatsapp_business_account`
+  vai para o canal oficial, achado por `entry[].changes[].value.metadata.phone_number_id`; a
+  assinatura `X-Hub-Signature-256` é conferida com o app secret **do canal** (401 se faltar ou
+  não conferir). O roteamento é **por campo** (`changes[].field`): `messages` é tratado aqui; o
+  campo `calls` chega na fatia das ligações (R29) por um tratador registrado; campo
+  desconhecido é ignorado com log em nível debug. Número sem canal (ou desligado) é ignorado
+  com 200. O processamento é por fila (`whatsapp-oficial.webhook`), fora da requisição.
+- **R28.3** **Mesmas regras dos outros canais:** a mensagem recebida entra pelo Atendimento
+  (R12): contato pelo telefone em **E.164 só com dígitos** (o mesmo identificador `WHATSAPP` do
+  Baileys, então a mesma pessoa fala pelos dois canais e cai no mesmo contato), fila padrão do
+  canal, distribuição, SLA, horário de atendimento, resposta fora do horário, chatbot (R18),
+  gatilhos de automação de mensagem recebida (R19) e notificações. **Idempotência pelo id da
+  mensagem na Meta** (`wamid`): a reentrega do webhook (até 7 dias) não duplica.
+- **R28.4** **Envio e janela de 24 h:** a mensagem do contato abre a janela por 24 horas
+  (`conversa.janelaAte`). **Dentro dela** valem texto, mídia, mensagem de voz e citação; **fora
+  dela só templates aprovados**: texto livre é recusado com 422 (`regra: R28`,
+  `apenasTemplate: true`, motivo em português) e a conversa traz `podeResponder.apenasTemplate`
+  e `acoes.enviarTemplate`. Se a janela fecha entre o envio e o job, a mensagem falha com o
+  mesmo motivo, sem chamar a Meta. O envio é síncrono pela fila de envio do Atendimento: o
+  `wamid` devolvido vira o `idExterno` (gravado já, para o status que chegar cedo achar a
+  mensagem) e a mensagem fica `ENVIADA`. Falha passageira da Meta (500, limite de velocidade) é
+  tentada de novo; falha definitiva vira `FALHOU` com o motivo em português e "tentar de novo".
+  Começar conversa pela equipe num contato sem janela exige template. O destino é o telefone do
+  contato; sem telefone, o BSUID (campo `recipient`).
+- **R28.5** **Recebimento por tipo:** texto; mídia (imagem, áudio, vídeo, documento, figurinha),
+  baixada em dois passos (`GET /{media_id}` e `GET url` com o token) e guardada no MinIO como nos
+  outros canais (mídia expirada ou recusada vira "[Mídia não disponível]"; falha passageira da
+  Meta repete o job); localização (`latitude`, `longitude`, nome, endereço); contatos
+  compartilhados (nome, telefones e vCard); respostas de **botão e de lista** (texto = título, com
+  `metadados.interativo`); **reações** (`REACAO`, emoji vazio = reação removida); tipos que o CRM
+  não conhece viram "(mensagem não suportada pelo CRM)". Resposta/citação (`context.id`) liga à
+  mensagem citada.
+- **R28.6** **BSUID:** quando a Meta omite o telefone (usuário com nome de usuário), o contato é
+  identificado pelo BSUID (`from_user_id` / `contacts[].user_id`), num identificador
+  `WHATSAPP_BSUID`. Se o telefone aparecer depois (ou já vier junto), os dois identificadores
+  ficam **no mesmo contato**, que ganha o telefone; se telefone e BSUID já pertencem a contatos
+  diferentes, nada é fundido sozinho (log de aviso; a deduplicação de contatos resolve).
+- **R28.7** **Status de cada mensagem:** `sent` → `ENVIADA`, `delivered` → `ENTREGUE`, `read` →
+  `LIDA`, `failed` → `FALHOU` com o **motivo em português** (tabela de códigos de erro da Cloud
+  API; o que não está na tabela mostra o título da Meta). O status só avança (um "entregue"
+  atrasado não desfaz o "lida"). Status de mensagem ainda não gravada, recém-chegado, é tentado de
+  novo (o envio pode estar gravando o id); o antigo e desconhecido é ignorado.
+- **R28.8** **Templates:** a lista vem de `GET /{waba_id}/message_templates` (com paginação) e é
+  guardada por canal (nome, idioma, categoria, situação, componentes e quando foi sincronizada).
+  A sincronização é **manual** (botão) e **diária** (03:00, pela fila `whatsapp-oficial.templates`;
+  o erro de um canal não para os outros); o que sumiu da Meta sai do cache; cada sincronização é
+  auditada (`canal.templates_sincronizados`). Falha da Meta na sincronização manual é 503 com o
+  motivo, o cache fica como estava e o canal registra o erro. Só os **aprovados** enviam; o
+  compositor lista os da conversa com cabeçalho, corpo, rodapé, botões e as **variáveis** de cada
+  um (`{{1}}`, `{{2}}`…). Enviar template confere: aprovado, **todas as variáveis preenchidas**
+  (400 se faltar), e **arquivo no cabeçalho** quando ele pede imagem, vídeo ou documento. A
+  mensagem grava o texto como o contato o vê (`texto`) e o template usado e as variáveis em
+  `metadados.template`. Template vale dentro e fora da janela e na "tentativa de novo".
+  Templates com localização no cabeçalho não são suportados.
+- **R28.9** **Não contatar e opt-out (R4.6, R24.7):** a marca **"não contatar por WhatsApp"** do
+  contato (etiqueta `nao-contatar-whatsapp` ou campo `nao_contatar_whatsapp`) vale para os **dois**
+  canais de WhatsApp: bloqueia a mensagem **ativa** (fora da janela de 24 h, ou seja, template para
+  quem não escreveu há menos de um dia), mas não a resposta a quem acabou de escrever. Template de
+  categoria **marketing** também respeita o opt-out de marketing do contato. A mensagem bloqueada
+  fica `FALHOU` com o motivo.
+- **Endpoints (Admin):** `GET|POST /whatsapp-oficial/canais`, `GET|PATCH|DELETE
+  /whatsapp-oficial/canais/:id`, `POST …/:id/testar`, `POST …/:id/token-verificacao`,
+  `GET …/:id/templates`, `POST …/:id/templates/sincronizar`. **Atendimento (quem usa o
+  Atendimento e vê a conversa):** `GET /atendimento/conversas/:id/templates`; o envio é
+  `POST /atendimento/conversas/:id/mensagens` (e `POST /atendimento/conversas`) com `template`.
+
+### Cenários de aceitação (Onda E, canal WhatsApp oficial)
+
+Continuam a numeração da seção 38; cada um tem teste automatizado ("cenário N" no nome, em
+`test/onda-e-whatsapp-oficial.e2e-spec.ts` e nos specs de `canais/whatsapp-oficial`) contra um
+Postgres real e uma Graph falsa em processo.
+
+154. Cria com segredos cifrados e mascarados, gera o verify token e mostra a URL do webhook
+     (R28.1).
+155. Só o Admin configura (403); o mesmo número em dois canais é 409; ids inválidos 400 (R28.1).
+156. "Testar conexão": lê o número na Graph; token vencido vira estado ERRO com o motivo
+     (R28.1).
+157. Gera outro verify token (o antigo deixa de valer) e exclui o canal (R28.1).
+158. A verificação GET aceita o verify token do canal oficial e recusa o errado (R28.2).
+159. Exige a assinatura do app secret DO canal (401 sem ela ou com a de outro) (R28.2).
+160. Número desconhecido e campos sem tratador (calls) são ignorados com 200 (R28.2).
+161. Cada número usa o seu app secret: uma mudança assinada com o segredo errado de outro canal
+     não entra (R28.2).
+162. Texto: contato pelo telefone (E.164), conversa na fila do canal, janela de 24 h e
+     idempotência (R28.3).
+163. Contato novo: nome do perfil, origem WhatsApp, telefone só com dígitos (R28.3).
+164. Mídia: baixada com o token (2 passos) e guardada; mídia expirada vira aviso (R28.5).
+165. Localização, contatos, resposta de botão e de lista e reação (R28.5).
+166. Entra pelas mesmas regras: SLA da fila, notificação e evento de mensagem recebida (R28.3).
+167. Sem telefone, o contato é identificado pelo BSUID; quando o telefone aparece, é o mesmo
+     contato (R28.6).
+168. Telefone e BSUID desde a primeira mensagem ficam no mesmo contato (R28.6).
+169. Envia para o BSUID quando o contato não tem telefone (R28.6).
+170. Enviada → entregue → lida pelos webhooks; um status atrasado não desfaz (R28.7).
+171. Falhou: o motivo do erro em português vai para a mensagem (R28.7).
+172. Status de mensagem ainda não gravada tenta de novo; o antigo é ignorado (R28.7).
+173. Dentro da janela: texto pela Cloud API com o token, ENVIADA com o wamid (R28.4).
+174. Resposta citada leva o wamid da mensagem citada (R28.4).
+175. Fora da janela: texto livre é 422 com o motivo em português e a indicação de só template
+     (R28.4).
+176. A janela fecha entre o envio e o job: a mensagem falha com o motivo (sem chamar a Meta)
+     (R28.4).
+177. A Meta recusa por janela (131047): FALHOU com o motivo; token inválido: FALHOU e o canal
+     fica com erro (R28.4).
+178. Falha passageira da Meta (500) é tentada de novo sem duplicar (R28.4).
+179. Mídia: upload em /media e envio por id, com a legenda; documento leva o nome (R28.4).
+180. Áudio gravado no navegador (webm/opus) é convertido para ogg/opus e vai como áudio (R28.4).
+181. Áudio que não dá para converter (sem ffmpeg e não é ogg) falha com motivo em português
+     (R28.4).
+182. Sincronização manual: troca o cache, segue a paginação e mostra o que não está aprovado
+     (R28.8).
+183. Falha da Meta na sincronização: 503 com o motivo, o cache fica e o canal registra o erro
+     (R28.8).
+184. Sincronização diária pela fila: todos os canais ativos, um erro não para os outros (R28.8).
+185. O compositor lista os templates aprovados da conversa e o aviso da janela fechada (R28.4).
+186. Template com variáveis fora da janela: grava o texto preenchido e envia os components
+     (R28.4).
+187. Variável faltando, template pendente, texto junto e canal sem templates são recusados
+     (R28.4).
+188. Template com mídia no cabeçalho exige o arquivo e o envia como cabeçalho (R28.4).
+189. Começar a conversa pela equipe exige template (não há janela); com template envia (R28.4).
+190. "tentar de novo" de um template funciona fora da janela (R28.4).
+191. A marca bloqueia a mensagem ativa (template fora da janela), mas não a resposta dentro dela
+     (R28.9).
+192. Template de marketing respeita o opt-out de marketing do contato (R28.9).
+193. A mesma pessoa pode falar pelos dois canais (identificador WHATSAPP compartilhado) (R28.9).

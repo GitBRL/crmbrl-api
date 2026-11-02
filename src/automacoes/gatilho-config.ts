@@ -32,6 +32,7 @@ const TIPOS_DE_CANAL = [
   'WEBCHAT',
   'INSTAGRAM',
   'MESSENGER',
+  'WHATSAPP_OFICIAL',
 ];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

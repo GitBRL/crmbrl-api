@@ -17,6 +17,7 @@ import type {
   Conversa,
   FilaAtendimento,
   Prisma,
+  TipoCanal,
 } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
@@ -57,6 +58,13 @@ import { prazosDoSla } from './sla';
 
 /** Janela de resposta comum da Meta (Instagram e Messenger, R14). */
 export const JANELA_DA_META_MS = 24 * 60 * 60 * 1000;
+
+/** Canais da Meta em que a mensagem do contato abre a janela de 24 h (R14, R28). */
+const TIPOS_COM_JANELA_DE_24H: readonly TipoCanal[] = [
+  'INSTAGRAM',
+  'MESSENGER',
+  'WHATSAPP_OFICIAL',
+];
 
 type CanalComFila = Canal & { filaPadrao: FilaAtendimento | null };
 
@@ -576,7 +584,7 @@ export class AtendimentoService {
         ...(entradaMaisRecente
           ? {
               ultimaEntradaEm: recebidaEm,
-              ...(canal.tipo === 'INSTAGRAM' || canal.tipo === 'MESSENGER'
+              ...(TIPOS_COM_JANELA_DE_24H.includes(canal.tipo)
                 ? {
                     janelaAte: new Date(
                       recebidaEm.getTime() + JANELA_DA_META_MS,
@@ -675,7 +683,7 @@ export class AtendimentoService {
         ultimaMensagemId: mensagem.id,
         ultimaMensagemEm: recebidaEm,
         ultimaEntradaEm: recebidaEm,
-        ...(canal.tipo === 'INSTAGRAM' || canal.tipo === 'MESSENGER'
+        ...(TIPOS_COM_JANELA_DE_24H.includes(canal.tipo)
           ? { janelaAte: new Date(recebidaEm.getTime() + JANELA_DA_META_MS) }
           : {}),
       },

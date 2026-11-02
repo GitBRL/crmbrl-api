@@ -7,7 +7,7 @@ palavras-chave: [chat do site, widget, e-mail, imap, smtp, gmail, outlook, insta
 ---
 # Configurar chat do site, e-mail, Instagram e Messenger
 
-Todos começam em **Configurações > Canais**: clique em **Novo canal** e escolha o tipo. Todo canal tem fila padrão, horário e a chave "Pesquisa de satisfação".
+Todos começam em **Configurações > Canais**: clique em **Novo canal** e escolha o tipo (o WhatsApp oficial tem artigo próprio). Todo canal tem fila padrão, horário e a chave "Pesquisa de satisfação".
 
 ## Chat do site
 1. Ajuste título, cores, tema, posição e saudação; a prévia do widget aparece ao vivo.

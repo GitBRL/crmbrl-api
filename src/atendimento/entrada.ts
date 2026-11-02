@@ -87,6 +87,7 @@ export const ORIGEM_DO_CANAL: Readonly<Record<TipoCanal, OrigemContato>> = {
   EMAIL: 'EMAIL',
   INSTAGRAM: 'INSTAGRAM',
   MESSENGER: 'MESSENGER',
+  WHATSAPP_OFICIAL: 'WHATSAPP',
 };
 
 /**

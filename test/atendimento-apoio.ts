@@ -171,7 +171,7 @@ export function receberDoContato(
   sequenciaDeEntrada += 1;
   const tipo =
     opcoes.tipoRemetente ??
-    (canal.tipo === 'WHATSAPP'
+    (canal.tipo === 'WHATSAPP' || canal.tipo === 'WHATSAPP_OFICIAL'
       ? 'WHATSAPP'
       : canal.tipo === 'EMAIL'
         ? 'EMAIL'

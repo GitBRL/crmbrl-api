@@ -66,6 +66,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 ## configuracoes
 - [Configurar chat do site, e-mail, Instagram e Messenger](configuracoes-canais-site-email-meta.md)
 - [Conectar um número de WhatsApp](configuracoes-canais-whatsapp.md)
+- [Conectar o WhatsApp oficial (API da Meta) e usar templates](configuracoes-canais-whatsapp-oficial.md)
 - [Desligar um usuário e para quem vai o trabalho dele](configuracoes-desligar-usuario.md)
 - [Configuração geral dos Disparos](configuracoes-disparos.md)
 - [Papéis e o que cada um pode acessar](configuracoes-papeis-e-permissoes.md)

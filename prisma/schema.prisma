@@ -1026,6 +1026,8 @@ enum TipoCanal {
   EMAIL
   INSTAGRAM
   MESSENGER
+  /// WhatsApp pela Cloud API oficial da Meta (Onda E, R28), ao lado do Baileys.
+  WHATSAPP_OFICIAL
 
   @@map("tipo_canal")
 }
@@ -1044,6 +1046,8 @@ enum TipoIdentificador {
   MESSENGER
   /// Id do visitante do chat do site (`webchat_visitantes.id`).
   WEBCHAT
+  /// BSUID: id da pessoa no WhatsApp oficial quando a Meta omite o telefone (usuário com nome de usuário).
+  WHATSAPP_BSUID
 
   @@map("tipo_identificador")
 }
@@ -1258,6 +1262,8 @@ model Canal {
   excluidoEm          DateTime?        @map("excluido_em") @db.Timestamptz(3)
 
   whatsappNumero  WhatsappNumero?
+  /// Onda E: templates aprovados do WhatsApp oficial (cache da WABA).
+  templatesOficiais WhatsappOficialTemplate[]
   conversas       Conversa[]
   mensagens       Mensagem[]
   identificadores ContatoIdentificador[]
@@ -2970,4 +2976,31 @@ model PushPreferencia {
   atualizadoEm DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
   @@map("push_preferencias")
+}
+
+/// Onda E (R28): cache dos templates de mensagem da WABA de um canal
+/// `WHATSAPP_OFICIAL` (`GET /{waba_id}/message_templates`), sincronizado à mão e
+/// uma vez por dia. Só os `APPROVED` servem para enviar; o resto fica para o Admin ver.
+model WhatsappOficialTemplate {
+  id             String   @id @default(uuid()) @db.Uuid
+  canalId        String   @map("canal_id") @db.Uuid
+  canal          Canal    @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  /// Id do template na Meta (pode faltar em respostas incompletas).
+  idMeta         String?  @map("id_meta")
+  nome           String
+  /// Código do idioma da Meta (`pt_BR`, `en_US`…).
+  idioma         String
+  /// `MARKETING`, `UTILITY` ou `AUTHENTICATION` (a Meta pode acrescentar outras).
+  categoria      String
+  /// `APPROVED`, `PENDING`, `REJECTED`, `PAUSED`, `DISABLED`… como a Meta informa.
+  status         String
+  /// `components` como a Meta devolve (HEADER, BODY, FOOTER, BUTTONS).
+  componentes    Json     @default("[]")
+  sincronizadoEm DateTime @default(now()) @map("sincronizado_em") @db.Timestamptz(3)
+  criadoEm       DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm   DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([canalId, nome, idioma])
+  @@index([canalId, status])
+  @@map("whatsapp_oficial_templates")
 }
