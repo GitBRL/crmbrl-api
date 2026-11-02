@@ -26,6 +26,15 @@ import {
 } from '../canais/comum/dto-comum';
 import type { DirecaoLigacao, EstadoLigacao } from '../generated/prisma/client';
 import {
+  GravacaoDaLigacaoDto,
+  ResumoDaLigacaoDto,
+  TranscricaoDaLigacaoDto,
+} from './gravacao/gravacao.dto';
+import {
+  RETENCAO_MAXIMA_DIAS,
+  RETENCAO_MINIMA_DIAS,
+} from './gravacao/gravacao.constantes';
+import {
   TOQUE_MAXIMO_SEGUNDOS,
   TOQUE_MINIMO_SEGUNDOS,
 } from './ligacoes.constantes';
@@ -171,10 +180,34 @@ export class AtualizarConfiguracaoLigacoesDto {
   @IsUUID('all', MENSAGEM_UUID)
   filaId?: string | null;
 
-  @ApiPropertyOptional({ description: 'Gravar as ligações (E3).' })
+  @ApiPropertyOptional({ description: 'Gravar as ligações (R30).' })
   @IsOptional()
   @IsBoolean(MENSAGEM_BOOLEANO)
   gravar?: boolean;
+
+  @ApiPropertyOptional({
+    description: `Dias de guarda da gravação e da transcrição (${RETENCAO_MINIMA_DIAS} a ${RETENCAO_MAXIMA_DIAS}; padrão 365). Passado o prazo, ambas são apagadas; o registro, a duração e o resumo ficam.`,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'deve ser um número inteiro' })
+  @Min(RETENCAO_MINIMA_DIAS, {
+    message: `mínimo de ${RETENCAO_MINIMA_DIAS} dia`,
+  })
+  @Max(RETENCAO_MAXIMA_DIAS, {
+    message: `máximo de ${RETENCAO_MAXIMA_DIAS} dias`,
+  })
+  retencaoDias?: number;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'Áudio de aviso (arquivo enviado em `POST /arquivos?contexto=LIGACAO`, até 5 MB) que o navegador toca para o cliente ao atender. Nulo remove o aviso.',
+  })
+  @IsOptional()
+  @IsUUID('all', MENSAGEM_UUID)
+  avisoArquivoId?: string | null;
 
   @ApiPropertyOptional({
     description: `Segundos tocando antes de virar perdida (${TOQUE_MINIMO_SEGUNDOS} a ${TOQUE_MAXIMO_SEGUNDOS}; sempre abaixo do prazo de 30 a 60 s da Meta).`,
@@ -341,8 +374,12 @@ export class LigacaoDto {
     description: 'Só ao atendente de uma ligação feita, enquanto conecta.',
   })
   respostaSdp: string | null;
-  @ApiProperty({ description: 'O canal grava esta ligação (E3).' })
+  @ApiProperty({ description: 'O canal grava esta ligação (R30).' })
   gravar: boolean;
+  @ApiProperty({ type: GravacaoDaLigacaoDto }) gravacao: GravacaoDaLigacaoDto;
+  @ApiProperty({ type: TranscricaoDaLigacaoDto })
+  transcricao: TranscricaoDaLigacaoDto;
+  @ApiProperty({ type: ResumoDaLigacaoDto }) resumo: ResumoDaLigacaoDto;
   @ApiProperty({
     type: Number,
     nullable: true,
@@ -472,6 +509,15 @@ export class ConfiguracaoLigacoesDto {
   })
   filaEfetivaId: string | null;
   @ApiProperty() gravar: boolean;
+  @ApiProperty({ description: 'Dias de guarda da gravação e da transcrição.' })
+  retencaoDias: number;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Áudio de aviso do canal (o navegador toca ao atender: `GET /ligacoes/canais/:canalId/aviso`).',
+  })
+  avisoArquivoId: string | null;
   @ApiProperty() tempoDeToqueSegundos: number;
   @ApiProperty() mensagemPerdidaAtiva: boolean;
   @ApiProperty({ type: String, nullable: true }) mensagemPerdida: string | null;

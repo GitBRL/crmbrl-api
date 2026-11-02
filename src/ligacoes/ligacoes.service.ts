@@ -24,6 +24,10 @@ import { FilaService, type Trabalho } from '../fila/fila.service';
 import type { Prisma } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
+import {
+  ESPERA_PARA_FINALIZAR_SOZINHO_S,
+  FILA_FINALIZAR_GRAVACAO,
+} from './gravacao/gravacao.constantes';
 import { salas } from '../tempo-real/catalogo';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
 import { ConfiguracaoDeLigacoesService } from './configuracao-ligacoes.service';
@@ -323,6 +327,15 @@ export class LigacoesService implements OnModuleInit {
     }
 
     await this.avisarNaConversa(tx, ligacao, conversaId, duracao);
+
+    // Gravação (R30): se o navegador não finalizar, a API junta as partes que subiram.
+    if (ligacao.gravar && atendida) {
+      await this.fila.enviar(
+        FILA_FINALIZAR_GRAVACAO,
+        { ligacaoId: ligacao.id },
+        { tx, atrasoSegundos: ESPERA_PARA_FINALIZAR_SOZINHO_S },
+      );
+    }
 
     // Permissão: ligação feita sem resposta conta para a revogação; atendida zera (já feito ao entrar em andamento).
     if (ligacao.direcao === 'FEITA') {
@@ -882,7 +895,7 @@ export class LigacoesService implements OnModuleInit {
     exigirAtendimento(usuario);
     const ligacao = await this.carregar(this.prisma, id);
     await this.exigirAcesso(usuario, ligacao);
-    return paraLigacaoDto(ligacao, usuario.id);
+    return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
   }
 
   async listar(
@@ -912,7 +925,9 @@ export class LigacoesService implements OnModuleInit {
     const haMais = itens.length > limite;
     const pagina = haMais ? itens.slice(0, limite) : itens;
     return {
-      itens: pagina.map((item) => paraLigacaoDto(item, usuario.id)),
+      itens: pagina.map((item) =>
+        paraLigacaoDto(item, usuario.id, usuario.papel),
+      ),
       proximoCursor:
         haMais && pagina.length > 0
           ? codificarCursor((pagina[pagina.length - 1] as { id: string }).id)

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { SegredosDoCanal } from '../canais/comum/segredos-do-canal';
 import { ErroDaGraph } from '../canais/meta/graph-api';
@@ -21,6 +22,7 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RETENCAO_PADRAO_DIAS } from './gravacao/gravacao.constantes';
 import { CAMPO_DE_CHAMADAS, traduzirErroDeChamada } from './formato-chamadas';
 import { GraphLigacoes } from './graph-ligacoes';
 import type {
@@ -49,6 +51,8 @@ export type ConfiguracaoLida = Pick<
   | 'horario'
   | 'filaId'
   | 'gravar'
+  | 'retencaoDias'
+  | 'avisoArquivoId'
   | 'tempoDeToqueSegundos'
   | 'mensagemPerdidaAtiva'
   | 'mensagemPerdida'
@@ -62,6 +66,8 @@ const PADRAO: ConfiguracaoLida = {
   horario: null,
   filaId: null,
   gravar: true,
+  retencaoDias: RETENCAO_PADRAO_DIAS,
+  avisoArquivoId: null,
   tempoDeToqueSegundos: TOQUE_PADRAO_SEGUNDOS,
   mensagemPerdidaAtiva: false,
   mensagemPerdida: null,
@@ -83,6 +89,7 @@ export class ConfiguracaoDeLigacoesService {
     private readonly auditoria: AuditoriaService,
     private readonly segredos: SegredosDoCanal,
     private readonly graph: GraphLigacoes,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   /** O canal de WhatsApp oficial (404 se não existe). */
@@ -194,6 +201,13 @@ export class ConfiguracaoDeLigacoesService {
     }
     if (dto.botaoVisivel !== undefined) dados.botaoVisivel = dto.botaoVisivel;
     if (dto.gravar !== undefined) dados.gravar = dto.gravar;
+    if (dto.retencaoDias !== undefined) dados.retencaoDias = dto.retencaoDias;
+    if (dto.avisoArquivoId !== undefined) {
+      if (dto.avisoArquivoId !== null) {
+        await this.conferirAviso(dto.avisoArquivoId);
+      }
+      dados.avisoArquivoId = dto.avisoArquivoId;
+    }
     if (dto.tempoDeToqueSegundos !== undefined) {
       if (
         dto.tempoDeToqueSegundos < TOQUE_MINIMO_SEGUNDOS ||
@@ -272,6 +286,17 @@ export class ConfiguracaoDeLigacoesService {
         dados: { campos: alterados, regra: REGRA_LIGACOES },
       });
     });
+    if (
+      dto.avisoArquivoId !== undefined &&
+      atual.avisoArquivoId &&
+      atual.avisoArquivoId !== dto.avisoArquivoId
+    ) {
+      await this.arquivos
+        .remover(atual.avisoArquivoId, {
+          motivo: 'Áudio de aviso trocado (R30)',
+        })
+        .catch(() => undefined);
+    }
     return this.obter(canalId);
   }
 
@@ -306,6 +331,27 @@ export class ConfiguracaoDeLigacoesService {
     }
   }
 
+  /** O áudio de aviso precisa ser um áudio enviado no contexto LIGACAO e ainda existir. */
+  private async conferirAviso(arquivoId: string): Promise<void> {
+    const arquivo = await this.prisma.arquivo.findFirst({
+      where: { id: arquivoId, contexto: 'LIGACAO', removidoEm: null },
+      select: { mime: true },
+    });
+    if (!arquivo?.mime.startsWith('audio/')) {
+      throw new DadosInvalidosException(
+        'O áudio de aviso precisa ser um arquivo de áudio enviado para ligações.',
+        {
+          campos: [
+            {
+              campo: 'avisoArquivoId',
+              mensagens: ['envie o áudio em /arquivos?contexto=LIGACAO'],
+            },
+          ],
+        },
+      );
+    }
+  }
+
   private paraDto(
     canal: Canal,
     config: ConfiguracaoLida,
@@ -322,6 +368,8 @@ export class ConfiguracaoDeLigacoesService {
       filaId: config.filaId,
       filaEfetivaId: config.filaId ?? canal.filaPadraoId,
       gravar: config.gravar,
+      retencaoDias: config.retencaoDias,
+      avisoArquivoId: config.avisoArquivoId,
       tempoDeToqueSegundos: config.tempoDeToqueSegundos,
       mensagemPerdidaAtiva: config.mensagemPerdidaAtiva,
       mensagemPerdida: config.mensagemPerdida,

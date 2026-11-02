@@ -71,6 +71,22 @@ export interface ConfiguracaoWhatsapp {
   readonly porta: number;
 }
 
+/** Gravação, transcrição (whisper.cpp) e resumo das ligações (Onda E, R30). */
+export interface ConfiguracaoTranscricao {
+  /** `TRANSCRICAO_URL` (o whisper-server, ex.: `http://transcricao:8080`); `null` = transcrição desligada. */
+  readonly url: string | null;
+  /** `WHISPER_MODELO` (padrão `small`): o modelo que o serviço carrega; a API só o mostra e o grava na transcrição. */
+  readonly modelo: string;
+  /** `TRANSCRICAO_TEMPO_LIMITE_S`: tempo máximo de uma transcrição (os dois canais), em segundos. */
+  readonly tempoLimiteSegundos: number;
+  /** `LIGACOES_GRAVACAO_MAX_MB`: tamanho máximo da gravação de uma ligação, em bytes. */
+  readonly gravacaoMaxBytes: number;
+  /** `LIGACOES_GRAVACAO_MAX_MIN`: duração máxima da gravação de uma ligação, em minutos. */
+  readonly gravacaoMaxMinutos: number;
+  /** `LIGACOES_RESUMO_MODELO` (padrão `claude-sonnet-5-5`): modelo do Claude que resume a ligação. */
+  readonly resumoModelo: string;
+}
+
 export interface ConfiguracaoMeta {
   /** Base da Graph API, sem barra no fim (`META_GRAPH_URL`; a falsa do ambiente dos agentes, nos testes). */
   readonly graphUrl: string;
@@ -206,6 +222,8 @@ export interface Ambiente {
   readonly meta: ConfiguracaoMeta;
   /** Ligações pelo WhatsApp oficial (Onda E, R29). */
   readonly ligacoes: ConfiguracaoLigacoes;
+  /** Gravação, transcrição e resumo das ligações (Onda E, R30). */
+  readonly transcricao: ConfiguracaoTranscricao;
   readonly anthropic: ConfiguracaoAnthropic;
   readonly ticketHub: ConfiguracaoTicketHub;
   readonly push: ConfiguracaoPush;
@@ -258,6 +276,12 @@ export interface VariaveisDeAmbiente {
   META_GRAPH_VERSAO?: string;
   LIGACOES_STUN_URLS?: string;
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
+  TRANSCRICAO_URL?: string;
+  WHISPER_MODELO?: string;
+  TRANSCRICAO_TEMPO_LIMITE_S?: string;
+  LIGACOES_GRAVACAO_MAX_MB?: string;
+  LIGACOES_GRAVACAO_MAX_MIN?: string;
+  LIGACOES_RESUMO_MODELO?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   TICKETHUB_URL?: string;
@@ -310,6 +334,12 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'META_GRAPH_VERSAO',
   'LIGACOES_STUN_URLS',
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
+  'TRANSCRICAO_URL',
+  'WHISPER_MODELO',
+  'TRANSCRICAO_TEMPO_LIMITE_S',
+  'LIGACOES_GRAVACAO_MAX_MB',
+  'LIGACOES_GRAVACAO_MAX_MIN',
+  'LIGACOES_RESUMO_MODELO',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'TICKETHUB_URL',
@@ -403,6 +433,7 @@ export function lerAmbiente(
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
     ligacoes: lerLigacoes(variaveis, problemas),
+    transcricao: lerTranscricao(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
     ticketHub: lerTicketHub(variaveis, problemas),
     push: lerPush(variaveis, problemas, avisos),
@@ -1099,6 +1130,106 @@ function lerLigacoes(
     }
   }
   return { stunUrls, esperaPreAceiteMs };
+}
+
+/** Nome de modelo (do Whisper ou do Claude): letras, números, ponto, hífen e sublinhado. */
+function lerNomeDeModelo(
+  nome: string,
+  valor: string | undefined,
+  padrao: string,
+  problemas: string[],
+): string {
+  const texto = limpar(valor);
+  if (texto === undefined) {
+    return padrao;
+  }
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(texto)) {
+    problemas.push(
+      `${nome} precisa ter só letras, números, ponto, hífen e sublinhado (recebido: "${texto}").`,
+    );
+    return padrao;
+  }
+  return texto;
+}
+
+/** Inteiro de `minimo` a `maximo` (as variáveis de limite da gravação e da transcrição). */
+function lerInteiroEntre(
+  nome: string,
+  valor: string | undefined,
+  padrao: number,
+  minimo: number,
+  maximo: number,
+  problemas: string[],
+): number {
+  const texto = limpar(valor);
+  if (texto === undefined) {
+    return padrao;
+  }
+  const numero = Number(texto);
+  if (!/^\d+$/.test(texto) || numero < minimo || numero > maximo) {
+    problemas.push(
+      `${nome} precisa ser um número inteiro de ${minimo} a ${maximo} (recebido: "${texto}").`,
+    );
+    return padrao;
+  }
+  return numero;
+}
+
+/**
+ * `TRANSCRICAO_*`, `WHISPER_MODELO` e `LIGACOES_GRAVACAO_*` (R30). `TRANSCRICAO_URL`
+ * vazia desliga a transcrição (a gravação e a versão para ouvir continuam).
+ */
+function lerTranscricao(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoTranscricao {
+  return {
+    url: lerEnderecoHttp(
+      'TRANSCRICAO_URL',
+      variaveis.TRANSCRICAO_URL,
+      null,
+      problemas,
+    ),
+    modelo: lerNomeDeModelo(
+      'WHISPER_MODELO',
+      variaveis.WHISPER_MODELO,
+      'small',
+      problemas,
+    ),
+    tempoLimiteSegundos: lerInteiroEntre(
+      'TRANSCRICAO_TEMPO_LIMITE_S',
+      variaveis.TRANSCRICAO_TEMPO_LIMITE_S,
+      1800,
+      30,
+      14_400,
+      problemas,
+    ),
+    gravacaoMaxBytes:
+      lerInteiroEntre(
+        'LIGACOES_GRAVACAO_MAX_MB',
+        variaveis.LIGACOES_GRAVACAO_MAX_MB,
+        200,
+        1,
+        1024,
+        problemas,
+      ) *
+      1024 *
+      1024,
+    gravacaoMaxMinutos: lerInteiroEntre(
+      'LIGACOES_GRAVACAO_MAX_MIN',
+      variaveis.LIGACOES_GRAVACAO_MAX_MIN,
+      180,
+      1,
+      720,
+      problemas,
+    ),
+    resumoModelo: lerNomeDeModelo(
+      'LIGACOES_RESUMO_MODELO',
+      variaveis.LIGACOES_RESUMO_MODELO,
+      'claude-sonnet-5-5',
+      problemas,
+    ),
+  };
 }
 
 /** `META_GRAPH_*` (R14): onde fica a Graph API (a falsa do ambiente dos agentes, nos testes). */

@@ -984,6 +984,75 @@ reservados para a E3: `gravar`, `gravacao_situacao`, `gravacao_arquivo_id`, `tra
 `transcricao`, `resumo`), `permissoes_de_ligacao` (único por canal e contato; `pedidos_em` para os
 limites), `canais_ligacoes` (configuração) e `ligacoes_webhook_eventos` (dedupe de 7 dias).
 
+### Peças e fluxos da Onda E (gravação, transcrição e resumo das ligações)
+
+Regra: R30 em `REGRAS-DE-NEGOCIO.md` (seção 41). Fatia E3 (API). A API **nunca vê o áudio da chamada ao
+vivo**: o navegador do atendente grava e envia partes; a API junta, converte, transcreve e resume.
+
+**`GravacaoModule` (`src/ligacoes/gravacao/`)**
+
+- **`GravacaoService`** — `receberParte` (valida atendente, estado da ligação, tamanho e cabeçalho webm;
+  grava o objeto no driver de arquivos em `ligacoes/<id>/partes/<n>` e a linha em
+  `ligacoes_gravacao_partes`, única por `(ligacao_id, sequencia)`: idempotência), `finalizar`/`juntar`
+  (transação com trava `FOR UPDATE` na ligação: concatena as partes em ordem num `ArquivosService.salvar`
+  de contexto `LIGACAO`, anota o estado, audita e enfileira `transcricao.processar` **na mesma transação**;
+  depois do commit apaga as partes) e o job `ligacoes.gravacao.finalizar` (agendado por
+  `LigacoesService.finalizar` 90 s depois do fim da ligação, para quando a aba fechou).
+- **`LeituraDaGravacaoService`** — quem vê a ligação (atendente, chamados, diretoria, conversa visível,
+  contato no alcance de `PermissoesContatosService`), transcrição lida e auditada, arquivo de áudio
+  (`ouvir` = ogg mono, `original` = webm estéreo), auditoria de reprodução e download, áudio de aviso.
+- **`ReprocessamentoDaGravacaoService`**, **`SugestoesDeAtividadeService`** (reserva da sugestão sob trava
+  da ligação; cria a atividade pelo `AtividadesService`), **`RetencaoDeGravacoesService`** (cron `30 3 * * *`:
+  apaga vencidas conforme `canais_ligacoes.retencao_dias` e partes abandonadas) e **`remocao.ts`**
+  (`apagarGravacoes`, também usada pela anonimização do contato).
+- **`GravacaoController`** — rotas em `/ligacoes/:id/{gravacao/partes/:n, gravacao/finalizar, transcricao,
+  audio, audio/baixar, reprocessar, resumo/sugestoes/:id/{confirmar,descartar}}` e
+  `/ligacoes/canais/:canalId/aviso`. O áudio é servido com `interpretarFaixa` (o mesmo `Range` de
+  `/arquivos`), `Cache-Control: private, no-store`.
+
+**`TranscricaoModule` (`src/transcricao/`)**
+
+- **`TranscricaoService`** — workers `transcricao.processar` (concorrência 1; 3 retentativas com espera
+  exponencial; prazo de execução = `TRANSCRICAO_TEMPO_LIMITE_S` + 30 min) e `transcricao.resumir`;
+  estados em `ligacoes` (`gravacao_situacao`, `transcricao_situacao`, `resumo_situacao`) e o evento de
+  tempo real `ligacao.processada`.
+- **`ProcessadorDeAudio`** (classe abstrata; `ProcessadorFfmpeg` em produção) — `ffprobe`/`ffmpeg` por
+  `execFile` (sem shell, argumentos fixos): ogg mono 32 kbps e um WAV 16 kHz por canal
+  (`pan=mono|c0=c0` e `c0=c1`). Trocável nos testes (o ffmpeg só existe na imagem).
+- **`ClienteWhisper`** — `POST {TRANSCRICAO_URL}/inference` (multipart, `verbose_json`, `language=pt`),
+  prazo por chamada, erros transitórios (rede, 5xx, 429, tempo) e definitivos, e `GET /health` para a
+  Saúde do sistema.
+- **`trechos.ts`** (intercalação, limpeza de ruído, texto da conversa), **`esquema-resumo.ts`** e
+  **`prompt-resumo.ts`** — puros e testados. O resumo usa `ChamadaClaudeService` + `CLIENTE_ANTHROPIC`
+  (providers próprios do módulo, como no assistente), `output_config.format = json_schema`, esforço
+  `low`, `fallbacks: 'default'` como o BI.
+
+**Fluxo**
+
+```
+navegador ─ MediaRecorder (webm/opus estéreo, fatias de 5 s) ─ POST …/gravacao/partes/N ─▶ API: driver de arquivos + ligacoes_gravacao_partes
+fim:  POST …/gravacao/finalizar {totalPartes}  (ou sendBeacon; ou o job ligacoes.gravacao.finalizar 90 s depois)
+API ─ tx: junta partes ▶ arquivo webm (contexto LIGACAO) ▶ job transcricao.processar ─▶ apaga as partes
+job:  baixa o webm ▶ ffmpeg (ogg + 2 WAV) ▶ whisper /inference por canal ▶ intercala ▶ ligacoes.transcricao ▶ ligacao.processada
+      ▶ job transcricao.resumir ▶ Claude (JSON estruturado) ▶ ligacoes.resumo ▶ ligacao.processada
+painel: GET /ligacoes/:id (estados e resumo) · …/transcricao · …/audio (Range) · confirmar sugestão ▶ AtividadesService
+03:30 diário: apaga gravação e transcrição vencidas (retencao_dias do canal); registro, duração e resumo ficam
+```
+
+**Serviço `transcricao` (compose do usuário, dos agentes e de produção):** imagem
+`ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e…` (fixada por digest), `scripts/transcricao-entrypoint.sh`
+(baixa `ggml-<WHISPER_MODELO>.bin` para o volume `modelos-whisper` na primeira subida e roda
+`whisper-server -l pt --suppress-nst --vad` em `0.0.0.0:8080` com o modelo de voz Silero, que mantém os
+tempos certos quando um canal fica calado por muito tempo; **sem porta no host**), healthcheck em `/health`
+(`start_period` de 10 min), `cpus`/`mem_limit` configuráveis. A API não depende dele para subir.
+
+**Banco (migration `20261102230000_onda_e_gravacao_transcricao`):** `contexto_arquivo` ganha `LIGACAO`;
+`ligacoes` ganha `gravacao_original_arquivo_id`, `gravacao_total_partes`, `gravacao_finalizada_em`,
+`gravacao_duracao_segundos`, `gravacao_removida_em`, `gravacao_erro`, `transcricao_erro`,
+`transcricao_processada_em`, `resumo_situacao` (enum `situacao_resumo_ligacao`), `resumo_erro` e
+`resumo_processado_em`; `canais_ligacoes` ganha `retencao_dias` (365) e `aviso_arquivo_id`; tabela
+`ligacoes_gravacao_partes`.
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não

@@ -41,6 +41,26 @@ export class GatewayDoPainelDto {
   @ApiProperty() simulado!: boolean;
 }
 
+export class TranscricaoDoPainelDto {
+  @ApiProperty({
+    enum: ['ok', 'fora_do_ar', 'desativada'],
+    description:
+      '`desativada`: sem `TRANSCRICAO_URL` (a gravação continua, sem texto). `fora_do_ar`: o serviço `transcricao` (whisper.cpp) não responde.',
+  })
+  situacao!: 'ok' | 'fora_do_ar' | 'desativada';
+  @ApiProperty({
+    description: 'Modelo do Whisper configurado (`WHISPER_MODELO`).',
+  })
+  modelo!: string;
+  @ApiProperty({
+    description: 'Ligações esperando transcrição ou resumo na fila.',
+  })
+  pendentes!: number;
+  @ApiProperty({ description: 'Em processamento agora.' }) ativas!: number;
+  @ApiProperty({ description: 'Jobs que falharam nas últimas 24 h.' })
+  falhasRecentes!: number;
+}
+
 export class NumeroDoPainelDto {
   @ApiProperty() id!: string;
   @ApiProperty() nome!: string;
@@ -128,6 +148,8 @@ export class SaudeDoSistemaDto {
   @ApiProperty({ type: [AlertaDoPainelDto] }) alertas!: AlertaDoPainelDto[];
   @ApiProperty({ type: FilasDoPainelDto }) filas!: FilasDoPainelDto;
   @ApiProperty({ type: GatewayDoPainelDto }) gateway!: GatewayDoPainelDto;
+  @ApiProperty({ type: TranscricaoDoPainelDto })
+  transcricao!: TranscricaoDoPainelDto;
   @ApiProperty({ type: [NumeroDoPainelDto] }) numeros!: NumeroDoPainelDto[];
   @ApiProperty({ type: [CanalDoPainelDto] }) canais!: CanalDoPainelDto[];
   @ApiProperty({ type: ErrosDoPainelDto }) erros!: ErrosDoPainelDto;

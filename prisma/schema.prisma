@@ -1024,6 +1024,8 @@ enum ContextoArquivo {
   CAMPANHA
   /// Onda B: relatórios gerados (importação, exportação de campanhas).
   RELATORIO
+  /// Onda E (R30): gravação da ligação (webm original e ogg para ouvir) e áudio de aviso do canal.
+  LIGACAO
 
   @@map("contexto_arquivo")
 }
@@ -3075,7 +3077,7 @@ enum TipoPermissaoLigacao {
   @@map("tipo_permissao_ligacao")
 }
 
-/// Reservado para a E3: a gravação da ligação (feita no navegador do atendente).
+/// Gravação da ligação (R30), feita no navegador do atendente e enviada em partes.
 enum SituacaoGravacaoLigacao {
   SEM
   ENVIANDO
@@ -3085,7 +3087,7 @@ enum SituacaoGravacaoLigacao {
   @@map("situacao_gravacao_ligacao")
 }
 
-/// Reservado para a E3: a transcrição (whisper.cpp).
+/// Transcrição da ligação (R30, whisper.cpp).
 enum SituacaoTranscricaoLigacao {
   PENDENTE
   PROCESSANDO
@@ -3096,62 +3098,91 @@ enum SituacaoTranscricaoLigacao {
   @@map("situacao_transcricao_ligacao")
 }
 
+/// Resumo da ligação pelo Claude (R30).
+enum SituacaoResumoLigacao {
+  PENDENTE
+  PROCESSANDO
+  PRONTO
+  FALHOU
+  /// Sem chave da Anthropic, sem transcrição ou conversa curta demais (o motivo vai em `resumoErro`).
+  DESATIVADO
+
+  @@map("situacao_resumo_ligacao")
+}
+
 /// Uma ligação do WhatsApp oficial (recebida ou feita). `idMeta` é o `wacid.…` da Meta.
 /// A oferta e a resposta SDP só ficam gravadas enquanto a ligação precisa delas
 /// (toque / conexão): somem ao entrar em andamento e ao terminar. Os campos de
 /// gravação e transcrição são da E3.
 model Ligacao {
-  id                       String                      @id @default(uuid()) @db.Uuid
-  canalId                  String                      @map("canal_id") @db.Uuid
-  canal                    Canal                       @relation(fields: [canalId], references: [id], onDelete: Restrict)
-  contatoId                String                      @map("contato_id") @db.Uuid
-  contato                  Contato                     @relation(fields: [contatoId], references: [id], onDelete: Restrict)
-  conversaId               String?                     @map("conversa_id") @db.Uuid
-  conversa                 Conversa?                   @relation(fields: [conversaId], references: [id], onDelete: SetNull)
-  direcao                  DirecaoLigacao
-  estado                   EstadoLigacao
+  id                        String                      @id @default(uuid()) @db.Uuid
+  canalId                   String                      @map("canal_id") @db.Uuid
+  canal                     Canal                       @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  contatoId                 String                      @map("contato_id") @db.Uuid
+  contato                   Contato                     @relation(fields: [contatoId], references: [id], onDelete: Restrict)
+  conversaId                String?                     @map("conversa_id") @db.Uuid
+  conversa                  Conversa?                   @relation(fields: [conversaId], references: [id], onDelete: SetNull)
+  direcao                   DirecaoLigacao
+  estado                    EstadoLigacao
   /// Quem atendeu (recebida) ou quem ligou (feita).
-  atendenteId              String?                     @map("atendente_id") @db.Uuid
-  atendente                Usuario?                    @relation("LigacaoAtendente", fields: [atendenteId], references: [id], onDelete: SetNull)
+  atendenteId               String?                     @map("atendente_id") @db.Uuid
+  atendente                 Usuario?                    @relation("LigacaoAtendente", fields: [atendenteId], references: [id], onDelete: SetNull)
   /// Id da ligação na Meta (`wacid.…`). Nulo na feita até a Meta responder ao connect.
-  idMeta                   String?                     @map("id_meta")
+  idMeta                    String?                     @map("id_meta")
   /// Telefone do cliente (E.164 só com dígitos), quando a Meta o informa.
-  telefone                 String?
+  telefone                  String?
   /// BSUID do cliente, quando a Meta omite o telefone.
-  bsuid                    String?
-  ofertaSdp                String?                     @map("oferta_sdp")
-  respostaSdp              String?                     @map("resposta_sdp")
+  bsuid                     String?
+  ofertaSdp                 String?                     @map("oferta_sdp")
+  respostaSdp               String?                     @map("resposta_sdp")
   /// Recebida: até quando toca (fim do tempo de toque).
-  expiraEm                 DateTime?                   @map("expira_em") @db.Timestamptz(3)
-  iniciadaEm               DateTime                    @default(now()) @map("iniciada_em") @db.Timestamptz(3)
-  tocouEm                  DateTime?                   @map("tocou_em") @db.Timestamptz(3)
-  atendidaEm               DateTime?                   @map("atendida_em") @db.Timestamptz(3)
-  encerradaEm              DateTime?                   @map("encerrada_em") @db.Timestamptz(3)
-  duracaoSegundos          Int?                        @map("duracao_segundos")
+  expiraEm                  DateTime?                   @map("expira_em") @db.Timestamptz(3)
+  iniciadaEm                DateTime                    @default(now()) @map("iniciada_em") @db.Timestamptz(3)
+  tocouEm                   DateTime?                   @map("tocou_em") @db.Timestamptz(3)
+  atendidaEm                DateTime?                   @map("atendida_em") @db.Timestamptz(3)
+  encerradaEm               DateTime?                   @map("encerrada_em") @db.Timestamptz(3)
+  duracaoSegundos           Int?                        @map("duracao_segundos")
   /// Código do motivo do desfecho (`tempo_esgotado`, `fora_do_horario`, `cliente_desligou`…).
-  motivo                   String?
-  erroCodigo               Int?                        @map("erro_codigo")
-  erroMensagem             String?                     @map("erro_mensagem")
+  motivo                    String?
+  erroCodigo                Int?                        @map("erro_codigo")
+  erroMensagem              String?                     @map("erro_mensagem")
   /// Atividade `LIGACAO` gerada (ou concluída) por esta ligação.
-  atividadeId              String?                     @map("atividade_id") @db.Uuid
-  atividade                Atividade?                  @relation(fields: [atividadeId], references: [id], onDelete: SetNull)
-  anotacao                 String?
+  atividadeId               String?                     @map("atividade_id") @db.Uuid
+  atividade                 Atividade?                  @relation(fields: [atividadeId], references: [id], onDelete: SetNull)
+  anotacao                  String?
   /// Quem foi chamado a atender (recebida).
-  tocouPara                String[]                    @default([]) @map("tocou_para")
+  tocouPara                 String[]                    @default([]) @map("tocou_para")
   /// O atendente mandou o `terminate` (o webhook da Meta fecha com a duração).
-  encerramentoSolicitadoEm DateTime?                   @map("encerramento_solicitado_em") @db.Timestamptz(3)
+  encerramentoSolicitadoEm  DateTime?                   @map("encerramento_solicitado_em") @db.Timestamptz(3)
   /// O navegador do atendente caiu durante a ligação (tolerância curta antes de encerrar).
-  desconectadoEm           DateTime?                   @map("desconectado_em") @db.Timestamptz(3)
+  desconectadoEm            DateTime?                   @map("desconectado_em") @db.Timestamptz(3)
   /// O canal gravava quando a ligação começou (E3).
-  gravar                   Boolean                     @default(false)
-  gravacaoSituacao         SituacaoGravacaoLigacao     @default(SEM) @map("gravacao_situacao")
-  /// E3: id do arquivo da gravação (sem chave estrangeira: a E3 decide).
-  gravacaoArquivoId        String?                     @map("gravacao_arquivo_id") @db.Uuid
-  transcricaoSituacao      SituacaoTranscricaoLigacao? @map("transcricao_situacao")
-  transcricao              Json?
-  resumo                   Json?
-  criadoEm                 DateTime                    @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm             DateTime                    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  gravar                    Boolean                     @default(false)
+  gravacaoSituacao          SituacaoGravacaoLigacao     @default(SEM) @map("gravacao_situacao")
+  /// R30: versão para ouvir (mono, ogg/opus). Sem chave estrangeira: o registro do arquivo é do `ArquivosService`.
+  gravacaoArquivoId         String?                     @map("gravacao_arquivo_id") @db.Uuid
+  /// R30: a gravação original (webm/opus estéreo, atendente à esquerda e cliente à direita), base do reprocessamento.
+  gravacaoOriginalArquivoId String?                     @map("gravacao_original_arquivo_id") @db.Uuid
+  /// R30: total de partes que o navegador declarou ao finalizar.
+  gravacaoTotalPartes       Int?                        @map("gravacao_total_partes")
+  gravacaoFinalizadaEm      DateTime?                   @map("gravacao_finalizada_em") @db.Timestamptz(3)
+  gravacaoDuracaoSegundos   Int?                        @map("gravacao_duracao_segundos")
+  /// R30: a guarda venceu (ou o contato foi anonimizado) e a gravação e a transcrição foram apagadas.
+  gravacaoRemovidaEm        DateTime?                   @map("gravacao_removida_em") @db.Timestamptz(3)
+  gravacaoErro              String?                     @map("gravacao_erro")
+  transcricaoSituacao       SituacaoTranscricaoLigacao? @map("transcricao_situacao")
+  /// `{versao, idioma, modelo, trechos:[{falante:'atendente'|'cliente'|'participante', inicio, fim, texto}]}`.
+  transcricao               Json?
+  transcricaoErro           String?                     @map("transcricao_erro")
+  transcricaoProcessadaEm   DateTime?                   @map("transcricao_processada_em") @db.Timestamptz(3)
+  resumoSituacao            SituacaoResumoLigacao?      @map("resumo_situacao")
+  /// `{assunto, pontosPrincipais, combinados, proximosPassos, sentimento, sentimentoMotivo, sugestoes:[{id, titulo, descricao, tipo, prazoDias, atividadeId, descartadaEm}], modelo}`.
+  resumo                    Json?
+  resumoErro                String?                     @map("resumo_erro")
+  resumoProcessadoEm        DateTime?                   @map("resumo_processado_em") @db.Timestamptz(3)
+  partesDaGravacao          LigacaoGravacaoParte[]
+  criadoEm                  DateTime                    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm              DateTime                    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
   @@unique([canalId, idMeta], map: "ligacoes_canal_id_meta_key", where: raw("(id_meta IS NOT NULL)"))
   @@unique([atendenteId], map: "ligacoes_uma_ativa_por_atendente_key", where: raw("((atendente_id IS NOT NULL) AND (estado IN ('CHAMANDO'::estado_ligacao, 'TOCANDO'::estado_ligacao, 'EM_ANDAMENTO'::estado_ligacao)))"))
@@ -3161,6 +3192,23 @@ model Ligacao {
   @@index([canalId, criadoEm])
   @@index([conversaId])
   @@map("ligacoes")
+}
+
+/// Parte da gravação (R30): trecho de ~5 s enviado pelo navegador, guardado no armazenamento até a
+/// ligação ser finalizada (então são juntadas na ordem e as partes saem).
+model LigacaoGravacaoParte {
+  id         String   @id @default(uuid()) @db.Uuid
+  ligacaoId  String   @map("ligacao_id") @db.Uuid
+  ligacao    Ligacao  @relation(fields: [ligacaoId], references: [id], onDelete: Cascade)
+  sequencia  Int
+  /// Chave do objeto no bucket (`ligacoes/<ligacaoId>/partes/<sequencia>`).
+  chave      String
+  tamanho    Int
+  sha256     String   @db.Char(64)
+  recebidaEm DateTime @default(now()) @map("recebida_em") @db.Timestamptz(3)
+
+  @@unique([ligacaoId, sequencia])
+  @@map("ligacoes_gravacao_partes")
 }
 
 /// Permissão do cliente para o CRM ligar (Calling API): uma por canal e contato.
@@ -3209,6 +3257,10 @@ model CanalLigacaoConfig {
   filaId               String?          @map("fila_id") @db.Uuid
   fila                 FilaAtendimento? @relation(fields: [filaId], references: [id], onDelete: SetNull)
   gravar               Boolean          @default(true)
+  /// R30: dias de guarda da gravação e da transcrição (o registro, a duração e o resumo ficam).
+  retencaoDias         Int              @default(365) @map("retencao_dias")
+  /// R30: áudio de aviso ("esta ligação pode ser gravada") que o navegador toca para o cliente ao atender.
+  avisoArquivoId       String?          @map("aviso_arquivo_id") @db.Uuid
   /// Segundos tocando antes de virar perdida (abaixo do prazo da Meta).
   tempoDeToqueSegundos Int              @default(25) @map("tempo_de_toque_segundos")
   mensagemPerdidaAtiva Boolean          @default(false) @map("mensagem_perdida_ativa")

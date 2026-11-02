@@ -96,6 +96,11 @@ export const EVENTOS_DO_SERVIDOR = {
   LIGACAO_ESTADO: 'ligacao.estado',
   /** Ligações: a ligação do atendente terminou (com a duração e o motivo). */
   LIGACAO_ENCERRADA: 'ligacao.encerrada',
+  /**
+   * Ligações (R30): a gravação, a transcrição ou o resumo terminou (ou falhou). Vai para a sala
+   * `usuario:<atendente>` e para a `conversa:<id>`; recarregue `GET /ligacoes/:id`.
+   */
+  LIGACAO_PROCESSADA: 'ligacao.processada',
   /** Ligações: a permissão do cliente para ligar mudou (sala `conversa:<id>`, para o botão "Ligar"). */
   LIGACAO_PERMISSAO: 'ligacao.permissao',
 } as const;
@@ -273,6 +278,18 @@ export interface CargaLigacaoEstado {
   atendidaEm?: string | null;
 }
 
+/** Estados do processamento da ligação (R30): o mesmo vocabulário do `GET /ligacoes/:id`. */
+export interface CargaLigacaoProcessada {
+  ligacaoId: string;
+  /** O que acabou de terminar. */
+  etapa: 'gravacao' | 'transcricao' | 'resumo';
+  gravacao: 'sem' | 'enviando' | 'pronta' | 'falhou';
+  transcricao:
+    'pendente' | 'processando' | 'pronta' | 'falhou' | 'desativada' | null;
+  resumo:
+    'pendente' | 'processando' | 'pronto' | 'falhou' | 'desativado' | null;
+}
+
 /** A permissão de ligação do contato (o mesmo corpo de `GET /ligacoes/permissoes`). */
 export type CargaLigacaoPermissao = Record<string, unknown> & {
   contatoId: string;
@@ -310,6 +327,7 @@ export interface CargasDoServidor {
   'ligacao.resposta_sdp': CargaLigacaoRespostaSdp;
   'ligacao.estado': CargaLigacaoEstado;
   'ligacao.encerrada': CargaLigacaoEncerrada;
+  'ligacao.processada': CargaLigacaoProcessada;
   'ligacao.permissao': CargaLigacaoPermissao;
 }
 

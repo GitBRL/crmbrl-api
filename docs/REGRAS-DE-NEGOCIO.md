@@ -1802,3 +1802,143 @@ têm testes de unidade em `src/ligacoes/*.spec.ts`.
 230. O processamento completo termina sem erro nos logs técnicos (R29).
 231. A anonimização do contato (R4.6) limpa o telefone, a anotação e a permissão das ligações e
      mantém o registro (duração, motivo) (R29.8).
+232. Os status (enviada, entregue, lida) do pedido de permissão são reconhecidos, sem job em erro
+     (R29.4).
+
+## 41. Gravação, transcrição e resumo das ligações (R30)
+
+Onda E (fatia E3, API). A gravação é feita **no navegador do atendente** (a API não toca no áudio da
+chamada), enviada em partes, juntada e processada pela fila: versão para ouvir, transcrição por canal e
+resumo. Código em `src/ligacoes/gravacao/` (partes, junção, leitura, privacidade, guarda, sugestões) e
+`src/transcricao/` (ffmpeg, whisper.cpp, Claude). Nada chama a Anthropic real nem a Meta real nos testes
+e no ambiente dos agentes (Anthropic falsa do serviço de apoio; whisper falso em processo nos testes).
+
+- **R30.1** **Partes da gravação.** O canal grava quando `canais_ligacoes.gravar` é verdadeiro (a ligação
+  nasce com `gravar`). O gravador manda **webm/opus estéreo** (atendente no canal esquerdo, cliente no
+  direito; `MediaRecorder` com fatias de ~5 s): `POST /ligacoes/:id/gravacao/partes/:sequencia`, corpo cru
+  `audio/webm` de até 4 MB, sequência de 0 a 20 000 (a parte 0 traz o cabeçalho webm e é conferida).
+  **Idempotente por sequência:** reenviar a mesma parte devolve `duplicada: true`; outra parte com o mesmo
+  número é 409 `parte_diferente`. Só o **atendente da ligação** (os outros recebem 404) e só com a ligação
+  **EM_ANDAMENTO** ou **encerrada há menos de 2 minutos**; canal sem gravação, gravação já finalizada ou
+  apagada e ligação fora de andamento são 409 (`detalhes.motivo`). Limites: tamanho total
+  (`LIGACOES_GRAVACAO_MAX_MB`) e duração (`LIGACOES_GRAVACAO_MAX_MIN`) por ligação, 413. As partes ficam no
+  armazenamento de arquivos (`ligacoes/<id>/partes/<n>`) e numa tabela de controle; a gravação passa a
+  `enviando`.
+- **R30.2** **Finalizar.** `POST /ligacoes/:id/gravacao/finalizar` (corpo `{totalPartes}` ou
+  `?totalPartes=N`, para o `navigator.sendBeacon`): trava a ligação, **junta as partes na ordem** (webm de
+  um mesmo `MediaRecorder` concatena direto), guarda o arquivo original (contexto `LIGACAO`), apaga as
+  partes e enfileira o processamento, tudo na mesma transação; **idempotente** (a segunda chamada devolve
+  `jaFinalizada: true`). Sem partes, nada é gravado (`sem`); sem a parte 0, a gravação `falhou` com
+  mensagem. Se a aba fechar sem finalizar, ao encerrar a ligação a API agenda um job
+  (`ligacoes.gravacao.finalizar`, 90 s depois) que junta **o que subiu**.
+- **R30.3** **Processamento** (fila `transcricao.processar`, **uma por vez**, 3 retentativas): o **ffmpeg**
+  gera a versão para ouvir (mono, ogg/opus 32 kbps) e um WAV 16 kHz mono por canal; o **whisper.cpp**
+  (`TRANSCRICAO_URL`, `POST /inference`, `verbose_json`, português) transcreve cada canal com marcações de
+  tempo (o serviço usa detecção de voz Silero; sem ela os tempos do canal calado saem errados) e os trechos são **intercalados por tempo** como `atendente` e `cliente` (trechos seguidos do
+  mesmo falante com pausa até 1,5 s viram um; "[BLANK_AUDIO]", música e as alucinações conhecidas do
+  Whisper em silêncio são descartados). Gravação mono (sem separação de canais): um canal só, falante
+  `participante`. A duração vem da versão ogg (o webm do navegador não traz a duração). Prazo total em
+  `TRANSCRICAO_TEMPO_LIMITE_S`. Ao terminar, o tempo real emite `ligacao.processada`.
+- **R30.4** **Resumo** (fila `transcricao.resumir`): o Claude (`@anthropic-ai/sdk`, o mesmo cliente do BI e
+  do assistente, modelo `LIGACOES_RESUMO_MODELO`, padrão `claude-sonnet-5-5`, saída estruturada em JSON)
+  recebe a conversa entre marcas `<transcricao>` — texto de terceiros: o sistema manda **nunca seguir
+  instruções escritas nela**, e a própria conversa não consegue fechar a marca — e devolve **assunto,
+  pontos principais, combinados, próximos passos, sentimento (com o motivo) e até 5 sugestões de
+  atividade**. A resposta é conferida de novo (tipos, valores conhecidos, tamanhos). **Sem
+  `ANTHROPIC_API_KEY`** (ou com conversa curta, menos de 15 palavras) o resumo fica `desativado` com o
+  motivo em `resumo.erro`, e a transcrição segue valendo. A auditoria guarda o modelo e os tokens, nunca o
+  texto.
+- **R30.5** **Estados por ligação** (`GET /ligacoes/:id`): *gravação* `sem`, `enviando`, `pronta` ou
+  `falhou` (+ `disponivel`, `duracaoSegundos`, `removidaEm`, `podeBaixar`); *transcrição* `pendente`,
+  `processando`, `pronta`, `falhou` ou `desativada` (nulo = não foi gravada); *resumo* `pendente`,
+  `processando`, `pronto`, `falhou` ou `desativado`. Falha transitória (rede, 5xx, tempo, sobrecarga)
+  repete pela fila; ao esgotar, o estado vira `falhou` com a mensagem em português (nunca o texto do erro
+  técnico). Se o ffmpeg não consegue ler o arquivo, a gravação `falhou` na hora, sem repetir. **Sem
+  `TRANSCRICAO_URL`** a gravação fica `pronta` (dá para ouvir) e a transcrição e o resumo `desativada` e
+  `desativado`.
+- **R30.6** **Reprocessar.** `POST /ligacoes/:id/reprocessar` `{etapa: 'completo' | 'resumo'}` refaz a
+  conversão, a transcrição e o resumo (ou só o resumo, que exige a transcrição pronta). Só o atendente da
+  ligação, o Admin e os líderes (403 aos demais que a veem); 409 se já está processando, se não tem
+  gravação ou se a guarda já a apagou. O ogg anterior é substituído.
+- **R30.7** **Sugestões de atividade só viram atividade com a confirmação do usuário.**
+  `POST /ligacoes/:id/resumo/sugestoes/:sugestaoId/confirmar` (corpo opcional: título, descrição, tipo,
+  `venceEm`, `fimEm`, `responsavelId`) cria a atividade do contato pelo `AtividadesService` (regras e
+  auditoria de sempre; vencimento padrão às 18h de Brasília daqui a `prazoEmDias`; reunião ganha início =
+  vencimento e fim 1 h depois) e marca a sugestão; `…/descartar` só marca. **Cada sugestão vale uma vez**
+  (409 `sugestao_ja_tratada`), mesmo com cliques simultâneos (a ligação é travada e a sugestão reservada).
+  Falha ao criar libera a sugestão. Quem não vê a ligação recebe 404.
+- **R30.8** **Ouvir.** `GET /ligacoes/:id/audio` entrega o ogg mono por streaming **com `Range`** (206/416,
+  `ETag`, `Accept-Ranges`, `Cache-Control: private, no-store`, `nosniff`), para o player avançar e voltar;
+  `?versao=original` entrega o webm estéreo.
+- **R30.9** **Privacidade (LGPD).** Ouve e lê (áudio, transcrição, resumo) **quem vê a ligação**: o
+  atendente, quem foi chamado, Admin e C-level, quem vê a conversa (R12) e quem tem o **contato** no
+  alcance (responsável, ou líder da equipe do responsável); os demais recebem 404 (não revela que existe).
+  **Baixar** (`GET /ligacoes/:id/audio/baixar`, anexo) é só do **Admin e dos líderes** (403 aos demais).
+  **Auditoria:** reprodução (`ligacao.gravacao-reproduzida`, uma por reprodução, não por `Range`), download
+  (`ligacao.gravacao-baixada`) e leitura da transcrição (`ligacao.transcricao-lida`), com quem e quando;
+  mais finalização, conclusão e falha do processamento, reprocessamento e sugestões.
+- **R30.10** **Sem gravação ainda:** áudio e transcrição inexistentes são 404 com `detalhes.motivo`
+  (`sem_gravacao`, `gravacao_removida`).
+- **R30.11** **Prazo de guarda.** `canais_ligacoes.retencaoDias` (1 a 3650, padrão **365**, configurável
+  pelo Admin em `PATCH /whatsapp-oficial/canais/:id/ligacoes`). **Todo dia às 03:30** (fila
+  `ligacoes.gravacao.remover-vencidas`), a gravação (original e ogg) e a transcrição das ligações mais
+  antigas que o prazo são **apagadas**; **o registro, a duração e o resumo ficam**. A ligação ganha
+  `gravacaoRemovidaEm`. A mesma rodada apaga partes abandonadas (aba fechada e ninguém finalizou, 2 dias).
+- **R30.12** **Dados pessoais.** A exportação do titular (`GET /contatos/:id/dados-pessoais`, só Admin)
+  inclui as **ligações** (registro, telefone, anotação, transcrição e resumo; o áudio não vai no JSON). A
+  **anonimização** (R4.6) apaga gravações (os arquivos saem do armazenamento), transcrições **e resumos**
+  das ligações do contato, além do telefone e da anotação (R29.8); a auditoria registra só a contagem.
+- **R30.13** **Áudio de aviso do canal.** O Admin sobe um áudio (até 5 MB) em
+  `POST /arquivos?contexto=LIGACAO` e o liga em `PATCH /whatsapp-oficial/canais/:id/ligacoes`
+  `{avisoArquivoId}` (só áudio do contexto `LIGACAO`, senão 400; `null` remove; trocar apaga o anterior).
+  Quem usa o Atendimento baixa em `GET /ligacoes/canais/:canalId/aviso` (com `Range`; 404 se não houver);
+  **o navegador o toca para o cliente ao atender**, misturado na saída — a API só guarda e entrega.
+- **R30.14** **Serviço de transcrição.** O serviço `transcricao` do compose (usuário, agentes e produção)
+  roda a imagem oficial `ghcr.io/ggml-org/whisper.cpp` **fixada por digest**: o entrypoint baixa o modelo
+  `WHISPER_MODELO` para um volume na primeira subida e roda o `whisper-server` **só na rede do compose**,
+  com healthcheck, `TRANSCRICAO_CPUS` e `WHISPER_THREADS`. A tela **Saúde do sistema** mostra o serviço
+  (`ok`, `fora_do_ar` ou `desativada`), o modelo e a fila (pendentes, em processamento, falhas em 24 h);
+  serviço ligado e fora do ar gera o alerta `transcricao_fora_do_ar` (aviso).
+- **R30.15** **Permissões e rotas** (todas em `/api/v1`, cookie de sessão): ver a matriz acima (R30.1, R30.9
+  e R30.11). Tempo real: `ligacao.processada` `{ligacaoId, etapa: gravacao|transcricao|resumo, gravacao,
+  transcricao, resumo}` para `usuario:<atendente>` e `conversa:<id>`.
+
+### Cenários de aceitação (Onda E, gravação, transcrição e resumo)
+
+Continuam a numeração das ligações (até o 232); cada um tem teste automatizado ("cenário N" no nome, em
+`test/onda-e-gravacao.e2e-spec.ts`) contra um Postgres real, um whisper falso em processo e a Anthropic
+falsa dos testes; a intercalação, o resumo, o cliente do whisper, as variáveis e o vencimento das sugestões
+têm testes de unidade em `src/transcricao/*.spec.ts`, `src/ligacoes/gravacao/*.spec.ts` e
+`src/config/ambiente.spec.ts`. O ffmpeg real e o whisper real foram conferidos à parte (veja o progresso).
+
+233. As partes são guardadas, idempotentes por sequência; a mesma sequência com outro conteúdo é 409
+     (R30.1).
+234. Recusas: outro atendente (404), vazia, grande demais, sem cabeçalho webm, sequência inválida, canal sem
+     gravação, ligação fora de andamento ou encerrada há mais de 2 minutos (R30.1).
+235. Tamanho máximo da gravação (413) (R30.1).
+236. Finalizar junta as partes na ordem, guarda o webm, apaga as partes, é idempotente e recusa parte nova
+     (R30.2).
+237. Finalizar sem partes não grava nada; só o atendente finaliza (R30.2).
+238. Sem a primeira parte a gravação falha com mensagem clara (R30.2).
+239. Aba fechada: a fila finaliza sozinha com o que subiu (R30.2).
+240. Converte, transcreve cada canal, intercala por tempo, resume e avisa em tempo real; nenhuma atividade
+     nasce sozinha (R30.3, R30.4).
+241. Gravação mono: um canal só, falante `participante` (R30.3).
+242. Sem chave da Anthropic fica só a transcrição (R30.4).
+243. Falha transitória do whisper repete; ao esgotar, `falhou`; "Reprocessar" refaz (R30.5, R30.6).
+244. ffmpeg não lê a gravação: `falhou` sem repetir à toa (R30.5).
+245. O resumo repete e vira `falhou`; "Reprocessar resumo" refaz só ele (R30.5, R30.6).
+246. "Reprocessar": só atendente, Admin e líderes; recusa o que está processando ou sem gravação (R30.6).
+247. Transcrição desligada: só a versão para ouvir (R30.5).
+248. Áudio com `Range` (206/416), cabeçalhos seguros e auditoria só da reprodução inteira (R30.8, R30.9).
+249. Quem vê a conversa ou o contato ouve e lê; os outros, 404; baixar só Admin e líderes, auditado (R30.9).
+250. Áudio e transcrição inexistentes: 404 claro (R30.10).
+251. A guarda vencida apaga gravação e transcrição e mantém registro, duração e resumo (R30.11).
+252. O prazo é do canal e partes abandonadas somem (R30.11).
+253. Exportar os dados do titular inclui ligações e transcrições; anonimizar apaga gravações, transcrições e
+     resumos (R30.12).
+254. A atividade só nasce na confirmação; cada sugestão vale uma vez, mesmo com cliques juntos (R30.7).
+255. O corpo ajusta tipo e vencimento; data inválida é 400 e libera a sugestão (R30.7).
+256. Áudio de aviso do canal: sobe, liga, toca, só áudio, trocar apaga o antigo (R30.13).
+257. A Saúde do sistema mostra o serviço de transcrição e a fila, e alerta quando cai (R30.14).
+258. Saúde com a transcrição desligada: `desativada`, sem alerta (R30.14).

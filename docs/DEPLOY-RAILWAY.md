@@ -27,6 +27,7 @@ encontra por `<nome>.railway.internal`.
 | `arquivos` | imagem Docker `bitnamilegacy/minio:2025.7.23-debian-12-r5` (a mesma do compose)             | `/bitnami/minio/data`        | não               |
 | `api`      | repositório `crmbrl-api` (usa o `Dockerfile`)                                               | —                            | não               |
 | `whatsapp` | repositório `crmbrl-api` de novo, com o comando de início da seção 4                        | `/app/trava`, 1 GB (seção 4) | não               |
+| `transcricao` | imagem Docker `ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e9c36861c140b748eb6fd982a4aee52a8a503018cb6703c571f2fa1b5` (a mesma do compose; opcional) | `/modelos`, 2 GB | não |
 | `web`      | repositório `crmbrl` (usa o `Dockerfile`)                                                   | —                            | **sim** (domínio) |
 
 Só o `web` recebe domínio: ele serve o front e repassa `/api` para a `api` pela rede privada, como no
@@ -71,12 +72,19 @@ SMTP_PORTA=587
 SMTP_USUARIO=...
 SMTP_SENHA=...
 SMTP_REMETENTE=BRL CRM <crm@suaempresa.com.br>
-# opcionais: ANTHROPIC_API_KEY, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
+# transcrição das ligações (R30, opcional; sem TRANSCRICAO_URL a gravação continua, sem texto):
+TRANSCRICAO_URL=http://transcricao.railway.internal:8080
+WHISPER_MODELO=small
+# opcionais: ANTHROPIC_API_KEY, LIGACOES_RESUMO_MODELO, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
 #            VAPID_CHAVE_PUBLICA, VAPID_CHAVE_PRIVADA, VAPID_ASSUNTO
 
 # --- whatsapp ---
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 PORT=3100                                             # a porta que o healthcheck do Railway consulta
+
+# --- transcricao (opcional) ---
+WHISPER_MODELO=small                                  # o mesmo valor da api
+WHISPER_THREADS=4
 
 # --- web ---
 PORT=8080
@@ -101,6 +109,18 @@ RAILWAY_RUN_UID=0                                     # a imagem roda sem root e
     de subir o novo. Sem isso, os dois gateways ficam no ar juntos por alguns segundos com os mesmos números,
     e o WhatsApp derruba as conexões.
   - **Sempre 1 réplica**, pelo mesmo motivo.
+- **transcricao (opcional):** serviço do whisper.cpp para transcrever as ligações gravadas.
+  - Custom Start Command: `/bin/bash -c 'curl -fsSL https://raw.githubusercontent.com/<sua-conta>/crmbrl-api/main/scripts/transcricao-entrypoint.sh -o /entrypoint.sh && exec /bin/bash /entrypoint.sh'`
+    (o Railway não monta arquivos do repositório numa imagem pronta; se preferir, crie o serviço a partir do
+    repositório `crmbrl-api` com um Dockerfile de duas linhas: `FROM ghcr.io/ggml-org/whisper.cpp@sha256:…` e
+    `COPY scripts/transcricao-entrypoint.sh /entrypoint.sh`, com o comando de início `/bin/bash /entrypoint.sh`).
+  - Volume de 2 GB em `/modelos` (o modelo é baixado só na primeira subida).
+  - Sem domínio público: a `api` o chama por `transcricao.railway.internal:8080`. Healthcheck Path `/health`
+    (a primeira subida leva alguns minutos, pelo download do modelo).
+  - **Recursos:** o modelo recomendado é `small` (~1 GB de memória; 4 vCPU deixam a transcrição de uma
+    ligação de 10 minutos em 3 a 6 minutos). Com folga, `large-v3-turbo-q5_0` (~2 GB). O plano precisa
+    comportar 4 vCPU e 3 GB só para ele; sem isso, não crie o serviço e deixe `TRANSCRICAO_URL` vazia.
+  - 1 réplica.
 - **web:** Networking > Custom Domain com `crm.suaempresa.com.br`; crie no DNS o registro que o Railway
   mostrar (o certificado sai sozinho). Healthcheck Path `/`.
 - **api, whatsapp e web:** em Source, branch `main` e "Wait for CI" ligado (só publica se a CI do GitHub

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ArquivosService } from '../arquivos/arquivos.service';
+import { apagarGravacoes } from '../ligacoes/gravacao/remocao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { contextoAtual } from '../comum/contexto/contexto-requisicao';
@@ -937,7 +938,15 @@ export class ContatosService {
       where: { entidadeId: contatoId },
       data: { dados: Prisma.DbNull },
     });
-    // Ligações do WhatsApp (R29): o telefone, a anotação e o que a E3 guardar saem; o registro (duração, motivo) fica.
+    // Ligações do WhatsApp (R29/R30): o telefone, a anotação, as gravações, as transcrições e os
+    // resumos saem; o registro (duração, motivo) fica. Os arquivos saem do armazenamento por job.
+    const gravacoes = await apagarGravacoes(
+      tx,
+      this.arquivos,
+      { contatoId },
+      'LGPD (R4.6)',
+      { apagarResumo: true },
+    );
     const ligacoes = await tx.ligacao.updateMany({
       where: { contatoId },
       data: {
@@ -962,6 +971,7 @@ export class ContatosService {
       enviosDaReguaLimpos: envios.count,
       linhasDeImportacaoLimpas: linhas.count,
       ligacoesLimpas: ligacoes.count,
+      gravacoesApagadas: gravacoes.arquivos,
       permissoesDeLigacaoApagadas: permissoes.count,
     };
   }
@@ -987,7 +997,7 @@ export class ContatosService {
       if (!contato) {
         throw new NaoEncontradoException('Contato não encontrado.');
       }
-      const [identificadores, negocios, atividades, conversas] =
+      const [identificadores, negocios, atividades, conversas, ligacoes] =
         await Promise.all([
           tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
           tx.negocio.findMany({ where: { contatoId: id } }),
@@ -1010,6 +1020,30 @@ export class ContatosService {
               },
             },
           }),
+          tx.ligacao.findMany({
+            where: { contatoId: id },
+            orderBy: { iniciadaEm: 'asc' },
+            select: {
+              id: true,
+              direcao: true,
+              estado: true,
+              motivo: true,
+              telefone: true,
+              iniciadaEm: true,
+              atendidaEm: true,
+              encerradaEm: true,
+              duracaoSegundos: true,
+              anotacao: true,
+              gravacaoSituacao: true,
+              gravacaoDuracaoSegundos: true,
+              gravacaoRemovidaEm: true,
+              transcricaoSituacao: true,
+              transcricao: true,
+              resumoSituacao: true,
+              resumo: true,
+              atendente: { select: { nome: true } },
+            },
+          }),
         ]);
       await this.auditoria.registrar(tx, {
         acao: 'contato.dados-exportados',
@@ -1021,6 +1055,7 @@ export class ContatosService {
           conversas: conversas.length,
           negocios: negocios.length,
           atividades: atividades.length,
+          ligacoes: ligacoes.length,
         },
       });
       return {
@@ -1036,6 +1071,8 @@ export class ContatosService {
         negocios,
         atividades,
         conversas,
+        // R30: o registro de cada ligação, a transcrição e o resumo (o áudio não vai no JSON).
+        ligacoes,
       };
     });
   }

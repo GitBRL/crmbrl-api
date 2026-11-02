@@ -98,6 +98,14 @@ describe('lerAmbiente', () => {
         graphVersao: META_GRAPH_VERSAO_PADRAO,
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
+      transcricao: {
+        url: null,
+        modelo: 'small',
+        tempoLimiteSegundos: 1800,
+        gravacaoMaxBytes: 200 * 1024 * 1024,
+        gravacaoMaxMinutos: 180,
+        resumoModelo: 'claude-sonnet-5-5',
+      },
       anthropic: { configurada: false, urlBase: null },
       ticketHub: {
         url: null,
@@ -482,6 +490,44 @@ describe('lerAmbiente', () => {
         problemasDe({ DATABASE_URL: URL_DO_BANCO, META_GRAPH_VERSAO: '24' }),
       ).toEqual([expect.stringContaining('META_GRAPH_VERSAO precisa ter')]);
     });
+  });
+
+  it('R30 — transcrição: URL vazia desliga; limites e modelos validados', () => {
+    expect(ler({ TRANSCRICAO_URL: '  ' }).transcricao.url).toBeNull();
+    const ligada = ler({
+      TRANSCRICAO_URL: 'http://transcricao:8080/',
+      WHISPER_MODELO: 'large-v3-turbo-q5_0',
+      TRANSCRICAO_TEMPO_LIMITE_S: '600',
+      LIGACOES_GRAVACAO_MAX_MB: '50',
+      LIGACOES_GRAVACAO_MAX_MIN: '60',
+      LIGACOES_RESUMO_MODELO: 'claude-haiku-5-5',
+    }).transcricao;
+    expect(ligada).toEqual({
+      url: 'http://transcricao:8080',
+      modelo: 'large-v3-turbo-q5_0',
+      tempoLimiteSegundos: 600,
+      gravacaoMaxBytes: 50 * 1024 * 1024,
+      gravacaoMaxMinutos: 60,
+      resumoModelo: 'claude-haiku-5-5',
+    });
+    expect(
+      problemasDe({
+        DATABASE_URL: URL_DO_BANCO,
+        TRANSCRICAO_URL: 'ftp://x',
+        WHISPER_MODELO: '../etc/passwd',
+        TRANSCRICAO_TEMPO_LIMITE_S: '5',
+        LIGACOES_GRAVACAO_MAX_MB: '0',
+        LIGACOES_GRAVACAO_MAX_MIN: 'muito',
+        LIGACOES_RESUMO_MODELO: 'a b',
+      }),
+    ).toEqual([
+      expect.stringContaining('TRANSCRICAO_URL precisa ser'),
+      expect.stringContaining('WHISPER_MODELO precisa ter'),
+      expect.stringContaining('TRANSCRICAO_TEMPO_LIMITE_S precisa ser'),
+      expect.stringContaining('LIGACOES_GRAVACAO_MAX_MB precisa ser'),
+      expect.stringContaining('LIGACOES_GRAVACAO_MAX_MIN precisa ser'),
+      expect.stringContaining('LIGACOES_RESUMO_MODELO precisa ter'),
+    ]);
   });
 
   it('R21 — Anthropic: só a presença da chave, nunca o valor; base opcional', () => {
