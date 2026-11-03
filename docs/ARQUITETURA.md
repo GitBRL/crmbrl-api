@@ -1089,6 +1089,62 @@ Regras: R29.9 a R29.11, R30.16 e R30.17 (e a seção 42) em `REGRAS-DE-NEGOCIO.m
   chamados recusaram, evento `recusada_por_todos` da máquina (`PERDIDA`, `recusada_pelos_atendentes`) e
   `reject` na Meta depois do commit. **Corrida:** `completarDuracao` só mexe em ligação `ENCERRADA`.
 
+### Peças e fluxos da Onda G (SDR com IA)
+
+Regras: R31 (seção 43 de `REGRAS-DE-NEGOCIO.md`). Fatia G1 (API). Módulo `SdrModule` (`src/sdr/`), importado pelo
+`ChatbotModule` (passo `acao.passar_para_ia`) e pelo `AppModule`.
+
+- **Pontos de contato com o Atendimento (sem dependência circular).** `AtendimentoModule` exporta
+  `GanchosDoAtendimento` (`ganchos-do-atendimento.ts`): o `MotorSdr` se registra no `onModuleInit` e o
+  `AtendimentoService.receber` o chama, na transação da entrada, quando a conversa é nova — ele devolve
+  `manterSemResponsavel` e a conversa não passa pela distribuição. O `MotorDoAtendimento.criarSaida` publica
+  `conversa.mensagem_da_equipe` quando quem escreve é uma pessoa (a outbox entrega ao SDR). O `ConversasService`
+  e o `MensagensService` são exportados para o SDR (visibilidade R12, "Assumir", envio da sugestão aprovada). O
+  `AdaptadorCanal` ganhou `digitar?(conversa, canal, ativo, nome?)` ("digitando…" do WhatsApp e do chat do site).
+  O resumo da conversa (`ConversaResumoDto`) ganhou `sdr` (`situacao`, `modo`, `nota`, `temperatura`).
+- **Funis.** `NegociosService.moverAutomatico(tx, negocioId, etapaId)` leva um negócio aberto a outra etapa do
+  mesmo funil por automação (sem permissão de pessoa) e executa as passagens (R5.7); o SDR o usa para pôr o
+  negócio do Marketing na etapa de gatilho. Sem negócio no Marketing, `criarAutomatico` cria um na etapa de
+  gatilho (que já executa a passagem).
+- **Dados** (migration `20261103120000_onda_g_sdr`): `sdr_configuracoes` (linha única `padrao`: persona, modelo,
+  esforço, espera de agrupamento, limites, orçamento, nota mínima, faixas, regras de passagem em JSON, versão da
+  base, avisos de orçamento por mês), `sdr_canais` (modo por canal), `sdr_artigos` + `sdr_artigos_versoes`,
+  `sdr_criterios` (chave única entre os não excluídos), `sdr_conversas` (estado por conversa: situação, modo,
+  origem, nota, temperatura, resumo, contadores, tokens, `processado_ate`, `execucao_desde` = trava,
+  `humano_id`, `negocio_id`), `sdr_valores` (valor por critério, com confiança, origem e destino),
+  `sdr_decisoes` (linha do tempo e registro de tokens; `conversa_id` nulo = simulador) e `sdr_sugestoes`.
+- **Quem faz o quê.** `MotorSdr`: gate da conversa nova, eventos do Atendimento (`mensagem.recebida` enfileira o
+  turno; `conversa.mensagem_da_equipe`, `conversa.atribuida`, `conversa.transferida`, `conversa.resolvida` mudam o
+  estado), o job `sdr.turno` e a aplicação do resultado. `QualificacaoSdrService`: guarda os valores, escreve nos
+  campos do contato e do negócio e faz a passagem para o Comercial. `EfeitosSdrService`: enviar como IA,
+  passar para humano, desqualificar e qualificar (os mesmos efeitos no automático e na aprovação da sugestão).
+  `TransicoesSdrService`: trava do estado, decisões (com auditoria), "pessoa assumiu", encerrar e o aviso de
+  tempo real. `ConfiguracaoSdrService` e `OrcamentoSdrService`: configuração do Admin e custo.
+  `ConversasSdrService`: leitura para as telas, assumir, devolver, aprovar e descartar. `SimuladorSdrService`.
+- **Chamada ao Claude.** `ChamadaClaudeService` (o mesmo do assistente e da análise do BI; `maxRetries: 0`, tempo
+  de 60 s e 2 tentativas por chamada, `OPCOES_CHAMADA_SDR`), com `CLIENTE_ANTHROPIC` injetável (nos testes, falso).
+  Pedido: `output_config.format = json_schema` (`turno_sdr`), esforço configurável, `cache_control` no bloco de
+  configuração/base, `betas: ['server-side-fallback-2026-07-01']` + `fallbacks: 'default'` nos modelos que
+  aceitam. Não usa `tool_choice` forçado (recusado pelo Sonnet 5.5). A chave nunca passa pelo código.
+- **Turno em passos.** (1) o job carrega o estado; se resolvida, encerra; se o modo é automático e uma pessoa
+  escreveu desde que a IA assumiu, vira `HUMANO`; (2) com fluxo de chatbot em andamento, só avança
+  `processado_ate`; (3) junta as mensagens novas e espera a janela de agrupamento (adia até 6 vezes); (4) pega a
+  trava (`UPDATE … WHERE execucao_desde IS NULL OR vencida`); (5) bloqueios (canal desligado ou inativo, chave
+  ausente, opt-out, orçamento, tokens e mensagens da conversa, janela do canal) passam para a equipe sem chamar a
+  IA; (6) monta o pedido, "digitando…" e a chamada; (7) numa transação: confere de novo a situação e se uma pessoa
+  respondeu, interpreta os critérios, grava valores, nota e temperatura, decide a ação efetiva (limites de
+  avanço e de mensagens), aplica (automático) ou cria a sugestão (sugestão), registra a decisão e o aviso de
+  orçamento; (8) solta a trava e, se chegou mensagem nova, enfileira outro turno.
+- **Eventos de domínio** (outbox): `sdr.lead_qualificado`, `sdr.passou_para_humano`, `sdr.lead_desqualificado`
+  (não estão em `EVENTOS_DE_WEBHOOK`; a G3 os oferece a webhooks e automações). **Tempo real:** `sdr.atualizado`
+  (salas da conversa) com `conversaId`, `situacao`, `modo`, `nota`, `temperatura`, `sugestaoPendente` e
+  `motivo`, além de `conversa.atualizada` (que já leva `sdr`). **Notificações:** `sdr.lead_qualificado`,
+  `sdr.passou_para_humano`, `sdr.orcamento`, `sdr.falha`.
+- **Endpoints** (`/api/v1/sdr`): configuração, canais, artigos (+ versões e restaurar), critérios (+ ordem e
+  modelo-captacao), campos-disponiveis, uso, decisoes e simulador/turno (Admin); conversas/:id (+ assumir e
+  devolver), sugestoes/:id/aprovar e descartar, contatos/:id/qualificacao e negocios/:id/qualificacao (quem vê). O
+  contrato detalhado está no OpenAPI (`/api/docs`) e no relatório da fatia.
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não

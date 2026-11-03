@@ -23,11 +23,14 @@ import { ResumoFunilDto } from '../../funis/dto/comum.dto';
 import {
   Area,
   DirecaoMensagem,
+  ModoSdr,
   MotivoAtribuicao,
   PrioridadeConversa,
   type Prisma,
+  SituacaoSdr,
   StatusConversa,
   StatusNegocio,
+  TemperaturaSdr,
   TipoAtor,
   TipoCanal,
   TipoMensagem,
@@ -68,6 +71,15 @@ export const INCLUIR_CONVERSA = {
   },
   fila: { select: { id: true, nome: true, area: true } },
   responsavel: { select: { id: true, nome: true, avatarUrl: true } },
+  /** Onda G: o SDR com IA (selo "IA atendendo", temperatura). */
+  sdr: {
+    select: {
+      situacao: true,
+      modo: true,
+      nota: true,
+      temperatura: true,
+    },
+  },
   ultimaMensagem: {
     select: {
       id: true,
@@ -177,6 +189,38 @@ export class SlaDaConversaDto {
 }
 
 /** Conversa como a lista do Atendimento mostra (e o tempo real manda). */
+/** Resumo do SDR com IA numa conversa (Onda G, R31). Nulo = a IA nunca atendeu. */
+export class SdrDaConversaDto {
+  @ApiProperty({
+    enum: SituacaoSdr,
+    enumName: 'SituacaoSdr',
+    description:
+      '`ATIVA` = a IA está atendendo (selo "IA atendendo"); as demais mostram por que parou.',
+  })
+  situacao: SituacaoSdr;
+
+  @ApiProperty({
+    enum: ModoSdr,
+    enumName: 'ModoSdr',
+    description: '`AUTOMATICO` responde sozinha; `SUGESTAO` só propõe.',
+  })
+  modo: ModoSdr;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description: '0 a 100.',
+  })
+  nota: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    enum: TemperaturaSdr,
+    enumName: 'TemperaturaSdr',
+  })
+  temperatura: TemperaturaSdr | null;
+}
+
 export class ConversaResumoDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -258,6 +302,14 @@ export class ConversaResumoDto {
   @ApiPropertyOptional({ nullable: true, type: String, format: 'uuid' })
   negocioId: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: SdrDaConversaDto,
+    description:
+      'SDR com IA (R31): situação, modo, nota e temperatura. Nulo = a IA nunca atendeu esta conversa.',
+  })
+  sdr: SdrDaConversaDto | null;
+
   @ApiProperty({ format: 'date-time' })
   criadoEm: string;
 
@@ -312,6 +364,14 @@ export class ConversaResumoDto {
       },
       janelaAte: iso(conversa.janelaAte),
       negocioId: conversa.negocioId,
+      sdr: conversa.sdr
+        ? {
+            situacao: conversa.sdr.situacao,
+            modo: conversa.sdr.modo,
+            nota: conversa.sdr.nota,
+            temperatura: conversa.sdr.temperatura,
+          }
+        : null,
       criadoEm: conversa.criadoEm.toISOString(),
       resolvidaEm: iso(conversa.resolvidaEm),
     };

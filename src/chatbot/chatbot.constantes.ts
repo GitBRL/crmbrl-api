@@ -38,6 +38,7 @@ export const MOTIVOS_DE_FIM = {
   CONVERSA_RESOLVIDA: 'conversa_resolvida',
   CONVERSA_TRANSFERIDA: 'conversa_transferida',
   TRANSFERIDA: 'transferida_para_humano',
+  PASSADA_PARA_IA: 'passada_para_a_ia',
   SEM_RESPOSTA: 'sem_resposta',
   RESPOSTAS_INVALIDAS: 'respostas_invalidas',
   FLUXO_EXCLUIDO: 'fluxo_excluido',

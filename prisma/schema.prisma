@@ -1279,6 +1279,8 @@ model Canal {
   ligacoes             Ligacao[]
   permissoesDeLigacao  PermissaoDeLigacao[]
   configuracaoLigacoes CanalLigacaoConfig?
+  /// Onda G: SDR com IA deste canal (modo desligado, automático ou sugestão).
+  sdr                  SdrCanal?
   conversas            Conversa[]
   mensagens            Mensagem[]
   identificadores      ContatoIdentificador[]
@@ -1439,6 +1441,10 @@ model Conversa {
   visitantes  WebchatVisitante[]
   execucoes   Execucao[]
   ligacoes    Ligacao[]
+  /// Onda G: estado do SDR com IA, decisões e sugestões desta conversa.
+  sdr         SdrConversa?
+  sdrDecisoes SdrDecisao[]
+  sdrSugestoes SdrSugestao[]
 
   @@unique([canalId, contatoId], map: "conversas_uma_em_aberto_key", where: raw("(status <> 'RESOLVIDA'::status_conversa)"))
   @@index([status, filaId])
@@ -3292,4 +3298,333 @@ model LigacaoWebhookEvento {
 
   @@index([recebidoEm])
   @@map("ligacoes_webhook_eventos")
+}
+
+// ---------------------------------------------------------------------------
+// SDR com IA (Onda G, R31)
+// ---------------------------------------------------------------------------
+
+/// Como o SDR atua num canal: desligado, responde sozinho (automático) ou só
+/// propõe a resposta ao atendente (sugestão).
+enum ModoSdr {
+  DESLIGADO
+  AUTOMATICO
+  SUGESTAO
+
+  @@map("modo_sdr")
+}
+
+/// Quem está com a conversa do ponto de vista do SDR. Só `ATIVA` deixa a IA agir.
+enum SituacaoSdr {
+  /// A IA está atendendo (ou, na sugestão, sugerindo).
+  ATIVA
+  /// Um humano assumiu: a IA parou até "Devolver para a IA".
+  HUMANO
+  /// A IA passou para a equipe (pedido do lead, assunto sensível, limite, falha…).
+  PASSADA_HUMANO
+  /// Qualificada: o negócio foi para o Comercial.
+  QUALIFICADA
+  /// Desqualificada: fica no Marketing com o motivo.
+  DESQUALIFICADA
+  /// A conversa foi resolvida.
+  ENCERRADA
+
+  @@map("situacao_sdr")
+}
+
+enum TipoCriterioSdr {
+  TEXTO
+  OPCAO
+  NUMERO
+  DATA
+  SIM_NAO
+
+  @@map("tipo_criterio_sdr")
+}
+
+/// Onde o valor descoberto é gravado: num campo do contato, do negócio ou só na qualificação.
+enum AlvoCriterioSdr {
+  NENHUM
+  CONTATO
+  NEGOCIO
+
+  @@map("alvo_criterio_sdr")
+}
+
+enum TemperaturaSdr {
+  QUENTE
+  MORNO
+  FRIO
+
+  @@map("temperatura_sdr")
+}
+
+enum AcaoSdr {
+  CONTINUAR
+  QUALIFICADO
+  DESQUALIFICADO
+  PASSAR_HUMANO
+
+  @@map("acao_sdr")
+}
+
+enum StatusSugestaoSdr {
+  PENDENTE
+  ENVIADA
+  DESCARTADA
+  /// Perdeu a vez: o lead escreveu de novo, um humano respondeu ou a IA foi parada.
+  OBSOLETA
+
+  @@map("status_sugestao_sdr")
+}
+
+enum TipoDecisaoSdr {
+  /// A IA assumiu a conversa (nova, chamada pelo fluxo ou devolvida).
+  ASSUMIU
+  /// Um turno da IA (resposta enviada ou sugerida, critérios, nota).
+  TURNO
+  QUALIFICADO
+  DESQUALIFICADO
+  PASSOU_HUMANO
+  HUMANO_ASSUMIU
+  DEVOLVIDA
+  /// Algo impediu a IA (orçamento, janela de 24 h, opt-out, limite).
+  BLOQUEIO
+  FALHA
+
+  @@map("tipo_decisao_sdr")
+}
+
+/// Configuração geral do SDR (uma linha, `chave = 'padrao'`).
+model SdrConfiguracao {
+  id                        String   @id @default(uuid()) @db.Uuid
+  chave                     String   @unique @default("padrao")
+  nomeAssistente            String   @default("Bia") @map("nome_assistente")
+  tom                       String   @default("Simpático, claro e objetivo, sem gírias.")
+  /// Texto da apresentação obrigatória como assistente virtual.
+  apresentacao              String   @default("Sou a Bia, assistente virtual da BRL.")
+  /// Enviada ao lead quando a conversa passa para uma pessoa.
+  mensagemPassagem          String   @default("Vou chamar uma pessoa da nossa equipe para continuar com você. Já passei o que conversamos, não precisa repetir.") @map("mensagem_passagem")
+  modelo                    String   @default("claude-sonnet-5-5")
+  esforco                   String   @default("low")
+  esperaAgrupamentoSegundos Int      @default(8) @map("espera_agrupamento_segundos")
+  maxMensagensPorConversa   Int      @default(30) @map("max_mensagens_por_conversa")
+  maxMensagensSemAvanco     Int      @default(8) @map("max_mensagens_sem_avanco")
+  maxTokensPorConversa      Int      @default(200000) @map("max_tokens_por_conversa")
+  /// Orçamento mensal de tokens (entrada + saída + cache). Nulo = sem orçamento.
+  orcamentoMensalTokens     Int?     @default(5000000) @map("orcamento_mensal_tokens")
+  notaMinimaQualificado     Int      @default(60) @map("nota_minima_qualificado")
+  faixaQuente               Int      @default(70) @map("faixa_quente")
+  faixaMorno                Int      @default(40) @map("faixa_morno")
+  /// `{ pedidoHumano, assuntoSensivel, baixaConfianca, confiancaMinima, semAvanco, reclamacao }`.
+  regrasPassagem            Json     @default("{\"pedidoHumano\": true, \"assuntoSensivel\": true, \"baixaConfianca\": true, \"confiancaMinima\": 0.4, \"semAvanco\": true, \"reclamacao\": true}") @map("regras_passagem")
+  /// Sobe a cada mudança na base de conhecimento (vai no registro de cada decisão).
+  baseVersao                Int      @default(1) @map("base_versao")
+  /// Avisos ao Admin já enviados por mês: `{ "2026-11": { "80": true, "100": true } }`.
+  avisosDeOrcamento         Json     @default("{}") @map("avisos_de_orcamento")
+  modeloCaptacaoAplicadoEm  DateTime? @map("modelo_captacao_aplicado_em") @db.Timestamptz(3)
+  atualizadoPorId           String?  @map("atualizado_por_id") @db.Uuid
+  criadoEm                  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm              DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("sdr_configuracoes")
+}
+
+/// Modo do SDR em cada canal (sem linha = desligado).
+model SdrCanal {
+  id              String   @id @default(uuid()) @db.Uuid
+  canalId         String   @unique @map("canal_id") @db.Uuid
+  canal           Canal    @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  modo            ModoSdr  @default(DESLIGADO)
+  atualizadoPorId String?  @map("atualizado_por_id") @db.Uuid
+  criadoEm        DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("sdr_canais")
+}
+
+/// Artigo da base de conhecimento do SDR (cursos, valores, condições, FAQ…).
+model SdrArtigo {
+  id              String   @id @default(uuid()) @db.Uuid
+  titulo          String
+  conteudo        String
+  ordem           Int      @default(0)
+  ativo           Boolean  @default(true)
+  versaoAtual     Int      @default(1) @map("versao_atual")
+  criadoPorId     String?  @map("criado_por_id") @db.Uuid
+  atualizadoPorId String?  @map("atualizado_por_id") @db.Uuid
+  criadoEm        DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm      DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  versoes SdrArtigoVersao[]
+
+  @@index([ativo, ordem])
+  @@map("sdr_artigos")
+}
+
+/// Cada gravação de um artigo guarda uma versão (histórico imutável).
+model SdrArtigoVersao {
+  id        String    @id @default(uuid()) @db.Uuid
+  artigoId  String    @map("artigo_id") @db.Uuid
+  artigo    SdrArtigo @relation(fields: [artigoId], references: [id], onDelete: Cascade)
+  numero    Int
+  titulo    String
+  conteudo  String
+  ativo     Boolean
+  excluido  Boolean   @default(false)
+  autorId   String?   @map("autor_id") @db.Uuid
+  criadoEm  DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@unique([artigoId, numero])
+  @@map("sdr_artigos_versoes")
+}
+
+/// O que a IA precisa descobrir do lead (critério de qualificação).
+model SdrCriterio {
+  id          String          @id @default(uuid()) @db.Uuid
+  /// Identificador estável (minúsculas, números e `_`), usado no prompt e na saída da IA.
+  chave       String
+  rotulo      String
+  /// Instrução para a IA: o que perguntar e como entender a resposta.
+  instrucao   String
+  tipo        TipoCriterioSdr @default(TEXTO)
+  opcoes      String[]        @default([])
+  alvo        AlvoCriterioSdr @default(NENHUM)
+  /// Com `alvo = CONTATO`: `nome`, `cargo` ou `campos.<chave>`; com `NEGOCIO`: `campos.<chave>`.
+  campo       String?
+  peso        Int             @default(10)
+  obrigatorio Boolean         @default(false)
+  ordem       Int             @default(0)
+  ativo       Boolean         @default(true)
+  criadoEm    DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm  DateTime?       @map("excluido_em") @db.Timestamptz(3)
+
+  @@unique([chave], map: "sdr_criterios_chave_ativa_key", where: raw("(excluido_em IS NULL)"))
+  @@index([ativo, ordem])
+  @@map("sdr_criterios")
+}
+
+/// Estado do SDR numa conversa (uma linha por conversa que a IA atendeu ou atende).
+model SdrConversa {
+  id                  String         @id @default(uuid()) @db.Uuid
+  conversaId          String         @unique @map("conversa_id") @db.Uuid
+  conversa            Conversa       @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  situacao            SituacaoSdr    @default(ATIVA)
+  /// Modo do canal quando a IA assumiu (`AUTOMATICO` ou `SUGESTAO`).
+  modo                ModoSdr
+  /// `novo` (conversa nova), `fluxo` (chamada pelo chatbot) ou `devolvida`.
+  origem              String         @default("novo")
+  nota                Int?
+  temperatura         TemperaturaSdr?
+  /// Resumo atual da conversa para quem assumir.
+  resumo              String?
+  /// Motivo da última mudança de situação.
+  motivo              String?
+  mensagensIa         Int            @default(0) @map("mensagens_ia")
+  mensagensSemAvanco  Int            @default(0) @map("mensagens_sem_avanco")
+  tokensEntrada       Int            @default(0) @map("tokens_entrada")
+  tokensSaida         Int            @default(0) @map("tokens_saida")
+  tokensCacheLeitura  Int            @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita  Int            @default(0) @map("tokens_cache_escrita")
+  /// `criado_em` da última mensagem do lead já considerada pela IA.
+  processadoAte       DateTime?      @map("processado_ate") @db.Timestamptz(3)
+  /// Trava de execução: a IA está num turno desde este instante (vence em minutos).
+  execucaoDesde       DateTime?      @map("execucao_desde") @db.Timestamptz(3)
+  /// Quem assumiu (situação `HUMANO`).
+  humanoId            String?        @map("humano_id") @db.Uuid
+  situacaoDesde       DateTime       @default(now()) @map("situacao_desde") @db.Timestamptz(3)
+  /// Negócio criado no Comercial pela passagem (situação `QUALIFICADA`).
+  negocioId           String?        @map("negocio_id") @db.Uuid
+  qualificadaEm       DateTime?      @map("qualificada_em") @db.Timestamptz(3)
+  primeiraRespostaEm  DateTime?      @map("primeira_resposta_em") @db.Timestamptz(3)
+  criadoEm            DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm        DateTime       @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  valores SdrValor[]
+
+  @@index([situacao])
+  @@index([criadoEm])
+  @@map("sdr_conversas")
+}
+
+/// Valor descoberto de um critério, com a origem (IA) e a confiança.
+model SdrValor {
+  id            String      @id @default(uuid()) @db.Uuid
+  sdrConversaId String      @map("sdr_conversa_id") @db.Uuid
+  sdrConversa   SdrConversa @relation(fields: [sdrConversaId], references: [id], onDelete: Cascade)
+  chave         String
+  rotulo        String
+  /// Texto, número, booleano ou data (`AAAA-MM-DD`), já normalizado pelo tipo do critério.
+  valor         Json
+  /// 0 a 1.
+  confianca     Decimal     @db.Decimal(3, 2)
+  origem        String      @default("IA")
+  /// Onde foi gravado, por exemplo `contato:campos.curso` (nulo = só na qualificação).
+  destino       String?
+  mensagemId    String?     @map("mensagem_id") @db.Uuid
+  criadoEm      DateTime    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm  DateTime    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([sdrConversaId, chave])
+  @@map("sdr_valores")
+}
+
+/// Linha do tempo das decisões da IA (e do registro de tokens). `conversaId`
+/// nulo = simulador (conta no orçamento, mas não aparece em conversa nenhuma).
+model SdrDecisao {
+  id                 String          @id @default(uuid()) @db.Uuid
+  conversaId         String?         @map("conversa_id") @db.Uuid
+  conversa           Conversa?       @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  tipo               TipoDecisaoSdr
+  acao               AcaoSdr?
+  /// Frase curta para a linha do tempo ("Descobriu: curso = Enfermagem").
+  titulo             String
+  motivo             String?
+  resumo             String?
+  resposta           String?
+  /// Critérios que a IA devolveu (`[{ chave, valor, confianca }]`).
+  criterios          Json?
+  nota               Int?
+  temperatura        TemperaturaSdr?
+  modo               ModoSdr?
+  modelo             String?
+  baseVersao         Int?            @map("base_versao")
+  mensagemId         String?         @map("mensagem_id") @db.Uuid
+  usuarioId          String?         @map("usuario_id") @db.Uuid
+  tokensEntrada      Int             @default(0) @map("tokens_entrada")
+  tokensSaida        Int             @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int             @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int             @default(0) @map("tokens_cache_escrita")
+  tentativas         Int             @default(1)
+  simulador          Boolean         @default(false)
+  criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([conversaId, criadoEm])
+  @@index([criadoEm])
+  @@map("sdr_decisoes")
+}
+
+/// Resposta proposta pela IA no modo sugestão, esperando o atendente.
+model SdrSugestao {
+  id                String            @id @default(uuid()) @db.Uuid
+  conversaId        String            @map("conversa_id") @db.Uuid
+  conversa          Conversa          @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  decisaoId         String?           @map("decisao_id") @db.Uuid
+  texto             String
+  acao              AcaoSdr
+  motivo            String?
+  resumo            String?
+  /// Critérios que a IA devolveu (só dados; a gravação acontece ao aprovar).
+  criterios         Json?
+  status            StatusSugestaoSdr @default(PENDENTE)
+  resolvidaEm       DateTime?         @map("resolvida_em") @db.Timestamptz(3)
+  resolvidaPorId    String?           @map("resolvida_por_id") @db.Uuid
+  mensagemEnviadaId String?           @map("mensagem_enviada_id") @db.Uuid
+  textoEnviado      String?           @map("texto_enviado")
+  criadoEm          DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([conversaId, status])
+  @@map("sdr_sugestoes")
 }

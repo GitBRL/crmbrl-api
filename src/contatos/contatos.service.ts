@@ -962,7 +962,29 @@ export class ContatosService {
     const permissoes = await tx.permissaoDeLigacao.deleteMany({
       where: { contatoId },
     });
+    // SDR com IA (R31): os valores descobertos, as sugestões e os textos das decisões saem; o
+    // registro (tipo, tokens, nota, temperatura) fica.
+    const valoresDoSdr = await tx.sdrValor.deleteMany({
+      where: { sdrConversa: { conversaId: { in: conversaIds } } },
+    });
+    await tx.sdrSugestao.deleteMany({
+      where: { conversaId: { in: conversaIds } },
+    });
+    await tx.sdrConversa.updateMany({
+      where: { conversaId: { in: conversaIds } },
+      data: { resumo: null, motivo: null },
+    });
+    await tx.sdrDecisao.updateMany({
+      where: { conversaId: { in: conversaIds } },
+      data: {
+        resposta: null,
+        resumo: null,
+        motivo: null,
+        criterios: Prisma.DbNull,
+      },
+    });
     return {
+      sdrValoresApagados: valoresDoSdr.count,
       identificadoresApagados: identificadores.count,
       conversasEncerradas: encerradas.count,
       mensagensLimpas: comTexto.count,

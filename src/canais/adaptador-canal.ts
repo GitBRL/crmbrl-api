@@ -101,6 +101,17 @@ export interface AdaptadorCanal {
     conversa: Conversa,
     canal: Canal,
   ): Promise<ResultadoEnvio>;
+  /**
+   * Opcional: mostra "digitando…" ao contato (usado pelo SDR com IA antes de
+   * responder). Melhor esforço: nunca lança e não faz nada se o canal não
+   * puder. `nome` é quem aparece digitando (canais que mostram o nome).
+   */
+  digitar?(
+    conversa: Conversa,
+    canal: Canal,
+    ativo: boolean,
+    nome?: string,
+  ): Promise<void>;
   /** Se a conversa aceita resposta comum agora (padrão: sim). */
   podeResponder?(conversa: Conversa, canal: Canal): PermissaoDeResposta;
   /**

@@ -11,7 +11,7 @@ Esta versão cobre a **Fase 1 — núcleo do CRM** e a **primeira parte da Fase 
 A)**: arquivos, atendimento omnichannel, gateway de WhatsApp próprio, chat do site,
 e-mail, Instagram e Messenger, tempo real e chat interno da equipe; e a **segunda parte
 da Fase 2 (Onda B)**: importação de contatos (R16), disparos (R17), chatbot (R18) e
-automações (R19), nas seções 21 a 26. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
+automações (R19), nas seções 21 a 26, e a **Onda G** (SDR com IA, R31) na seção 43. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
 e ganham seções aqui quando forem detalhadas.
 
 > Atualizado em 2026-10-30. Regras marcadas com **(proposta)** dependem de validação do
@@ -2046,3 +2046,211 @@ Atendimento (R12): atendente, quem foi chamado, quem vê a conversa; Admin e C-l
 272. Corrida cancelar × atender: o `terminate` com duração depois do cancelamento não dá duração à
      `SEM_RESPOSTA` (R29.1a).
 273. Status `RINGING` antes de o `POST` gravar o id da Meta espera um instante e é aplicado (R29.1a).
+
+---
+
+## 43. SDR com IA (R31)
+
+Onda G (fatia G1, API; contrato `trabalho/contrato-onda-g.md`). Uma assistente virtual (SDR, pré-vendas) responde
+os leads novos nos canais de atendimento, descobre os **critérios de qualificação** que o Admin configurou, dá
+**nota** e **temperatura** e, quando o lead está qualificado, passa o negócio para o Comercial. Decisões do
+usuário em 03/11/2026: modo por canal (automático ou sugestão), a IA assume todo lead novo até qualificar,
+critérios configuráveis pelo Admin e passagem para o Comercial pelo rodízio, com o resumo. Código em
+`src/sdr/` (`MotorSdr`, `QualificacaoSdrService`, `EfeitosSdrService`, `ConfiguracaoSdrService`,
+`OrcamentoSdrService`, `ConversasSdrService`, `SimuladorSdrService`); a IA é o `@anthropic-ai/sdk` pelo mesmo
+cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agentes, só a Anthropic falsa.
+
+- **R31.1** **Quando a IA assume.** Na entrada de uma **conversa nova** (gancho do Atendimento, na transação da
+  entrada), a IA assume se **todas** as condições valem: o canal é de conversa (WhatsApp, WhatsApp oficial,
+  chat do site, Instagram ou Messenger; **e-mail fica de fora**) e está em `AUTOMATICO` ou `SUGESTAO`; a chave
+  da Anthropic está configurada; o contato **não** tem negócio aberto no Comercial ou no CS, **nem** negócio
+  ganho no Comercial (é cliente), **não** tem responsável humano e **não** tem opt-out (R4.6). Conversa que já
+  existia, ou de contato fora disso, segue o fluxo normal do Atendimento (R12). No **automático** a conversa
+  espera na fila **sem responsável** (a IA atende; o selo "IA atendendo" mostra isso) e **não** passa pela
+  distribuição; na **sugestão** ela é distribuída normalmente e a IA só propõe respostas. Cada conversa
+  atendida tem um estado do SDR (`ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`,
+  `ENCERRADA`); **só `ATIVA` deixa a IA agir**. A decisão "A IA assumiu" fica registrada.
+- **R31.2** **Turno.** Cada mensagem do lead vira um job (`sdr.turno`) com a **espera de agrupamento** da
+  configuração (padrão 8 s): o job junta as mensagens do lead ainda não atendidas e, se o lead ainda está
+  escrevendo, espera a janela fechar (no máximo 6 adiamentos). **Uma execução por conversa por vez:** a trava
+  vive no estado da conversa e vence em 4 minutos (turno abandonado); com a trava ocupada o job se reagenda.
+  O turno monta o contexto (histórico recente de até 40 mensagens, primeiro nome do contato, qualificação
+  parcial, base de conhecimento), chama o Claude com **saída estruturada** e aplica o resultado. A saída é o
+  esquema `turno_sdr`: `resposta`, `criterios` (`[{chave, valor, confianca}]`), `acao` (`continuar`,
+  `qualificado`, `desqualificado`, `passar_humano`), `motivo` e `resumo`; a API confere tudo de novo (ação
+  conhecida, resposta preenchida, tamanhos). **Prompt:** instruções fixas + configuração, critérios (com a linha
+  `CRITERIOS: chave1, chave2, …`) e base de conhecimento num bloco de sistema **em cache**; o estado do turno
+  num bloco de sistema fora do cache; o histórico como mensagens (lead = `user`; equipe, IA e bot = `assistant`)
+  e a **última mensagem do usuário é só a do lead**, delimitada. Modelo configurável (padrão
+  `claude-sonnet-5-5`; esforço `low`), com o recuo automático em caso de recusa por política nos modelos que o
+  aceitam.
+- **R31.3** **Modos.** `AUTOMATICO`: a resposta sai pelo adaptador do canal como autor `IA`, depois da pausa de
+  "digitando…" onde o canal tem (WhatsApp, chat do site); as mensagens do lead ficam marcadas como atendidas
+  (zera o "aguardando", conta como primeira resposta do SLA). `SUGESTAO`: cria uma **sugestão** pendente (texto,
+  ação proposta, motivo, resumo, critérios) e **nada é enviado nem aplicado**; o atendente **aprova** (envia
+  como ele mesmo, com o texto editado se quiser, e só então a API aplica a ação proposta e grava os campos),
+  **descarta** ou simplesmente responde por conta própria (a sugestão pendente vira obsoleta). Uma nova
+  mensagem do lead substitui a sugestão pendente. A nota, a temperatura e os valores descobertos são gravados
+  nos dois modos; **só no automático** os valores vão para os campos do contato e do negócio na hora.
+- **R31.4** **Critérios, nota e temperatura.** Cada critério tem rótulo, instrução para a IA, **tipo** (texto,
+  opção da lista, número, data, sim/não), **onde gravar** (campo do contato — `nome`, `cargo` ou um campo
+  personalizado `campos.<chave>` —, campo personalizado do negócio ou só a qualificação), **peso** (1 a 100) e se
+  é **obrigatório**. O valor que a IA devolve é interpretado pelo tipo (opção ignora caixa e acento; número
+  aceita formato brasileiro; data aceita `AAAA-MM-DD` e `dd/mm/aaaa`; sim/não vira booleano); valor fora do tipo,
+  chave desconhecida ou **confiança abaixo da mínima** (padrão 0,4; 0 a 1) é recusado e a decisão mostra o
+  motivo. Os valores aceitos são gravados com **origem `IA`** e a confiança, e escritos nos campos configurados
+  com a auditoria das ações humanas (ator `IA`); valor de negócio sem negócio ainda espera a passagem. **Nota**
+  (0 a 100) = soma dos pesos dos critérios com valor confiável sobre a soma dos pesos de todos os critérios
+  ativos. **Temperatura:** quente a partir da faixa quente (padrão 70), morno a partir da faixa morna (padrão
+  40), frio abaixo. **Qualificado** = todos os critérios obrigatórios descobertos e nota >= nota mínima (padrão
+  60): um `qualificado` pedido pela IA sem isso volta a `continuar`, com o motivo da troca na decisão.
+- **R31.5** **Qualificado passa para o Comercial.** No automático (ou na aprovação da sugestão): o negócio do
+  contato no Marketing (o aberto, senão um novo na etapa de gatilho, sob o líder do Marketing) vai para a etapa
+  de gatilho da passagem **Marketing → Comercial** (R5.7), que cria o negócio no Comercial com o **rodízio**
+  (R5.8). Sem a passagem ativa, o negócio nasce direto no funil-base do Comercial, também pelo rodízio. O
+  negócio recebe os valores dos critérios de negócio; o contato, os de contato; o vendedor recebe uma **nota**
+  no negócio (nota, temperatura, resumo, critérios, motivo), a **conversa é atribuída a ele** e ligada ao
+  negócio, com nota interna e aviso do sistema, e ele é **notificado** (`sdr.lead_qualificado` e a notificação
+  da conversa). Evento de domínio `sdr.lead_qualificado`. A IA para (`QUALIFICADA`).
+- **R31.6** **Passagem para humano**, sempre com o **resumo** para quem assume (nota interna na conversa + nota
+  de sistema). Motivos: o lead pede uma pessoa, assunto sensível ou fora do escopo, a IA sem confiança,
+  reclamação (cada um liga/desliga nas **regras de passagem** da configuração; a IA recebe só os ativos),
+  limite de mensagens sem avanço na qualificação (padrão 8) e os bloqueios da R31.8, R31.10 e R31.11. No
+  automático a conversa é **distribuída pela fila** (rodízio ou menor carga; o escolhido é notificado) e o
+  lead recebe a resposta da IA (ou a **mensagem de passagem** da configuração, quando a IA não foi chamada).
+  Estado `PASSADA_HUMANO`; evento `sdr.passou_para_humano`.
+- **R31.7** **Humano e IA.** No **automático**, quando uma pessoa **envia mensagem** na conversa, **assume**
+  (botão "Assumir" ou o "Assumir" do Atendimento) ou **transfere**, a IA para (`HUMANO`, com quem assumiu); o
+  turno que estava pensando é **descartado** (os tokens contam). Um fluxo de chatbot ou automação que passa a
+  conversa à equipe a põe em `PASSADA_HUMANO`. No modo sugestão, escrever só torna a sugestão obsoleta.
+  **"Devolver para a IA"** (de `HUMANO`, `PASSADA_HUMANO` ou `DESQUALIFICADA`; exige canal ligado e chave) põe a
+  conversa de volta em `ATIVA` (origem `devolvida`) e, no automático, a devolve à fila sem responsável; a IA
+  responde as mensagens do lead ainda sem resposta.
+- **R31.8** **Custo.** Cada turno grava, no **registro de decisões**, os tokens de entrada, saída e cache,
+  o modelo e a versão da base; o estado da conversa soma os tokens. Limites (configuráveis): tokens por conversa
+  (padrão 200 000), mensagens da IA por conversa (padrão 30) e **orçamento mensal de tokens** (padrão 5 000 000,
+  `null` = sem orçamento; mês de São Paulo; simulador incluído). **Corte:** esgotado o orçamento, ou chegando a
+  conversa a um limite, a IA **não é chamada**: a conversa passa para a equipe com a mensagem de passagem. O
+  **Admin é avisado** (notificação `sdr.orcamento`) a 80% e a 100%, uma vez por mês cada.
+- **R31.9** **Segurança.** A mensagem do lead, a base de conhecimento e os valores do contexto são **dados**,
+  nunca instruções: vão delimitados (`<mensagem_do_lead>`, `<base_de_conhecimento>`, `<contexto_do_lead>`) e os
+  marcadores que poderiam fechar um delimitador são neutralizados. O **prompt de sistema não é revelado**: uma
+  resposta que repete trechos das instruções (8 palavras seguidas) é trocada por uma recusa e a decisão registra
+  o bloqueio. **Só dados do próprio contato** entram no contexto: o primeiro nome e o que a IA descobriu — nunca
+  telefone, e-mail nem dados de outro contato. A IA só afirma preço, prazo ou condição que esteja na base (sem
+  base, diz que vai confirmar com a equipe) e se apresenta como assistente virtual (a apresentação é da
+  configuração). Nada de dados sensíveis pedidos ao lead. **LGPD (R4.6):** anonimizar o contato apaga os valores descobertos,
+  as sugestões, o resumo e os textos das decisões (resposta, resumo, motivo e critérios); tokens, nota e
+  temperatura ficam.
+- **R31.10** **Janela de 24 h e opt-out.** No automático, se o canal não aceita resposta agora (janela de 24 h
+  da Meta fechada), ou o contato ficou com opt-out ou foi excluído, a IA **não contata**: passa a conversa para a
+  equipe sem enviar nada. No modo sugestão a janela não impede a sugestão (a pessoa decide). Se o lead pede para parar de receber
+  mensagens, a IA (pela instrução do prompt) se despede e passa para a equipe; um opt-out aplicado por outro
+  caminho (R4.6, R17) faz a IA parar na mensagem seguinte.
+- **R31.11** **Falhas.** Falha passageira da IA (sobrecarga, tempo esgotado, formato inesperado) refaz a chamada
+  (2 vezes) e o job tenta de novo (até 3, espera crescente); esgotadas, a conversa passa para a equipe. Chave
+  recusada, recusa por política ou chave ausente passam para a equipe na hora; a chave recusada avisa o Admin
+  (`sdr.falha`). Os tokens gastos em tentativas que falharam contam no registro.
+- **R31.12** **Desqualificado.** A IA encerra com gentileza, a conversa fica como está (sem negócio, sem
+  responsável, com o motivo, a nota e a temperatura numa nota interna) e a IA para (`DESQUALIFICADA`); dá para
+  devolver. Evento `sdr.lead_desqualificado`. Lead frio sem desqualificação continua com a IA até o limite.
+- **R31.13** **Chatbot (R18).** Se há um fluxo de chatbot **em andamento** na conversa, a IA **não** responde
+  (as mensagens que o fluxo tratou não são dela); ao fim do fluxo ela assume na mensagem seguinte. O passo
+  `acao.passar_para_ia` ("Passar para a IA (SDR)") encerra o fluxo e entrega a conversa à IA, que se apresenta e
+  segue a partir do que já foi dito; sem efeito (a conversa segue com a equipe) se o SDR está desligado no canal
+  ou sem chave.
+- **R31.14** **Qualificação no contato e no negócio.** `GET /sdr/contatos/:id/qualificacao` e
+  `GET /sdr/negocios/:id/qualificacao` devolvem o cartão: critérios, valores, origem, confiança, nota, temperatura
+  e resumo (`qualificacao: null` se a IA nunca atendeu o contato). O cartão do funil, a lista de negócios e o
+  detalhe do negócio levam `sdr` (`temperatura`, `nota`, `situacao` da qualificação mais recente do contato; nulo
+  sem atendimento da IA).
+- **R31.15** **Quem configura.** Só o **Admin** (`/sdr/configuracao`, canais, artigos, critérios, campos, uso,
+  decisões e simulador; os demais papéis recebem 403). A primeira leitura cria a configuração com o **modelo de
+  captação de alunos**: persona "Bia", critérios curso, modalidade, quando quer começar, cidade, forma de
+  pagamento e quem decide (com tipos, pesos e destinos) e artigos de exemplo **em rascunho** (inativos). Cada
+  alteração é auditada (antes/depois). Limites validados: modelo da lista (`claude-sonnet-5-5`,
+  `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-5-5`), esforço `low`/`medium`/`high`, espera 0–60 s, faixa
+  morna menor que a quente.
+- **R31.16** **Modo por canal.** `DESLIGADO` (padrão), `AUTOMATICO` ou `SUGESTAO` por canal de conversa; canal de
+  e-mail é 422. Mudar o modo vale para as conversas novas e, a cada turno, para as que já estão com a IA.
+- **R31.17** **Base de conhecimento versionada.** Artigos curtos em texto (cursos, valores, condições, FAQ,
+  endereços, o que não é oferecido), com título, ordem e ativo; **cada mudança de conteúdo é uma versão**
+  (histórico imutável, restaurar cria versão nova) e sobe a **versão da base**, gravada em cada decisão. Só os
+  artigos ativos vão no prompt, em cache.
+- **R31.18** **Critérios.** Chave estável (minúsculas, números e `_`, única entre os ativos), opções (2 a 20) para
+  o tipo opção, destino `contato`/`negocio`/nenhum conferido (`nome`, `cargo`, `campos.<chave>`); reordenar,
+  inativar, excluir; "aplicar o modelo de captação" só acrescenta o que falta. `GET /sdr/campos-disponiveis`
+  lista os campos fixos do contato e os personalizados que já existem em contatos e negócios.
+- **R31.19** **Campos personalizados existentes.** Um critério pode gravar num campo personalizado que já existe;
+  o valor vai com o tipo do critério (número como número, sim/não como booleano, data como `AAAA-MM-DD`).
+- **R31.20** **Simulador.** `POST /sdr/simulador/turno` conversa com o SDR usando a configuração **atual**, sem
+  canal e sem gravar nada no contato (não há contato, conversa nem mensagem): a tela manda a conversa até aqui e
+  os valores descobertos, e recebe resposta, critérios (aceitos ou recusados, com o motivo), nota, temperatura,
+  a ação conferida (e por que a pedida foi trocada) e os tokens. Os tokens entram no registro (marcados como
+  simulador) e no orçamento.
+- **R31.21** **Auditoria e linha do tempo.** **Toda decisão** da IA é auditada (`sdr.turno`, `sdr.assumiu`,
+  `sdr.lead-qualificado`, `sdr.lead-desqualificado`, `sdr.passou-humano`, `sdr.humano-assumiu`, `sdr.devolvida`,
+  `sdr.bloqueio`, `sdr.falha`, ator `IA`) e fica no registro de decisões com o **motivo** (título curto, motivo,
+  resumo, resposta, critérios com o que foi aceito, nota, temperatura, modelo, versão da base, tokens). A
+  conversa mostra essa linha do tempo; o Admin lê o registro todo em `GET /sdr/decisoes`.
+
+### Matriz de acesso — SDR com IA
+
+| Recurso | Admin | C-level | Líder | Membro | Marketing |
+| --- | --- | --- | --- | --- | --- |
+| Configurar (geral, canais, base, critérios, orçamento), simulador, uso e registro de decisões (R31.15–R31.21) | ✓ | — | — | — | — |
+| Estado do SDR na conversa, linha do tempo, "Assumir" e "Devolver para a IA" (R31.7) | todas | todas | as que vê (R12) | as que vê | — (403) |
+| Aprovar ou descartar a sugestão (R31.3) | todas | todas | as que vê | as que vê | — |
+| Cartão de qualificação do contato e do negócio (R31.14) | ✓ | ✓ | como as telas | como as telas | como as telas |
+| Aviso de orçamento e de falha da IA (R31.8, R31.11) | ✓ | — | — | — | — |
+| Aviso de lead qualificado e de passagem para humano | — | — | o vendedor ou responsável | o vendedor ou responsável | — |
+
+### Cenários de aceitação (Onda G, SDR com IA)
+
+Continuam a numeração da Onda E (até o 273); cada um tem teste automatizado ("cenário N" no nome, em
+`test/sdr.e2e-spec.ts`) contra um Postgres real e a Anthropic falsa dos testes (`test/sdr-apoio.ts`); o
+esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o prompt têm testes de unidade em
+`src/sdr/*.spec.ts`.
+
+274. A IA assume lead novo no automático: conversa sem responsável, estado ativo, resposta pelo adaptador como
+     `IA` e selo no resumo da conversa (R31.1, R31.3).
+275. Não assume cliente com negócio no Comercial, contato com responsável, contato com opt-out nem canal
+     desligado; esses seguem o fluxo normal (R31.1).
+276. Agrupa mensagens seguidas do lead num só turno; as outras mensagens não repetem o turno (R31.2).
+277. No máximo uma execução por conversa por vez; a trava vencida libera (R31.2).
+278. Sugestão: conversa distribuída, nada enviado, aprovar com texto editado envia como a pessoa, descartar não
+     envia e uma sugestão resolvida não se resolve de novo (R31.3).
+279. Critérios gravados com origem IA e confiança, no campo do contato; nota, temperatura, decisão com tokens,
+     modelo e versão da base; auditoria como `IA`; estado e linha do tempo na conversa (R31.4, R31.21).
+280. Qualificado: negócio no Comercial pela passagem e pelo rodízio (o segundo lead vai para o outro vendedor),
+     nota com resumo e qualificação, campos do negócio, conversa atribuída, aviso ao vendedor, evento e decisão (R31.5).
+281. Pedido de humano: conversa distribuída, nota interna com o resumo, aviso ao responsável, a IA para e
+     "Devolver" a retoma (R31.6, R31.7).
+282. Humano que envia mensagem ou clica em "Assumir" para a IA; quem não vê a conversa recebe 403 (R31.7).
+283. Uma pessoa responde enquanto a IA pensa: a resposta da IA é descartada e os tokens contam (R31.7).
+284. Orçamento mensal: aviso a 80% e a 100% (uma vez), corte com passagem para a equipe e mensagem de passagem,
+     uso do mês e simulador bloqueado (R31.8).
+285. Limites por conversa: mensagens da IA, mensagens sem avanço e tokens (R31.6, R31.8).
+286. Injeção: lead e base como dados delimitados, prompt de sistema intacto, resposta que vaza é trocada, nenhum
+     dado de outro contato no pedido (R31.9).
+287. Janela de 24 h fechada e opt-out: a IA não contata e passa para a equipe; na sugestão a janela não impede
+     (R31.10).
+288. Falhas: refaz e responde uma vez; chave recusada e recusa por política passam para a equipe e a chave avisa o
+     Admin (R31.11).
+289. Desqualificado: sem negócio, com o motivo, e dá para devolver (R31.12).
+290. Convive com o chatbot: a IA espera o fluxo e assume quando o fluxo a chama (R31.13).
+291. Cartão de qualificação do contato e do negócio, com origem, confiança e `null` sem atendimento da IA (R31.14).
+292. Só o Admin configura (403 para os demais); a primeira leitura traz o modelo de captação de alunos (R31.15).
+293. Configuração geral com validação e auditoria; a persona e o modelo novos entram no prompt (R31.15).
+294. Modo por canal: só canais de conversa (e-mail é 422), auditado (R31.16).
+295. Base de conhecimento versionada: criar, alterar, restaurar, excluir; só os ativos vão no prompt; a versão da
+     base vai na decisão (R31.17).
+296. Critérios: validações, ordem, exclusão, modelo de captação reaplicado e campos disponíveis (R31.18).
+297. Critério de campo personalizado existente grava no contato com o tipo certo; valor fora do tipo é recusado
+     (R31.19).
+298. Simulador: usa a configuração atual, não grava nada no CRM, devolve critérios/nota/ação e conta tokens (R31.20).
+299. Simulador valida a entrada, mostra por que a ação foi trocada e trata a falha da IA (R31.20).
+300. O Admin lê o registro de decisões com filtros (R31.21).
+301. Tempo real: `sdr.atualizado` chega às salas da conversa a cada turno e a cada mudança de situação (R31.21).
+302. LGPD: anonimizar o contato apaga os valores descobertos, as sugestões e os textos das decisões; o registro
+     de tokens fica (R31.9, R4.6).

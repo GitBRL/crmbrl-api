@@ -18,6 +18,7 @@ import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
 import {
   ESPERA_ENTRE_ENVIOS_SEGUNDOS,
   EVENTO_CONTAGENS_ATENDIMENTO,
+  EVENTOS_DO_ATENDIMENTO,
   FILA_ENVIO_ATENDIMENTO,
   linkDaConversa,
   RETENTATIVAS_DE_ENVIO,
@@ -279,6 +280,17 @@ export class MotorDoAtendimento {
       }
     }
     await this.enfileirarEnvio(tx, mensagem.id);
+    if (dados.autorId) {
+      await this.eventos.publicar(
+        tx,
+        EVENTOS_DO_ATENDIMENTO.MENSAGEM_DA_EQUIPE,
+        {
+          conversaId: conversa.id,
+          mensagemId: mensagem.id,
+          usuarioId: dados.autorId,
+        },
+      );
+    }
     const atual = await tx.conversa.findUniqueOrThrow({
       where: { id: conversa.id },
       select: {

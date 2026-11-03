@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AtendimentoModule } from '../atendimento/atendimento.module';
 import { ContatosModule } from '../contatos/contatos.module';
 import { FunisModule } from '../funis/funis.module';
+import { SdrModule } from '../sdr/sdr.module';
 import { AcessoChatbot } from './acesso-chatbot.service';
 import { AcoesDoBot } from './acoes-do-bot.service';
 import { ChatbotController } from './chatbot.controller';
@@ -24,11 +25,12 @@ import { TransferenciaDoBot } from './transferencia-do-bot.service';
  *   transferir); `MensagensDoBot` envia como autor `BOT` pelo Atendimento;
  *   `AcoesDoBot`/`TransferenciaDoBot` agem pelas mesmas regras e auditoria das
  *   ações humanas, com ator `AUTOMACAO` (descrição = nome do fluxo).
+ * - `acao.passar_para_ia`: encerra o fluxo e entrega a conversa ao SDR com IA (R31).
  * - `SimuladorDoChatbot`: execução em modo teste, sem efeitos reais.
  * - Rotas em `/chatbot/**` (`ChatbotController`).
  */
 @Module({
-  imports: [AtendimentoModule, ContatosModule, FunisModule],
+  imports: [AtendimentoModule, ContatosModule, FunisModule, SdrModule],
   controllers: [ChatbotController],
   providers: [
     AcessoChatbot,

@@ -14,7 +14,10 @@ import {
   type ResultadoEnvio,
 } from '../adaptador-canal';
 import { RegistroCanais } from '../registro-canais';
-import { WebchatTempoReal } from './webchat-tempo-real';
+import {
+  EVENTOS_PARA_O_VISITANTE,
+  WebchatTempoReal,
+} from './webchat-tempo-real';
 import { ATOR_DO_WEBCHAT, WebchatService } from './webchat.service';
 
 /** Esperas para gravar o "entregue" depois que o widget confirma (o id externo é gravado logo após o envio). */
@@ -56,6 +59,32 @@ export class AdaptadorWebchat
       clearTimeout(temporizador);
     }
     this.temporizadores.clear();
+  }
+
+  /** "Digitando…" no widget do visitante (SDR com IA). Melhor esforço. */
+  async digitar(
+    conversa: Conversa,
+    _canal: Canal,
+    ativo: boolean,
+    nome?: string,
+  ): Promise<void> {
+    try {
+      const visitante = await this.webchat.visitanteAtualDaConversa(
+        conversa.id,
+      );
+      if (visitante) {
+        this.tempoReal.emitir(
+          [visitante.id],
+          EVENTOS_PARA_O_VISITANTE.DIGITANDO,
+          {
+            ativo,
+            ...(nome ? { nome } : {}),
+          },
+        );
+      }
+    } catch {
+      // melhor esforço
+    }
   }
 
   async enviar(

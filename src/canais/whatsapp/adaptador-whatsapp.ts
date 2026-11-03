@@ -8,6 +8,7 @@ import {
   type ResultadoEnvio,
 } from '../adaptador-canal';
 import { RegistroCanais } from '../registro-canais';
+import { ClienteGatewayWhatsapp } from './cliente-gateway';
 import {
   ehJidDeContato,
   ESPERA_ENTRE_TENTATIVAS_DE_ENVIO_SEGUNDOS,
@@ -44,10 +45,38 @@ export class AdaptadorWhatsapp implements AdaptadorCanal, OnModuleInit {
     private readonly registro: RegistroCanais,
     private readonly fila: FilaService,
     private readonly prisma: PrismaService,
+    private readonly gateway: ClienteGatewayWhatsapp,
   ) {}
 
   onModuleInit(): void {
     this.registro.registrar(this);
+  }
+
+  /** "Digitando…" ao contato (SDR com IA). Sem número conectado ou sem JID, não faz nada. */
+  async digitar(
+    conversa: Conversa,
+    canal: Canal,
+    ativo: boolean,
+  ): Promise<void> {
+    try {
+      const numero = await this.prisma.whatsappNumero.findUnique({
+        where: { canalId: canal.id },
+        select: { id: true, status: true },
+      });
+      if (
+        !numero ||
+        numero.status !== 'CONECTADO' ||
+        !ehJidDeContato(conversa.idExterno)
+      ) {
+        return;
+      }
+      await this.gateway.digitando(numero.id, {
+        para: conversa.idExterno,
+        ativo,
+      });
+    } catch {
+      // melhor esforço
+    }
   }
 
   async enviar(
