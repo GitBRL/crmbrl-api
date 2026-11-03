@@ -27,7 +27,7 @@ encontra por `<nome>.railway.internal`.
 | `arquivos` | imagem Docker `bitnamilegacy/minio:2025.7.23-debian-12-r5` (a mesma do compose)             | `/bitnami/minio/data`        | não               |
 | `api`      | repositório `crmbrl-api` (usa o `Dockerfile`)                                               | —                            | não               |
 | `whatsapp` | repositório `crmbrl-api` de novo, com o comando de início da seção 4                        | `/app/trava`, 1 GB (seção 4) | não               |
-| `transcricao` | imagem Docker `ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e9c36861c140b748eb6fd982a4aee52a8a503018cb6703c571f2fa1b5` (a mesma do compose; opcional) | `/modelos`, 2 GB | não |
+| `transcricao` | repositório `crmbrl-api` com `Dockerfile.transcricao` (a imagem do whisper.cpp do compose; opcional) | `/modelos`, 2 GB | não |
 | `web`      | repositório `crmbrl` (usa o `Dockerfile`)                                                   | —                            | **sim** (domínio) |
 
 Só o `web` recebe domínio: ele serve o front e repassa `/api` para a `api` pela rede privada, como no
@@ -112,10 +112,11 @@ RAILWAY_RUN_UID=0                                     # a imagem roda sem root e
     e o WhatsApp derruba as conexões.
   - **Sempre 1 réplica**, pelo mesmo motivo.
 - **transcricao (opcional):** serviço do whisper.cpp para transcrever as ligações gravadas.
-  - Custom Start Command: `/bin/bash -c 'curl -fsSL https://raw.githubusercontent.com/<sua-conta>/crmbrl-api/main/scripts/transcricao-entrypoint.sh -o /entrypoint.sh && exec /bin/bash /entrypoint.sh'`
-    (o Railway não monta arquivos do repositório numa imagem pronta; se preferir, crie o serviço a partir do
-    repositório `crmbrl-api` com um Dockerfile de duas linhas: `FROM ghcr.io/ggml-org/whisper.cpp@sha256:…` e
-    `COPY scripts/transcricao-entrypoint.sh /entrypoint.sh`, com o comando de início `/bin/bash /entrypoint.sh`).
+  - Crie o serviço a partir do repositório `crmbrl-api`, com a variável
+    `RAILWAY_DOCKERFILE_PATH=Dockerfile.transcricao`. Esse Dockerfile é a imagem fixada do whisper.cpp com o
+    entrypoint embutido, porque o Railway não monta arquivos do repositório numa imagem pronta.
+  - O whisper-server escuta em `0.0.0.0`. Isso basta nos ambientes do Railway criados depois de 16/10/2025, cuja
+    rede privada também tem IPv4. Num ambiente antigo, só com IPv6, a `api` não o alcançaria.
   - Volume de 2 GB em `/modelos` (o modelo é baixado só na primeira subida).
   - Sem domínio público: a `api` o chama por `transcricao.railway.internal:8080`. Healthcheck Path `/health`
     (a primeira subida leva alguns minutos, pelo download do modelo).
