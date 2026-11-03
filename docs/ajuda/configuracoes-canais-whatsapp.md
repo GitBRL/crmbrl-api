@@ -7,6 +7,8 @@ palavras-chave: [whatsapp, qr code, conectar número, desconectar, aquecimento, 
 ---
 # Conectar um número de WhatsApp
 
+Este artigo é do canal "WhatsApp" por QR code. Para a API oficial da Meta (sem QR, com templates), veja "Conectar o WhatsApp oficial (API da Meta) e usar templates".
+
 1. Abra **Configurações > Canais**, clique em **Novo canal** e escolha WhatsApp.
 2. Na tela do canal, em **Conexão**, aparece o QR code ao vivo, com contagem regressiva (ele se renova sozinho). O passo a passo na tela explica quem nunca conectou.
 3. No celular do número, abra o WhatsApp, vá em aparelhos conectados e leia o QR.

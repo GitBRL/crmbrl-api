@@ -61,6 +61,11 @@ services:
     environment:
       <<: *ambiente-de-producao
 
+  transcricao:
+    # Sem porta no host (só a API fala com ele). Modelo recomendado: small (WHISPER_MODELO); com folga de
+    # CPU/memória, large-v3-turbo-q5_0. Veja docs/DEPLOY.md, "Transcrição das ligações".
+    restart: unless-stopped
+
   backup:
     environment:
       PGPASSWORD: '${BANCO_SENHA:?defina BANCO_SENHA}'

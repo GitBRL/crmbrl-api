@@ -398,6 +398,25 @@ export function alertaDoGateway(
   ];
 }
 
+/** O serviço de transcrição (whisper.cpp) está ligado na configuração mas não responde (R30). */
+export function alertaDaTranscricao(foraDoAr: boolean): Alerta[] {
+  if (!foraDoAr) {
+    return [];
+  }
+  return [
+    {
+      chave: 'transcricao',
+      codigo: 'transcricao_fora_do_ar',
+      gravidade: 'aviso',
+      titulo: 'Serviço de transcrição fora do ar',
+      detalhe:
+        'A API não consegue falar com o serviço de transcrição (whisper.cpp). As gravações das ligações esperam na fila e são transcritas quando ele voltar.',
+      dica: 'Confira o serviço transcricao (docker compose ps transcricao). Na primeira subida ele baixa o modelo e leva alguns minutos; falta de memória também derruba o serviço.',
+      porEmail: false,
+    },
+  ];
+}
+
 /** `3 min`, `2 h 5 min`, `1 d 4 h`. */
 export function duracaoEmTexto(segundos: number): string {
   const minutos = Math.floor(segundos / 60);

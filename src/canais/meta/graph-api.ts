@@ -110,14 +110,43 @@ export class GraphApi {
     );
   }
 
+  /** `POST /<caminho>` com corpo JSON (WhatsApp oficial: mensagens). */
+  postar<T = Record<string, unknown>>(
+    token: string,
+    caminho: string,
+    corpo: unknown,
+  ): Promise<T> {
+    return this.pedir<T>('POST', caminho, token, corpo);
+  }
+
+  /** `POST /<caminho>` multipart (WhatsApp oficial: upload de mídia). */
+  postarArquivo<T = Record<string, unknown>>(
+    token: string,
+    caminho: string,
+    formulario: FormData,
+  ): Promise<T> {
+    return this.pedir<T>('POST', caminho, token, formulario);
+  }
+
+  /** `GET /<caminho>` (com a query já no caminho). */
+  consultar<T = Record<string, unknown>>(
+    token: string,
+    caminho: string,
+  ): Promise<T> {
+    return this.pedir<T>('GET', caminho, token);
+  }
+
   /**
    * Baixa um anexo recebido (a URL da CDN da Meta), com limite de tamanho.
    * Só HTTPS (ou o próprio endereço da Graph configurada, como a falsa dos
    * testes), também em cada redirecionamento, e lendo no máximo o limite.
+   * Com `token`, vai como `Authorization: Bearer` (a mídia do WhatsApp exige) —
+   * só enquanto o endereço é do mesmo domínio do pedido original.
    */
   async baixar(
     url: string,
     limiteBytes: number,
+    token?: string,
   ): Promise<{ conteudo: Buffer; mime: string | null }> {
     let endereco = url;
     for (let saltos = 0; ; saltos++) {
@@ -127,6 +156,9 @@ export class GraphApi {
       const resposta = await fetch(endereco, {
         redirect: 'manual',
         signal: AbortSignal.timeout(30_000),
+        ...(token && new URL(endereco).origin === new URL(url).origin
+          ? { headers: { Authorization: `Bearer ${token}` } }
+          : {}),
       });
       const destino = resposta.headers.get('location');
       if (resposta.status >= 300 && resposta.status < 400 && destino) {
@@ -182,14 +214,20 @@ export class GraphApi {
     try {
       const pedido: RequestInit =
         metodo === 'POST'
-          ? {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(corpo ?? {}),
-            }
+          ? corpo instanceof FormData
+            ? {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: corpo,
+              }
+            : {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(corpo ?? {}),
+              }
           : { method: 'GET', headers: { Authorization: `Bearer ${token}` } };
       resposta = await fetch(url, {
         ...pedido,

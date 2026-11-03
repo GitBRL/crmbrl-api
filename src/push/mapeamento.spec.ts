@@ -21,6 +21,8 @@ describe('mapeamento do push (R26)', () => {
     expect(preferenciaDoTipo('conversa.sla_resolucao')).toBe('sla_estourado');
     expect(preferenciaDoTipo('passagem.recebida')).toBe('negocio_atribuido');
     expect(preferenciaDoTipo('regua.ligacao')).toBe('parcela_atrasada');
+    expect(preferenciaDoTipo('ligacao.tocando')).toBe('ligacao_recebida');
+    expect(preferenciaDoTipo('ligacao.perdida')).toBe('ligacao_recebida');
     expect(preferenciaDoTipo('webhook_saida.falhou')).toBeNull();
     expect(preferenciaDoTipo('qualquer.coisa')).toBeNull();
   });
@@ -53,5 +55,30 @@ describe('mapeamento do push (R26)', () => {
     expect(carga.titulo).toHaveLength(100);
     expect(carga.corpo).toBe('');
     expect(carga.tag).toBe('negocio.atribuido:n1');
+  });
+
+  it('R29.2 — ligação tocando leva a ação de abrir a ligação e não some sozinha', () => {
+    const carga = cargaDaNotificacao({
+      id: 'n2',
+      tipo: 'ligacao.tocando',
+      titulo: 'Ligação de Maria',
+      texto: 'Toque para atender a ligação do WhatsApp.',
+      link: '/atendimento?ligacao=abc',
+    });
+    expect(carga).toMatchObject({
+      url: '/atendimento?ligacao=abc',
+      tag: 'ligacao.tocando:/atendimento?ligacao=abc',
+      persistente: true,
+      acoes: [{ acao: 'abrir', titulo: 'Abrir ligação' }],
+    });
+    const perdida = cargaDaNotificacao({
+      id: 'n3',
+      tipo: 'ligacao.perdida',
+      titulo: 'Ligação perdida',
+      texto: null,
+      link: '/atividades?atividade=x',
+    });
+    expect(perdida.acoes).toBeUndefined();
+    expect(perdida.persistente).toBeUndefined();
   });
 });

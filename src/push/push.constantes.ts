@@ -4,6 +4,7 @@ import {
   TIPO_NOTIFICACAO_LIGACAO,
   TIPO_NOTIFICACAO_PROMESSA,
 } from '../financeiro/regua-ligacoes.service';
+import { TIPOS_NOTIFICACAO_LIGACAO } from '../ligacoes/ligacoes.constantes';
 import { TIPOS_NOTIFICACAO } from '../notificacoes/tipos-notificacao';
 
 /** Regra de negócio das notificações push (REGRAS-DE-NEGOCIO, R26). */
@@ -29,6 +30,7 @@ export const TIPOS_DE_PREFERENCIA = [
   'sla_estourado',
   'negocio_atribuido',
   'parcela_atrasada',
+  'ligacao_recebida',
 ] as const;
 
 export type TipoDePreferencia = (typeof TIPOS_DE_PREFERENCIA)[number];
@@ -52,6 +54,9 @@ export const PREFERENCIA_POR_TIPO_DE_NOTIFICACAO: Readonly<
   [TIPOS_NOTIFICACAO.PASSAGEM_RECEBIDA]: 'negocio_atribuido',
   [TIPO_NOTIFICACAO_PROMESSA]: 'parcela_atrasada',
   [TIPO_NOTIFICACAO_LIGACAO]: 'parcela_atrasada',
+  // Onda E (R29): ligação do WhatsApp tocando ou perdida.
+  [TIPOS_NOTIFICACAO_LIGACAO.TOCANDO]: 'ligacao_recebida',
+  [TIPOS_NOTIFICACAO_LIGACAO.PERDIDA]: 'ligacao_recebida',
 };
 
 /** Rota do front aberta quando a notificação não tem `link`. */
@@ -66,4 +71,8 @@ export interface CargaDoPush {
   /** Mensagens com a mesma tag substituem a anterior no aparelho. */
   tag: string;
   notificacaoId: string | null;
+  /** Botões da notificação (ex.: "Abrir ligação"); o clique em qualquer um abre `url`. */
+  acoes?: Array<{ acao: string; titulo: string }>;
+  /** A notificação não some sozinha (ligação tocando). */
+  persistente?: boolean;
 }

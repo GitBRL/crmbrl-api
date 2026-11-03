@@ -26,6 +26,8 @@ import { FilaModule } from './fila/fila.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { FunisModule } from './funis/funis.module';
 import { ImportacaoModule } from './importacao/importacao.module';
+import { GravacaoModule } from './ligacoes/gravacao/gravacao.module';
+import { LigacoesModule } from './ligacoes/ligacoes.module';
 import { LogsModule } from './logs/logs.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -88,6 +90,8 @@ export class AppModule {
         ArquivosHttpModule,
         AtendimentoModule,
         CanaisModule,
+        LigacoesModule,
+        GravacaoModule,
         ChatInternoModule,
         // Módulos de negócio (Onda B): importação, disparos, chatbot e automações.
         ImportacaoModule,

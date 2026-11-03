@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+
+# Serviço de transcrição das ligações (R30): a mesma imagem do whisper.cpp do docker-compose.yml
+# (fixada por digest), com o entrypoint embutido. Serve onde não dá para montar arquivos do
+# repositório no container, como o Railway (veja docs/DEPLOY-RAILWAY.md). O entrypoint baixa o
+# modelo WHISPER_MODELO para /modelos na primeira subida e roda o whisper-server na porta 8080.
+FROM ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e9c36861c140b748eb6fd982a4aee52a8a503018cb6703c571f2fa1b5
+COPY scripts/transcricao-entrypoint.sh /entrypoint.sh
+EXPOSE 8080
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]

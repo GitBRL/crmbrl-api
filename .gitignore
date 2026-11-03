@@ -10,7 +10,7 @@
 *.tsbuildinfo
 
 # Logs
-logs
+/logs
 *.log
 npm-debug.log*
 pnpm-debug.log*
@@ -60,3 +60,6 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Variáveis prontas para colar no Railway (contém segredos; nunca versionar)
+/.env.railway

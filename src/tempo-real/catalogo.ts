@@ -86,6 +86,23 @@ export const EVENTOS_DO_SERVIDOR = {
   REGUA_PROGRESSO: 'regua.progresso',
   /** A sessão foi encerrada (sair, desligamento, troca de senha): o socket cai em seguida. */
   SESSAO_ENCERRADA: 'sessao.encerrada',
+  /** Ligações (Onda E, R29): ligação recebida tocando para o atendente (sala `usuario:<id>`). */
+  LIGACAO_TOCANDO: 'ligacao.tocando',
+  /** Ligações: a ligação deixou de tocar para este atendente (atendida por outro, perdida, cliente desligou). */
+  LIGACAO_DEIXOU_DE_TOCAR: 'ligacao.deixou_de_tocar',
+  /** Ligações: resposta SDP da Meta à ligação feita pelo atendente (aplique no `RTCPeerConnection`). */
+  LIGACAO_RESPOSTA_SDP: 'ligacao.resposta_sdp',
+  /** Ligações: o estado da ligação do atendente mudou. */
+  LIGACAO_ESTADO: 'ligacao.estado',
+  /** Ligações: a ligação do atendente terminou (com a duração e o motivo). */
+  LIGACAO_ENCERRADA: 'ligacao.encerrada',
+  /**
+   * Ligações (R30): a gravação, a transcrição ou o resumo terminou (ou falhou). Vai para a sala
+   * `usuario:<atendente>` e para a `conversa:<id>`; recarregue `GET /ligacoes/:id`.
+   */
+  LIGACAO_PROCESSADA: 'ligacao.processada',
+  /** Ligações: a permissão do cliente para ligar mudou (sala `conversa:<id>`, para o botão "Ligar"). */
+  LIGACAO_PERMISSAO: 'ligacao.permissao',
 } as const;
 
 export type EventoDoServidor =
@@ -218,6 +235,78 @@ export interface CargaReguaProgresso {
   situacao?: string;
 }
 
+/** Ligação (R29) como o softphone mostra, nas cargas dos eventos `ligacao.*`. */
+export interface CargaLigacaoTocando {
+  ligacaoId: string;
+  contato: {
+    id: string;
+    nome: string;
+    telefone: string | null;
+    empresa: string | null;
+  };
+  canal: { id: string; nome: string };
+  /** Oferta SDP da Meta: aplique com `setRemoteDescription` e responda com `createAnswer`. */
+  ofertaSdp: string;
+  /** Até quando toca (ISO 8601). */
+  expiraEm: string;
+  /** Quem é o responsável pelo contato/conversa (o toque vai primeiro para ele). */
+  conversaId: string | null;
+}
+
+export interface CargaLigacaoDeixouDeTocar {
+  ligacaoId: string;
+  motivo:
+    | 'atendida_por_outro'
+    | 'recusada_por_voce'
+    | 'recusada_por_todos'
+    | 'tempo_esgotado'
+    | 'cliente_desligou'
+    | 'falha'
+    | 'encerrada';
+  /** Só com `atendida_por_outro`. */
+  atendidaPor?: { id: string; nome: string };
+}
+
+export interface CargaLigacaoRespostaSdp {
+  ligacaoId: string;
+  sdp: string;
+}
+
+export interface CargaLigacaoEstado {
+  ligacaoId: string;
+  estado: string;
+  motivo?: string | null;
+  /** Quando a ligação entrou em andamento (ISO 8601), para o cronômetro. */
+  atendidaEm?: string | null;
+}
+
+/** Estados do processamento da ligação (R30): o mesmo vocabulário do `GET /ligacoes/:id`. */
+export interface CargaLigacaoProcessada {
+  ligacaoId: string;
+  /** O que acabou de terminar. */
+  etapa: 'gravacao' | 'transcricao' | 'resumo';
+  gravacao: 'sem' | 'enviando' | 'pronta' | 'falhou';
+  transcricao:
+    'pendente' | 'processando' | 'pronta' | 'falhou' | 'desativada' | null;
+  resumo:
+    'pendente' | 'processando' | 'pronto' | 'falhou' | 'desativado' | null;
+}
+
+/** A permissão de ligação do contato (o mesmo corpo de `GET /ligacoes/permissoes`). */
+export type CargaLigacaoPermissao = Record<string, unknown> & {
+  contatoId: string;
+  canalId: string;
+  situacao: string;
+};
+
+export interface CargaLigacaoEncerrada {
+  ligacaoId: string;
+  estado: string;
+  duracaoSegundos: number;
+  motivo: string | null;
+  motivoTexto: string | null;
+}
+
 /** O formato dos dados de cada evento do servidor. */
 export interface CargasDoServidor {
   'notificacao.nova': CargaNotificacaoNova;
@@ -235,6 +324,13 @@ export interface CargasDoServidor {
   'parcela.atualizada': CargaParcelaAtualizada;
   'regua.progresso': CargaReguaProgresso;
   'sessao.encerrada': CargaSessaoEncerrada;
+  'ligacao.tocando': CargaLigacaoTocando;
+  'ligacao.deixou_de_tocar': CargaLigacaoDeixouDeTocar;
+  'ligacao.resposta_sdp': CargaLigacaoRespostaSdp;
+  'ligacao.estado': CargaLigacaoEstado;
+  'ligacao.encerrada': CargaLigacaoEncerrada;
+  'ligacao.processada': CargaLigacaoProcessada;
+  'ligacao.permissao': CargaLigacaoPermissao;
 }
 
 // ---------------------------------------------------------------------------

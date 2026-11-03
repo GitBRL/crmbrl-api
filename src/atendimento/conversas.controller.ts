@@ -43,6 +43,7 @@ import {
   MensagemDaConversaDto,
   PaginaMensagensDto,
 } from './dto/mensagem.dto';
+import { TemplatesDaConversaDto } from '../canais/templates-canal.dto';
 import { MensagensService } from './mensagens.service';
 
 /**
@@ -139,6 +140,21 @@ export class ConversasController {
     @Param('id', ParseIdPipe) id: string,
   ): Promise<ConversaDetalheDto> {
     return this.conversas.detalhar(usuario, id);
+  }
+
+  @Get('conversas/:id/templates')
+  @ApiOperation({
+    summary: 'Templates que dá para enviar na conversa (WhatsApp oficial)',
+    description:
+      'Só os aprovados, com cabeçalho, corpo, botões e as variáveis de cada um, mais a situação da janela de 24 h (`janelaAberta`, `janelaAte`, `aviso`). Canal sem templates: `suportado=false`. O envio é `POST …/mensagens` com `template`.',
+  })
+  @ApiOkResponse({ type: TemplatesDaConversaDto })
+  @ApiRespostasDeErro(404)
+  templates(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<TemplatesDaConversaDto> {
+    return this.conversas.templates(usuario, id);
   }
 
   @Patch('conversas/:id')

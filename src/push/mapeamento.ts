@@ -1,4 +1,5 @@
 import type { Notificacao } from '../generated/prisma/client';
+import { TIPOS_NOTIFICACAO_LIGACAO } from '../ligacoes/ligacoes.constantes';
 import {
   type CargaDoPush,
   PREFERENCIA_POR_TIPO_DE_NOTIFICACAO,
@@ -34,6 +35,18 @@ export function cargaDaNotificacao(
   notificacao: Pick<Notificacao, 'id' | 'tipo' | 'titulo' | 'texto' | 'link'>,
 ): CargaDoPush {
   const url = urlDoFront(notificacao.link);
+  if (notificacao.tipo === TIPOS_NOTIFICACAO_LIGACAO.TOCANDO) {
+    // Ligação recebida tocando (R29): fica na tela até ser tocada e leva à ligação.
+    return {
+      titulo: cortar(notificacao.titulo, 100),
+      corpo: cortar(notificacao.texto ?? '', 200),
+      url,
+      tag: cortar(`${notificacao.tipo}:${url}`, 120),
+      notificacaoId: notificacao.id,
+      acoes: [{ acao: 'abrir', titulo: 'Abrir ligação' }],
+      persistente: true,
+    };
+  }
   return {
     titulo: cortar(notificacao.titulo, 100),
     corpo: cortar(notificacao.texto ?? '', 200),

@@ -137,6 +137,20 @@ export const CATALOGO_DE_GATILHOS: readonly GatilhoDoCatalogo[] = [
     origem: 'evento',
     filtros: ['campanhaId'],
   },
+  {
+    evento: 'ligacao.perdida',
+    rotulo: 'Ligação perdida',
+    entidade: 'contato',
+    origem: 'evento',
+    filtros: ['canalId'],
+  },
+  {
+    evento: 'ligacao.encerrada',
+    rotulo: 'Ligação encerrada',
+    entidade: 'contato',
+    origem: 'evento',
+    filtros: ['canalId', 'direcao', 'resultado'],
+  },
 ];
 
 /** Ids que um evento de domínio carrega (no nível de cima dos `dados`, ou no negócio). */

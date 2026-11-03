@@ -3,7 +3,8 @@
 Guia para colocar o BRL CRM num servidor Linux com Docker, com HTTPS automático (Caddy + Let's Encrypt),
 backup diário do banco e cópia dos dados para fora da máquina. Tudo roda pelo `docker-compose.yml` deste
 repositório, mais o `docker-compose.producao.yml` (HTTPS e variáveis obrigatórias). Não há deploy
-automático: a CI (GitHub Actions) só testa e constrói; a publicação é manual, como abaixo.
+automático: a CI (GitHub Actions) só testa e constrói; a publicação é manual, como abaixo. Para publicar no
+Railway em vez de um servidor próprio, siga o `DEPLOY-RAILWAY.md`.
 
 Os comandos são feitos dentro de `crmbrl-api/`, com o repositório do front (`crmbrl/`) ao lado, na mesma
 pasta pai (o compose constrói o front de `../crmbrl`; mude com `FRONT_DIR`). Abreviação usada no texto:
@@ -21,10 +22,11 @@ alias crm='docker compose -f docker-compose.yml -f docker-compose.producao.yml'
 | `api`       | API NestJS (aplica as migrations ao subir)                  | `127.0.0.1:3000` (só a própria máquina)           |
 | `whatsapp`  | Gateway de WhatsApp (mesma imagem da API)                   | nenhuma                                           |
 | `banco`     | PostgreSQL 17                                               | nenhuma em produção                               |
-| `arquivos`  | MinIO (anexos, mídias do WhatsApp, importações)             | nenhuma                                           |
+| `arquivos`  | MinIO (anexos, mídias do WhatsApp, importações, gravações de ligações) | nenhuma                         |
+| `transcricao` | whisper.cpp (transcrição das ligações, R30)               | nenhuma                                           |
 | `backup`    | `pg_dump` diário no volume `backups`                        | nenhuma                                           |
 
-Volumes (nomes com o prefixo do projeto, `crmbrl_`): `banco-dados`, `arquivos-dados`, `backups`,
+Volumes (nomes com o prefixo do projeto, `crmbrl_`): `banco-dados`, `arquivos-dados`, `modelos-whisper`, `backups`,
 `caddy-dados` (certificados), `caddy-config`.
 
 ## 2. Pré-requisitos
@@ -72,7 +74,17 @@ BACKUP_FUSO=America/Sao_Paulo                         # (America/Sao_Paulo)
 BACKUP_RETENCAO_DIAS=14                               # (14) 0 = nunca apagar
 
 # --- Opcionais ---
-ANTHROPIC_API_KEY=                                    # análise do BI e assistente de IA
+ANTHROPIC_API_KEY=                                    # análise do BI, assistente de IA e resumo das ligações
+WHISPER_MODELO=small                                  # (small) modelo da transcrição das ligações; veja a seção 3.1
+TRANSCRICAO_CPUS=4                                    # (4) limite de CPU do serviço transcricao
+TRANSCRICAO_MEMORIA=3g                                # (3g) limite de memória do serviço transcricao
+TRANSCRICAO_URL=                                      # (http://transcricao:8080) vazio = transcrição desligada
+TRANSCRICAO_TEMPO_LIMITE_S=1800                       # (1800) tempo máximo para transcrever uma ligação
+LIGACOES_GRAVACAO_MAX_MB=200                          # (200) tamanho máximo da gravação de uma ligação
+LIGACOES_GRAVACAO_MAX_MIN=180                         # (180) duração máxima da gravação, em minutos
+LIGACOES_RESUMO_MODELO=claude-sonnet-5-5              # (claude-sonnet-5-5) modelo do resumo; usa ANTHROPIC_API_KEY
+LIGACOES_STUN_URLS=                                   # (vazio) STUN do navegador nas ligações: stun:host:porta,… (sem TURN)
+LIGACOES_ESPERA_PRE_ACEITE_MS=800                     # (800) espera entre pre_accept e accept da ligação recebida
 TICKETHUB_URL= / TICKETHUB_EMAIL= / TICKETHUB_SENHA=  # chamados do assistente (ou pela tela do Admin)
 VAPID_CHAVE_PUBLICA= / VAPID_CHAVE_PRIVADA= / VAPID_ASSUNTO=mailto:voce@suaempresa.com.br
 ```
@@ -85,6 +97,30 @@ mensagem lista todos os problemas, sem repetir segredos). Ela também registra *
 sobe mas é inseguro em produção: `URL_PUBLICA` em http, `COOKIE_SEGURO=false`, chave de criptografia,
 segredo do MinIO, token interno ou senha do banco iguais aos padrões públicos de desenvolvimento. Depois de
 subir, confira: `crm logs api | grep -i aviso` deve vir vazio.
+
+### 3.1 Transcrição das ligações (serviço `transcricao`)
+
+As ligações gravadas são transcritas por um **whisper.cpp** (imagem oficial `ghcr.io/ggml-org/whisper.cpp`,
+licença MIT, fixada por digest no `docker-compose.yml`) que só fala com a API pela rede do compose. Roda em
+**CPU**, uma transcrição por vez (a fila serializa); o resumo depende da `ANTHROPIC_API_KEY`.
+
+- **Primeira subida:** o serviço baixa o modelo (`small`: ~470 MB) do Hugging Face para o volume
+  `modelos-whisper`; fica "starting" até terminar (alguns minutos, `crm logs transcricao`). Depois disso, o
+  modelo fica no volume e reinícios são rápidos. A API sobe e grava normalmente enquanto ele não está pronto:
+  as gravações esperam na fila.
+- **Modelo recomendado: `small`** (boa qualidade em português, ~1 GB de memória; uma ligação de 10 minutos
+  leva cerca de 3 a 6 minutos com 4 CPUs). Com folga de CPU e memória, **`large-v3-turbo-q5_0`** (turbo
+  quantizado, ~600 MB em disco e ~2 GB de memória) transcreve melhor, mais devagar; `base` é rápido e
+  pior; `medium` pede ~2,5 GB. Troque com `WHISPER_MODELO` e `crm up -d transcricao`.
+- **Dimensionamento:** reserve **4 CPUs e 3 GB** para o serviço (`TRANSCRICAO_CPUS`, `TRANSCRICAO_MEMORIA`,
+  `WHISPER_THREADS`) além do que a API, o banco e o MinIO usam; o servidor de 2 vCPU / 4 GB da seção 2 serve
+  para o CRM sem ligações gravadas, mas com transcrição precisa de pelo menos 4 vCPU e 8 GB. Sem CPU para
+  isso, deixe `TRANSCRICAO_URL=` vazia: a gravação e o áudio para ouvir continuam, sem texto e sem resumo.
+- **Disco:** uma hora de ligação ocupa ~15 MB (webm original) mais ~15 MB (ogg para ouvir), no MinIO. A guarda
+  é por canal (`retencaoDias`, padrão 365): depois do prazo, a gravação e a transcrição são apagadas todo dia
+  às 03:30 e o registro, a duração e o resumo ficam.
+- **Saúde:** a tela **Saúde do sistema** mostra o serviço (`ok`, `fora_do_ar` ou `desativada`), o modelo e a
+  fila; serviço ligado e fora do ar gera um alerta.
 
 ## 4. Primeira subida
 

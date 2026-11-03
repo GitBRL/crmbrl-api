@@ -64,6 +64,17 @@ x-ambiente-da-imagem: &ambiente-da-imagem
   # Graph API da Meta (Instagram e Messenger, R14).
   META_GRAPH_URL: ${META_GRAPH_URL:-https://graph.facebook.com}
   META_GRAPH_VERSAO: ${META_GRAPH_VERSAO:-v24.0}
+  # Ligações pelo WhatsApp oficial (R29): STUN opcional do navegador e espera entre pre_accept e accept.
+  LIGACOES_STUN_URLS: ${LIGACOES_STUN_URLS:-}
+  LIGACOES_ESPERA_PRE_ACEITE_MS: ${LIGACOES_ESPERA_PRE_ACEITE_MS:-800}
+  # Gravação, transcrição e resumo das ligações (R30). TRANSCRICAO_URL vazia = transcrição desligada
+  # (a gravação continua; o serviço "transcricao" abaixo pode ser removido do compose).
+  TRANSCRICAO_URL: ${TRANSCRICAO_URL-http://transcricao:8080}
+  WHISPER_MODELO: ${WHISPER_MODELO:-small}
+  TRANSCRICAO_TEMPO_LIMITE_S: ${TRANSCRICAO_TEMPO_LIMITE_S:-1800}
+  LIGACOES_GRAVACAO_MAX_MB: ${LIGACOES_GRAVACAO_MAX_MB:-200}
+  LIGACOES_GRAVACAO_MAX_MIN: ${LIGACOES_GRAVACAO_MAX_MIN:-180}
+  LIGACOES_RESUMO_MODELO: ${LIGACOES_RESUMO_MODELO:-claude-sonnet-5-5}
   PROCESSAR_FILAS: ${PROCESSAR_FILAS:-true}
   LOG_FORMATO: ${LOG_FORMATO:-json}
 
@@ -115,6 +126,35 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  transcricao:
+    # Transcrição das ligações (R30): whisper.cpp (licença MIT) em CPU, chamado pela API por HTTP em
+    # http://transcricao:8080/inference. Imagem oficial fixada por digest (tag main de 02/11/2026; para
+    # atualizar, baixe a nova e troque o digest: docker buildx imagetools inspect ghcr.io/ggml-org/whisper.cpp:main).
+    # O entrypoint baixa o modelo WHISPER_MODELO (padrão small, ~470 MB) na primeira subida para o volume
+    # "modelos-whisper"; o servidor só escuta na rede do compose (sem porta no host).
+    # Limite de CPU/memória: TRANSCRICAO_CPUS e TRANSCRICAO_MEMORIA (small pede ~1 GB; medium ~2,5 GB).
+    image: ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e9c36861c140b748eb6fd982a4aee52a8a503018cb6703c571f2fa1b5
+    restart: unless-stopped
+    entrypoint: ['/bin/bash', '/entrypoint.sh']
+    environment:
+      WHISPER_MODELO: ${WHISPER_MODELO:-small}
+      WHISPER_THREADS: ${WHISPER_THREADS:-4}
+      # Detecção de voz (Silero, ~900 KB, baixada junto): sem ela, os tempos dos trechos saem errados
+      # quando um canal fica calado por muito tempo.
+      WHISPER_VAD: ${WHISPER_VAD:-true}
+    cpus: ${TRANSCRICAO_CPUS:-4}
+    mem_limit: ${TRANSCRICAO_MEMORIA:-3g}
+    volumes:
+      - modelos-whisper:/modelos
+      - ./scripts/transcricao-entrypoint.sh:/entrypoint.sh:ro
+    healthcheck:
+      # Fica "starting" enquanto o modelo baixa e carrega (a primeira subida leva alguns minutos).
+      test: ['CMD', 'curl', '-fsS', '-o', '/dev/null', 'http://127.0.0.1:8080/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
 
   api:
     build: .
@@ -239,5 +279,7 @@ services:
 volumes:
   banco-dados:
   arquivos-dados:
+  # Modelos do Whisper baixados pelo serviço transcricao (não precisa de backup: baixa de novo).
+  modelos-whisper:
   # Dumps do banco (serviço backup) e ultimo.json; a API lê só.
   backups:

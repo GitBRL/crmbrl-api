@@ -19,6 +19,9 @@ O **Atendimento** reúne as conversas de WhatsApp, chat do site, e-mail, Instagr
 A conversa nova vai para a fila do canal. A fila distribui por **rodízio**, por **menor carga** ou **manual** (a conversa fica sem responsável até alguém assumir). Veja o artigo de filas e SLA.
 
 ## Atalhos de teclado
-Alt+↓ e Alt+↑ trocam de conversa; Alt+L vai à lista, Alt+B à busca, Alt+M ao campo de mensagem e Alt+C ao painel do contato.
+Alt+↓ e Alt+↑ trocam de conversa; Alt+L vai à lista, Alt+B à busca, Alt+M ao campo de mensagem e Alt+C ao painel do contato. No Mac, em vez de Alt use **Control+Shift** (a tecla Option escreve letras especiais). Durante uma ligação, Alt+S silencia o microfone e Alt+E encerra. A dica de atalhos da tela (o "?" ao lado do título) mostra os atalhos certos para o seu computador.
+
+## Conversas e ligações
+No topo do Atendimento há duas abas: **Conversas** e **Ligações**. Em **Ligações** fica o histórico de chamadas, com filtros e busca no texto das transcrições (veja `atendimento-historico-de-ligacoes.md`).
 
 Se a tela mostrar "Sem acesso", o seu papel (por exemplo, Marketing) não usa o Atendimento.

@@ -4,6 +4,7 @@ import { MetaModule } from './meta/meta.module';
 import { RegistroCanais } from './registro-canais';
 import { WebchatModule } from './webchat/webchat.module';
 import { WhatsappCanalModule } from './whatsapp/whatsapp-canal.module';
+import { WhatsappOficialModule } from './whatsapp-oficial/whatsapp-oficial.module';
 
 /**
  * Registro dos adaptadores de canal, global: cada módulo de canal injeta o
@@ -23,7 +24,8 @@ export class RegistroCanaisModule {}
  * - `WhatsappCanalModule` — WhatsApp pelo gateway próprio (`src/whatsapp/**`);
  * - `WebchatModule` — chat do site;
  * - `EmailCanalModule` — e-mail (IMAP/SMTP);
- * - `MetaModule` — Instagram e Messenger.
+ * - `MetaModule` — Instagram e Messenger;
+ * - `WhatsappOficialModule` — WhatsApp pela Cloud API da Meta (Onda E, R28).
  */
 @Module({
   imports: [
@@ -32,6 +34,7 @@ export class RegistroCanaisModule {}
     WebchatModule,
     EmailCanalModule,
     MetaModule,
+    WhatsappOficialModule,
   ],
   exports: [RegistroCanaisModule, WhatsappCanalModule],
 })

@@ -59,6 +59,11 @@ export interface DadosDoArquivo {
   largura?: number | null;
   altura?: number | null;
   duracaoSegundos?: number | null;
+  /**
+   * Só para código do servidor (nunca vem do HTTP): limite de tamanho maior que o da
+   * política do contexto, como as gravações de ligação (R30), que têm limite próprio.
+   */
+  limiteBytes?: number;
 }
 
 /**
@@ -251,7 +256,7 @@ export class ArquivosService
       descartar(conteudo);
       throw new TipoDeArquivoRecusadoException(politica.motivo, { mime });
     }
-    const limite = politica.limiteBytes;
+    const limite = dados.limiteBytes ?? politica.limiteBytes;
     if (dados.tamanho !== undefined && dados.tamanho > limite) {
       descartar(conteudo);
       throw this.limiteEstourado(limite);
