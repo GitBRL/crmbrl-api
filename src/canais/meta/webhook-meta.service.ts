@@ -26,6 +26,8 @@ import {
   TIPOS_META,
   tipoDaMensagemDoAnexo,
 } from './eventos-meta';
+import { WebhookWhatsappOficialService } from '../whatsapp-oficial/webhook-whatsapp-oficial.service';
+import { OBJETO_DO_WEBHOOK_WHATSAPP } from '../whatsapp-oficial/eventos-oficial';
 import { GraphApi } from './graph-api';
 
 /** Fila (pg-boss) das entradas do webhook, processadas fora da requisição. */
@@ -50,7 +52,8 @@ function atorDo(tipo: TipoCanalMeta) {
 
 /**
  * Webhook da Meta (§2.5, R14), um endereço só para todos os canais de
- * Instagram e Messenger:
+ * Instagram, Messenger e WhatsApp oficial (R28, que trata o que vem com
+ * `object: whatsapp_business_account`):
  *
  * - `GET`: o desafio de verificação (`hub.verify_token` = o token de
  *   verificação de algum canal) devolve o `hub.challenge`;
@@ -73,6 +76,7 @@ export class WebhookMetaService implements OnModuleInit {
     private readonly arquivos: ArquivosService,
     private readonly graph: GraphApi,
     private readonly logs: LogsTecnicosService,
+    private readonly whatsappOficial: WebhookWhatsappOficialService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -114,6 +118,10 @@ export class WebhookMetaService implements OnModuleInit {
           return desafio;
         }
       }
+      // O verify token de um canal do WhatsApp oficial também vale (R28).
+      if (await this.whatsappOficial.tokenDeVerificacaoValido(token)) {
+        return desafio;
+      }
     }
     throw new SemPermissaoException('Token de verificação inválido.');
   }
@@ -128,6 +136,14 @@ export class WebhookMetaService implements OnModuleInit {
     bruto: Buffer | undefined,
     assinatura: string | undefined,
   ): Promise<{ recebidas: number }> {
+    // `object: whatsapp_business_account` é do WhatsApp oficial (R28).
+    if (
+      typeof corpo === 'object' &&
+      corpo !== null &&
+      (corpo as { object?: unknown }).object === OBJETO_DO_WEBHOOK_WHATSAPP
+    ) {
+      return this.whatsappOficial.receber(corpo, bruto, assinatura);
+    }
     const entradas = entradasDoWebhook(corpo);
     if (entradas.length === 0) {
       return { recebidas: 0 };

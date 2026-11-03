@@ -130,6 +130,12 @@ export class TiposDePreferenciaDto {
   @IsOptional()
   @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
   parcela_atrasada?: boolean;
+  @ApiPropertyOptional({
+    description: 'Ligação do WhatsApp tocando ou perdida (R29).',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
+  ligacao_recebida?: boolean;
 }
 
 export class AlterarPreferenciasPushDto {
@@ -154,6 +160,7 @@ export class PreferenciasPushDto {
       sla_estourado: true,
       negocio_atribuido: true,
       parcela_atrasada: true,
+      ligacao_recebida: true,
     },
   })
   tipos: Record<string, boolean>;

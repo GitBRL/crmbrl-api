@@ -1474,3 +1474,575 @@ teste) contra um Postgres real, e os de tela têm spec no front.
      `push.inscricao_removida` (motivo `desligamento`) sem endereço nem chaves, e não toca nos de
      outras pessoas (R26.1, R7).
 153. Sair remove a inscrição deste aparelho e mantém os outros da mesma pessoa (R26.1).
+
+## 39. Canal WhatsApp oficial (R28)
+
+Onda E (fatia E1). O WhatsApp pela **Cloud API da Meta** é um canal novo (`WHATSAPP_OFICIAL`), ao
+lado do WhatsApp pelo Baileys (R13), que segue igual. Os disparos (R17) continuam só pelo
+Baileys. Nada aqui chama a Meta real nos testes nem no ambiente dos agentes: usa-se uma Graph
+falsa (`META_GRAPH_URL`). Formatos conferidos na referência `whatsapp-cloud-chamadas.md` (§6);
+o que ela marca como não confirmado fica isolado em `canais/whatsapp-oficial/formato-meta.ts`
+e `eventos-oficial.ts`, com comentário.
+
+- **R28.1** **Configuração (só o Admin, como os outros canais):** `phoneNumberId` (vira o
+  `idExterno` do canal: o mesmo número não tem dois canais, 409), id da conta (WABA), número
+  exibido, token de usuário do sistema e app secret. **Token, app secret e verify token ficam
+  cifrados** (R10.3) e nunca saem inteiros (a tela vê `••••••••abcd`); o verify token é gerado
+  pelo CRM, e a tela mostra a **URL do webhook** (a mesma do Instagram e do Messenger) e os
+  campos a assinar para o Admin copiar. "Testar conexão" lê o número na Graph
+  (`display_phone_number`, `verified_name`, `quality_rating`): sucesso mostra o estado
+  *conectado* e guarda o que a Meta informou; falha mostra o motivo em português e grava o erro
+  do canal (estado *erro*, que também vem de falha de envio ou de sincronização). Criar, alterar
+  e excluir são auditados (`canal.*`) sem os segredos.
+- **R28.2** **Webhook:** `GET` e `POST /publico/meta/webhook`. A verificação aceita o verify token
+  de qualquer canal da Meta ou do WhatsApp oficial. No `POST`, `object: whatsapp_business_account`
+  vai para o canal oficial, achado por `entry[].changes[].value.metadata.phone_number_id`; a
+  assinatura `X-Hub-Signature-256` é conferida com o app secret **do canal** (401 se faltar ou
+  não conferir). O roteamento é **por campo** (`changes[].field`): `messages` é tratado aqui; o
+  campo `calls` é tratado pelas ligações (R29, tratador registrado); campo
+  desconhecido é ignorado com log em nível debug. Número sem canal (ou desligado) é ignorado
+  com 200. O processamento é por fila (`whatsapp-oficial.webhook`), fora da requisição.
+- **R28.3** **Mesmas regras dos outros canais:** a mensagem recebida entra pelo Atendimento
+  (R12): contato pelo telefone em **E.164 só com dígitos** (o mesmo identificador `WHATSAPP` do
+  Baileys, então a mesma pessoa fala pelos dois canais e cai no mesmo contato), fila padrão do
+  canal, distribuição, SLA, horário de atendimento, resposta fora do horário, chatbot (R18),
+  gatilhos de automação de mensagem recebida (R19) e notificações. **Idempotência pelo id da
+  mensagem na Meta** (`wamid`): a reentrega do webhook (até 7 dias) não duplica.
+- **R28.4** **Envio e janela de 24 h:** a mensagem do contato abre a janela por 24 horas
+  (`conversa.janelaAte`). **Dentro dela** valem texto, mídia, mensagem de voz e citação; **fora
+  dela só templates aprovados**: texto livre é recusado com 422 (`regra: R28`,
+  `apenasTemplate: true`, motivo em português) e a conversa traz `podeResponder.apenasTemplate`
+  e `acoes.enviarTemplate`. Se a janela fecha entre o envio e o job, a mensagem falha com o
+  mesmo motivo, sem chamar a Meta. O envio é síncrono pela fila de envio do Atendimento: o
+  `wamid` devolvido vira o `idExterno` (gravado já, para o status que chegar cedo achar a
+  mensagem) e a mensagem fica `ENVIADA`. Falha passageira da Meta (500, limite de velocidade) é
+  tentada de novo; falha definitiva vira `FALHOU` com o motivo em português e "tentar de novo".
+  Começar conversa pela equipe num contato sem janela exige template. O destino é o telefone do
+  contato; sem telefone, o BSUID (campo `recipient`).
+- **R28.5** **Recebimento por tipo:** texto; mídia (imagem, áudio, vídeo, documento, figurinha),
+  baixada em dois passos (`GET /{media_id}` e `GET url` com o token) e guardada no MinIO como nos
+  outros canais (mídia expirada ou recusada vira "[Mídia não disponível]"; falha passageira da
+  Meta repete o job); localização (`latitude`, `longitude`, nome, endereço); contatos
+  compartilhados (nome, telefones e vCard); respostas de **botão e de lista** (texto = título, com
+  `metadados.interativo`); **reações** (`REACAO`, emoji vazio = reação removida); tipos que o CRM
+  não conhece viram "(mensagem não suportada pelo CRM)". Resposta/citação (`context.id`) liga à
+  mensagem citada.
+- **R28.6** **BSUID:** quando a Meta omite o telefone (usuário com nome de usuário), o contato é
+  identificado pelo BSUID (`from_user_id` / `contacts[].user_id`), num identificador
+  `WHATSAPP_BSUID`. Se o telefone aparecer depois (ou já vier junto), os dois identificadores
+  ficam **no mesmo contato**, que ganha o telefone; se telefone e BSUID já pertencem a contatos
+  diferentes, nada é fundido sozinho (log de aviso; a deduplicação de contatos resolve).
+- **R28.7** **Status de cada mensagem:** `sent` → `ENVIADA`, `delivered` → `ENTREGUE`, `read` →
+  `LIDA`, `failed` → `FALHOU` com o **motivo em português** (tabela de códigos de erro da Cloud
+  API; o que não está na tabela mostra o título da Meta). O status só avança (um "entregue"
+  atrasado não desfaz o "lida"). Status de mensagem ainda não gravada, recém-chegado, é tentado de
+  novo (o envio pode estar gravando o id); o antigo e desconhecido é ignorado.
+- **R28.8** **Templates:** a lista vem de `GET /{waba_id}/message_templates` (com paginação) e é
+  guardada por canal (nome, idioma, categoria, situação, componentes e quando foi sincronizada).
+  A sincronização é **manual** (botão) e **diária** (03:00, pela fila `whatsapp-oficial.templates`;
+  o erro de um canal não para os outros); o que sumiu da Meta sai do cache; cada sincronização é
+  auditada (`canal.templates_sincronizados`). Falha da Meta na sincronização manual é 503 com o
+  motivo, o cache fica como estava e o canal registra o erro. Só os **aprovados** enviam; o
+  compositor lista os da conversa com cabeçalho, corpo, rodapé, botões e as **variáveis** de cada
+  um (`{{1}}`, `{{2}}`…). Enviar template confere: aprovado, **todas as variáveis preenchidas**
+  (400 se faltar), e **arquivo no cabeçalho** quando ele pede imagem, vídeo ou documento. A
+  mensagem grava o texto como o contato o vê (`texto`) e o template usado e as variáveis em
+  `metadados.template`. Template vale dentro e fora da janela e na "tentativa de novo".
+  Templates com localização no cabeçalho não são suportados.
+- **R28.9** **Não contatar e opt-out (R4.6, R24.7):** a marca **"não contatar por WhatsApp"** do
+  contato (etiqueta `nao-contatar-whatsapp` ou campo `nao_contatar_whatsapp`) vale para os **dois**
+  canais de WhatsApp: bloqueia a mensagem **ativa** (fora da janela de 24 h, ou seja, template para
+  quem não escreveu há menos de um dia), mas não a resposta a quem acabou de escrever. Template de
+  categoria **marketing** também respeita o opt-out de marketing do contato. A mensagem bloqueada
+  fica `FALHOU` com o motivo.
+- **Endpoints (Admin):** `GET|POST /whatsapp-oficial/canais`, `GET|PATCH|DELETE
+  /whatsapp-oficial/canais/:id`, `POST …/:id/testar`, `POST …/:id/token-verificacao`,
+  `GET …/:id/templates`, `POST …/:id/templates/sincronizar`. **Atendimento (quem usa o
+  Atendimento e vê a conversa):** `GET /atendimento/conversas/:id/templates`; o envio é
+  `POST /atendimento/conversas/:id/mensagens` (e `POST /atendimento/conversas`) com `template`.
+
+### Cenários de aceitação (Onda E, canal WhatsApp oficial)
+
+Continuam a numeração da seção 38; cada um tem teste automatizado ("cenário N" no nome, em
+`test/onda-e-whatsapp-oficial.e2e-spec.ts` e nos specs de `canais/whatsapp-oficial`) contra um
+Postgres real e uma Graph falsa em processo.
+
+154. Cria com segredos cifrados e mascarados, gera o verify token e mostra a URL do webhook
+     (R28.1).
+155. Só o Admin configura (403); o mesmo número em dois canais é 409; ids inválidos 400 (R28.1).
+156. "Testar conexão": lê o número na Graph; token vencido vira estado ERRO com o motivo
+     (R28.1).
+157. Gera outro verify token (o antigo deixa de valer) e exclui o canal (R28.1).
+158. A verificação GET aceita o verify token do canal oficial e recusa o errado (R28.2).
+159. Exige a assinatura do app secret DO canal (401 sem ela ou com a de outro) (R28.2).
+160. Número desconhecido e campos sem tratador (account_update) são ignorados com 200 (R28.2).
+161. Cada número usa o seu app secret: uma mudança assinada com o segredo errado de outro canal
+     não entra (R28.2).
+162. Texto: contato pelo telefone (E.164), conversa na fila do canal, janela de 24 h e
+     idempotência (R28.3).
+163. Contato novo: nome do perfil, origem WhatsApp, telefone só com dígitos (R28.3).
+164. Mídia: baixada com o token (2 passos) e guardada; mídia expirada vira aviso (R28.5).
+165. Localização, contatos, resposta de botão e de lista e reação (R28.5).
+166. Entra pelas mesmas regras: SLA da fila, notificação e evento de mensagem recebida (R28.3).
+167. Sem telefone, o contato é identificado pelo BSUID; quando o telefone aparece, é o mesmo
+     contato (R28.6).
+168. Telefone e BSUID desde a primeira mensagem ficam no mesmo contato (R28.6).
+169. Envia para o BSUID quando o contato não tem telefone (R28.6).
+170. Enviada → entregue → lida pelos webhooks; um status atrasado não desfaz (R28.7).
+171. Falhou: o motivo do erro em português vai para a mensagem (R28.7).
+172. Status de mensagem ainda não gravada tenta de novo; o antigo é ignorado (R28.7).
+173. Dentro da janela: texto pela Cloud API com o token, ENVIADA com o wamid (R28.4).
+174. Resposta citada leva o wamid da mensagem citada (R28.4).
+175. Fora da janela: texto livre é 422 com o motivo em português e a indicação de só template
+     (R28.4).
+176. A janela fecha entre o envio e o job: a mensagem falha com o motivo (sem chamar a Meta)
+     (R28.4).
+177. A Meta recusa por janela (131047): FALHOU com o motivo; token inválido: FALHOU e o canal
+     fica com erro (R28.4).
+178. Falha passageira da Meta (500) é tentada de novo sem duplicar (R28.4).
+179. Mídia: upload em /media e envio por id, com a legenda; documento leva o nome (R28.4).
+180. Áudio gravado no navegador (webm/opus) é convertido para ogg/opus e vai como áudio (R28.4).
+181. Áudio que não dá para converter (sem ffmpeg e não é ogg) falha com motivo em português
+     (R28.4).
+182. Sincronização manual: troca o cache, segue a paginação e mostra o que não está aprovado
+     (R28.8).
+183. Falha da Meta na sincronização: 503 com o motivo, o cache fica e o canal registra o erro
+     (R28.8).
+184. Sincronização diária pela fila: todos os canais ativos, um erro não para os outros (R28.8).
+185. O compositor lista os templates aprovados da conversa e o aviso da janela fechada (R28.4).
+186. Template com variáveis fora da janela: grava o texto preenchido e envia os components
+     (R28.4).
+187. Variável faltando, template pendente, texto junto e canal sem templates são recusados
+     (R28.4).
+188. Template com mídia no cabeçalho exige o arquivo e o envia como cabeçalho (R28.4).
+189. Começar a conversa pela equipe exige template (não há janela); com template envia (R28.4).
+190. "tentar de novo" de um template funciona fora da janela (R28.4).
+191. A marca bloqueia a mensagem ativa (template fora da janela), mas não a resposta dentro dela
+     (R28.9).
+192. Template de marketing respeita o opt-out de marketing do contato (R28.9).
+193. A mesma pessoa pode falar pelos dois canais (identificador WHATSAPP compartilhado) (R28.9).
+194. O `wa_id` sem o nono dígito casa com o contato cadastrado com ele (e vice-versa) (R28.3).
+
+## 40. Ligações pelo WhatsApp (R29)
+
+Onda E (fatia E2, API). O atendente atende e liga **pelo navegador**: o áudio vai direto entre o
+navegador e a Meta (WebRTC nativo, sem TURN; STUN opcional em `LIGACOES_STUN_URLS`, vazio por
+padrão) e a API **só sinaliza** (SDP, pela Calling API da Meta e pelo tempo real). Não há trickle
+ICE pela Graph: o navegador espera o fim da coleta de candidatos (com tempo limite) antes de
+mandar o SDP. Nada chama a Meta real nos testes nem no ambiente dos agentes (`META_GRAPH_URL`
+aponta para uma Graph/Calling API falsa). O que a referência `whatsapp-cloud-chamadas.md` marca
+como não confirmado (as "Lacunas") fica isolado em `ligacoes/formato-chamadas.ts` e
+`ligacoes/graph-ligacoes.ts`, cada ponto com `LACUNA n` citando a referência: ajustar depois do
+primeiro teste com a Meta real começa por esses dois arquivos.
+
+- **R29.1** **Máquina de estados** (`ligacoes/maquina-de-estados.ts`, funções puras, testada):
+  *recebida* `TOCANDO → EM_ANDAMENTO → ENCERRADA` ou `PERDIDA` (tempo de toque, cliente
+  desligou, fora do horário, sem atendente, ligação atrasada) ou `FALHOU`; *feita*
+  `CHAMANDO → TOCANDO → EM_ANDAMENTO → ENCERRADA` ou `RECUSADA`, `SEM_RESPOSTA` (o cliente não
+  atendeu, ou o atendente cancelou) e `FALHOU`. Estado terminal **nunca muda**; os estados ativos
+  só avançam; evento que não faz sentido para o estado (ou para a direção) é ignorado, nunca
+  erro. Cada transição é serializada por ligação (trava consultiva) e o estado só muda se a
+  máquina deixar: webhooks **repetidos, fora de ordem ou atrasados** não quebram nem regridem
+  nada (um `terminate` atrasado só completa a duração).
+- **R29.1a** **Corrida cancelar × atender (feita).** Um `terminate` com duração que chega depois de o CRM
+  já ter fechado a ligação como `SEM_RESPOSTA`, `PERDIDA`, `RECUSADA` ou `FALHOU` (o atendente cancelou no
+  instante em que o cliente atendeu) **não dá duração** a ela: só `ENCERRADA` completa a duração depois de
+  fechada. Um desfecho "não atendida" nunca tem duração. O `RINGING` ou a resposta SDP que chegam antes de o
+  `POST /ligacoes` gravar o id da Meta esperam 0,3, 0,7 e 1,5 s antes de voltar ao job.
+- **R29.2** **Ligação recebida.** O webhook `calls` (`connect` com a oferta SDP) cria a ligação
+  `TOCANDO` na transação do webhook, junto com a **chave de dedupe** (a Meta reentrega por até 7
+  dias; a chave vale 7 dias e uma limpeza diária remove as vencidas; se o evento falhar, a chave
+  volta junto e o job tenta de novo). O contato e a conversa em aberto do canal são os do
+  Atendimento (R12; criados e distribuídos pela fila se for um contato novo) e **a ligação, atendida
+  ou não, abre a janela de 24 h do canal (R28.4)**.
+  - **Quem toca:** primeiro o responsável pela conversa ou pelo contato, se estiver **online e
+    livre**; senão todos os atendentes online e livres da **fila de ligações** (a escolhida na
+    configuração ou a fila padrão do canal). "Livre" = sem ligação em andamento (chamando, tocando
+    ou em andamento). Cada um recebe `ligacao.tocando` (com a oferta SDP) no tempo real e uma
+    notificação interna (`ligacao.tocando`) que também vira **push** com a ação "Abrir ligação"
+    (preferência de push `ligacao_recebida`, R26).
+  - **Quem atende:** o primeiro `POST /ligacoes/:id/atender` com a resposta SDP leva a ligação (a
+    trava é a linha no banco); os outros recebem **409 `atendida_por_outro`** e o evento
+    `ligacao.deixou_de_tocar`. A API manda `pre_accept` e `accept` com o **mesmo SDP** (com uma
+    espera curta entre os dois, `LIGACOES_ESPERA_PRE_ACEITE_MS`) e só então a ligação entra em
+    andamento. Se a Meta recusar, a ligação vira `FALHOU` e o atendente recebe o motivo (409
+    `meta_recusou`). Só atende quem foi chamado (403 `nao_chamado`) e quem não está em outra ligação
+    (409 `ja_em_ligacao`: **uma ligação por atendente**, garantida por índice único parcial).
+  - **Perdida:** passado o **tempo de toque** (padrão 25 s, de 10 a 40 s: sempre abaixo do prazo
+    de 30 a 60 s da Meta; job do pg-boss agendado na chegada), **fora do horário de ligações**,
+    **sem ninguém disponível**, ligações desativadas no canal ou `connect` que chegou depois de a
+    Meta desistir: a ligação vira `PERDIDA` e a API manda `reject` à Meta (menos no caso do
+    `connect` atrasado). O CRM cria a atividade **"Retornar ligação"** (pendente, prioridade alta,
+    prazo de 4 h) para o responsável da conversa ou do contato (senão o líder da área da fila,
+    senão o Admin), **avisa por notificação** o responsável ou a fila e manda a **mensagem
+    automática** do canal, se estiver ligada (a janela de 24 h acabou de abrir). A recebida que
+    falha antes de atender (a Meta recusa o `accept`) também gera o retorno.
+  - **Recusar:** `POST /ligacoes/:id/recusar` tira a ligação só de quem recusou
+    (`ligacao.deixou_de_tocar` com `recusada_por_voce`; a coluna `recusada_por` guarda quem). Se **todos os
+    chamados recusam**, a API rejeita na Meta **na hora** (sem esperar o tempo de toque) e a ligação vira
+    `PERDIDA` com o motivo `recusada_pelos_atendentes` (retorno, aviso e mensagem automática como em toda
+    perdida; os últimos a ouvir recebem `recusada_por_todos`). Repetir é inofensivo; quem não foi chamado
+    recebe 403 e uma ligação já atendida ou terminada, 409.
+  - O `terminate` que a Meta manda no fim fecha a ligação com a **duração e o motivo**; o
+    atendente que encerra manda `terminate` à Meta **sempre** (afeta a cobrança) e o webhook fecha
+    (um job fecha sozinho, com o que o CRM sabe, se o webhook não vier em 20 s).
+  - **Navegador que cai** durante a ligação: tolerância de 15 s para o socket reconectar; passado
+    esse prazo sem nenhum socket do atendente, a API manda `terminate` e encerra (`conexao_perdida`).
+- **R29.3** **Ligação feita.** `POST /ligacoes` com a oferta SDP do navegador. A API confere, nesta
+  ordem: ligações ativas e botão visível no canal (422), contato com telefone (ou BSUID), uma
+  ligação por atendente e por cliente (409), e **a permissão e os limites na Meta**
+  (`GET call_permissions`: a Meta não avisa quando a permissão expira, então confere antes de
+  **cada** ligação; sem resposta da Meta, 503: não liga sem conferir). Sem permissão: 422
+  `sem_permissao` com o que o front precisa para oferecer o pedido (`situacao`, `podePedir`,
+  `liberaPedidoEm`, `janelaAberta`, `temTemplateDePermissao`). Limite diário de ligações feitas:
+  lido da Meta (o valor documentado é contraditório, 100 ou 5) e tratado também pelo erro
+  (`limite_diario`, com quando libera). Depois, `CHAMANDO` + `connect`; a **resposta SDP** chega
+  pelo webhook e vai ao navegador por `ligacao.resposta_sdp`; os estados vêm dos webhooks de status
+  (`RINGING` → `TOCANDO`, `ACCEPTED` → `EM_ANDAMENTO`, `REJECTED` → `RECUSADA`) e do `terminate`
+  (sem atender: `SEM_RESPOSTA`). Cancelar enquanto chama manda `terminate` e fecha na hora. Uma
+  vigia fecha a ligação presa em `CHAMANDO`/`TOCANDO` por 2 minutos. Se a ligação nasce de uma
+  atividade de ligação (inclusive a etapa de ligação da régua), `atividadeId` a liga: a atividade
+  é concluída quando o cliente atende. O cliente que atende uma ligação nossa **abre a janela de
+  24 h**.
+- **R29.4** **Permissão do cliente** (`permissoes_de_ligacao`, uma por canal e contato): situação
+  `NENHUMA`, `PEDIDA`, `CONCEDIDA` (temporária, 7 dias, ou permanente), `NEGADA` ou `REVOGADA`
+  (a temporária vencida aparece como `EXPIRADA`). **Pedido:** mensagem interativa
+  `call_permission_request` dentro da janela de 24 h; fora dela, um **template aprovado com o
+  componente de permissão** (sincronizado na E1; sem ele, 422 `sem_template_de_permissao`). Os
+  limites da Meta valem **antes** de enviar: **1 pedido por 24 h e 2 por 7 dias por cliente**
+  (422 `limite_de_pedidos` com `liberaEm`; a conferência na Meta também vale e traz `origem:
+  meta`); permissão que já existe é 409 `permissao_ja_existe`. Qualquer ligação conectada com o
+  cliente zera os pedidos. **A resposta do cliente** (campo `messages`, interativo
+  `call_permission_reply`) atualiza o registro (aceitar: temporária até a data da Meta, ou
+  permanente; recusar: `NEGADA`), vira aviso na conversa (não vira mensagem do cliente), abre a
+  janela de 24 h e emite `ligacao.permissao`; repetida, não duplica. **4 ligações feitas seguidas
+  sem resposta** (recusadas ou não atendidas; o cancelamento do atendente não conta) **revogam**
+  a permissão: o registro passa a `REVOGADA` (a Meta faz o mesmo); atender zera a contagem.
+- **R29.5** **Erros da Calling API em português** (tabela de códigos da referência §5.1:
+  `138006` sem permissão, `138012`/`138005` limites, `138001` cliente sem WhatsApp, `138003`
+  duplicada, `138009` pedidos, `138015` limite de mensagens baixo…): viram 422 com
+  `detalhes.motivo` estável e `detalhes.codigoDaMeta`; falha passageira da Meta (rede, 5xx) é 503.
+  Erros `138019` a `138023` do `terminate` (mídia) viram o motivo `falha_de_midia`.
+- **R29.6** **Configuração (aba "Ligações" do canal, só o Admin):** ativa (liga e desliga as
+  chamadas no número por `POST /{phone_number_id}/settings`; **se a Meta recusar, nada é gravado**
+  e o motivo vem em português), botão "Ligar" visível, horário (formato do horário de
+  atendimento; padrão: o do canal; as ligações fora dele não chegam ao CRM como "fora do horário"
+  porque o CRM **não** manda `call_hours` à Meta: a perdida precisa chegar para gerar o retorno),
+  fila que atende, gravar (padrão sim; usado pela E3), tempo de toque (padrão 25 s) e mensagem
+  automática de perdida (desligada por padrão). O Admin assina o campo `calls` no app da Meta
+  (vem em `webhook.campos` do canal). Tudo é auditado (`canal.ligacoes_ativadas`,
+  `canal.ligacoes_desativadas`, `canal.ligacoes_configuradas`).
+- **R29.7** **Ao encerrar:** a ligação registra duração e motivo; cria ou conclui a **atividade
+  `LIGACAO`** do contato (direção, resultado, duração, quem e a anotação na descrição): a atendida
+  nasce concluída em nome de quem atendeu ou ligou (e conclui os "Retornar ligação" pendentes do
+  contato), a perdida gera o retorno pendente, a feita sem resposta, recusada ou com falha registra
+  a tentativa concluída (se veio de uma atividade pendente, ela fica pendente com a tentativa na
+  descrição); e registra um **evento do sistema na conversa do Atendimento** (a ligação como
+  cartão: `metadados.ligacao`). A anotação rápida (`PATCH /ligacoes/:id`) vale durante e depois da
+  ligação e atualiza a atividade. O fim da ligação limpa as SDPs (a oferta e a resposta só ficam
+  enquanto necessárias) e marca como lidas as notificações de "tocando".
+- **R29.8** **Acesso:** atende, liga, pede permissão, anota e vê o histórico quem pode usar o
+  Atendimento (R12; Marketing, não: 403). O histórico respeita a visibilidade das conversas
+  (quem atendeu, quem foi chamado, quem vê a conversa e quem tem o contato no alcance, o responsável e o
+  líder dele; Admin e C-level veem todas; os demais, 404). É o mesmo critério da lista, do detalhe, da
+  busca, da linha do tempo, do BI e do player (R30.9).
+  Só quem atendeu ou ligou encerra e anota. Configurar o canal é só do Admin. A **anonimização do
+  contato (R4.6)** limpa o telefone, o BSUID, a anotação e as SDPs das ligações dele e apaga as
+  permissões; o registro (direção, estado, duração e motivo) fica. **Auditoria** de
+  configuração (`canal.ligacoes_*`) e de cada ligação (`ligacao.recebida`, `ligacao.atendida`,
+  `ligacao.iniciada`, `ligacao.encerramento_pedido`, `ligacao.anotada`, `ligacao.encerrada`, `.perdida`,
+  `.recusada`, `.sem_resposta`, `.falhou`) e da
+  permissão (`ligacao.permissao_pedida`, `_concedida`, `_negada`, `_revogada`).
+- **R29.9** **Histórico (lista, busca, linha do tempo e BI) segue o mesmo recorte do detalhe.** Uma ligação
+  entra em qualquer um deles para quem a vê: o atendente, quem foi chamado a atender e quem vê a conversa
+  (R12); Admin e C-level veem todas; Marketing recebe 403. `GET /ligacoes` filtra por `de`/`ate` (hora em que
+  a ligação começou), `direcao`, `situacao` (lista: `ENCERRADA` = atendida, `PERDIDA`, `RECUSADA`,
+  `SEM_RESPOSTA`, `FALHOU`, `EM_ANDAMENTO`…), `atendenteId` (ou `sem`, as perdidas), `filaId` (a da conversa),
+  `canalId`, `contatoId`, `conversaId` e `busca` (R30.16); devolve `total` (com o filtro e a visibilidade) e
+  pagina por cursor, da mais recente para a mais antiga. **Linha do tempo** (`GET /contatos/:id/linha-do-tempo`,
+  também a da empresa): item de `tipo: "ligacao"` com direção, resultado (`atendida`, `perdida`, `recusada`,
+  `sem_resposta`, `falhou`), duração, atendente, canal, assunto e trecho do resumo (quando pronto), se há
+  gravação e transcrição, e o `conversaId`; `incluir=ligacoes` traz só elas. Para não aparecer duas vezes, o
+  evento de fechamento da auditoria (`ligacao.encerrada`, `.perdida`, `.recusada`, `.sem_resposta`,
+  `.falhou`) e a atividade `LIGACAO` já concluída da própria ligação saem da lista; a atividade "Retornar
+  ligação" pendente continua. O painel completo abre em `/atendimento/ligacoes/:id`.
+- **R29.10** **BI, painel Atendimento (R20).** Cartões: `ligacoesRecebidas`, `ligacoesFeitas`,
+  `ligacoesAtendidas`, `ligacoesPerdidas`, `ligacoesTaxaAtendimento` (recebidas atendidas ÷ recebidas),
+  `ligacoesEspera` (segundos entre começar a tocar e ser atendida, nas recebidas atendidas) e
+  `ligacoesDuracao` (média das atendidas), com comparação com o período anterior. Contam só ligações
+  **terminadas** que **começaram** no período. Tabelas: `ligacoesPorAtendente` (recebidas, feitas, atendidas,
+  perdidas, espera, duração; as perdidas ficam em "Sem atendente") e `ligacoesPorHora` (24 linhas, fuso de
+  Brasília). Valem os filtros do painel (área, pessoa = atendente, canal, fila) e a visibilidade acima.
+- **R29.11** **Evento e gatilhos.** Ao chegar a um estado terminal, a ligação publica na outbox
+  `ligacao.perdida` (só recebida perdida) e `ligacao.encerrada` (todo desfecho). Dados: `ligacaoId`,
+  `canalId`, `canalTipo`, `contatoId`, `contato {id, nome}`, `conversaId`, `atividadeId`, `direcao`, `estado`,
+  `resultado`, `motivo`, `duracaoSegundos`, `esperaSegundos`, `atendenteId`, `atendente {id, nome}`,
+  `iniciadaEm`, `atendidaEm`, `encerradaEm`. **Gatilhos de automação** (entidade contato): "Ligação perdida"
+  (filtro `canalId`) e "Ligação encerrada" (`canalId`, `direcao`, `resultado`). **Webhook de saída:**
+  `ligacao.encerrada` pode ser assinado como qualquer outro (R9); o corpo nunca leva áudio nem transcrição, e o
+  resumo só quando o Admin marca "Incluir o resumo no webhook" no canal (`webhookIncluiResumo`, R30.17).
+  Dados do titular saem do `payload` na anonimização como nos outros eventos (R4.6).
+- **Endpoints:** `GET /ligacoes/configuracao-webrtc`, `GET /ligacoes/canais`, `GET /ligacoes/ativas`,
+  `GET /ligacoes/permissoes`, `POST /ligacoes/permissoes/pedir`, `GET /ligacoes`, `POST /ligacoes`,
+  `GET /ligacoes/:id`, `POST /ligacoes/:id/atender`, `POST /ligacoes/:id/recusar`, `POST /ligacoes/:id/encerrar`, `PATCH
+  /ligacoes/:id`; Admin: `GET|PATCH /whatsapp-oficial/canais/:id/ligacoes`. Tempo real (namespace
+  `/tempo-real`): `ligacao.tocando`, `ligacao.deixou_de_tocar`, `ligacao.resposta_sdp`,
+  `ligacao.estado`, `ligacao.encerrada` e `ligacao.permissao`.
+
+### Cenários de aceitação (Onda E, ligações)
+
+Continuam a numeração dos cenários do canal oficial (até o 194); cada um tem teste automatizado
+("cenário N" no nome, em `test/onda-e-ligacoes.e2e-spec.ts`) contra um Postgres real e uma Graph e
+Calling API falsa em processo; a máquina de estados, o formato do webhook e as regras de permissão
+têm testes de unidade em `src/ligacoes/*.spec.ts`.
+
+195. O Admin liga as chamadas: `settings` na Meta (sem `call_hours`, SIP desligado), padrões do
+     canal e auditoria (R29.6).
+196. Só o Admin configura (403); Marketing não usa as ligações (403) (R29.6, R29.8).
+197. A Meta recusa ativar: nada é gravado e o motivo vem em português (R29.6).
+198. Tempo de toque, horário e mensagem de perdida são validados (R29.6).
+199. Recebida atendida: toca só para o responsável, `pre_accept` e `accept` com o mesmo SDP,
+     termina com a duração, atividade concluída, evento na conversa e janela de 24 h aberta
+     (R29.2, R29.7).
+200. Contato novo: cria contato e conversa na fila e toca para todos os livres da fila (R29.2).
+201. Disputa de dois atendentes: só um leva (409 `atendida_por_outro` para o outro, que recebe
+     `deixou_de_tocar`) (R29.2).
+202. Perdida por tempo de toque: `reject` na Meta, "Retornar ligação", notificação e mensagem
+     automática (R29.2).
+203. Fora do horário de ligações e sem atendente online: `PERDIDA` na hora, com `reject` e retorno
+     (R29.2).
+204. Quem está em ligação não é "livre": a ligação seguinte vai para a fila (R29.2).
+205. Uma ligação por atendente: atender outra com uma em andamento é 409 (R29.2).
+206. A Meta recusa o `accept`: `FALHOU`, motivo ao atendente e retorno para o cliente (R29.2).
+207. O cliente desliga antes de alguém atender: `PERDIDA` e os outros param de tocar (R29.2).
+208. Encerrar manda `terminate`; o webhook fecha com a duração; sem webhook, o job fecha (R29.2).
+209. Anotação rápida vai para a atividade; só quem atendeu anota (R29.7).
+210. Queda do navegador: tolerância curta e depois encerra com `terminate` (R29.2).
+211. Ligar sem permissão: 422 com o que o front precisa e nada vai à Meta (R29.3).
+212. Ligar com permissão: `connect`, resposta SDP pelo tempo real, `RINGING`, `ACCEPTED`, encerrar e
+     atividade (R29.3).
+213. A permissão expirou na Meta: o CRM confere antes de ligar e atualiza o registro (R29.3).
+214. Limite de ligações feitas lido da Meta: 422 com quando libera (R29.3).
+215. A Meta recusa o `connect`; cliente recusa; cliente não atende (R29.3, R29.5).
+216. Cancelar enquanto chama; botão desligado bloqueia (R29.3).
+217. Uma ligação por atendente e por cliente (R29.3).
+218. Ligação feita a partir de uma atividade de ligação: concluída se atendida (R29.3).
+219. Pedido de permissão dentro da janela (interativo); a resposta do cliente atualiza o registro
+     (R29.4).
+220. Pedido fora da janela: template com o componente de permissão; sem template, 422 (R29.4).
+221. Limites de pedido: 1 por 24 h e 2 por 7 dias, e o que a Meta informar (R29.4).
+222. 4 ligações seguidas sem resposta revogam a permissão; atender zera a contagem (R29.4).
+223. Vigia: ligação feita presa em `CHAMANDO` é fechada (R29.3).
+224. `connect` repetido não duplica a ligação nem o toque (R29.2).
+225. `terminate` e status repetidos, `RINGING` depois do `ACCEPTED` e eventos depois do fim não
+     regridem nada (R29.1, R29.2).
+226. `terminate` que chega antes do `connect` espera a ligação existir (R29.2).
+227. `connect` atrasado: `PERDIDA` "atrasada", sem toque e sem `reject` (R29.2).
+228. O webhook só vale assinado com o app secret do canal; as chaves de dedupe vencem em 7 dias
+     (R29.2).
+229. O histórico respeita a visibilidade do Atendimento (R29.8).
+230. O processamento completo termina sem erro nos logs técnicos (R29).
+231. A anonimização do contato (R4.6) limpa o telefone, a anotação e a permissão das ligações e
+     mantém o registro (duração, motivo) (R29.8).
+232. Os status (enviada, entregue, lida) do pedido de permissão são reconhecidos, sem job em erro
+     (R29.4).
+
+## 41. Gravação, transcrição e resumo das ligações (R30)
+
+Onda E (fatia E3, API). A gravação é feita **no navegador do atendente** (a API não toca no áudio da
+chamada), enviada em partes, juntada e processada pela fila: versão para ouvir, transcrição por canal e
+resumo. Código em `src/ligacoes/gravacao/` (partes, junção, leitura, privacidade, guarda, sugestões) e
+`src/transcricao/` (ffmpeg, whisper.cpp, Claude). Nada chama a Anthropic real nem a Meta real nos testes
+e no ambiente dos agentes (Anthropic falsa do serviço de apoio; whisper falso em processo nos testes).
+
+- **R30.1** **Partes da gravação.** O canal grava quando `canais_ligacoes.gravar` é verdadeiro (a ligação
+  nasce com `gravar`). O gravador manda **webm/opus estéreo** (atendente no canal esquerdo, cliente no
+  direito; `MediaRecorder` com fatias de ~5 s): `POST /ligacoes/:id/gravacao/partes/:sequencia`, corpo cru
+  `audio/webm` de até 4 MB, sequência de 0 a 20 000 (a parte 0 traz o cabeçalho webm e é conferida).
+  **Idempotente por sequência:** reenviar a mesma parte devolve `duplicada: true`; outra parte com o mesmo
+  número é 409 `parte_diferente`. Só o **atendente da ligação** (os outros recebem 404) e só com a ligação
+  **EM_ANDAMENTO** ou **encerrada há menos de 2 minutos**; canal sem gravação, gravação já finalizada ou
+  apagada e ligação fora de andamento são 409 (`detalhes.motivo`). Limites: tamanho total
+  (`LIGACOES_GRAVACAO_MAX_MB`) e duração (`LIGACOES_GRAVACAO_MAX_MIN`) por ligação, 413. As partes ficam no
+  armazenamento de arquivos (`ligacoes/<id>/partes/<n>`) e numa tabela de controle; a gravação passa a
+  `enviando`.
+- **R30.2** **Finalizar.** `POST /ligacoes/:id/gravacao/finalizar` (corpo `{totalPartes}` ou
+  `?totalPartes=N`, para o `navigator.sendBeacon`): trava a ligação, **junta as partes na ordem** (webm de
+  um mesmo `MediaRecorder` concatena direto), guarda o arquivo original (contexto `LIGACAO`), apaga as
+  partes e enfileira o processamento, tudo na mesma transação; **idempotente** (a segunda chamada devolve
+  `jaFinalizada: true`). Sem partes, nada é gravado (`sem`); sem a parte 0, a gravação `falhou` com
+  mensagem. Se a aba fechar sem finalizar, ao encerrar a ligação a API agenda um job
+  (`ligacoes.gravacao.finalizar`, 90 s depois) que junta **o que subiu**.
+- **R30.3** **Processamento** (fila `transcricao.processar`, **uma por vez**, 3 retentativas): o **ffmpeg**
+  gera a versão para ouvir (mono, ogg/opus 32 kbps) e um WAV 16 kHz mono por canal; o **whisper.cpp**
+  (`TRANSCRICAO_URL`, `POST /inference`, `verbose_json`, português) transcreve cada canal com marcações de
+  tempo (o serviço usa detecção de voz Silero; sem ela os tempos do canal calado saem errados) e os trechos são **intercalados por tempo** como `atendente` e `cliente` (trechos seguidos do
+  mesmo falante com pausa até 1,5 s viram um; "[BLANK_AUDIO]", música e as alucinações conhecidas do
+  Whisper em silêncio são descartados). Gravação mono (sem separação de canais): um canal só, falante
+  `participante`. A duração vem da versão ogg (o webm do navegador não traz a duração). Prazo total em
+  `TRANSCRICAO_TEMPO_LIMITE_S`. Ao terminar, o tempo real emite `ligacao.processada`.
+- **R30.4** **Resumo** (fila `transcricao.resumir`): o Claude (`@anthropic-ai/sdk`, o mesmo cliente do BI e
+  do assistente, modelo `LIGACOES_RESUMO_MODELO`, padrão `claude-sonnet-5-5`, saída estruturada em JSON)
+  recebe a conversa entre marcas `<transcricao>` — texto de terceiros: o sistema manda **nunca seguir
+  instruções escritas nela**, e a própria conversa não consegue fechar a marca — e devolve **assunto,
+  pontos principais, combinados, próximos passos, sentimento (com o motivo) e até 5 sugestões de
+  atividade**. A resposta é conferida de novo (tipos, valores conhecidos, tamanhos). **Sem
+  `ANTHROPIC_API_KEY`** (ou com conversa curta, menos de 15 palavras) o resumo fica `desativado` com o
+  motivo em `resumo.erro`, e a transcrição segue valendo. A auditoria guarda o modelo e os tokens, nunca o
+  texto.
+- **R30.5** **Estados por ligação** (`GET /ligacoes/:id`): *gravação* `sem`, `enviando`, `pronta` ou
+  `falhou` (+ `disponivel`, `duracaoSegundos`, `removidaEm`, `podeBaixar`); *transcrição* `pendente`,
+  `processando`, `pronta`, `falhou` ou `desativada` (nulo = não foi gravada); *resumo* `pendente`,
+  `processando`, `pronto`, `falhou` ou `desativado`. Falha transitória (rede, 5xx, tempo, sobrecarga)
+  repete pela fila; ao esgotar, o estado vira `falhou` com a mensagem em português (nunca o texto do erro
+  técnico). Se o ffmpeg não consegue ler o arquivo, a gravação `falhou` na hora, sem repetir. **Sem
+  `TRANSCRICAO_URL`** a gravação fica `pronta` (dá para ouvir) e a transcrição e o resumo `desativada` e
+  `desativado`.
+- **R30.6** **Reprocessar.** `POST /ligacoes/:id/reprocessar` `{etapa: 'completo' | 'resumo'}` refaz a
+  conversão, a transcrição e o resumo (ou só o resumo, que exige a transcrição pronta). Só o atendente da
+  ligação, o Admin e os líderes (403 aos demais que a veem); 409 se já está processando, se não tem
+  gravação ou se a guarda já a apagou. O ogg anterior é substituído.
+- **R30.7** **Sugestões de atividade só viram atividade com a confirmação do usuário.**
+  `POST /ligacoes/:id/resumo/sugestoes/:sugestaoId/confirmar` (corpo opcional: título, descrição, tipo,
+  `venceEm`, `fimEm`, `responsavelId`) cria a atividade do contato pelo `AtividadesService` (regras e
+  auditoria de sempre; vencimento padrão às 18h de Brasília daqui a `prazoEmDias`; reunião ganha início =
+  vencimento e fim 1 h depois) e marca a sugestão; `…/descartar` só marca. **Cada sugestão vale uma vez**
+  (409 `sugestao_ja_tratada`), mesmo com cliques simultâneos (a ligação é travada e a sugestão reservada).
+  Falha ao criar libera a sugestão. Quem não vê a ligação recebe 404.
+- **R30.8** **Ouvir.** `GET /ligacoes/:id/audio` entrega o ogg mono por streaming **com `Range`** (206/416,
+  `ETag`, `Accept-Ranges`, `Cache-Control: private, no-store`, `nosniff`), para o player avançar e voltar;
+  `?versao=original` entrega o webm estéreo.
+- **R30.9** **Privacidade (LGPD).** Ouve e lê (áudio, transcrição, resumo) **quem vê a ligação**: o
+  atendente, quem foi chamado, Admin e C-level, quem vê a conversa (R12) e quem tem o **contato** no
+  alcance (responsável, ou líder da equipe do responsável); os demais recebem 404 (não revela que existe).
+  **Baixar** (`GET /ligacoes/:id/audio/baixar`, anexo) é só do **Admin e dos líderes** (403 aos demais).
+  **Auditoria:** reprodução (`ligacao.gravacao-reproduzida`: a que começa no byte 0 e, para um `Range` que
+  começa adiante, a primeira de cada janela de 5 minutos por usuário, ligação e versão; não cada `Range` do
+  player), download (`ligacao.gravacao-baixada`, todo pedido) e leitura da transcrição (`ligacao.transcricao-lida`), com quem e quando;
+  mais finalização, conclusão e falha do processamento, reprocessamento e sugestões.
+- **R30.10** **Sem gravação ainda:** áudio e transcrição inexistentes são 404 com `detalhes.motivo`
+  (`sem_gravacao`, `gravacao_removida`).
+- **R30.11** **Prazo de guarda.** `canais_ligacoes.retencaoDias` (1 a 3650, padrão **365**, configurável
+  pelo Admin em `PATCH /whatsapp-oficial/canais/:id/ligacoes`). **Todo dia às 03:30** (fila
+  `ligacoes.gravacao.remover-vencidas`), a gravação (original e ogg) e a transcrição das ligações mais
+  antigas que o prazo são **apagadas**; **o registro, a duração e o resumo ficam**. A ligação ganha
+  `gravacaoRemovidaEm`. Quem grava o resultado do processamento (ogg, transcrição, resumo) trava a
+  ligação e só grava se `gravacaoRemovidaEm` continua vazio: a guarda ou a anonimização no meio do
+  processamento não deixam o dado voltar. A mesma rodada apaga partes abandonadas (aba fechada e ninguém finalizou, 2 dias).
+- **R30.12** **Dados pessoais.** A exportação do titular (`GET /contatos/:id/dados-pessoais`, só Admin)
+  inclui as **ligações** (registro, telefone, anotação, transcrição e resumo; o áudio não vai no JSON). A
+  **anonimização** (R4.6) apaga gravações (os arquivos saem do armazenamento), transcrições **e resumos**
+  das ligações do contato, além do telefone e da anotação (R29.8); a auditoria registra só a contagem.
+- **R30.13** **Áudio de aviso do canal.** O Admin sobe um áudio (até 5 MB) em
+  `POST /arquivos?contexto=LIGACAO` e o liga em `PATCH /whatsapp-oficial/canais/:id/ligacoes`
+  `{avisoArquivoId}` (só áudio do contexto `LIGACAO`, senão 400; `null` remove; trocar apaga o anterior).
+  Quem usa o Atendimento baixa em `GET /ligacoes/canais/:canalId/aviso` (com `Range`; 404 se não houver);
+  **o navegador o toca para o cliente ao atender**, misturado na saída — a API só guarda e entrega.
+- **R30.14** **Serviço de transcrição.** O serviço `transcricao` do compose (usuário, agentes e produção)
+  roda a imagem oficial `ghcr.io/ggml-org/whisper.cpp` **fixada por digest**: o entrypoint baixa o modelo
+  `WHISPER_MODELO` para um volume na primeira subida e roda o `whisper-server` **só na rede do compose**,
+  com healthcheck, `TRANSCRICAO_CPUS` e `WHISPER_THREADS`. A tela **Saúde do sistema** mostra o serviço
+  (`ok`, `fora_do_ar` ou `desativada`), o modelo e a fila (pendentes, em processamento, falhas em 24 h);
+  serviço ligado e fora do ar gera o alerta `transcricao_fora_do_ar` (aviso).
+- **R30.15** **Permissões e rotas** (todas em `/api/v1`, cookie de sessão): ver a matriz acima (R30.1, R30.9
+  e R30.11). Tempo real: `ligacao.processada` `{ligacaoId, etapa: gravacao|transcricao|resumo, gravacao,
+  transcricao, resumo}` para `usuario:<atendente>` e `conversa:<id>`.
+- **R30.16** **Busca no texto das transcrições.** `GET /ligacoes?busca=…` (até 200 caracteres) usa
+  **full text em português com índice**: o texto da transcrição é guardado como `tsvector` (`portuguese`,
+  sem acento nem maiúscula: "renovacao" acha "renovação"; "descontos" acha "desconto"), mantido por um
+  **gatilho do banco** sempre que `transcricao` muda — transcrição, reprocessamento, guarda vencida e
+  anonimização (R30.11, R30.12) tiram ou põem a ligação na busca sem código extra. Sintaxe: palavras
+  juntas (E), `"frase exata"`, `-palavra` (exclui) e `or`. Palavras muito comuns ("isso", "de") são
+  ignoradas pelo idioma. Só entram ligações visíveis ao usuário (R29.9): o texto de uma ligação alheia não
+  vaza nem como contagem. Considera as 5000 mais recentes que casam. Cada item volta com
+  `trechosEncontrados` (até 3 falas: `falante`, `inicio` em segundos, `texto`), para o clique tocar a
+  gravação naquele ponto (a frase que atravessa duas falas acha a ligação, mas não mostra trecho).
+- **R30.17** **Resumo no webhook (opcional).** `PATCH /whatsapp-oficial/canais/:id/ligacoes`
+  `{webhookIncluiResumo}` (Admin; padrão desligado, porque o resumo cita o cliente). Ligado, o
+  `ligacao.encerrada` das ligações atendidas **e gravadas** leva `resumo {assunto, pontosPrincipais,
+  combinados, proximosPassos, sentimento}` (sem as sugestões de atividade). Para isso o evento **espera o
+  resumo terminar** (pronto, falhou ou desativado; confere a cada 20 s, no máximo 20 min, depois sai sem
+  ele); por isso, com o resumo ligado, o gatilho "Ligação encerrada" dessas ligações também espera. "Ligação
+  perdida" nunca espera. A transcrição e o áudio **nunca** saem.
+
+### Cenários de aceitação (Onda E, gravação, transcrição e resumo)
+
+Continuam a numeração das ligações (até o 232); cada um tem teste automatizado ("cenário N" no nome, em
+`test/onda-e-gravacao.e2e-spec.ts`) contra um Postgres real, um whisper falso em processo e a Anthropic
+falsa dos testes; a intercalação, o resumo, o cliente do whisper, as variáveis e o vencimento das sugestões
+têm testes de unidade em `src/transcricao/*.spec.ts`, `src/ligacoes/gravacao/*.spec.ts` e
+`src/config/ambiente.spec.ts`. O ffmpeg real e o whisper real foram conferidos à parte (veja o progresso).
+
+233. As partes são guardadas, idempotentes por sequência; a mesma sequência com outro conteúdo é 409
+     (R30.1).
+234. Recusas: outro atendente (404), vazia, grande demais, sem cabeçalho webm, sequência inválida, canal sem
+     gravação, ligação fora de andamento ou encerrada há mais de 2 minutos (R30.1).
+235. Tamanho máximo da gravação (413) (R30.1).
+236. Finalizar junta as partes na ordem, guarda o webm, apaga as partes, é idempotente e recusa parte nova
+     (R30.2).
+237. Finalizar sem partes não grava nada; só o atendente finaliza (R30.2).
+238. Sem a primeira parte a gravação falha com mensagem clara (R30.2).
+239. Aba fechada: a fila finaliza sozinha com o que subiu (R30.2).
+240. Converte, transcreve cada canal, intercala por tempo, resume e avisa em tempo real; nenhuma atividade
+     nasce sozinha (R30.3, R30.4).
+241. Gravação mono: um canal só, falante `participante` (R30.3).
+242. Sem chave da Anthropic fica só a transcrição (R30.4).
+243. Falha transitória do whisper repete; ao esgotar, `falhou`; "Reprocessar" refaz (R30.5, R30.6).
+244. ffmpeg não lê a gravação: `falhou` sem repetir à toa (R30.5).
+245. O resumo repete e vira `falhou`; "Reprocessar resumo" refaz só ele (R30.5, R30.6).
+246. "Reprocessar": só atendente, Admin e líderes; recusa o que está processando ou sem gravação (R30.6).
+247. Transcrição desligada: só a versão para ouvir (R30.5).
+248. Áudio com `Range` (206/416), cabeçalhos seguros e auditoria só da reprodução inteira (R30.8, R30.9).
+249. Quem vê a conversa ou o contato ouve e lê; os outros, 404; baixar só Admin e líderes, auditado (R30.9).
+250. Áudio e transcrição inexistentes: 404 claro (R30.10).
+251. A guarda vencida apaga gravação e transcrição e mantém registro, duração e resumo (R30.11).
+252. O prazo é do canal e partes abandonadas somem (R30.11).
+253. Exportar os dados do titular inclui ligações e transcrições; anonimizar apaga gravações, transcrições e
+     resumos (R30.12).
+254. A atividade só nasce na confirmação; cada sugestão vale uma vez, mesmo com cliques juntos (R30.7).
+255. O corpo ajusta tipo e vencimento; data inválida é 400 e libera a sugestão (R30.7).
+256. Áudio de aviso do canal: sobe, liga, toca, só áudio, trocar apaga o antigo (R30.13).
+257. A Saúde do sistema mostra o serviço de transcrição e a fila, e alerta quando cai (R30.14).
+258. Saúde com a transcrição desligada: `desativada`, sem alerta (R30.14).
+
+## 42. Matriz de acesso e cenários — Onda E (WhatsApp oficial, ligações, gravação e histórico)
+
+Resumo de quem pode o quê (detalhes nas regras R28 a R30). "Vê" = a ligação ou conversa está no recorte do
+Atendimento (R12): atendente, quem foi chamado, quem vê a conversa; Admin e C-level veem todas.
+
+| Recurso | Admin | C-level | Líder | Membro | Marketing |
+| --- | --- | --- | --- | --- | --- |
+| Cadastrar canal WhatsApp oficial, templates (R28) | ✓ | — | — | — | — |
+| Configurar ligações do canal: ativar, horário, fila, gravar, guarda, aviso, resumo no webhook (R29.6, R30.17) | ✓ | — | — | — | — |
+| Atender, recusar, ligar, pedir permissão (R29.2–R29.4) | ✓ | ✓ | ✓ | ✓ (as que lhe tocam) | — (403) |
+| Encerrar e anotar | ✓ | ✓ | só as suas | só as suas | — |
+| Lista, busca no texto e detalhe das ligações (R29.9, R30.16) | todas | todas | as que vê | as que vê | — (403) |
+| Entrada da ligação na linha do tempo do contato (R29.9) | todas | todas | as que vê | as que vê | nenhuma |
+| Ouvir gravação, ler transcrição e resumo (R30.9) | ✓ | ✓ | as que vê, mais as do alcance do contato | idem | — |
+| Baixar o áudio (R30.9) | ✓ | — | ✓ | — | — |
+| Reprocessar, confirmar ou descartar sugestões (R30.6, R30.7) | ✓ | ✓ | ✓ | só as suas | — |
+| BI Atendimento: ligações (R29.10) | todas | todas | as que vê | as que vê | — (403) |
+| Webhook de saída `ligacao.encerrada` e gatilhos de automação (R29.11) | ✓ | ✓ (automações) | ✓ (automações) | — | — |
+| Preferência de push `ligacao_recebida` (R26) | ✓ | ✓ | ✓ | ✓ (a própria) | ✓ |
+
+### Cenários de aceitação (Onda E, histórico e integrações)
+259. Lista de ligações filtra por período, direção, situação, atendente (ou `sem`), fila, canal e contato, com
+     `total` e cursor; filtros inválidos são 400 (R29.9).
+260. Cada um vê só as ligações que pode ver (atendente, chamado, conversa); Marketing recebe 403 (R29.9).
+261. Busca no texto sem distinguir acento, maiúscula ou flexão; frase, exclusão e `or`; devolve os trechos que
+     casaram (R30.16).
+262. A busca não revela o texto de ligação que o usuário não vê (R30.16, R29.9).
+263. O índice acompanha a transcrição: apagar (guarda, LGPD) tira da busca; reprocessar põe de novo (R30.16).
+264. Linha do tempo do contato: entrada da ligação com resultado, duração e resumo, só a quem a vê, sem
+     duplicar o evento nem a atividade concluída (R29.9).
+265. BI Atendimento: cartões e tabelas de ligações, por atendente e por hora, com a visibilidade do R12 (R29.10).
+266. Webhook `ligacao.encerrada`: ids, direção, resultado, duração, atendente e contato; sem áudio,
+     transcrição nem resumo por padrão; assinatura de sempre (R29.11).
+267. Com o resumo marcado no canal, o webhook espera o resumo e o leva, sem sugestões nem transcrição (R30.17).
+268. Gatilhos "ligação perdida" e "ligação encerrada" com filtros de canal, direção e resultado (R29.11).
+269. Só o Admin configura "resumo no webhook" (R30.17).
+270. A preferência de push `ligacao_recebida` aparece e muda em `/push/preferencias` (R26).
+271. Recusar: some só para quem recusou; quando todos recusam, `reject` na Meta na hora e `PERDIDA` (R29.2).
+272. Corrida cancelar × atender: o `terminate` com duração depois do cancelamento não dá duração à
+     `SEM_RESPOSTA` (R29.1a).
+273. Status `RINGING` antes de o `POST` gravar o id da Meta espera um instante e é aplicado (R29.1a).

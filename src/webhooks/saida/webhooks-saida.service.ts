@@ -64,6 +64,8 @@ const DESCRICAO_DOS_EVENTOS: Readonly<Record<EventoDeWebhook, string>> = {
   'contrato.encerrado': 'Contrato encerrado ao fim do prazo.',
   'parcela.paga': 'Parcela paga (baixa manual, importação ou ligação).',
   'parcela.atrasada': 'Parcela venceu sem pagamento.',
+  'ligacao.encerrada':
+    'Ligação do WhatsApp encerrada (atendida, perdida, recusada, sem resposta ou com falha): ids, direção, resultado, duração, atendente e contato. Sem áudio nem transcrição; o resumo só se o Admin marcar no canal.',
   'webhook.teste':
     'Evento de teste disparado pelo Admin (sempre entregue ao destino testado).',
 };

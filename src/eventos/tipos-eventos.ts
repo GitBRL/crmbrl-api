@@ -22,6 +22,8 @@ export const EVENTOS_DE_WEBHOOK = [
   'contrato.encerrado',
   'parcela.paga',
   'parcela.atrasada',
+  // Onda E: Ligações (R29.9). Sem áudio nem transcrição; o resumo só se o Admin marcar no canal.
+  'ligacao.encerrada',
   'webhook.teste',
 ] as const;
 

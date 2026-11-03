@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -12,6 +12,7 @@ import {
   IsUUID,
   Matches,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import {
   QUANTIDADE_MAXIMA_ETIQUETAS,
@@ -48,7 +49,7 @@ import {
   ResumoFilaDto,
 } from './comum.dto';
 import { AREAS_DO_ATENDIMENTO, type AreaDoAtendimento } from './fila.dto';
-import { TAMANHO_MAXIMO_MENSAGEM } from './mensagem.dto';
+import { TAMANHO_MAXIMO_MENSAGEM, TemplateParaEnviarDto } from './mensagem.dto';
 
 /** Tamanho máximo da nota de uma transferência. */
 export const TAMANHO_MAXIMO_NOTA = 1000;
@@ -368,6 +369,12 @@ export class PodeResponderDto {
     description: 'Por que não dá (ex.: janela de 24 h da Meta fechada).',
   })
   motivo: string | null;
+
+  @ApiProperty({
+    description:
+      'Só dá para enviar um template aprovado (WhatsApp oficial fora da janela de 24 h): a tela troca o compositor livre pela lista de templates.',
+  })
+  apenasTemplate: boolean;
 }
 
 /** O que a pessoa pode fazer com a conversa (para os botões da tela). */
@@ -389,6 +396,12 @@ export class AcoesDaConversaDto {
       'Enviar mensagem ao contato (conversa em aberto e canal aceitando resposta).',
   })
   responder: boolean;
+
+  @ApiProperty({
+    description:
+      'Enviar um template (`POST …/mensagens` com `template`): conversa em aberto num canal que usa templates.',
+  })
+  enviarTemplate: boolean;
 
   @ApiProperty()
   criarNegocio: boolean;
@@ -479,7 +492,8 @@ export class FiltroConversasDto extends PaginacaoDto {
   @IsArray({ message: 'deve ser uma lista' })
   @IsEnum(TipoCanal, {
     each: true,
-    message: 'deve ser WHATSAPP, WEBCHAT, EMAIL, INSTAGRAM ou MESSENGER',
+    message:
+      'deve ser WHATSAPP, WHATSAPP_OFICIAL, WEBCHAT, EMAIL, INSTAGRAM ou MESSENGER',
   })
   tipoCanal?: TipoCanal[];
 
@@ -754,6 +768,16 @@ export class IniciarConversaDto {
   @OpcionalNaoNulo()
   @IsUUID('all', { message: MENSAGEM_UUID })
   arquivoId?: string;
+
+  @ApiPropertyOptional({
+    type: TemplateParaEnviarDto,
+    description:
+      'Primeira mensagem por template (WhatsApp oficial: não há janela aberta com quem ainda não escreveu).',
+  })
+  @OpcionalNaoNulo()
+  @ValidateNested()
+  @Type(() => TemplateParaEnviarDto)
+  template?: TemplateParaEnviarDto;
 
   @ApiPropertyOptional({
     maxLength: 200,

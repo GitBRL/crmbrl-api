@@ -3,8 +3,14 @@ import { join } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClienteWhisper } from '../../transcricao/cliente-whisper';
+import {
+  FILA_PROCESSAR_LIGACAO,
+  FILA_RESUMIR_LIGACAO,
+} from '../../transcricao/transcricao.constantes';
 import {
   type Alerta,
+  alertaDaTranscricao,
   alertaDoGateway,
   alertasDeBackup,
   alertasDeCanais,
@@ -41,6 +47,8 @@ interface LinhaDeFila {
 export interface FatosDoSistema {
   filas: FatosDeFila[] | null;
   gateway: SaudeDoGatewayLida | null;
+  /** Serviço de transcrição (R30). */
+  transcricao: 'ok' | 'fora_do_ar' | 'desativada';
   numeros: FatosDeNumero[];
   canais: (FatosDeCanal & { ativo: boolean })[];
   errosTotal24h: number;
@@ -72,6 +80,7 @@ export class SaudeDoSistemaService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
+    private readonly whisper: ClienteWhisper,
   ) {}
 
   async consultar(
@@ -97,6 +106,7 @@ export class SaudeDoSistemaService {
     const alertas = [
       ...alertasDeNumeros(fatos.numeros, agora),
       ...alertaDoGateway(fatos.gateway === null, numerosAtivos),
+      ...alertaDaTranscricao(fatos.transcricao === 'fora_do_ar'),
       ...alertasDeFilas(filas),
       ...alertasDeBackup(backup),
       ...alertasDeCanais(
@@ -107,6 +117,10 @@ export class SaudeDoSistemaService {
     ].sort(
       (a, b) =>
         Number(b.gravidade === 'critico') - Number(a.gravidade === 'critico'),
+    );
+    const filasDaTranscricao = filas.filter(
+      (f) =>
+        f.nome === FILA_PROCESSAR_LIGACAO || f.nome === FILA_RESUMIR_LIGACAO,
     );
     const paradas = filas
       .map((f) => f.maisAntigaParadaSegundos)
@@ -133,6 +147,16 @@ export class SaudeDoSistemaService {
       gateway: {
         status: fatos.gateway?.status ?? 'fora_do_ar',
         simulado: fatos.gateway?.simulado ?? this.ambiente.whatsapp.simulado,
+      },
+      transcricao: {
+        situacao: fatos.transcricao,
+        modelo: this.ambiente.transcricao.modelo,
+        pendentes: filasDaTranscricao.reduce((s, f) => s + f.pendentes, 0),
+        ativas: filasDaTranscricao.reduce((s, f) => s + f.ativas, 0),
+        falhasRecentes: filasDaTranscricao.reduce(
+          (s, f) => s + f.falhasRecentes,
+          0,
+        ),
       },
       numeros: fatos.numeros.map((n) => ({
         id: n.id,
@@ -175,20 +199,31 @@ export class SaudeDoSistemaService {
   }
 
   async coletar(): Promise<FatosDoSistema> {
-    const [filas, gateway, numeros, canais, erros, disco, bancoBytes, backup] =
-      await Promise.all([
-        this.coletarFilas(),
-        this.coletarGateway(),
-        this.coletarNumeros(),
-        this.coletarCanais(),
-        this.coletarErros(),
-        this.coletarDisco(),
-        this.coletarTamanhoDoBanco(),
-        this.lerBackup(),
-      ]);
+    const [
+      filas,
+      gateway,
+      transcricao,
+      numeros,
+      canais,
+      erros,
+      disco,
+      bancoBytes,
+      backup,
+    ] = await Promise.all([
+      this.coletarFilas(),
+      this.coletarGateway(),
+      this.whisper.saude(),
+      this.coletarNumeros(),
+      this.coletarCanais(),
+      this.coletarErros(),
+      this.coletarDisco(),
+      this.coletarTamanhoDoBanco(),
+      this.lerBackup(),
+    ]);
     return {
       filas,
       gateway,
+      transcricao,
       numeros,
       canais,
       errosTotal24h: erros.total,

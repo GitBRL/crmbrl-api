@@ -17,16 +17,17 @@ import type {
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
 import { deDataDoBanco, diasEntre, hojeLocal } from './datas';
+import { naoContatarPorWhatsapp } from '../contatos/nao-contatar-whatsapp';
 import {
-  CAMPO_NAO_CONTATAR_WHATSAPP,
   DESCRICAO_DO_ATOR_DA_REGUA,
-  ETIQUETA_NAO_CONTATAR_WHATSAPP,
   FILA_REGUA_EMAIL,
   FILA_REGUA_WHATSAPP,
   VARIAVEIS_DO_TITULO,
 } from './financeiro.constantes';
 import { ReguaConfiguracaoService } from './regua-configuracao.service';
 import { TempoRealFinanceiro } from './tempo-real-financeiro.service';
+
+export { naoContatarPorWhatsapp };
 
 export interface PedidoDeEnvioDaRegua {
   envioId: string;
@@ -48,23 +49,6 @@ export type ContatoDeCobranca = Pick<
   | 'camposPersonalizados'
   | 'responsavelId'
 >;
-
-/** O contato pediu para não ser cobrado por WhatsApp (R24.7)? */
-export function naoContatarPorWhatsapp(
-  contato: Pick<Contato, 'etiquetas' | 'camposPersonalizados'>,
-): boolean {
-  if (contato.etiquetas.includes(ETIQUETA_NAO_CONTATAR_WHATSAPP)) return true;
-  const campos = contato.camposPersonalizados;
-  if (campos && typeof campos === 'object' && !Array.isArray(campos)) {
-    const v = (campos as Record<string, unknown>)[CAMPO_NAO_CONTATAR_WHATSAPP];
-    return (
-      v === true ||
-      (typeof v === 'string' &&
-        ['true', 'sim', '1', 'yes'].includes(v.trim().toLowerCase()))
-    );
-  }
-  return false;
-}
 
 function moeda(v: Prisma.Decimal): string {
   return Number(v.toFixed(2)).toLocaleString('pt-BR', {

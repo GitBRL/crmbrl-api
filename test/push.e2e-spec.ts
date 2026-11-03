@@ -230,6 +230,7 @@ describe('Notificações push (e2e)', () => {
           sla_estourado: true,
           negocio_atribuido: true,
           parcela_atrasada: true,
+          ligacao_recebida: true,
         },
       });
       const alterada = await ana
@@ -296,6 +297,8 @@ describe('Notificações push (e2e)', () => {
         ['passagem.recebida', '/funis/cs?negocio=2'],
         ['regua.promessa_nao_cumprida', '/financeiro/parcelas?parcela=1'],
         ['regua.ligacao', '/financeiro/regua/ligacoes?envio=1'],
+        ['ligacao.tocando', '/atendimento?ligacao=1'],
+        ['ligacao.perdida', '/atividades?atividade=5'],
       ];
       for (const [tipo, link] of casos) {
         await notificar(ana.usuario!.id, tipo, { link });
@@ -346,6 +349,31 @@ describe('Notificações push (e2e)', () => {
       });
       expect(porId.get(semLink.id)?.url).toBe('/notificacoes');
       expect(porId.get(externo.id)?.url).toBe('/notificacoes');
+    });
+
+    it('cenário 135 — R29.2 — a ligação tocando leva a ação "Abrir ligação" e não some sozinha; respeita a preferência', async () => {
+      await inscrever(ana);
+      const toque = await notificar(ana.usuario!.id, 'ligacao.tocando', {
+        titulo: 'Ligação de Maria',
+        texto: 'Toque para atender a ligação do WhatsApp.',
+        link: '/atendimento?ligacao=abc',
+      });
+      await drenarFilas(t, FILA_PUSH);
+      expect(falso.enviados.at(-1)?.carga).toMatchObject({
+        notificacaoId: toque.id,
+        url: '/atendimento?ligacao=abc',
+        persistente: true,
+        acoes: [{ acao: 'abrir', titulo: 'Abrir ligação' }],
+      });
+      await ana
+        .put(`${API}/preferencias`, { tipos: { ligacao_recebida: false } })
+        .expect(200);
+      const antes = falso.enviados.length;
+      await notificar(ana.usuario!.id, 'ligacao.tocando', {
+        link: '/atendimento?ligacao=def',
+      });
+      await drenarFilas(t, FILA_PUSH);
+      expect(falso.enviados).toHaveLength(antes);
     });
 
     it('cenário 135 — R26.3 — envia a todos os aparelhos da pessoa e a ninguém mais', async () => {

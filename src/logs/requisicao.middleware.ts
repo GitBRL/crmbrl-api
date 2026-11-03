@@ -69,7 +69,8 @@ export function criarMiddlewareDeRequisicao(logger = new Logger('HTTP')) {
         status,
         duracaoMs: Math.round(performance.now() - inicio),
         usuarioId: req.contexto?.usuario?.id ?? null,
-        ip: req.ip ?? null,
+        // O IP guardado na chegada: com a conexão já destruída (corpo recusado no meio), `req.ip` lança.
+        ip: contexto.ip ?? null,
         requisicaoId,
         ...(res.writableFinished ? {} : { interrompida: true }),
       };

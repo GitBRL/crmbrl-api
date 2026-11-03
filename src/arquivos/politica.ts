@@ -19,6 +19,9 @@ export const LIMITE_IMPORTACAO_BYTES = 10 * MB;
 /** Foto de perfil: 5 MB. */
 export const LIMITE_AVATAR_BYTES = 5 * MB;
 
+/** Áudio de aviso das ligações (R30): 5 MB. A gravação da ligação tem limite próprio, dado pelo servidor. */
+export const LIMITE_AVISO_DE_LIGACAO_BYTES = 5 * MB;
+
 /** Maior limite de todos — o teto do multer no upload HTTP. */
 export const LIMITE_MAXIMO_BYTES = LIMITE_DOCUMENTOS_BYTES;
 
@@ -234,6 +237,15 @@ export function avaliarTipo(
           aceito: false,
           motivo: 'A foto precisa ser uma imagem JPG, PNG, GIF ou WebP.',
         };
+  }
+  if (contexto === 'LIGACAO') {
+    return categoria === 'audio'
+      ? {
+          aceito: true,
+          categoria,
+          limiteBytes: LIMITE_AVISO_DE_LIGACAO_BYTES,
+        }
+      : { aceito: false, motivo: 'O arquivo da ligação precisa ser um áudio.' };
   }
   if (contexto === 'IMPORTACAO') {
     return { aceito: true, categoria, limiteBytes: LIMITE_IMPORTACAO_BYTES };

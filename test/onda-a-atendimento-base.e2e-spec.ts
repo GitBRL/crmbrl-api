@@ -354,7 +354,14 @@ describe('Atendimento — base (e2e)', () => {
 
   it('RegistroCanais — todos os tipos de canal têm adaptador registrado', () => {
     expect(t.get(RegistroCanais).tipos().sort()).toEqual(
-      ['EMAIL', 'INSTAGRAM', 'MESSENGER', 'WEBCHAT', 'WHATSAPP'].sort(),
+      [
+        'EMAIL',
+        'INSTAGRAM',
+        'MESSENGER',
+        'WEBCHAT',
+        'WHATSAPP',
+        'WHATSAPP_OFICIAL',
+      ].sort(),
     );
   });
 });

@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -9,6 +11,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { ArquivoDto } from '../../arquivos/arquivos.dto';
 import {
@@ -271,6 +274,65 @@ export class PaginaMensagensDto {
   proximoCursor: string | null;
 }
 
+/** Valores das variáveis de um template (R28), na ordem em que aparecem em cada componente. */
+export class VariaveisDoTemplateDto {
+  @ApiPropertyOptional({ type: [String], maxItems: 10 })
+  @IsOptional()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(10, { message: 'deve ter no máximo 10 valores' })
+  @IsString({ each: true, message: 'cada valor deve ser um texto' })
+  @MaxLength(1024, {
+    each: true,
+    message: 'cada valor deve ter no máximo 1024 caracteres',
+  })
+  cabecalho?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: 20,
+    description:
+      '`corpo[i]` preenche a i-ésima variável do corpo (`TemplateDoCanal.corpo.variaveis`).',
+  })
+  @IsOptional()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(20, { message: 'deve ter no máximo 20 valores' })
+  @IsString({ each: true, message: 'cada valor deve ser um texto' })
+  @MaxLength(1024, {
+    each: true,
+    message: 'cada valor deve ter no máximo 1024 caracteres',
+  })
+  corpo?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    nullable: true,
+    maxItems: 10,
+    description:
+      'Um valor por botão do template (`null` nos que não têm variável).',
+  })
+  @IsOptional()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(10, { message: 'deve ter no máximo 10 valores' })
+  botoes?: Array<string | null>;
+}
+
+/** Template a enviar (canais com templates: WhatsApp oficial, R28). */
+export class TemplateParaEnviarDto {
+  @ApiProperty({
+    format: 'uuid',
+    description:
+      'Id de um template de `GET /atendimento/conversas/:id/templates`.',
+  })
+  @IsUUID('all', { message: MENSAGEM_UUID })
+  templateId: string;
+
+  @ApiPropertyOptional({ type: VariaveisDoTemplateDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VariaveisDoTemplateDto)
+  variaveis?: VariaveisDoTemplateDto;
+}
+
 /**
  * `POST /atendimento/conversas/:id/mensagens`: texto e/ou anexo (enviado
  * antes por `POST /arquivos?contexto=MENSAGEM`). Vai para o contato pelo canal.
@@ -304,6 +366,16 @@ export class EnviarMensagemDto {
   @OpcionalNaoNulo()
   @IsUUID('all', { message: MENSAGEM_UUID })
   respostaAId?: string;
+
+  @ApiPropertyOptional({
+    type: TemplateParaEnviarDto,
+    description:
+      'Template aprovado (WhatsApp oficial), com as variáveis. Vale dentro e fora da janela de 24 h e dispensa `texto` (o texto sai do template). Se o template tem mídia no cabeçalho, mande o arquivo em `arquivoId`.',
+  })
+  @OpcionalNaoNulo()
+  @ValidateNested()
+  @Type(() => TemplateParaEnviarDto)
+  template?: TemplateParaEnviarDto;
 }
 
 /** `POST /atendimento/conversas/:id/notas`: nota interna (só a equipe vê). */

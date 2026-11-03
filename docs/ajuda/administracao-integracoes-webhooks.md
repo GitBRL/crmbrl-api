@@ -18,4 +18,5 @@ O painel permite simular, gerar novo endereço (o antigo para na hora), exigir o
 ## Webhook de saída (avisar outro sistema quando algo acontece)
 1. Crie informando nome, URL, os eventos desejados (cada um tem descrição) e cabeçalhos extras. O segredo aparece uma vez.
 2. Use **Enviar teste**. Na aba **Entregas** veja tentativas, status HTTP e **Reenviar**.
+2b. O evento **Ligação encerrada** (`ligacao.encerrada`) avisa quando uma ligação do WhatsApp oficial termina, com o contato, o atendente, o resultado, a duração e a espera. Nunca leva o áudio, a transcrição nem as atividades sugeridas. O **resumo** só vai se o Admin ligar **Incluir o resumo da ligação no webhook** nas configurações das ligações do canal; nesse caso o evento espera o resumo ficar pronto (até 20 minutos).
 3. O destino que falha demais é desativado sozinho e aparece em destaque com o motivo. A assinatura de saída usa `X-CRM-Assinatura`; a tela traz exemplos de como validar.

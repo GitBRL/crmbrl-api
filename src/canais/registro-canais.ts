@@ -10,6 +10,7 @@ export const ROTULO_DO_TIPO_DE_CANAL: Readonly<Record<TipoCanal, string>> = {
   EMAIL: 'e-mail',
   INSTAGRAM: 'Instagram',
   MESSENGER: 'Messenger',
+  WHATSAPP_OFICIAL: 'WhatsApp oficial',
 };
 
 /**

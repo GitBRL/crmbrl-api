@@ -17,6 +17,7 @@ import type {
   Conversa,
   FilaAtendimento,
   Prisma,
+  TipoCanal,
 } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
@@ -57,6 +58,13 @@ import { prazosDoSla } from './sla';
 
 /** Janela de resposta comum da Meta (Instagram e Messenger, R14). */
 export const JANELA_DA_META_MS = 24 * 60 * 60 * 1000;
+
+/** Canais da Meta em que a mensagem do contato abre a janela de 24 h (R14, R28). */
+const TIPOS_COM_JANELA_DE_24H: readonly TipoCanal[] = [
+  'INSTAGRAM',
+  'MESSENGER',
+  'WHATSAPP_OFICIAL',
+];
 
 type CanalComFila = Canal & { filaPadrao: FilaAtendimento | null };
 
@@ -223,6 +231,61 @@ export class AtendimentoService {
       await this.motor.publicarContagens(tx, this.motor.afetadosPor(completa));
       return { conversaId: conversa.id, mensagemId: mensagem.id, nova: true };
     });
+  }
+
+  /**
+   * Ligação do WhatsApp (R29): o contato do remetente e a conversa em aberto
+   * dele no canal — criando o que faltar, na fila padrão do canal e distribuída
+   * pela estratégia da fila, como numa mensagem recebida. A ligação, atendida ou
+   * não, abre a janela de 24 h do canal (R28.4). Roda na transação de quem
+   * chama (`tx`); a conversa nova sai no tempo real depois do commit.
+   */
+  async conversaDaLigacao(
+    tx: Tx,
+    canalId: string,
+    remetente: RemetenteDaEntrada,
+    quando: Date = new Date(),
+  ): Promise<{ contato: Contato; conversa: Conversa; nova: boolean }> {
+    const canal = await tx.canal.findFirst({
+      where: { id: canalId, excluidoEm: null },
+      include: { filaPadrao: true },
+    });
+    if (!canal) {
+      throw new NaoEncontradoException('Canal não encontrado.');
+    }
+    const contato = await this.resolverContato(tx, canal, remetente);
+    await travarChave(tx, 'atendimento-conversa', canal.id, contato.id);
+    const aberta = await tx.conversa.findFirst({
+      where: {
+        canalId: canal.id,
+        contatoId: contato.id,
+        status: { not: 'RESOLVIDA' },
+      },
+    });
+    const entrada: EntradaDeAtendimento = {
+      canalId: canal.id,
+      remetente,
+      idExternoConversa: remetente.valor,
+      mensagem: { tipo: 'TEXTO', recebidaEm: quando },
+    };
+    let conversa =
+      aberta ?? (await this.criarConversa(tx, canal, contato, entrada, quando));
+    if (!aberta) {
+      conversa = await this.motor.distribuir(tx, conversa);
+    }
+    if (TIPOS_COM_JANELA_DE_24H.includes(canal.tipo)) {
+      const ate = new Date(quando.getTime() + JANELA_DA_META_MS);
+      if (!conversa.janelaAte || conversa.janelaAte < ate) {
+        conversa = await tx.conversa.update({
+          where: { id: conversa.id },
+          data: { janelaAte: ate },
+        });
+      }
+    }
+    if (!aberta) {
+      await this.motor.emitirConversa(tx, conversa.id, { nova: true });
+    }
+    return { contato, conversa, nova: !aberta };
   }
 
   /**
@@ -576,7 +639,7 @@ export class AtendimentoService {
         ...(entradaMaisRecente
           ? {
               ultimaEntradaEm: recebidaEm,
-              ...(canal.tipo === 'INSTAGRAM' || canal.tipo === 'MESSENGER'
+              ...(TIPOS_COM_JANELA_DE_24H.includes(canal.tipo)
                 ? {
                     janelaAte: new Date(
                       recebidaEm.getTime() + JANELA_DA_META_MS,
@@ -675,7 +738,7 @@ export class AtendimentoService {
         ultimaMensagemId: mensagem.id,
         ultimaMensagemEm: recebidaEm,
         ultimaEntradaEm: recebidaEm,
-        ...(canal.tipo === 'INSTAGRAM' || canal.tipo === 'MESSENGER'
+        ...(TIPOS_COM_JANELA_DE_24H.includes(canal.tipo)
           ? { janelaAte: new Date(recebidaEm.getTime() + JANELA_DA_META_MS) }
           : {}),
       },

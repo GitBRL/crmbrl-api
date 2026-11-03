@@ -165,6 +165,8 @@ apagam os dados pessoais dos recebimentos e das entregas daquele contato
 | `whatsapp.envio.<numeroId>` | `AdaptadorWhatsapp` (API), um job por mensagem | **consumida pelo gateway**: proteções (R13.6, R13.7) e envio pelo Baileys, uma por vez por número; as tentativas ficam no contrato (`contrato-gateway.ts`), gravadas pela API em cada job |
 | `whatsapp.evento` | gateway (mensagem recebida, status, conexão, digitando) | **consumida pela API** (`EventosWhatsappService`): `receber`, `atualizarStatus`, `whatsapp.conexao` em tempo real |
 | `meta.webhook` | `POST /publico/meta/webhook` assinado | entrega os eventos da Meta ao Atendimento (mensagens, anexos, entregas, leituras) |
+| `whatsapp-oficial.webhook` | `POST /publico/meta/webhook` com `object: whatsapp_business_account`, uma mudança por job | entrega mensagens e status do WhatsApp oficial ao Atendimento (R28.2, R28.3, R28.7); roteia por campo (`messages`; `calls` na fatia das ligações); 5 tentativas com espera crescente |
+| `whatsapp-oficial.templates` | agendamento `0 3 * * *` (America/Sao_Paulo) | sincroniza os templates de todos os canais oficiais ativos (R28.8) |
 | `email.varrer` | agendamento `* * * * *` | lê as caixas IMAP (só UIDs novos) e entrega ao Atendimento (R14.5) |
 | `chat-interno.sincronizar` | agendamento a cada minuto | acerta os membros dos canais padrão pelo papel (R15.1) |
 | `arquivos.apagar-conteudo` | `ArquivosService.remover`, na transação da remoção | apaga o objeto do MinIO depois do commit (R11.7) |
@@ -241,7 +243,7 @@ Módulos de negócio (Fase 1), cada um na sua pasta de `src/`:
 | `AdministracaoModule` (`administracao/`) | logs técnicos e resumo do Admin, retenção de 90 dias (R3.6, R8.6) | `RetencaoService` |
 | `WebhooksModule` (`webhooks/`) | R8 (entrada) e R9 (saída) | — |
 | `AtendimentoModule` (`atendimento/`, Onda A) | R12 (conversas, filas, distribuição, SLA, horário, satisfação, respostas rápidas, métricas) | `AtendimentoService.receber(entrada)`, `atualizarStatus(canalId, idExterno, status, erro?, quando?)` e `avaliar(conversaId, nota, comentário?)`, chamados pelos canais; `AcessoAtendimentoService` (sala `conversa:<id>` e mídia `MENSAGEM`) |
-| `CanaisModule` (`canais/`, Onda A) | R13 (lado da API do WhatsApp) e R14 — submódulos `whatsapp/`, `webchat/` (com o widget), `email/`, `meta/` e `comum/` (segredos cifrados, limitador, configuração auditada, links públicos assinados) | um `AdaptadorCanal` por tipo no `RegistroCanais`; `ClienteGatewayWhatsapp` (HTTP interno do gateway) |
+| `CanaisModule` (`canais/`, Onda A) | R13 (lado da API do WhatsApp) e R14 — submódulos `whatsapp/`, `webchat/` (com o widget), `email/`, `meta/`, `whatsapp-oficial/` (Onda E, R28) e `comum/` (segredos cifrados, limitador, configuração auditada, links públicos assinados) | um `AdaptadorCanal` por tipo no `RegistroCanais`; `ClienteGatewayWhatsapp` (HTTP interno do gateway) |
 | `ChatInternoModule` (`chat-interno/`, Onda A) | R15 | `AcessoChatService` (sala `chat:<canalId>` e anexos `CHAT`) |
 
 O **gateway de WhatsApp** (`src/whatsapp/`) é outro processo, com o próprio
@@ -848,6 +850,245 @@ Na Onda A (constantes nos módulos donos): `conversa.atribuida`,
 escolhe o ícone pelo prefixo `conversa.`) e `chat.mencao` (link
 `/chat/<canalId>?mensagem=<id>`).
 
+### Peças e fluxos da Onda E (canal WhatsApp oficial)
+
+Regra: R28 em `REGRAS-DE-NEGOCIO.md` (seção 39). Fatia E1; as ligações (E2) e a gravação (E3) se
+apoiam nesta base.
+
+**`WhatsappOficialModule` (`src/canais/whatsapp-oficial/`)** — a Cloud API da Meta, ao lado do Baileys:
+
+- **`formato-meta.ts` e `eventos-oficial.ts`** — funções puras. Tudo que a referência da Meta
+  não confirma (corpos de mídia, parâmetros nomeados de template, botão de template, tabela de
+  erros de mensagem, BSUID em `recipient`) fica só aqui, com comentário "NAO CONFIRMADO". Ajuste
+  depois do primeiro teste com a Meta real começa por estes dois arquivos.
+- **`GraphWhatsappOficial`** — cliente sobre o `GraphApi` (`META_GRAPH_URL` + `META_GRAPH_VERSAO`):
+  `POST /{phone_number_id}/messages` e `/media` (multipart), `GET /{media_id}` + `GET url` com
+  Bearer, `GET /{phone_number_id}?fields=…`, `GET /{waba_id}/message_templates` (paginado). O
+  `GraphApi` ganhou `postar`, `postarArquivo`, `consultar` e o `token` opcional em `baixar` (o
+  Bearer só vai para o mesmo domínio do pedido, nunca em redirecionamento para outro).
+- **`AdaptadorWhatsappOficial`** (`tipo: WHATSAPP_OFICIAL`) — `podeResponder` aplica a janela de 24 h
+  (`conversa.janelaAte`, agora também para este canal) e devolve `apenasTemplate`; `enviar` faz
+  texto, mídia (upload + envio por id), voz (`ConversorDeMidia` do gateway: webm/opus → ogg/opus) e
+  template (`metadados.template`); grava o `wamid` na mensagem logo após a Graph aceitar;
+  `prepararTemplate` e `listarTemplates` são chamados pelo Atendimento (R28.4, R28.8). Opt-out do
+  contato conferido na hora do envio (R28.9).
+- **`WebhookWhatsappOficialService`** — chamado pelo `WebhookMetaService` quando `object` é
+  `whatsapp_business_account` (o `MetaModule` importa este módulo; a verificação `GET` consulta
+  também os verify tokens daqui). Acha o canal por `metadata.phone_number_id`, confere a assinatura com
+  o app secret **do canal** e enfileira uma mudança por job em `whatsapp-oficial.webhook`.
+- **`EntradaWhatsappOficialService`** — o job. Roteia por **campo** (`registrarCampo(campo, tratador)`;
+  `messages` vem registrado, a fatia das ligações registra `calls`; campo sem tratador é ignorado com
+  log debug e nem entra na fila). `messages`: mensagem → `AtendimentoService.receber` (idempotência pelo
+  `wamid`, mídia para o `ArquivosService`, telefone ou BSUID como remetente, `WHATSAPP_BSUID` ligado ao
+  mesmo contato) e status → `atualizarStatus` (repete se a mensagem ainda não foi gravada).
+- **`TemplatesOficiaisService`** — cache em `whatsapp_oficial_templates` por canal, sincronização manual
+  e diária (`whatsapp-oficial.templates`, 03:00).
+- **`WhatsappOficialCanaisService/Controller`** — CRUD do Admin sobre `ConfiguracaoDeCanais`
+  (`phoneNumberId` = `canais.id_externo`; segredos no JSON cifrado `{ token, appSecret,
+  tokenVerificacao }`; o que o teste de conexão aprende fica em `canais.estado`).
+
+**Mudanças no Atendimento:** `AdaptadorCanal` ganhou `listarTemplates`, `prepararTemplate` e
+`PermissaoDeResposta.apenasTemplate`; `EnviarMensagemDto` e `IniciarConversaDto` aceitam `template`;
+`GET /atendimento/conversas/:id/templates`; `PodeResponderDto.apenasTemplate` e
+`AcoesDaConversaDto.enviarTemplate`; `janelaAte` passa a valer também para `WHATSAPP_OFICIAL`. A
+marca "não contatar por WhatsApp" foi para `contatos/nao-contatar-whatsapp.ts` (a régua a reexporta).
+
+**Banco (migration `20261102120000_onda_e_whatsapp_oficial`):** `tipo_canal` ganha `WHATSAPP_OFICIAL`,
+`tipo_identificador` ganha `WHATSAPP_BSUID` e a tabela `whatsapp_oficial_templates` (único por canal,
+nome e idioma). A configuração do canal fica em `canais.configuracao`/`segredos_cifrados`; os ids de
+mensagem da Meta ficam em `mensagens.id_externo` (único por canal), que é a chave de idempotência.
+
+### Peças e fluxos da Onda E (ligações pelo WhatsApp)
+
+Regra: R29 em `REGRAS-DE-NEGOCIO.md` (seção 40). Fatia E2 (API); o softphone (front) e a gravação
+(E3) se apoiam nela. O áudio **não passa pela API**: vai direto entre o navegador do atendente e a
+Meta (WebRTC, sem TURN; `LIGACOES_STUN_URLS` opcional). A API só sinaliza.
+
+**`LigacoesModule` (`src/ligacoes/`)**
+
+- **`maquina-de-estados.ts`** — funções puras (`decidir(estado, direcao, evento)`), a única fonte
+  das transições. **`formato-chamadas.ts`** — leitura do webhook `calls` e da resposta de permissão e
+  os corpos das chamadas à Graph, com **todas as "Lacunas" da referência isoladas e comentadas
+  (`LACUNA n`)**. **`permissoes.ts`** — limites de pedido, validade e contagem de "sem resposta".
+  Os três têm testes de unidade.
+- **`GraphLigacoes`** — sobre o `GraphApi`: `POST /{phone_number_id}/calls` (`connect`, `pre_accept`,
+  `accept`, `reject`, `terminate`), `POST …/settings`, `GET …/call_permissions`. O pedido de permissão
+  sai por `GraphWhatsappOficial.enviar` (`POST …/messages`).
+- **`LigacoesService`** (núcleo) — `transicionar(tx, ctx, id, evento)`: trava consultiva por ligação,
+  pergunta à máquina, grava e, no estado terminal, **fecha** (`finalizar`): atividade `LIGACAO`,
+  evento do sistema na conversa (`MotorDoAtendimento.avisoDeSistema`), contagem da permissão,
+  "Retornar ligação" + notificação + mensagem de perdida, auditoria e tempo real. Também: encerrar,
+  anotar, consultas/histórico, queda do navegador (`TempoRealService.aoDesconectar` → job
+  `ligacoes.conexao-perdida` depois de 15 s) e as vigias. As emissões do tempo real e as chamadas à
+  Meta (`reject`, `terminate`) acumulam no `ContextoDaLigacao` e só saem **depois do commit**.
+- **`LigacoesRecebidasService`** — `receber` (dentro da transação do webhook): conversa do
+  Atendimento (`AtendimentoService.conversaDaLigacao`, que também abre a janela de 24 h), config,
+  horário, **quem toca** (responsável online e livre; senão fila online e livre), `ligacao.tocando`
+  + notificação (push), job `ligacoes.toque-esgotado` em `expira_em`; `atender` (trava, `pre_accept` e
+  `accept` com o mesmo SDP) e o job de tempo esgotado (`reject` na Meta).
+- **`LigacoesFeitasService`** — `ligar` (confere permissão e limites na Meta, cria `CHAMANDO`, `connect`,
+  vigia), resposta SDP e status vindos do webhook (ligação achada pelo `wacid` ou, antes de o `connect`
+  gravar o id, pelo `biz_opaque_callback_data` = id da ligação no CRM).
+- **`PermissoesDeLigacaoService`** — registro por canal e contato, pedido (interativo ou template),
+  conferência `GET call_permissions` antes de ligar, resposta do cliente (campo `messages`).
+- **`ConfiguracaoDeLigacoesService`** — `canais_ligacoes` por canal; ativar/desativar chama `settings` na
+  Meta e só grava se ela aceitar.
+- **`WebhookDeLigacoesService`** — registra `calls` no roteamento por campo do canal oficial (E1) e o
+  tratador da resposta de permissão (`EntradaWhatsappOficialService.registrarPermissaoDeLigacao`);
+  **cada evento roda numa transação com a chave de dedupe** (`ligacoes_webhook_eventos`, limpeza
+  diária); evento de ligação ainda desconhecida falha e o job tenta de novo (fora de ordem).
+
+**Máquina de estados**
+
+```
+Recebida:  TOCANDO ──atendida (accept 200)──▶ EM_ANDAMENTO ──terminate──▶ ENCERRADA
+              ├── tempo de toque / cliente desligou / fora do horário / sem atendente / atrasada ──▶ PERDIDA
+              └── falha (accept recusado, terminate com erro) ──▶ FALHOU
+Feita:     CHAMANDO ──RINGING──▶ TOCANDO ──ACCEPTED──▶ EM_ANDAMENTO ──terminate──▶ ENCERRADA
+              │               ├── REJECTED ──▶ RECUSADA
+              │               └── terminate sem atender / cancelada / vigia ──▶ SEM_RESPOSTA
+              └── connect recusado / vigia ──▶ FALHOU
+```
+
+**Fluxo da ligação recebida** (referência §2, "Fluxos em sequência")
+
+```
+Meta ─ webhook calls/connect (oferta SDP, assinado) ─▶ API: dedupe + ligação TOCANDO + conversa/janela
+API ─ ligacao.tocando {ofertaSdp} + push ─▶ navegador(es) ── setRemoteDescription/createAnswer
+navegador ─ POST /ligacoes/:id/atender {sdp} ─▶ API: trava no banco (1º leva; os outros 409)
+API ─ pre_accept + accept (mesmo SDP) ─▶ Meta ; ligação EM_ANDAMENTO ; áudio direto navegador ⇄ Meta
+fim:  atendente POST /encerrar ─▶ API ─ terminate ─▶ Meta ; Meta ─ webhook terminate ─▶ ENCERRADA
+      (duração, motivo, atividade, evento na conversa, ligacao.encerrada)
+sem atendimento: job toque-esgotado ─▶ reject ─▶ PERDIDA (+ "Retornar ligação", notificação, mensagem)
+```
+
+**Fluxo da ligação feita**
+
+```
+navegador ─ POST /ligacoes {contatoId, sdp(oferta)} ─▶ API: GET call_permissions + limites ─▶ CHAMANDO ─ connect ─▶ Meta
+Meta ─ webhook calls/connect (resposta SDP) ─▶ API ─ ligacao.resposta_sdp ─▶ navegador (setRemoteDescription)
+Meta ─ statuses RINGING / ACCEPTED / REJECTED ─▶ ligacao.estado ; Meta ─ terminate ─▶ ligacao.encerrada
+sem permissão: POST /ligacoes/permissoes/pedir (interativo na janela; template fora) ─ resposta do cliente
+(messages/call_permission_reply) ─▶ permissoes_de_ligacao ─▶ ligacao.permissao
+```
+
+**Pontos de contato com outros módulos:** `AtendimentoService.conversaDaLigacao` (contato, conversa,
+distribuição e janela), `DistribuicaoDaFila` exportada, `TempoRealService.aoDesconectar`, eventos
+`ligacao.*` no catálogo do tempo real, preferência de push `ligacao_recebida` (R26: a carga ganhou
+`acoes` e `persistente`), `EntradaWhatsappOficialService` (conteúdo `permissao_de_ligacao`, `prepararContato`,
+`registrarCampo('calls', …)`), campo `calls` em `CAMPOS_DO_WEBHOOK_OFICIAL`.
+
+**Banco (migration `20261102202609_onda_e_ligacoes`):** `ligacoes` (índice único parcial
+`(canal_id, id_meta)` e **um por atendente ativo**; oferta e resposta SDP só enquanto necessárias; campos
+reservados para a E3: `gravar`, `gravacao_situacao`, `gravacao_arquivo_id`, `transcricao_situacao`,
+`transcricao`, `resumo`), `permissoes_de_ligacao` (único por canal e contato; `pedidos_em` para os
+limites), `canais_ligacoes` (configuração) e `ligacoes_webhook_eventos` (dedupe de 7 dias).
+
+### Peças e fluxos da Onda E (gravação, transcrição e resumo das ligações)
+
+Regra: R30 em `REGRAS-DE-NEGOCIO.md` (seção 41). Fatia E3 (API). A API **nunca vê o áudio da chamada ao
+vivo**: o navegador do atendente grava e envia partes; a API junta, converte, transcreve e resume.
+
+**`GravacaoModule` (`src/ligacoes/gravacao/`)**
+
+- **`GravacaoService`** — `receberParte` (valida atendente, estado da ligação, tamanho e cabeçalho webm;
+  grava o objeto no driver de arquivos em `ligacoes/<id>/partes/<n>` e a linha em
+  `ligacoes_gravacao_partes`, única por `(ligacao_id, sequencia)`: idempotência), `finalizar`/`juntar`
+  (transação com trava `FOR UPDATE` na ligação: concatena as partes em ordem num `ArquivosService.salvar`
+  de contexto `LIGACAO`, anota o estado, audita e enfileira `transcricao.processar` **na mesma transação**;
+  depois do commit apaga as partes) e o job `ligacoes.gravacao.finalizar` (agendado por
+  `LigacoesService.finalizar` 90 s depois do fim da ligação, para quando a aba fechou).
+- **`LeituraDaGravacaoService`** — quem vê a ligação (atendente, chamados, diretoria, conversa visível,
+  contato no alcance de `PermissoesContatosService`), transcrição lida e auditada, arquivo de áudio
+  (`ouvir` = ogg mono, `original` = webm estéreo), auditoria de reprodução e download, áudio de aviso.
+- **`ReprocessamentoDaGravacaoService`**, **`SugestoesDeAtividadeService`** (reserva da sugestão sob trava
+  da ligação; cria a atividade pelo `AtividadesService`), **`RetencaoDeGravacoesService`** (cron `30 3 * * *`:
+  apaga vencidas conforme `canais_ligacoes.retencao_dias` e partes abandonadas) e **`remocao.ts`**
+  (`apagarGravacoes`, também usada pela anonimização do contato).
+- **`GravacaoController`** — rotas em `/ligacoes/:id/{gravacao/partes/:n, gravacao/finalizar, transcricao,
+  audio, audio/baixar, reprocessar, resumo/sugestoes/:id/{confirmar,descartar}}` e
+  `/ligacoes/canais/:canalId/aviso`. O áudio é servido com `interpretarFaixa` (o mesmo `Range` de
+  `/arquivos`), `Cache-Control: private, no-store`.
+
+**`TranscricaoModule` (`src/transcricao/`)**
+
+- **`TranscricaoService`** — workers `transcricao.processar` (concorrência 1; 3 retentativas com espera
+  exponencial; prazo de execução = `TRANSCRICAO_TEMPO_LIMITE_S` + 30 min) e `transcricao.resumir`;
+  estados em `ligacoes` (`gravacao_situacao`, `transcricao_situacao`, `resumo_situacao`) e o evento de
+  tempo real `ligacao.processada`.
+- **`ProcessadorDeAudio`** (classe abstrata; `ProcessadorFfmpeg` em produção) — `ffprobe`/`ffmpeg` por
+  `execFile` (sem shell, argumentos fixos): ogg mono 32 kbps e um WAV 16 kHz por canal
+  (`pan=mono|c0=c0` e `c0=c1`). Trocável nos testes (o ffmpeg só existe na imagem).
+- **`ClienteWhisper`** — `POST {TRANSCRICAO_URL}/inference` (multipart, `verbose_json`, `language=pt`),
+  prazo por chamada, erros transitórios (rede, 5xx, 429, tempo) e definitivos, e `GET /health` para a
+  Saúde do sistema.
+- **`trechos.ts`** (intercalação, limpeza de ruído, texto da conversa), **`esquema-resumo.ts`** e
+  **`prompt-resumo.ts`** — puros e testados. O resumo usa `ChamadaClaudeService` + `CLIENTE_ANTHROPIC`
+  (providers próprios do módulo, como no assistente), `output_config.format = json_schema`, esforço
+  `low`, `fallbacks: 'default'` como o BI.
+
+**Fluxo**
+
+```
+navegador ─ MediaRecorder (webm/opus estéreo, fatias de 5 s) ─ POST …/gravacao/partes/N ─▶ API: driver de arquivos + ligacoes_gravacao_partes
+fim:  POST …/gravacao/finalizar {totalPartes}  (ou sendBeacon; ou o job ligacoes.gravacao.finalizar 90 s depois)
+API ─ tx: junta partes ▶ arquivo webm (contexto LIGACAO) ▶ job transcricao.processar ─▶ apaga as partes
+job:  baixa o webm ▶ ffmpeg (ogg + 2 WAV) ▶ whisper /inference por canal ▶ intercala ▶ ligacoes.transcricao ▶ ligacao.processada
+      ▶ job transcricao.resumir ▶ Claude (JSON estruturado) ▶ ligacoes.resumo ▶ ligacao.processada
+painel: GET /ligacoes/:id (estados e resumo) · …/transcricao · …/audio (Range) · confirmar sugestão ▶ AtividadesService
+03:30 diário: apaga gravação e transcrição vencidas (retencao_dias do canal); registro, duração e resumo ficam
+```
+
+**Serviço `transcricao` (compose do usuário, dos agentes e de produção):** imagem
+`ghcr.io/ggml-org/whisper.cpp@sha256:5c78763e…` (fixada por digest), `scripts/transcricao-entrypoint.sh`
+(baixa `ggml-<WHISPER_MODELO>.bin` para o volume `modelos-whisper` na primeira subida e roda
+`whisper-server -l pt --suppress-nst --vad` em `0.0.0.0:8080` com o modelo de voz Silero, que mantém os
+tempos certos quando um canal fica calado por muito tempo; **sem porta no host**), healthcheck em `/health`
+(`start_period` de 10 min), `cpus`/`mem_limit` configuráveis. A API não depende dele para subir.
+
+**Banco (migration `20261102230000_onda_e_gravacao_transcricao`):** `contexto_arquivo` ganha `LIGACAO`;
+`ligacoes` ganha `gravacao_original_arquivo_id`, `gravacao_total_partes`, `gravacao_finalizada_em`,
+`gravacao_duracao_segundos`, `gravacao_removida_em`, `gravacao_erro`, `transcricao_erro`,
+`transcricao_processada_em`, `resumo_situacao` (enum `situacao_resumo_ligacao`), `resumo_erro` e
+`resumo_processado_em`; `canais_ligacoes` ganha `retencao_dias` (365) e `aviso_arquivo_id`; tabela
+`ligacoes_gravacao_partes`.
+
+### Peças e fluxos da Onda E (histórico das ligações, busca e integrações)
+
+Regras: R29.9 a R29.11, R30.16 e R30.17 (e a seção 42) em `REGRAS-DE-NEGOCIO.md`. Fatia E4 (API).
+
+- **Visibilidade única.** `ligacoes/visibilidade-ligacoes.ts` (`filtroDeLigacoesVisiveis`, Prisma) e
+  `bi/escopo-bi.ts` (`sqlLigacoesVisiveis`, SQL) aplicam o mesmo recorte do detalhe
+  (`LigacoesService.exigirAcesso`): atendente, chamado ou conversa visível (R12). Lista, busca, linha do tempo
+  e BI usam esses dois; mudar a regra é mudar só eles.
+- **Lista e busca** — `HistoricoDeLigacoesService` (`GET /ligacoes`). Filtros viram `where` do Prisma; a busca
+  primeiro pega, em SQL, os ids das 5000 ligações mais recentes cujo `transcricao_busca @@
+  websearch_to_tsquery('portuguese', translate(texto))` e depois cruza com os demais filtros e a
+  visibilidade. Os trechos que casaram vêm de uma segunda consulta (`jsonb_array_elements` da transcrição, só
+  para a página). `total` é um `count` com os mesmos filtros.
+- **Índice de texto (migration `20261103000000_onda_e_historico`).** `ligacoes.transcricao_busca tsvector` +
+  índice GIN, mantido pelo gatilho `ligacoes_busca_transcricao` (`BEFORE INSERT OR UPDATE OF transcricao`):
+  junta o texto dos trechos, tira acentos com `translate` (sem a extensão `unaccent`, que o banco não tem) e
+  aplica `to_tsvector('portuguese')`. Toda gravação ou apagamento de `transcricao` (transcrição, guarda,
+  anonimização) mantém o índice sem código no aplicativo. O Prisma enxerga a coluna como `Unsupported`.
+  A migration também traz `canais_ligacoes.webhook_inclui_resumo`, `ligacoes.recusada_por` (text[]) e o índice
+  em `iniciada_em`.
+- **Linha do tempo** — `LinhaDoTempoService` ganhou o ramo `ligacao` na união SQL (contato e empresa; o
+  negócio não tem), com `sqlLigacoesVisiveis`. Eventos de fechamento da auditoria e a atividade concluída da
+  ligação são filtrados para não duplicar.
+- **BI** — `PainelAtendimentoService`: cartões `ligacoes*` e tabelas `ligacoesPorAtendente` e
+  `ligacoesPorHora`, calculados sobre `ligacoes` terminadas com `LIGACOES_AGREGADAS` (um só `SELECT` com
+  `FILTER`), usando o mesmo cache do BI.
+- **Eventos** — `EventosDeLigacaoService.aoEncerrar` roda dentro de `LigacoesService.finalizar` (mesma
+  transação): publica `ligacao.perdida` e `ligacao.encerrada` na outbox. `ligacao.encerrada` está em
+  `EVENTOS_DE_WEBHOOK` (webhook de saída, R9) e os dois estão em `CATALOGO_DE_GATILHOS` (entidade contato;
+  filtros `canalId`, `direcao`, `resultado` conferidos em `gatilho-config.ts`). Com o resumo no webhook ligado
+  e ligação atendida e gravada, o evento sai de um job (`ligacoes.publicar-encerrada`) que confere a cada 20 s
+  se o resumo terminou (máximo 20 min).
+- **Recusar** — `LigacoesRecebidasService.recusar`: marca `recusada_por` sob a trava da ligação; se todos os
+  chamados recusaram, evento `recusada_por_todos` da máquina (`PERDIDA`, `recusada_pelos_atendentes`) e
+  `reject` na Meta depois do commit. **Corrida:** `completarDuracao` só mexe em ligação `ENCERRADA`.
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não
@@ -891,13 +1132,15 @@ real está no catálogo (`src/tempo-real/catalogo.ts`) e no resumo abaixo.
 | `GET`/`POST /email/canais` · `POST /email/canais/testar` · `GET`/`PATCH`/`DELETE /email/canais/:id` · `POST …/:id/testar` | `{ nome, endereco, nomeRemetente?, imap: { host, porta, tls, usuario?, pasta? }, smtp?: { host?, porta, seguranca: TLS\|STARTTLS\|NENHUMA }, senha, senhaSmtp?, assinatura? }` → `CanalEmail` (senhas mascaradas, `ultimaVarreduraEm`, `ultimoErro`) · teste `{ imap, smtp }` com o resultado de cada um |
 | `GET`/`POST /meta/canais` · `GET`/`PATCH`/`DELETE /meta/canais/:id` · `POST …/:id/testar` · `POST …/:id/token-verificacao` | `{ tipo: INSTAGRAM\|MESSENGER, nome, appId, appSecret, pageId, tokenPagina, instagramId? }` → `CanalMeta` (segredos mascarados, `webhook: { url, tokenVerificacao, campos }`) · testa o token na Graph · gera outro token de verificação |
 
+| `GET`/`POST /whatsapp-oficial/canais` · `GET`/`PATCH`/`DELETE /whatsapp-oficial/canais/:id` · `POST …/:id/testar` · `POST …/:id/token-verificacao` · `GET …/:id/templates` · `POST …/:id/templates/sincronizar` | `{ nome, phoneNumberId, wabaId, numeroExibido?, token, appSecret, filaPadraoId?, … }` → `CanalOficial` (`token` e `appSecret` mascarados; `webhook: { url, tokenVerificacao, campos }`; `estado: { situacao: CONECTADO\|ERRO\|NAO_TESTADO, motivo, … }`; `templates: { total, aprovados, sincronizadoEm }`) · testa o número na Graph · gera outro verify token · templates em cache · sincroniza com a Meta (R28) |
+
 **Rotas públicas dos canais** (sem sessão nem CSRF; limites por IP)
 
 | Método e rota | Uso |
 | --- | --- |
 | `GET /publico/webchat/widget.js` | o script do widget (cache 5 min, ETag) |
 | `GET /publico/webchat/:chave/configuracao` · `POST …/visitantes` · `…/sessao` · `…/historico` · `…/mensagens` · `…/anexos` · `…/sair` · `GET …/arquivos/:id` | o widget (CORS só dos domínios do canal; token do visitante no corpo; R14.1–R14.4) |
-| `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7) · anexo enviado à Meta por link assinado |
+| `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7; o WhatsApp oficial usa o mesmo endereço, R28.2) · anexo enviado à Meta por link assinado |
 
 **Chat interno** (`ChatInternoController`, todos os papéis; só membros veem um canal — R15)
 
@@ -942,6 +1185,7 @@ contagens iniciais do menu vêm da API (`/notificacoes/nao-lidas/contagem`,
 | `ANTHROPIC_BASE_URL` | API da Anthropic | Só para testes: base de uma API falsa |
 | `TICKETHUB_URL`, `TICKETHUB_EMAIL`, `TICKETHUB_SENHA` | vazias | Chamados do assistente (R25): TicketHub e a conta de serviço; a configuração do Admin (cifrada) tem prioridade campo a campo. Nunca devolvidas nem registradas |
 | `VAPID_CHAVE_PUBLICA`, `VAPID_CHAVE_PRIVADA`, `VAPID_ASSUNTO` | vazias | Notificações push (R26): as três juntas ligam o push |
+| `LIGACOES_STUN_URLS`, `LIGACOES_ESPERA_PRE_ACEITE_MS` | vazia, `800` | Ligações pelo WhatsApp (R29): STUN opcional do navegador (sem TURN) e a espera entre `pre_accept` e `accept` |
 | `BACKUP_DIR` | `/backups` | Pasta dos backups vista pela API, somente leitura (R27.3) |
 | `DOCS_PUBLICAS` | `true` fora de produção | `/api/docs` aberto; senão, só Admin |
 | `PROCESSAR_FILAS` | `true` | Trabalhadores, agendamentos e despachante de eventos |

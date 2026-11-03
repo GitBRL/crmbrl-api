@@ -35,6 +35,8 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Assumir, transferir, resolver e reabrir uma conversa](atendimento-assumir-transferir-resolver.md)
 - [Caixa de entrada do Atendimento e como as conversas chegam](atendimento-caixa-de-entrada.md)
 - [Configurar filas, SLA, horário, satisfação e respostas rápidas](atendimento-filas-sla-respostas-rapidas.md)
+- [Histórico de ligações: filtrar, buscar no que foi dito, ouvir e ler a transcrição](atendimento-historico-de-ligacoes.md)
+- [Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente](atendimento-ligacoes.md)
 - [Responder uma conversa: mensagem, nota interna, anexos e respostas rápidas](atendimento-responder-conversa.md)
 
 ## chat
@@ -66,6 +68,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 ## configuracoes
 - [Configurar chat do site, e-mail, Instagram e Messenger](configuracoes-canais-site-email-meta.md)
 - [Conectar um número de WhatsApp](configuracoes-canais-whatsapp.md)
+- [Conectar o WhatsApp oficial (API da Meta) e usar templates](configuracoes-canais-whatsapp-oficial.md)
 - [Desligar um usuário e para quem vai o trabalho dele](configuracoes-desligar-usuario.md)
 - [Configuração geral dos Disparos](configuracoes-disparos.md)
 - [Papéis e o que cada um pode acessar](configuracoes-papeis-e-permissoes.md)

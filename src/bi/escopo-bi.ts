@@ -98,6 +98,35 @@ export function sqlConversasVisiveis(
     : Prisma.sql`(${c}.responsavel_id = ${usuario.id}::uuid OR (${c}.responsavel_id IS NULL AND ${f}.area = ${area}::area))`;
 }
 
+/**
+ * Ligações que o usuário vê (`filtroDeLigacoesVisiveis`, R12/R29.8/R30.9): atendente, quem foi
+ * chamado, quem vê a conversa ou quem tem o contato no alcance (responsável e líder dele). `l` = ligacoes, `c` = conversas, `f` = filas (ambas com LEFT JOIN).
+ */
+export function sqlLigacoesVisiveis(
+  usuario: Quem,
+  l = Prisma.raw('l'),
+  c = Prisma.raw('c'),
+  f = Prisma.raw('f'),
+): Prisma.Sql {
+  if (ehDiretoria(usuario.papel)) {
+    return VERDADEIRO;
+  }
+  const area = areaDoPapel(usuario.papel);
+  if (!area || area === 'MARKETING') {
+    return FALSO;
+  }
+  const liderDoResponsavel =
+    permissoesDoPapel(usuario.papel).editarContatos === 'EQUIPE'
+      ? Prisma.sql` OR ct_a.responsavel_id IN (SELECT u_a.id FROM usuarios u_a WHERE u_a.lider_id = ${usuario.id}::uuid)`
+      : Prisma.empty;
+  return Prisma.sql`(${l}.atendente_id = ${usuario.id}::uuid
+    OR ${usuario.id}::text = ANY(${l}.tocou_para)
+    OR (${c}.id IS NOT NULL AND ${sqlConversasVisiveis(usuario, c, f)})
+    OR EXISTS (SELECT 1 FROM contatos ct_a
+                WHERE ct_a.id = ${l}.contato_id
+                  AND (ct_a.responsavel_id = ${usuario.id}::uuid${liderDoResponsavel})))`;
+}
+
 /** Campanhas que o usuário vê (`filtroDeCampanhasVisiveis`, R17). `k` = campanhas. */
 export function sqlCampanhasVisiveis(
   usuario: Quem,

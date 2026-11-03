@@ -182,7 +182,9 @@ export class CanalBaseDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
 
-  @ApiProperty({ enum: ['WEBCHAT', 'EMAIL', 'INSTAGRAM', 'MESSENGER'] })
+  @ApiProperty({
+    enum: ['WEBCHAT', 'EMAIL', 'INSTAGRAM', 'MESSENGER', 'WHATSAPP_OFICIAL'],
+  })
   tipo: TipoCanal;
 
   @ApiProperty({ example: 'Site institucional' })

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import type { TemplatesDaConversaDto } from '../canais/templates-canal.dto';
 import {
   RegistroCanais,
   ROTULO_DO_TIPO_DE_CANAL,
@@ -958,6 +959,51 @@ export class ConversasService {
     }
   }
 
+  /**
+   * Templates que dá para enviar nesta conversa (canais que usam templates, como o
+   * WhatsApp oficial, R28), com as variáveis, e a situação da janela de 24 h.
+   * Canal sem templates: `suportado: false` e lista vazia.
+   */
+  async templates(
+    usuario: UsuarioAutenticado,
+    id: string,
+  ): Promise<TemplatesDaConversaDto> {
+    const conversa = await this.visivel(this.prisma, usuario, id);
+    const canal = await this.prisma.canal.findUniqueOrThrow({
+      where: { id: conversa.canalId },
+    });
+    const adaptador = this.registro.buscar(canal.tipo);
+    if (!adaptador?.listarTemplates) {
+      return {
+        suportado: false,
+        janelaAberta: true,
+        janelaAte: null,
+        aviso: null,
+        sincronizadoEm: null,
+        itens: [],
+      };
+    }
+    const permissao = this.registro.podeResponder(conversa, canal);
+    const itens = await adaptador.listarTemplates(canal, {
+      somenteUsaveis: true,
+    });
+    const sincronizadoEm = itens.reduce<string | null>(
+      (maior, item) =>
+        maior === null || item.sincronizadoEm > maior
+          ? item.sincronizadoEm
+          : maior,
+      null,
+    );
+    return {
+      suportado: true,
+      janelaAberta: permissao.pode,
+      janelaAte: conversa.janelaAte?.toISOString() ?? null,
+      aviso: permissao.pode ? null : (permissao.motivo ?? null),
+      sincronizadoEm,
+      itens,
+    };
+  }
+
   montarDetalhe(
     conversa: ConversaDetalhada,
     canal: Canal,
@@ -982,6 +1028,10 @@ export class ConversasService {
       resolver: emAberto,
       reabrir: !emAberto,
       responder: emAberto && permissao.pode,
+      enviarTemplate:
+        emAberto &&
+        disponivel &&
+        this.registro.buscar(canal.tipo)?.prepararTemplate !== undefined,
       criarNegocio: conversa.contato.excluidoEm === null,
     };
     const negocio =
@@ -1014,7 +1064,11 @@ export class ConversasService {
             funil: negocio.funil,
           }
         : null,
-      podeResponder: { pode: permissao.pode, motivo: permissao.motivo ?? null },
+      podeResponder: {
+        pode: permissao.pode,
+        motivo: permissao.motivo ?? null,
+        apenasTemplate: permissao.apenasTemplate ?? false,
+      },
       acoes,
     };
   }
@@ -1133,6 +1187,7 @@ const SEM_ACOES: AcoesDaConversaDto = {
   resolver: false,
   reabrir: false,
   responder: false,
+  enviarTemplate: false,
   criarNegocio: false,
 };
 
