@@ -20,6 +20,7 @@ import type {
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import type { Tx } from '../prisma/prisma.service';
 import { type ConfiguracaoParaOMotor } from './configuracao-sdr.service';
+import type { CriterioDoMotor } from './qualificacao';
 import {
   QualificacaoSdrService,
   rotuloDaTemperatura,
@@ -28,6 +29,8 @@ import {
   EVENTOS_DO_SDR,
   linkDaConversaSdr,
   TIPOS_NOTIFICACAO_SDR,
+  TITULO_DESQUALIFICOU_O_LEAD,
+  TITULO_PASSOU_PARA_A_EQUIPE,
 } from './sdr.constantes';
 import {
   MOTIVO_DO_AVISO,
@@ -193,9 +196,8 @@ export class EfeitosSdrService {
       conversaId: conversa.id,
       tipo: tipoDaDecisao,
       acao: 'PASSAR_HUMANO',
-      titulo:
-        tituloDaDecisao ??
-        `Passou para a equipe: ${dados.motivo || 'sem motivo informado'}`,
+      // O motivo (escrito pela IA) vai no campo próprio: o título entra na auditoria, que não se anonimiza.
+      titulo: tituloDaDecisao ?? TITULO_PASSOU_PARA_A_EQUIPE,
       motivo: dados.motivo,
       resumo: dados.resumo || null,
       nota: dados.nota,
@@ -224,6 +226,7 @@ export class EfeitosSdrService {
     estado: SdrConversa,
     conversa: ConversaDoSdr,
     dados: DadosDoEfeito,
+    criterios: readonly CriterioDoMotor[],
   ): Promise<void> {
     await tx.sdrConversa.update({
       where: { id: estado.id },
@@ -254,7 +257,7 @@ export class EfeitosSdrService {
       conversaId: conversa.id,
       tipo: 'DESQUALIFICADO',
       acao: 'DESQUALIFICADO',
-      titulo: `Desqualificou o lead: ${dados.motivo || 'sem motivo informado'}`,
+      titulo: TITULO_DESQUALIFICOU_O_LEAD,
       motivo: dados.motivo,
       resumo: dados.resumo || null,
       nota: dados.nota,
@@ -262,13 +265,38 @@ export class EfeitosSdrService {
       modo: estado.modo,
       usuarioId: dados.aprovadoPor?.id ?? null,
     });
-    await this.eventos.publicar(tx, EVENTOS_DO_SDR.LEAD_DESQUALIFICADO, {
-      conversaId: conversa.id,
-      contatoId: conversa.contatoId,
-      motivo: dados.motivo,
-      nota: dados.nota,
-      temperatura: dados.temperatura,
-    });
+    const negocio = conversa.negocioId
+      ? await tx.negocio.findFirst({
+          where: { id: conversa.negocioId, excluidoEm: null },
+          select: { id: true, titulo: true, funilId: true },
+        })
+      : await tx.negocio.findFirst({
+          where: {
+            contatoId: conversa.contatoId,
+            status: 'ABERTO',
+            excluidoEm: null,
+          },
+          orderBy: { criadoEm: 'desc' },
+          select: { id: true, titulo: true, funilId: true },
+        });
+    await this.eventos.publicar(
+      tx,
+      EVENTOS_DO_SDR.LEAD_DESQUALIFICADO,
+      await this.qualificacao.dadosDoEventoDoLead(
+        tx,
+        estado,
+        conversa,
+        criterios,
+        {
+          motivo: dados.motivo,
+          resumo: dados.resumo,
+          nota: dados.nota,
+          temperatura: dados.temperatura,
+        },
+        negocio,
+        null,
+      ),
+    );
     await this.transicoes.emitir(
       tx,
       conversa.id,

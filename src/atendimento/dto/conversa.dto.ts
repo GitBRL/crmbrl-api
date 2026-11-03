@@ -611,6 +611,48 @@ export class FiltroConversasDto extends PaginacaoDto {
   slaEstourado?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'SDR com IA (R31): `true` = só as que a IA atendeu ou atende (têm estado do SDR, em qualquer situação); `false` = só as que a IA nunca atendeu.',
+  })
+  @IsOptional()
+  @Transform(paraBooleano)
+  @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
+  atendidasPelaIa?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ModoSdr,
+    enumName: 'ModoSdr',
+    isArray: true,
+    description:
+      'Modo do SDR com que a IA assumiu a conversa (`AUTOMATICO` ou `SUGESTAO`). Implica `atendidasPelaIa`.',
+  })
+  @IsOptional()
+  @Transform(paraListaEmMaiusculas)
+  @IsArray({ message: 'deve ser uma lista' })
+  @IsEnum(ModoSdr, {
+    each: true,
+    message: 'deve ser AUTOMATICO ou SUGESTAO',
+  })
+  sdrModo?: ModoSdr[];
+
+  @ApiPropertyOptional({
+    enum: SituacaoSdr,
+    enumName: 'SituacaoSdr',
+    isArray: true,
+    description:
+      'Situação do SDR na conversa (`ATIVA` = IA atendendo agora, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`, `ENCERRADA`). Implica `atendidasPelaIa`.',
+  })
+  @IsOptional()
+  @Transform(paraListaEmMaiusculas)
+  @IsArray({ message: 'deve ser uma lista' })
+  @IsEnum(SituacaoSdr, {
+    each: true,
+    message:
+      'deve ser ATIVA, HUMANO, PASSADA_HUMANO, QUALIFICADA, DESQUALIFICADA ou ENCERRADA',
+  })
+  sdrSituacao?: SituacaoSdr[];
+
+  @ApiPropertyOptional({
     description: 'Nome, e-mail ou telefone do contato, ou o assunto.',
     maxLength: 100,
   })

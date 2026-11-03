@@ -15,6 +15,8 @@ Cada canal (WhatsApp, WhatsApp oficial, chat do site, Instagram e Messenger; o e
 - **Automático**: a IA responde sozinha o lead novo até qualificar ou passar para uma pessoa.
 - **Sugestão**: a IA só propõe a resposta; o atendente aprova, edita ou descarta antes de enviar.
 
+**Onde ver os resultados:** o painel **SDR com IA** do BI (atendidas, qualificadas, passadas por motivo e, para o Admin, o gasto em tokens); o gatilho **Lead qualificado pela IA** das automações e os eventos de webhook `sdr.lead_qualificado` e `sdr.lead_desqualificado` (veja `bi-usar-paineis.md`, `automacoes-criar-e-testar.md` e `administracao-integracoes-webhooks.md`).
+
 **Aviso de automação:** se houver uma automação ligada que manda mensagem a todo lead novo (por exemplo "Boas-vindas ao lead"), a tela mostra um aviso com o link dela. Essa mensagem sai **antes** da resposta da IA e pode confundir a conversa: pause ou ajuste a automação.
 
 ## 2. Persona

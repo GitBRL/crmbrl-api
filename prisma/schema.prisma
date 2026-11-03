@@ -3591,6 +3591,8 @@ model SdrDecisao {
   modo               ModoSdr?
   modelo             String?
   baseVersao         Int?            @map("base_versao")
+  /// Categoria da passagem para a equipe (`pedido_humano`, `orcamento`…), para o BI (R31.22).
+  categoria          String?
   mensagemId         String?         @map("mensagem_id") @db.Uuid
   usuarioId          String?         @map("usuario_id") @db.Uuid
   tokensEntrada      Int             @default(0) @map("tokens_entrada")
@@ -3602,6 +3604,7 @@ model SdrDecisao {
   criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
 
   @@index([conversaId, criadoEm])
+  @@index([tipo, criadoEm])
   @@index([criadoEm])
   @@map("sdr_decisoes")
 }

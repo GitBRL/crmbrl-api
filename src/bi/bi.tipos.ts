@@ -1,13 +1,14 @@
 import type { Area } from '../generated/prisma/client';
 
 export type PainelBi =
-  'marketing' | 'comercial' | 'cs' | 'atendimento' | 'financeiro';
+  'marketing' | 'comercial' | 'cs' | 'atendimento' | 'sdr' | 'financeiro';
 
 export const PAINEIS_BI: readonly PainelBi[] = [
   'marketing',
   'comercial',
   'cs',
   'atendimento',
+  'sdr',
   'financeiro',
 ];
 

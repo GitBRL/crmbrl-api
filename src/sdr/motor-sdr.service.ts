@@ -67,6 +67,7 @@ import {
   mensagensDaConversa,
   montarPedidoDoSdr,
   RESPOSTA_DE_VAZAMENTO_DO_SDR,
+  textoSigilosoDaConfiguracao,
   vazaInstrucoesDoSdr,
 } from './prompt-sdr';
 import { interpretarTurno, type ValorDescoberto } from './qualificacao';
@@ -233,25 +234,7 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
     if (!this.ambiente.anthropic.configurada) {
       return naoAssume;
     }
-    if (
-      contato.optOutMarketing ||
-      contato.excluidoEm ||
-      contato.responsavelId
-    ) {
-      return naoAssume;
-    }
-    const comVendedor = await tx.negocio.findFirst({
-      where: {
-        contatoId: contato.id,
-        excluidoEm: null,
-        OR: [
-          { status: 'ABERTO', funil: { area: { in: ['COMERCIAL', 'CS'] } } },
-          { status: 'GANHO', funil: { area: 'COMERCIAL' } },
-        ],
-      },
-      select: { id: true },
-    });
-    if (comVendedor) {
+    if (await this.motivoDeInelegibilidade(tx, contato)) {
       return naoAssume;
     }
     await tx.sdrConversa.create({
@@ -274,6 +257,46 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       auditar: true,
     });
     return { manterSemResponsavel: modo === 'AUTOMATICO' };
+  }
+
+  /**
+   * As condições da R31.1 para a IA atender um contato: sem opt-out, não
+   * excluído, sem responsável humano e sem negócio aberto no Comercial ou no CS
+   * (nem negócio ganho no Comercial: cliente). Devolve o motivo da recusa, ou
+   * nulo se o contato pode ser atendido.
+   */
+  private async motivoDeInelegibilidade(
+    db: Pick<Tx, 'negocio'>,
+    contato: {
+      id: string;
+      optOutMarketing: boolean;
+      excluidoEm: Date | null;
+      responsavelId: string | null;
+    },
+  ): Promise<string | null> {
+    if (contato.optOutMarketing) {
+      return 'O contato pediu para não receber mensagens (opt-out).';
+    }
+    if (contato.excluidoEm) {
+      return 'O contato foi excluído.';
+    }
+    if (contato.responsavelId) {
+      return 'O contato já tem um responsável na equipe.';
+    }
+    const comVendedor = await db.negocio.findFirst({
+      where: {
+        contatoId: contato.id,
+        excluidoEm: null,
+        OR: [
+          { status: 'ABERTO', funil: { area: { in: ['COMERCIAL', 'CS'] } } },
+          { status: 'GANHO', funil: { area: 'COMERCIAL' } },
+        ],
+      },
+      select: { id: true },
+    });
+    return comVendedor
+      ? 'O contato já tem negócio no Comercial ou no CS (é atendido por uma pessoa).'
+      : null;
   }
 
   /**
@@ -303,9 +326,28 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         motivo: 'A IA não está configurada neste servidor.',
       };
     }
-    await executarComoAtor(ATOR_DO_SDR, () =>
-      this.prisma.$transaction(async (tx) => {
+    const inelegivel = await this.motivoDeInelegibilidade(
+      this.prisma,
+      conversa.contato,
+    );
+    if (inelegivel) {
+      return { ativado: false, motivo: inelegivel };
+    }
+    if (modo === 'AUTOMATICO' && conversa.responsavelId) {
+      return {
+        ativado: false,
+        motivo: 'A conversa já tem um responsável na equipe.',
+      };
+    }
+    const recusa = await executarComoAtor(ATOR_DO_SDR, () =>
+      this.prisma.$transaction(async (tx): Promise<string | null> => {
         const atual = await this.transicoes.travarEstado(tx, conversaId);
+        if (
+          atual &&
+          ['QUALIFICADA', 'DESQUALIFICADA'].includes(atual.situacao)
+        ) {
+          return 'O lead já foi qualificado ou desqualificado pela IA.';
+        }
         // O fluxo já tratou o que o lead escreveu até agora: a IA não responde a isso de novo.
         const ultima = await tx.mensagem.findFirst({
           where: { conversaId, direcao: 'ENTRADA', excluidaEm: null },
@@ -334,8 +376,12 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
           modo,
         });
         await this.transicoes.emitir(tx, conversaId, MOTIVO_DO_AVISO.ASSUMIU);
+        return null;
       }),
     );
+    if (recusa) {
+      return { ativado: false, motivo: recusa };
+    }
     await this.enfileirar({ conversaId, iniciar: true }, 1);
     return { ativado: true, motivo: null };
   }
@@ -469,6 +515,7 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         await this.transicoes.registrarDecisao(tx, {
           conversaId,
           tipo: 'PASSOU_HUMANO',
+          categoria: 'fluxo',
           titulo:
             'Um fluxo automático passou a conversa para a equipe: a IA parou',
           modo: estado.modo,
@@ -605,7 +652,8 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         return;
       }
     }
-    if (!(await this.pegarTrava(estado.id))) {
+    const dono = await this.pegarTrava(estado.id);
+    if (!dono) {
       if (adiamentos < MAX_ADIAMENTOS_DO_TURNO) {
         await this.enfileirar(
           { ...pedido, adiamentos: adiamentos + 1 },
@@ -615,15 +663,28 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       return;
     }
     try {
+      // O estado e as mensagens foram lidos antes da trava: outro turno pode
+      // ter terminado nesse intervalo. Relê com a trava na mão.
+      const atual = await this.carregar(conversa.id);
+      if (!atual) {
+        return;
+      }
+      const novasAgora = await this.mensagensNovas(
+        conversa.id,
+        atual.estado.processadoAte,
+      );
+      if (!(await this.turnoPendente(atual.estado, novasAgora, pedido))) {
+        return;
+      }
       await this.rodarTurno(
-        ctx,
+        atual,
         cfg,
-        novas,
+        novasAgora,
         pedido.iniciar === true,
         ultimaTentativa,
       );
     } finally {
-      await this.soltarTrava(estado.id);
+      await this.soltarTrava(estado.id, dono);
     }
     // Chegou mensagem do lead durante o turno: outro turno.
     const depois = await this.prisma.sdrConversa.findUnique({
@@ -673,23 +734,61 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
     return ativos > 0;
   }
 
-  /** Uma execução por conversa por vez: a trava vive no estado e vence em minutos. */
-  private async pegarTrava(estadoId: string): Promise<boolean> {
+  /**
+   * Há o que responder? Mensagens do lead ainda não atendidas ou, no turno de
+   * apresentação (`iniciar`), nenhum turno da IA desde que ela assumiu.
+   */
+  private async turnoPendente(
+    estado: SdrConversa,
+    novas: Mensagem[],
+    pedido: PedidoDoTurno,
+  ): Promise<boolean> {
+    if (novas.length > 0) {
+      return true;
+    }
+    if (!pedido.iniciar) {
+      return false;
+    }
+    return !(await this.jaTemTurnoDaIa(this.prisma, estado));
+  }
+
+  private async jaTemTurnoDaIa(
+    db: Pick<Tx, 'sdrDecisao'>,
+    estado: SdrConversa,
+  ): Promise<boolean> {
+    const turno = await db.sdrDecisao.findFirst({
+      where: {
+        conversaId: estado.conversaId,
+        tipo: 'TURNO',
+        criadoEm: { gte: estado.situacaoDesde },
+      },
+      select: { id: true },
+    });
+    return turno !== null;
+  }
+
+  /**
+   * Uma execução por conversa por vez: a trava vive no estado e vence em
+   * minutos. Devolve o instante que identifica o dono da trava (ou nulo).
+   */
+  private async pegarTrava(estadoId: string): Promise<Date | null> {
     const vencida = new Date(Date.now() - TRAVA_DO_TURNO_MS);
+    const dono = new Date();
     const r = await this.prisma.sdrConversa.updateMany({
       where: {
         id: estadoId,
         situacao: 'ATIVA',
         OR: [{ execucaoDesde: null }, { execucaoDesde: { lt: vencida } }],
       },
-      data: { execucaoDesde: new Date() },
+      data: { execucaoDesde: dono },
     });
-    return r.count > 0;
+    return r.count > 0 ? dono : null;
   }
 
-  private async soltarTrava(estadoId: string): Promise<void> {
+  /** Solta a trava só se ela ainda é deste turno (uma troca de situação pode tê-la zerado e outro turno pegado). */
+  private async soltarTrava(estadoId: string, dono: Date): Promise<void> {
     await this.prisma.sdrConversa.updateMany({
-      where: { id: estadoId },
+      where: { id: estadoId, execucaoDesde: dono },
       data: { execucaoDesde: null },
     });
   }
@@ -732,6 +831,20 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         mensagem: false,
       };
     }
+    // A janela do canal vem antes dos bloqueios que enviam a mensagem de passagem: fora dela a IA não contata.
+    if (modo === 'AUTOMATICO') {
+      const adaptador = this.registro.buscar(conversa.canal.tipo);
+      const permissao = adaptador?.podeResponder?.(conversa, conversa.canal);
+      if (permissao && !permissao.pode) {
+        return {
+          titulo: 'Fora da janela de resposta do canal (24 h)',
+          motivo:
+            permissao.motivo ??
+            'O canal não aceita resposta agora (janela de 24 h fechada).',
+          mensagem: false,
+        };
+      }
+    }
     if (await this.orcamento.esgotado()) {
       return {
         titulo: 'Orçamento mensal de tokens esgotado',
@@ -759,19 +872,6 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         motivo: `A IA já enviou ${estado.mensagensIa} mensagens (limite da conversa).`,
         mensagem: true,
       };
-    }
-    if (modo === 'AUTOMATICO') {
-      const adaptador = this.registro.buscar(conversa.canal.tipo);
-      const permissao = adaptador?.podeResponder?.(conversa, conversa.canal);
-      if (permissao && !permissao.pode) {
-        return {
-          titulo: 'Fora da janela de resposta do canal (24 h)',
-          motivo:
-            permissao.motivo ??
-            'O canal não aceita resposta agora (janela de 24 h fechada).',
-          mensagem: false,
-        };
-      }
     }
     return null;
   }
@@ -838,14 +938,39 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         );
         await esperar(pausa);
       }
-      await this.aplicarTurno({
-        ctx,
-        cfg,
-        turno: valor,
-        uso,
-        tentativas,
-        ultimaDoLead,
-      });
+      try {
+        await this.aplicarTurno({
+          ctx,
+          cfg,
+          turno: valor,
+          uso,
+          tentativas,
+          ultimaDoLead,
+        });
+      } catch (erro) {
+        // A transação desfez tudo, inclusive o registro dos tokens já gastos: não repete
+        // a chamada ao Claude (o erro é da aplicação, não da IA) e passa para a equipe.
+        const detalhe = erro instanceof Error ? erro.message : String(erro);
+        this.logger.error(
+          `Turno do SDR na conversa ${conversa.id}: erro ao aplicar a resposta: ${detalhe}`,
+        );
+        await this.passarParaHumanoSemIa(ctx, cfg, {
+          bloqueio: {
+            titulo:
+              'Não foi possível aplicar a resposta da IA: passou para a equipe',
+            motivo: `Erro ao aplicar a resposta da IA: ${detalhe}`,
+            mensagem: true,
+          },
+          processadoAte,
+          tipo: 'FALHA',
+          uso,
+          tentativas,
+          avisoAoAdmin: {
+            titulo: 'O SDR com IA não conseguiu aplicar uma resposta',
+            texto: `A resposta da IA não pôde ser aplicada e a conversa passou para a equipe: ${detalhe.slice(0, 300)}`,
+          },
+        });
+      }
     } finally {
       await this.pararDigitando(ctx, cfg);
     }
@@ -947,13 +1072,15 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
     ultimaTentativa: boolean,
   ): Promise<void> {
     const uso: UsoDeTokensSdr = erro.uso;
+    // Só o que pode dar certo na próxima vez refaz o job; 'erro' (4xx da API, como
+    // pedido longo demais) e 'resposta_incompleta' (max_tokens) repetem sempre o mesmo resultado.
     const transitoria = [
       'tempo_esgotado',
       'indisponivel',
       'resposta_invalida',
-      'resposta_incompleta',
-      'erro',
     ].includes(erro.codigo);
+    const deterministica =
+      erro.codigo === 'erro' || erro.codigo === 'resposta_incompleta';
     this.logger.warn(
       `Turno do SDR na conversa ${ctx.conversa.id} falhou: ${erro.codigo} (${erro.tentativas} tentativa(s))`,
     );
@@ -983,7 +1110,9 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
           ? 'A chave da Anthropic foi recusada: a IA não consegue responder'
           : transitoria
             ? 'A IA ficou indisponível: passou para a equipe'
-            : 'A IA recusou responder: passou para a equipe',
+            : deterministica
+              ? 'A IA não conseguiu montar a resposta: passou para a equipe'
+              : 'A IA recusou responder: passou para a equipe',
         motivo: erro.message,
         mensagem: true,
       },
@@ -991,7 +1120,19 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       tipo: 'FALHA',
       uso,
       tentativas: erro.tentativas,
-      avisarAdmin: chaveRecusada,
+      avisoAoAdmin: chaveRecusada
+        ? {
+            titulo: 'O SDR com IA não consegue responder',
+            texto:
+              'A Anthropic recusou a chave configurada no servidor (ANTHROPIC_API_KEY). As conversas estão sendo passadas para a equipe.',
+          }
+        : deterministica
+          ? {
+              titulo: 'O SDR com IA não consegue montar as respostas',
+              texto:
+                'O pedido à IA foi recusado ou a resposta passou do limite de saída (por exemplo, base de conhecimento grande demais). As conversas estão sendo passadas para a equipe: revise a base e a configuração.',
+            }
+          : undefined,
     });
   }
 
@@ -1008,7 +1149,7 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       tipo: 'BLOQUEIO' | 'FALHA';
       uso?: UsoDeTokensSdr;
       tentativas?: number;
-      avisarAdmin?: boolean;
+      avisoAoAdmin?: { titulo: string; texto: string };
     },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
@@ -1045,7 +1186,12 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       await tx.sdrConversa.update({
         where: { id: estado.id },
         data: {
-          processadoAte: p.processadoAte ?? undefined,
+          // Nunca volta no tempo: outro turno pode ter avançado enquanto este rodava.
+          processadoAte:
+            p.processadoAte &&
+            (!estado.processadoAte || p.processadoAte > estado.processadoAte)
+              ? p.processadoAte
+              : undefined,
           mensagensIa: { increment: enviou ? 1 : 0 },
           ...usoNoEstado(uso),
         },
@@ -1078,12 +1224,11 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
           auditar: false,
         });
       }
-      if (p.avisarAdmin) {
+      if (p.avisoAoAdmin) {
         await this.notificacoes.notificarAdmins(tx, {
           tipo: TIPOS_NOTIFICACAO_SDR.FALHA,
-          titulo: 'O SDR com IA não consegue responder',
-          texto:
-            'A Anthropic recusou a chave configurada no servidor (ANTHROPIC_API_KEY). As conversas estão sendo passadas para a equipe.',
+          titulo: p.avisoAoAdmin.titulo,
+          texto: p.avisoAoAdmin.texto,
           link: '/configuracoes/sdr',
         });
       }
@@ -1159,6 +1304,27 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         await descartar(
           'Resposta da IA descartada: a conversa foi resolvida',
           'A conversa foi resolvida durante o turno.',
+        );
+        return;
+      }
+      if (
+        estado.situacaoDesde.getTime() !== ctx.estado.situacaoDesde.getTime()
+      ) {
+        // Uma pessoa assumiu e devolveu (ou o fluxo chamou a IA) durante o turno: o turno novo responde.
+        await descartar(
+          'Resposta da IA descartada: a conversa mudou enquanto ela respondia',
+          'A IA foi parada e retomada durante o turno.',
+        );
+        return;
+      }
+      const jaAtendido = ultimaDoLead
+        ? estado.processadoAte !== null &&
+          estado.processadoAte.getTime() >= ultimaDoLead.criadoEm.getTime()
+        : await this.jaTemTurnoDaIa(tx, estado);
+      if (jaAtendido) {
+        await descartar(
+          'Resposta da IA descartada: outro turno já respondeu a essas mensagens',
+          'Outro turno da IA atendeu essas mensagens durante este turno.',
         );
         return;
       }
@@ -1252,7 +1418,7 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
         resposta = config.mensagemPassagem;
       }
       let vazou = false;
-      if (vazaInstrucoesDoSdr(resposta)) {
+      if (vazaInstrucoesDoSdr(resposta, textoSigilosoDaConfiguracao(cfg))) {
         vazou = true;
         resposta = RESPOSTA_DE_VAZAMENTO_DO_SDR;
       }
@@ -1363,7 +1529,13 @@ export class MotorSdr implements OnModuleInit, GanchoDeConversaNova {
       if (acao === 'QUALIFICADO') {
         await this.efeitos.qualificar(tx, comMensagem, conversa, cfg, dados);
       } else if (acao === 'DESQUALIFICADO') {
-        await this.efeitos.desqualificar(tx, comMensagem, conversa, dados);
+        await this.efeitos.desqualificar(
+          tx,
+          comMensagem,
+          conversa,
+          dados,
+          cfg.criterios,
+        );
       } else if (acao === 'PASSAR_HUMANO') {
         await this.efeitos.passarParaHumano(tx, comMensagem, conversa, dados);
       } else {

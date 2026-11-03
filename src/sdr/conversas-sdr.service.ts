@@ -810,7 +810,13 @@ export class ConversasSdrService {
               temperatura: comEstado.temperatura,
             });
           } else if (sugestao.acao === 'DESQUALIFICADO') {
-            await this.efeitos.desqualificar(tx, comEstado, completa, dados);
+            await this.efeitos.desqualificar(
+              tx,
+              comEstado,
+              completa,
+              dados,
+              cfg.criterios,
+            );
           } else if (sugestao.acao === 'PASSAR_HUMANO') {
             await this.efeitos.passarParaHumano(tx, comEstado, completa, dados);
           } else {

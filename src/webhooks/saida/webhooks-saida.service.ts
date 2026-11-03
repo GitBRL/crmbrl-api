@@ -66,6 +66,10 @@ const DESCRICAO_DOS_EVENTOS: Readonly<Record<EventoDeWebhook, string>> = {
   'parcela.atrasada': 'Parcela venceu sem pagamento.',
   'ligacao.encerrada':
     'Ligação do WhatsApp encerrada (atendida, perdida, recusada, sem resposta ou com falha): ids, direção, resultado, duração, atendente e contato. Sem áudio nem transcrição; o resumo só se o Admin marcar no canal.',
+  'sdr.lead_qualificado':
+    'Lead qualificado pela IA (SDR) e passado ao Comercial: contato, negócio, vendedor, canal, nota, temperatura, critérios descobertos, motivo e resumo. Nunca o histórico da conversa.',
+  'sdr.lead_desqualificado':
+    'Lead desqualificado pela IA (SDR): contato, negócio (se houver), canal, nota, temperatura, critérios descobertos, motivo e resumo. Nunca o histórico da conversa.',
   'webhook.teste':
     'Evento de teste disparado pelo Admin (sempre entregue ao destino testado).',
 };

@@ -305,8 +305,10 @@ export function montarPedidoDoSdr(
       effort: dados.config.esforco as 'low' | 'medium' | 'high',
       format: { type: 'json_schema', schema: ESQUEMA_TURNO_SDR },
     },
-    // Instruções + configuração + base em cache; a conversa entra no breakpoint automático.
-    cache_control: { type: 'ephemeral' },
+    // Só o breakpoint explícito, no fim da configuração (instruções + critérios + base: iguais
+    // entre os turnos). Sem cache automático no topo: o bloco do contexto muda a cada turno e
+    // vem antes do histórico, então o prefixo até o fim das mensagens nunca se repetiria e cada
+    // turno pagaria a escrita de cache (1,25x) do histórico inteiro sem nunca ler de volta.
     system: [
       { type: 'text', text: INSTRUCOES_DO_SDR },
       {
@@ -340,20 +342,61 @@ function normalizar(texto: string): string {
 
 const INSTRUCOES_NORMALIZADAS = ` ${normalizar(INSTRUCOES_DO_SDR)} `;
 
+/** Janela (em palavras) para o texto da configuração: mais longa, para não pegar frases naturais. */
+const JANELA_DA_CONFIGURACAO = 10;
+
 /**
- * A resposta reproduz as instruções (vazamento do prompt de sistema)? Confere
- * se alguma sequência de `janela` palavras seguidas da resposta aparece nas
- * instruções, sem acentos e sem pontuação.
+ * O que a IA não pode repetir da configuração: critérios (instrução, peso,
+ * obrigatoriedade), nota mínima, faixas e regras de passagem. A base de
+ * conhecimento, a apresentação, o nome e o tom ficam de fora: podem ser ditos.
  */
-export function vazaInstrucoesDoSdr(resposta: string, janela = 8): boolean {
+export function textoSigilosoDaConfiguracao(
+  d: Pick<DadosDoPrompt, 'config' | 'regras' | 'criterios'>,
+): string {
+  return [
+    `nota mínima para qualificar: ${d.config.notaMinimaQualificado}; quente a partir de ${d.config.faixaQuente}, morno a partir de ${d.config.faixaMorno}`,
+    `confiança mínima para valer: ${d.regras.confiancaMinima}`,
+    textoDasRegras(d.regras),
+    ...d.criterios.map(linhaDoCriterio),
+  ].join('\n');
+}
+
+function repeteTrecho(
+  resposta: string,
+  referencia: string,
+  janela: number,
+): boolean {
   const palavras = normalizar(resposta).split(' ').filter(Boolean);
   for (let i = 0; i + janela <= palavras.length; i++) {
     const trecho = ` ${palavras.slice(i, i + janela).join(' ')} `;
-    if (INSTRUCOES_NORMALIZADAS.includes(trecho)) {
+    if (referencia.includes(trecho)) {
       return true;
     }
   }
   return false;
+}
+
+/**
+ * A resposta reproduz as instruções (vazamento do prompt de sistema) ou a
+ * configuração sigilosa? Confere se alguma sequência de `janela` palavras
+ * seguidas da resposta aparece nas instruções (ou, com 10 palavras, no texto
+ * da configuração), sem acentos e sem pontuação.
+ */
+export function vazaInstrucoesDoSdr(
+  resposta: string,
+  configuracao?: string,
+  janela = 8,
+): boolean {
+  if (repeteTrecho(resposta, INSTRUCOES_NORMALIZADAS, janela)) {
+    return true;
+  }
+  return configuracao
+    ? repeteTrecho(
+        resposta,
+        ` ${normalizar(configuracao)} `,
+        JANELA_DA_CONFIGURACAO,
+      )
+    : false;
 }
 
 export const RESPOSTA_DE_VAZAMENTO_DO_SDR =

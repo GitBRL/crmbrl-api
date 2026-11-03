@@ -63,6 +63,14 @@ export interface ResultadoDaPassagemSdr {
   funilId: string;
 }
 
+/** Nota e temperatura podem faltar na desqualificação (a IA ainda não pontuou). */
+export interface DadosDoLeadNoEvento {
+  resumo: string;
+  motivo: string;
+  nota: number | null;
+  temperatura: TemperaturaSdr | null;
+}
+
 export interface DadosDaQualificacao {
   resumo: string;
   motivo: string;
@@ -357,6 +365,54 @@ export class QualificacaoSdrService {
   }
 
   /**
+   * O que os eventos `sdr.lead_qualificado` e `sdr.lead_desqualificado` levam
+   * (webhook de saída e gatilho de automação, R31.22): ids, contato, negócio,
+   * canal, nota, temperatura, critérios descobertos, motivo e resumo. Nunca o
+   * histórico da conversa nem telefone ou e-mail.
+   */
+  async dadosDoEventoDoLead(
+    tx: Tx,
+    estado: SdrConversa,
+    conversa: ConversaDaPassagem,
+    criterios: readonly CriterioDoMotor[],
+    dados: DadosDoLeadNoEvento,
+    negocio: { id: string; titulo: string; funilId: string } | null,
+    vendedor: { id: string; nome: string } | null,
+  ): Promise<Record<string, unknown>> {
+    const valores = await this.valoresDoEstado(tx, estado.id);
+    return {
+      conversaId: conversa.id,
+      contatoId: conversa.contatoId,
+      contato: { id: conversa.contato.id, nome: conversa.contato.nome },
+      negocioId: negocio?.id ?? null,
+      negocio: negocio
+        ? { id: negocio.id, titulo: negocio.titulo, funilId: negocio.funilId }
+        : null,
+      vendedorId: vendedor?.id ?? null,
+      vendedor: vendedor ? { id: vendedor.id, nome: vendedor.nome } : null,
+      canalId: conversa.canalId,
+      canalTipo: conversa.canal.tipo,
+      canalNome: conversa.canal.nome,
+      modo: estado.modo,
+      nota: dados.nota,
+      temperatura: dados.temperatura,
+      criterios: criterios
+        .filter((c) => valores.has(c.chave))
+        .map((c) => {
+          const v = valores.get(c.chave) as ValorDescoberto;
+          return {
+            chave: c.chave,
+            rotulo: c.rotulo,
+            valor: v.valor,
+            confianca: v.confianca,
+          };
+        }),
+      motivo: dados.motivo,
+      resumo: dados.resumo,
+    };
+  }
+
+  /**
    * Passa o lead qualificado ao Comercial: negócio pela passagem Marketing →
    * Comercial (rodízio), nota com o resumo e a qualificação, aviso ao vendedor
    * e a conversa atribuída a ele. Sem a passagem ativa, cria o negócio direto
@@ -579,15 +635,19 @@ export class QualificacaoSdrService {
       },
       relacionados: { contato: contato.id, negocio: negocio.id },
     });
-    await this.eventos.publicar(tx, EVENTOS_DO_SDR.LEAD_QUALIFICADO, {
-      conversaId: conversa.id,
-      contatoId: contato.id,
-      negocioId: negocio.id,
-      vendedorId: vendedor?.id ?? null,
-      nota: dados.nota,
-      temperatura: dados.temperatura,
-      resumo: dados.resumo,
-    });
+    await this.eventos.publicar(
+      tx,
+      EVENTOS_DO_SDR.LEAD_QUALIFICADO,
+      await this.dadosDoEventoDoLead(
+        tx,
+        estado,
+        conversa,
+        criterios,
+        dados,
+        { id: negocio.id, titulo: negocio.titulo, funilId: negocio.funilId },
+        vendedor,
+      ),
+    );
     if (vendedor) {
       await this.notificacoes.notificar(tx, vendedor.id, {
         tipo: TIPOS_NOTIFICACAO_SDR.LEAD_QUALIFICADO,

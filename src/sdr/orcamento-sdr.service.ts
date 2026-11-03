@@ -102,26 +102,42 @@ export class OrcamentoSdrService {
    * orçamento (uma vez por mês cada), na transação de quem chama.
    */
   async avisarSeNecessario(tx: Tx, agora = new Date()): Promise<void> {
-    const config = await tx.sdrConfiguracao.findUniqueOrThrow({
-      where: { chave: 'padrao' },
-    });
-    if (!config.orcamentoMensalTokens) {
-      return;
-    }
-    const usados = totalDeTokens(await this.tokensDoMes(agora, tx));
-    const percentual = (usados / config.orcamentoMensalTokens) * 100;
     const mes = rotuloDoMes(agora);
-    const avisos = (config.avisosDeOrcamento ?? {}) as Record<
-      string,
-      Record<string, boolean>
-    >;
-    const pendentes = PERCENTUAIS_DE_AVISO.filter(
-      (p) => percentual >= p && !avisos[mes]?.[String(p)],
-    );
-    if (pendentes.length === 0) {
+    const ler = async () => {
+      const config = await tx.sdrConfiguracao.findUniqueOrThrow({
+        where: { chave: 'padrao' },
+      });
+      if (!config.orcamentoMensalTokens) {
+        return null;
+      }
+      const usados = totalDeTokens(await this.tokensDoMes(agora, tx));
+      const percentual = (usados / config.orcamentoMensalTokens) * 100;
+      const avisos = (config.avisosDeOrcamento ?? {}) as Record<
+        string,
+        Record<string, boolean>
+      >;
+      const pendentes = PERCENTUAIS_DE_AVISO.filter(
+        (p) => percentual >= p && !avisos[mes]?.[String(p)],
+      );
+      return {
+        id: config.id,
+        orcamento: config.orcamentoMensalTokens,
+        usados,
+        avisos,
+        pendentes,
+      };
+    };
+    if (((await ler())?.pendentes.length ?? 0) === 0) {
       return;
     }
+    // Duas transações podem ver o mesmo aviso pendente: com a trava, a segunda relê
+    // a configuração já com o aviso gravado pela primeira.
     await travarChave(tx, 'sdr-orcamento-aviso', mes);
+    const atual = await ler();
+    if (!atual || atual.pendentes.length === 0) {
+      return;
+    }
+    const { orcamento, usados, avisos, pendentes } = atual;
     const novo: Record<string, Record<string, boolean>> = {
       [mes]: { ...avisos[mes] },
     };
@@ -129,7 +145,7 @@ export class OrcamentoSdrService {
       novo[mes][String(p)] = true;
     }
     await tx.sdrConfiguracao.update({
-      where: { id: config.id },
+      where: { id: atual.id },
       data: { avisosDeOrcamento: novo },
     });
     const maior = Math.max(...pendentes);
@@ -141,12 +157,12 @@ export class OrcamentoSdrService {
         : `O SDR com IA usou ${maior}% do orçamento de tokens do mês`,
       texto: esgotou
         ? 'A IA parou de responder: as conversas novas e as que estavam com ela passam para a equipe até o mês virar ou até o orçamento ser aumentado (Configurações → SDR com IA).'
-        : `Foram usados ${usados.toLocaleString('pt-BR')} de ${config.orcamentoMensalTokens.toLocaleString('pt-BR')} tokens. Ao chegar a 100% a IA para de responder.`,
+        : `Foram usados ${usados.toLocaleString('pt-BR')} de ${orcamento.toLocaleString('pt-BR')} tokens. Ao chegar a 100% a IA para de responder.`,
       link: '/configuracoes/sdr',
       dados: {
         mes,
         usados,
-        orcamento: config.orcamentoMensalTokens,
+        orcamento,
         percentual: maior,
       },
     });

@@ -11,6 +11,10 @@ export const REGRA_SDR = 'R31';
 /** Fila dos turnos da IA: um job por mensagem do lead, com a espera de agrupamento. */
 export const FILA_TURNO_SDR = 'sdr.turno';
 
+/** Títulos das decisões que carregam um motivo escrito pela IA: o motivo vai no campo próprio, nunca no título (R31.9). */
+export const TITULO_PASSOU_PARA_A_EQUIPE = 'Passou para a equipe';
+export const TITULO_DESQUALIFICOU_O_LEAD = 'Desqualificou o lead';
+
 /** Canais em que o SDR pode atuar (e-mail fica fora). */
 export const TIPOS_DE_CANAL_COM_SDR: readonly TipoCanal[] = [
   'WHATSAPP',

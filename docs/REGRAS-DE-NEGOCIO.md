@@ -146,7 +146,8 @@ e ganham seções aqui quando forem detalhadas.
   canal, encerra as conversas abertas, troca o texto das mensagens por `[removido — LGPD]`,
   desvincula os arquivos (o conteúdo sai do bucket por job) e limpa visitantes do chat, envios
   da régua e linhas de importação do contato. `GET /contatos/:id/dados-pessoais` (só Admin,
-  auditado) entrega em JSON os dados do titular (direito de acesso e portabilidade).
+  auditado) entrega em JSON os dados do titular (direito de acesso e portabilidade), inclusive o que
+  o SDR com IA guarda dele: qualificação, valores descobertos, decisões e sugestões (R31.9).
 - **R4.7** Etiquetas livres, normalizadas (aparadas, sem duplicatas); campos personalizados
   em JSON.
 
@@ -2069,18 +2070,25 @@ cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agen
   espera na fila **sem responsável** (a IA atende; o selo "IA atendendo" mostra isso) e **não** passa pela
   distribuição; na **sugestão** ela é distribuída normalmente e a IA só propõe respostas. Cada conversa
   atendida tem um estado do SDR (`ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`,
-  `ENCERRADA`); **só `ATIVA` deixa a IA agir**. A decisão "A IA assumiu" fica registrada.
+  `ENCERRADA`); **só `ATIVA` deixa a IA agir**. A decisão "A IA assumiu" fica registrada. As mesmas
+  condições (opt-out, contato excluído, responsável humano, negócio aberto no Comercial ou no CS, negócio
+  ganho no Comercial) valem quando o **fluxo do chatbot** chama a IA (R31.13): fora delas o passo não tem
+  efeito, e o estado `QUALIFICADA` ou `DESQUALIFICADA` nunca é reaberto pelo fluxo (só "Devolver").
 - **R31.2** **Turno.** Cada mensagem do lead vira um job (`sdr.turno`) com a **espera de agrupamento** da
   configuração (padrão 8 s): o job junta as mensagens do lead ainda não atendidas e, se o lead ainda está
   escrevendo, espera a janela fechar (no máximo 6 adiamentos). **Uma execução por conversa por vez:** a trava
-  vive no estado da conversa e vence em 4 minutos (turno abandonado); com a trava ocupada o job se reagenda.
+  vive no estado da conversa e vence em 4 minutos (turno abandonado); com a trava ocupada o job se reagenda. Com a trava na mão, o job **relê** o estado e as mensagens
+  novas e sai se outro turno já respondeu a elas; ao aplicar o resultado (com o estado travado) o turno é
+  **descartado**, com os tokens contados, se outro turno já atendeu as mensagens ou se a IA foi parada e
+  retomada (Assumir e Devolver) durante a chamada. A trava só é solta por quem a pegou.
   O turno monta o contexto (histórico recente de até 40 mensagens, primeiro nome do contato, qualificação
   parcial, base de conhecimento), chama o Claude com **saída estruturada** e aplica o resultado. A saída é o
   esquema `turno_sdr`: `resposta`, `criterios` (`[{chave, valor, confianca}]`), `acao` (`continuar`,
   `qualificado`, `desqualificado`, `passar_humano`), `motivo` e `resumo`; a API confere tudo de novo (ação
   conhecida, resposta preenchida, tamanhos). **Prompt:** instruções fixas + configuração, critérios (com a linha
-  `CRITERIOS: chave1, chave2, …`) e base de conhecimento num bloco de sistema **em cache**; o estado do turno
-  num bloco de sistema fora do cache; o histórico como mensagens (lead = `user`; equipe, IA e bot = `assistant`)
+  `CRITERIOS: chave1, chave2, …`) e base de conhecimento num bloco de sistema **em cache** (um só ponto de
+  cache, no fim da configuração: o cache automático do pedido fica desligado, porque o estado do turno muda
+  a cada chamada e nunca daria leitura); o estado do turno num bloco de sistema fora do cache; o histórico como mensagens (lead = `user`; equipe, IA e bot = `assistant`)
   e a **última mensagem do usuário é só a do lead**, delimitada. Modelo configurável (padrão
   `claude-sonnet-5-5`; esforço `low`), com o recuo automático em caso de recusa por política nos modelos que o
   aceitam.
@@ -2131,24 +2139,33 @@ cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agen
   (padrão 200 000), mensagens da IA por conversa (padrão 30) e **orçamento mensal de tokens** (padrão 5 000 000,
   `null` = sem orçamento; mês de São Paulo; simulador incluído). **Corte:** esgotado o orçamento, ou chegando a
   conversa a um limite, a IA **não é chamada**: a conversa passa para a equipe com a mensagem de passagem. O
-  **Admin é avisado** (notificação `sdr.orcamento`) a 80% e a 100%, uma vez por mês cada.
+  **Admin é avisado** (notificação `sdr.orcamento`) a 80% e a 100%, uma vez por mês cada (duas transações
+  simultâneas não repetem o aviso).
 - **R31.9** **Segurança.** A mensagem do lead, a base de conhecimento e os valores do contexto são **dados**,
   nunca instruções: vão delimitados (`<mensagem_do_lead>`, `<base_de_conhecimento>`, `<contexto_do_lead>`) e os
   marcadores que poderiam fechar um delimitador são neutralizados. O **prompt de sistema não é revelado**: uma
-  resposta que repete trechos das instruções (8 palavras seguidas) é trocada por uma recusa e a decisão registra
-  o bloqueio. **Só dados do próprio contato** entram no contexto: o primeiro nome e o que a IA descobriu — nunca
+  resposta que repete trechos das instruções (8 palavras seguidas) ou da configuração sigilosa (critérios com
+  instrução e peso, nota mínima, faixas e regras de passagem; 10 palavras seguidas) é trocada por uma recusa e a
+  decisão registra o bloqueio. **Só dados do próprio contato** entram no contexto: o primeiro nome e o que a IA descobriu — nunca
   telefone, e-mail nem dados de outro contato. A IA só afirma preço, prazo ou condição que esteja na base (sem
   base, diz que vai confirmar com a equipe) e se apresenta como assistente virtual (a apresentação é da
   configuração). Nada de dados sensíveis pedidos ao lead. **LGPD (R4.6):** anonimizar o contato apaga os valores descobertos,
   as sugestões, o resumo e os textos das decisões (resposta, resumo, motivo e critérios); tokens, nota e
-  temperatura ficam.
-- **R31.10** **Janela de 24 h e opt-out.** No automático, se o canal não aceita resposta agora (janela de 24 h
+  temperatura ficam. O motivo escrito pela IA vai só no campo próprio (o título da decisão e a auditoria, que é
+  imutável, não o repetem; a auditoria guarda só as chaves dos critérios). A **exportação** do titular
+  (`GET /contatos/:id/dados-pessoais`) traz o estado, os valores, as decisões e as sugestões do SDR.
+- **R31.10** **Janela de 24 h e opt-out.** (Vêm antes dos limites e do orçamento: fora da janela nem a mensagem
+  de passagem é enviada.) No automático, se o canal não aceita resposta agora (janela de 24 h
   da Meta fechada), ou o contato ficou com opt-out ou foi excluído, a IA **não contata**: passa a conversa para a
   equipe sem enviar nada. No modo sugestão a janela não impede a sugestão (a pessoa decide). Se o lead pede para parar de receber
   mensagens, a IA (pela instrução do prompt) se despede e passa para a equipe; um opt-out aplicado por outro
   caminho (R4.6, R17) faz a IA parar na mensagem seguinte.
 - **R31.11** **Falhas.** Falha passageira da IA (sobrecarga, tempo esgotado, formato inesperado) refaz a chamada
-  (2 vezes) e o job tenta de novo (até 3, espera crescente); esgotadas, a conversa passa para a equipe. Chave
+  (2 vezes) e o job tenta de novo (até 3, espera crescente); esgotadas, a conversa passa para a equipe. Erro que
+  se repetiria igual (4xx da API, como pedido longo demais, ou resposta cortada por `max_tokens`) passa para a
+  equipe na hora e avisa o Admin. Erro ao **aplicar** a resposta (por exemplo, funil-base do Comercial inativo
+  ao qualificar) não refaz a chamada: os tokens ficam registrados, a conversa passa para a equipe e o Admin é
+  avisado. Chave
   recusada, recusa por política ou chave ausente passam para a equipe na hora; a chave recusada avisa o Admin
   (`sdr.falha`). Os tokens gastos em tentativas que falharam contam no registro.
 - **R31.12** **Desqualificado.** A IA encerra com gentileza, a conversa fica como está (sem negócio, sem
@@ -2194,6 +2211,33 @@ cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agen
   resumo, resposta, critérios com o que foi aceito, nota, temperatura, modelo, versão da base, tokens). A
   conversa mostra essa linha do tempo; o Admin lê o registro todo em `GET /sdr/decisoes`.
 
+- **R31.22** **Eventos de saída.** `sdr.lead_qualificado` e `sdr.lead_desqualificado` são eventos de domínio e
+  podem ser assinados nos webhooks de saída (R9.2). A carga leva `conversaId`, `contatoId`, `contato`
+  (`id`, `nome`), `negocioId`/`negocio` (`id`, `titulo`, `funilId`; na desqualificação, o negócio aberto do
+  contato ou `null`), `vendedorId`/`vendedor` (só na qualificação), `canalId`, `canalTipo`, `canalNome`, `modo`,
+  `nota`, `temperatura`, `criterios` (`[{chave, rotulo, valor, confianca}]` com o que a IA descobriu), `motivo` e
+  `resumo`. **Nunca** o histórico da conversa, o telefone nem o e-mail. Anonimizar o contato (R4.6) apaga a
+  carga das entregas, como nos outros eventos. `sdr.passou_para_humano` continua só interno (aviso e linha do tempo).
+- **R31.23** **Gatilho de automação "Lead qualificado pela IA"** (`sdr.lead_qualificado`, entidade: o **negócio**
+  criado no Comercial). Filtros: `temperatura` (`QUENTE`, `MORNO`, `FRIO`; um ou lista), `canalTipo` e `canalId`.
+  Valores fora da lista são recusados ao salvar; filtros de outros gatilhos não valem neste.
+- **R31.24** **BI do SDR** (`GET /bi/sdr`, exportável como os outros painéis; filtros de período, comparação,
+  área, equipe, pessoa, canal e fila). Cartões: conversas atendidas pela IA (as que a IA assumiu no período),
+  qualificadas, desqualificadas, passadas para a equipe, primeira resposta da IA (média e mediana, só no modo
+  automático), qualificadas que viraram negócio ganho, **conversão para o Comercial** (ganhos sobre
+  qualificadas do período; sem qualificadas, sem valor), IA atendendo agora e **custo em tokens** (total e por
+  conversa em que a IA agiu; o simulador não conta). Tabelas: `porCanal`, `porDia` e `passagensPorMotivo`
+  (pedido do lead, assunto sensível, baixa confiança, reclamação, sem avanço, limite da conversa, orçamento,
+  janela de 24 h, opt-out, canal ou IA indisponível, fluxo, falha da IA, outro; a categoria é gravada na
+  decisão). Qualificadas, desqualificadas e passadas contam pelo dia da decisão; atendidas, pelo início da
+  atuação da IA; tokens, pelo dia de cada turno. **Quem vê:** a visibilidade das conversas (R12), como o
+  painel Atendimento — Admin e C-level tudo, líder e membro de Comercial e CS o que veem nas conversas,
+  **Marketing não vê** (403); o **custo em tokens** (cartões e colunas) só aparece para Admin e C-level.
+- **R31.25** **Lista de conversas.** `GET /atendimento/conversas` aceita `atendidasPelaIa` (`true` = a IA
+  atendeu ou atende, em qualquer situação; `false` = nunca atendeu), `sdrModo` (`AUTOMATICO`, `SUGESTAO`) e
+  `sdrSituacao` (`ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`, `ENCERRADA`; lista
+  separada por vírgula), sempre dentro do que a pessoa vê (R12); o total da página respeita o filtro.
+
 ### Matriz de acesso — SDR com IA
 
 | Recurso | Admin | C-level | Líder | Membro | Marketing |
@@ -2204,11 +2248,23 @@ cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agen
 | Cartão de qualificação do contato e do negócio (R31.14) | ✓ | ✓ | como as telas | como as telas | como as telas |
 | Aviso de orçamento e de falha da IA (R31.8, R31.11) | ✓ | — | — | — | — |
 | Aviso de lead qualificado e de passagem para humano | — | — | o vendedor ou responsável | o vendedor ou responsável | — |
+| Painel SDR do BI (R31.24) | ✓ (com custo em tokens) | ✓ (com custo em tokens) | o que vê nas conversas, sem custo | o que vê nas conversas, sem custo | — (403) |
+| Webhook de saída `sdr.*` e gatilho de automação (R31.22, R31.23) | webhooks: só Admin | — | automação conforme R19 | — | — |
+| Filtro "atendidas pela IA" na lista de conversas (R31.25) | todas | todas | as que vê | as que vê | — (403) |
+
+Regras da matriz (testadas por papel no cenário 307): as rotas de **configuração** (`/sdr/configuracao`,
+`canais`, `artigos`, `criterios`, `campos-disponiveis`, `uso`, `decisoes`, `simulador`) respondem **403** a
+todo papel que não seja Admin. As rotas da **conversa** (`GET /sdr/conversas/:id`, `POST …/assumir`,
+`POST …/devolver`) e das **sugestões** (`aprovar`, `descartar`) seguem a visibilidade da conversa (R12): quem a vê
+pode; quem não a vê recebe **404** (a conversa de outra área não revela que existe) e o Marketing recebe
+**403** (não usa o Atendimento); sem sessão, 401. O cartão de qualificação do contato e do negócio segue a
+visibilidade das telas de contato e de negócio. **Assumir** e **aprovar** têm o mesmo alcance de responder
+a conversa.
 
 ### Cenários de aceitação (Onda G, SDR com IA)
 
 Continuam a numeração da Onda E (até o 273); cada um tem teste automatizado ("cenário N" no nome, em
-`test/sdr.e2e-spec.ts`) contra um Postgres real e a Anthropic falsa dos testes (`test/sdr-apoio.ts`); o
+`test/sdr.e2e-spec.ts`; os de 303 a 307, em `test/sdr-integracoes.e2e-spec.ts`) contra um Postgres real e a Anthropic falsa dos testes (`test/sdr-apoio.ts`); o
 esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o prompt têm testes de unidade em
 `src/sdr/*.spec.ts`.
 
@@ -2254,3 +2310,23 @@ esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o promp
 301. Tempo real: `sdr.atualizado` chega às salas da conversa a cada turno e a cada mudança de situação (R31.21).
 302. LGPD: anonimizar o contato apaga os valores descobertos, as sugestões e os textos das decisões; o registro
      de tokens fica (R31.9, R4.6).
+303. Webhook de saída: `sdr.lead_qualificado` e `sdr.lead_desqualificado` aparecem entre os eventos
+     assináveis e chegam com contato, negócio, vendedor, canal, nota, temperatura, critérios, motivo e resumo,
+     sem o histórico da conversa (R31.22).
+304. Gatilho "Lead qualificado pela IA": entidade negócio, filtro de temperatura e de canal casam ou não,
+     temperatura inválida é recusada (R31.23).
+305. BI do SDR: atendidas, qualificadas, desqualificadas, passadas por motivo, primeira resposta, conversão
+     para o Comercial (negócio ganho) e tokens, por canal e por dia; filtro de canal; Marketing recebe 403;
+     membro não vê o custo em tokens (R31.24).
+306. Lista de conversas filtra por `atendidasPelaIa`, `sdrModo` e `sdrSituacao`, com valor inválido recusado (R31.25).
+307. Matriz de acesso por papel nas rotas do SDR: configuração só do Admin; conversa, Assumir e Devolver para quem a vê
+     (404 para outra área, 403 para o Marketing), 401 sem sessão (R31.15, R31.22).
+308. O fluxo do chatbot não passa para a IA contato com negócio no CS, com opt-out, conversa já desqualificada
+     ou com responsável humano (R31.1, R31.13).
+309. Dois jobs da mesma conversa: o que pega a trava depois do outro terminar não responde de novo (R31.2).
+310. Assumir e Devolver durante um turno: o turno antigo é descartado (tokens contados) e só o novo responde (R31.2, R31.7).
+311. Erro ao aplicar o turno: tokens registrados, conversa passa para a equipe, Admin avisado, sem nova chamada (R31.11).
+312. Erro 400 da API e `max_tokens` passam para a equipe na hora, sem refazer o job (R31.11).
+313. Janela fechada com orçamento esgotado: a mensagem de passagem não é enviada (R31.10).
+314. Transações simultâneas acima dos 80% notificam o Admin uma vez só (R31.8).
+315. LGPD: a exportação traz o que o SDR guarda; o motivo da IA não fica no título nem na auditoria (R31.9, R4.6).

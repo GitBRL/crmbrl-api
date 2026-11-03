@@ -163,6 +163,25 @@ export class ConversasService {
         ],
       });
     }
+    if (filtro.atendidasPelaIa === false) {
+      condicoes.push({ sdr: { is: null } });
+    }
+    if (
+      filtro.atendidasPelaIa === true ||
+      filtro.sdrModo?.length ||
+      filtro.sdrSituacao?.length
+    ) {
+      condicoes.push({
+        sdr: {
+          is: {
+            ...(filtro.sdrModo?.length ? { modo: { in: filtro.sdrModo } } : {}),
+            ...(filtro.sdrSituacao?.length
+              ? { situacao: { in: filtro.sdrSituacao } }
+              : {}),
+          },
+        },
+      });
+    }
     if (filtro.busca) {
       condicoes.push({ OR: filtroDeBusca(filtro.busca) });
     }

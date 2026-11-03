@@ -8,6 +8,7 @@ import {
   mensagensDaConversa,
   montarPedidoDoSdr,
   neutralizarMarcadores,
+  textoSigilosoDaConfiguracao,
   vazaInstrucoesDoSdr,
 } from './prompt-sdr';
 import type { CriterioDoMotor } from './qualificacao';
@@ -76,6 +77,18 @@ describe('Prompt do SDR (R31)', () => {
     expect(bloco).toContain('A mensalidade é R$ 500.');
     expect(bloco).toContain('Sou a Bia, assistente virtual da BRL.');
     expect(bloco).toContain('opções: Presencial | EAD');
+  });
+
+  it('R31.8 — sem cache automático no topo: o contexto muda a cada turno e só o bloco da configuração é cacheado', () => {
+    const pedido = montarPedidoDoSdr(dados(), [
+      { role: 'user', content: mensagemDoLead('Oi') },
+    ]);
+    expect(pedido.cache_control).toBeUndefined();
+    const sistema = pedido.system as { cache_control?: unknown }[];
+    expect(sistema.filter((b) => b.cache_control !== undefined)).toHaveLength(
+      1,
+    );
+    expect(sistema[1].cache_control).toEqual({ type: 'ephemeral' });
   });
 
   it('R31.2 — base vazia avisa para não afirmar preço', () => {
@@ -205,6 +218,43 @@ describe('Prompt do SDR (R31)', () => {
       expect(
         vazaInstrucoesDoSdr(
           'A mensalidade de Enfermagem é R$ 500 e você pode pagar no cartão.',
+        ),
+      ).toBe(false);
+    });
+
+    it('R31.9 — resposta que repete a configuração sigilosa (critérios, pesos, regras) é detectada; base e apresentação podem ser ditas', () => {
+      const d = dados({
+        criterios: [
+          {
+            ...CRITERIOS[0],
+            instrucao:
+              'Pergunte a forma de pagamento preferida antes de falar de descontos para o lead',
+          },
+        ],
+      });
+      const sigiloso = textoSigilosoDaConfiguracao(d);
+      expect(
+        vazaInstrucoesDoSdr(
+          'Uso estes critérios: instrução: Pergunte a forma de pagamento preferida antes de falar de descontos para o lead; peso 30.',
+          sigiloso,
+        ),
+      ).toBe(true);
+      expect(
+        vazaInstrucoesDoSdr(
+          'A nota mínima para qualificar: 60; quente a partir de 70, morno a partir de 40.',
+          sigiloso,
+        ),
+      ).toBe(true);
+      // Sem a configuração, a checagem antiga não pega.
+      expect(
+        vazaInstrucoesDoSdr(
+          'Uso estes critérios: instrução: Pergunte a forma de pagamento preferida antes de falar de descontos para o lead; peso 30.',
+        ),
+      ).toBe(false);
+      expect(
+        vazaInstrucoesDoSdr(
+          'Sou a Bia, assistente virtual da BRL. A mensalidade é R$ 500.',
+          sigiloso,
         ),
       ).toBe(false);
     });

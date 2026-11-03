@@ -32,6 +32,7 @@ import {
   mensagensDaConversa,
   montarPedidoDoSdr,
   RESPOSTA_DE_VAZAMENTO_DO_SDR,
+  textoSigilosoDaConfiguracao,
   vazaInstrucoesDoSdr,
 } from './prompt-sdr';
 import {
@@ -212,7 +213,14 @@ export class SimuladorSdrService {
       acao: turno.acao,
       parametros,
     });
-    const resposta = vazaInstrucoesDoSdr(turno.resposta)
+    const resposta = vazaInstrucoesDoSdr(
+      turno.resposta,
+      textoSigilosoDaConfiguracao({
+        config,
+        regras,
+        criterios: cfg.criterios,
+      }),
+    )
       ? RESPOSTA_DE_VAZAMENTO_DO_SDR
       : turno.resposta.trim() ||
         (interp.acao === 'PASSAR_HUMANO' ? config.mensagemPassagem : '');

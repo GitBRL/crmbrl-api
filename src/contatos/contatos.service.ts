@@ -72,6 +72,10 @@ import {
   descreverOrigem,
   instantaneoDoContato,
 } from './instantaneos';
+import {
+  TITULO_DESQUALIFICOU_O_LEAD,
+  TITULO_PASSOU_PARA_A_EQUIPE,
+} from '../sdr/sdr.constantes';
 import { LinhaDoTempoService } from './linha-do-tempo.service';
 import {
   type AlcanceDeEdicao,
@@ -974,6 +978,21 @@ export class ContatosService {
       where: { conversaId: { in: conversaIds } },
       data: { resumo: null, motivo: null },
     });
+    // Decisões gravadas antes de o motivo sair do título: o texto da IA sobrava lá.
+    await tx.sdrDecisao.updateMany({
+      where: {
+        conversaId: { in: conversaIds },
+        titulo: { startsWith: `${TITULO_PASSOU_PARA_A_EQUIPE}: ` },
+      },
+      data: { titulo: TITULO_PASSOU_PARA_A_EQUIPE },
+    });
+    await tx.sdrDecisao.updateMany({
+      where: {
+        conversaId: { in: conversaIds },
+        titulo: { startsWith: `${TITULO_DESQUALIFICOU_O_LEAD}: ` },
+      },
+      data: { titulo: TITULO_DESQUALIFICOU_O_LEAD },
+    });
     await tx.sdrDecisao.updateMany({
       where: { conversaId: { in: conversaIds } },
       data: {
@@ -1019,7 +1038,7 @@ export class ContatosService {
       if (!contato) {
         throw new NaoEncontradoException('Contato não encontrado.');
       }
-      const [identificadores, negocios, atividades, conversas, ligacoes] =
+      const [identificadores, negocios, atividades, conversas, ligacoes, sdr] =
         await Promise.all([
           tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
           tx.negocio.findMany({ where: { contatoId: id } }),
@@ -1066,6 +1085,7 @@ export class ContatosService {
               atendente: { select: { nome: true } },
             },
           }),
+          this.dadosDoSdr(tx, id),
         ]);
       await this.auditoria.registrar(tx, {
         acao: 'contato.dados-exportados',
@@ -1078,6 +1098,9 @@ export class ContatosService {
           negocios: negocios.length,
           atividades: atividades.length,
           ligacoes: ligacoes.length,
+          sdrConversas: sdr.conversas.length,
+          sdrDecisoes: sdr.decisoes.length,
+          sdrSugestoes: sdr.sugestoes.length,
         },
       });
       return {
@@ -1095,8 +1118,76 @@ export class ContatosService {
         conversas,
         // R30: o registro de cada ligação, a transcrição e o resumo (o áudio não vai no JSON).
         ligacoes,
+        // R31.9: o que a IA do SDR guarda do titular (qualificação, valores descobertos, decisões e sugestões).
+        sdr,
       };
     });
+  }
+
+  /** O que o SDR com IA guarda do contato, para a exportação LGPD (R31.9). */
+  private async dadosDoSdr(tx: Tx, contatoId: string) {
+    const dele = { conversa: { contatoId } };
+    const [conversas, decisoes, sugestoes] = await Promise.all([
+      tx.sdrConversa.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          situacao: true,
+          modo: true,
+          origem: true,
+          nota: true,
+          temperatura: true,
+          resumo: true,
+          motivo: true,
+          criadoEm: true,
+          qualificadaEm: true,
+          valores: {
+            orderBy: { chave: 'asc' },
+            select: {
+              chave: true,
+              rotulo: true,
+              valor: true,
+              confianca: true,
+              origem: true,
+              criadoEm: true,
+            },
+          },
+        },
+      }),
+      tx.sdrDecisao.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          tipo: true,
+          acao: true,
+          titulo: true,
+          motivo: true,
+          resumo: true,
+          resposta: true,
+          criterios: true,
+          nota: true,
+          temperatura: true,
+          criadoEm: true,
+        },
+      }),
+      tx.sdrSugestao.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          texto: true,
+          acao: true,
+          motivo: true,
+          resumo: true,
+          criterios: true,
+          status: true,
+          criadoEm: true,
+        },
+      }),
+    ]);
+    return { conversas, decisoes, sugestoes };
   }
 
   /** Títulos de negócios do contato com nome, e-mail ou telefone dele (R4.6). */

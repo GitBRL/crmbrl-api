@@ -74,7 +74,7 @@ BACKUP_FUSO=America/Sao_Paulo                         # (America/Sao_Paulo)
 BACKUP_RETENCAO_DIAS=14                               # (14) 0 = nunca apagar
 
 # --- Opcionais ---
-ANTHROPIC_API_KEY=                                    # análise do BI, assistente de IA e resumo das ligações
+ANTHROPIC_API_KEY=                                    # análise do BI, assistente de IA, resumo das ligações e SDR com IA (sem a chave o SDR fica indisponível)
 WHISPER_MODELO=small                                  # (small) modelo da transcrição das ligações; veja a seção 3.1
 TRANSCRICAO_CPUS=4                                    # (4) limite de CPU do serviço transcricao
 TRANSCRICAO_MEMORIA=3g                                # (3g) limite de memória do serviço transcricao

@@ -56,17 +56,20 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
       cLevel: marketing.cLevel,
     });
     const esperado: [typeof admin, string[]][] = [
-      [admin, ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro']],
+      [
+        admin,
+        ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
+      ],
       [
         marketing.cLevel,
-        ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'],
+        ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
       ],
       [marketing.lider, ['marketing']],
       [marketing.membros[0], ['marketing']],
-      [comercial.lider, ['comercial', 'atendimento']],
-      [comercial.membros[0], ['comercial', 'atendimento']],
-      [cs.lider, ['cs', 'atendimento', 'financeiro']],
-      [cs.membros[0], ['cs', 'atendimento', 'financeiro']],
+      [comercial.lider, ['comercial', 'atendimento', 'sdr']],
+      [comercial.membros[0], ['comercial', 'atendimento', 'sdr']],
+      [cs.lider, ['cs', 'atendimento', 'sdr', 'financeiro']],
+      [cs.membros[0], ['cs', 'atendimento', 'sdr', 'financeiro']],
     ];
     for (const [usuario, paineis] of esperado) {
       const cliente = await entrarComo(t, usuario);
@@ -77,6 +80,7 @@ describe('BI — acesso, filtros, cache e exportação (e2e)', () => {
         'comercial',
         'cs',
         'atendimento',
+        'sdr',
         'financeiro',
       ] as const) {
         await consultarPainel(

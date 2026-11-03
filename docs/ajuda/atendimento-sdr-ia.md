@@ -13,13 +13,13 @@ O SDR com IA é uma assistente virtual que atende o lead novo nos canais em que 
 - Na **lista**, a conversa tem o selo **IA atendendo** (ou **IA sugerindo**, no modo sugestão). O leitor de tela também ouve o modo.
 - No **cabeçalho da conversa**, o mesmo selo aparece embaixo do nome. Logo abaixo fica a **faixa da IA**, que explica o que está acontecendo: se a IA responde sozinha, se espera a sua aprovação, se uma pessoa assumiu ou por que ela passou a conversa para a equipe.
 - As mensagens da IA aparecem com a marca **IA** ao lado da hora.
-- Para ver só essas conversas, abra **Filtros**, em **Só as que**, e escolha **Atendidas pela IA**. O filtro olha as conversas já carregadas na lista; ela busca mais páginas sozinha até mostrar pelo menos 10.
+- Para ver só essas conversas, abra **Filtros**, em **Só as que**, e escolha **Atendidas pela IA**. O filtro mostra as conversas em que a IA está atendendo agora e é feito pelo CRM em todas as conversas que você pode ver, não só nas já carregadas na lista.
 
 ## Decisões da IA na conversa
 A conversa mostra, em linhas discretas no meio das mensagens, o que a IA decidiu:
 - **A IA descobriu: Curso de interesse, Cidade (nota 40).** Cada vez que o lead dá um critério.
 - **Qualificou o lead (nota 100) e passou para <vendedor> no Comercial.** O negócio vai para o funil Comercial pelo rodízio.
-- **Passou para a equipe: <motivo>.** Com o **resumo** do que o lead disse, para quem continua não precisar perguntar de novo. O mesmo resumo fica na faixa, em **Resumo da IA para quem continua**.
+- **Passou para a equipe. Motivo: <motivo>.** Com o **resumo** do que o lead disse, para quem continua não precisar perguntar de novo. O mesmo resumo fica na faixa, em **Resumo da IA para quem continua**.
 - **Desqualificou o lead** (com o motivo), **devolveu a conversa para a IA** e os avisos de que algo impediu a IA (limite, orçamento, falha).
 
 ## Assumir e devolver para a IA

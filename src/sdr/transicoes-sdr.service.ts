@@ -18,6 +18,10 @@ import type {
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR } from '../tempo-real/catalogo';
 import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
+import {
+  type CategoriaDePassagem,
+  categoriaDaPassagem,
+} from './categoria-passagem';
 import { REGRA_SDR } from './sdr.constantes';
 import type { UsoDeTokensSdr } from './orcamento-sdr.service';
 
@@ -47,6 +51,8 @@ export interface NovaDecisao {
   uso?: UsoDeTokensSdr;
   tentativas?: number;
   simulador?: boolean;
+  /** Categoria da passagem (BI, R31.22); sem ela, deduzida do motivo quando a ação é `PASSAR_HUMANO`. */
+  categoria?: CategoriaDePassagem;
   /** Padrão: audita. Quem já audita a ação por conta própria passa `false`. */
   auditar?: boolean;
 }
@@ -114,6 +120,9 @@ export class TransicoesSdrService {
         modo: d.modo ?? null,
         modelo: d.modelo ?? null,
         baseVersao: d.baseVersao ?? null,
+        categoria:
+          d.categoria ??
+          categoriaDaPassagem(d.tipo, d.acao, d.motivo, d.titulo),
         mensagemId: d.mensagemId ?? null,
         usuarioId: d.usuarioId ?? null,
         tokensEntrada: uso.entrada,
@@ -139,14 +148,16 @@ export class TransicoesSdrService {
           decisaoId: criada.id,
           tipo: d.tipo,
           acao: d.acao ?? null,
-          motivo: d.motivo ?? null,
           nota: d.nota ?? null,
           temperatura: d.temperatura ?? null,
           modo: d.modo ?? null,
           modelo: d.modelo ?? null,
           baseVersao: d.baseVersao ?? null,
           tokens: uso,
-          criterios: d.criterios ?? null,
+          // Só as chaves: o motivo e os valores são do titular (a auditoria é imutável e não é anonimizada).
+          criterios: Array.isArray(d.criterios)
+            ? d.criterios.map((c: { chave?: string }) => c.chave ?? null)
+            : null,
         },
         relacionados: conversa ? { contato: conversa.contatoId } : undefined,
       });

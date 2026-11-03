@@ -15,6 +15,9 @@ palavras-chave: [automação, gatilho, condição, passos, espera, cadência, mo
 
 Na lista você ativa, pausa, duplica e exclui, e vê "Última vez". A aba **Histórico** mostra o passo a passo de cada execução, com **Tentar de novo** nos passos que falharam e cancelar nas que esperam.
 
+## Gatilho do SDR com IA
+**Lead qualificado pela IA** dispara quando o SDR com IA qualifica um lead e abre o negócio no Comercial; a automação roda para o **negócio**. Filtros opcionais: **temperatura do lead** (quente, morno ou frio; marque uma ou mais), **tipo de canal** e **canal**. Exemplo: lead **quente** mais um passo de atividade "Ligar agora" para o vendedor. Use o **modo teste** antes de ligar.
+
 ## Gatilhos de ligação
 No gatilho **O que acontece** há dois eventos de ligação do WhatsApp oficial, que rodam para o **contato**:
 - **Ligação perdida:** dispara quando uma ligação **recebida** termina perdida (ninguém atendeu, todos recusaram ou foi fora do horário). Filtro opcional: o **canal**.
