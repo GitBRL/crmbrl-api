@@ -38,6 +38,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Histórico de ligações: filtrar, buscar no que foi dito, ouvir e ler a transcrição](atendimento-historico-de-ligacoes.md)
 - [Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente](atendimento-ligacoes.md)
 - [Responder uma conversa: mensagem, nota interna, anexos e respostas rápidas](atendimento-responder-conversa.md)
+- [Atendimento com o SDR com IA: selo, assumir, devolver, sugestão e qualificação](atendimento-sdr-ia.md)
 
 ## chat
 - [Chat da equipe: canais, grupos e conversas diretas](chat-da-equipe.md)
@@ -73,6 +74,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Configuração geral dos Disparos](configuracoes-disparos.md)
 - [Papéis e o que cada um pode acessar](configuracoes-papeis-e-permissoes.md)
 - [Meu perfil e Minha equipe](configuracoes-perfil-e-minha-equipe.md)
+- [Configurar o SDR com IA](configuracoes-sdr-ia.md)
 - [Convidar e editar usuários](configuracoes-usuarios-convidar-editar.md)
 
 ## administracao
