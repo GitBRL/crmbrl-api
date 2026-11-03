@@ -62,7 +62,13 @@ export interface TranscricaoGravada {
   modelo: string;
   duracaoSegundos: number;
   trechos: Trecho[];
+  /** Explica uma transcrição sem trechos (ex.: nenhuma fala na gravação). */
+  aviso?: string;
 }
+
+/** Texto da transcrição pronta quando nenhum canal tem fala. */
+export const AVISO_SEM_FALA =
+  'Nenhuma fala foi detectada na gravação: os dois lados ficaram em silêncio.';
 
 export type TipoDeSugestao =
   'LIGACAO' | 'TAREFA' | 'EMAIL' | 'WHATSAPP' | 'REUNIAO';

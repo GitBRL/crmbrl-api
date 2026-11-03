@@ -1,4 +1,5 @@
 import { Prisma, type Papel } from '../src/generated/prisma/client';
+import { hojeLocal, paraDataDoBanco, somarDias } from '../src/financeiro/datas';
 import { IndicadoresFinanceirosService } from '../src/financeiro/indicadores.service';
 import {
   filtroDeContratosVisiveis,
@@ -17,11 +18,8 @@ import {
   criarUsuario,
 } from './utils';
 
-const DIA = 86_400_000;
-const data = (n: number) =>
-  new Date(
-    `${new Date(Date.now() - n * DIA).toISOString().slice(0, 10)}T00:00:00.000Z`,
-  );
+/** Data (meia-noite UTC, como a coluna DATE) de `n` dias atrás no dia de São Paulo, o mesmo do serviço. */
+const data = (n: number) => paraDataDoBanco(somarDias(hojeLocal(), -n));
 
 describe('Financeiro — agregações em SQL equivalem ao filtro de visibilidade (e2e)', () => {
   let t: AppTeste;

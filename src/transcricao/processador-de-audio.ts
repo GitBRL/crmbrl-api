@@ -18,6 +18,32 @@ export interface AudioConvertido {
   esquerdo: string;
   /** WAV do canal direito (cliente); `null` se a gravação é mono. */
   direito: string | null;
+  /** O volume do canal esquerdo é nulo ou quase: não há fala para transcrever. */
+  esquerdoSemFala: boolean;
+  /** Idem para o direito; `false` se a gravação é mono. */
+  direitoSemFala: boolean;
+}
+
+/** Pico (dBFS) abaixo do qual um canal é tratado como mudo: fala fica bem acima, ruído de linha não. */
+export const PICO_MINIMO_DE_FALA_DB = -50;
+
+/**
+ * Lê a saída do filtro `volumedetect` do ffmpeg e diz se o canal está mudo. Sem a linha de
+ * `max_volume` (ou com `-inf`, silêncio digital), só o silêncio digital conta como mudo; o que não
+ * der para medir segue para o whisper, que tem o veredito final.
+ */
+export function canalSemFalaPeloVolume(saidaDoFfmpeg: string): boolean {
+  const achado = /max_volume:\s*(-?inf|-?\d+(?:\.\d+)?)\s*dB/i.exec(
+    saidaDoFfmpeg,
+  );
+  if (!achado) {
+    return false;
+  }
+  const valor = achado[1].toLowerCase();
+  if (valor.endsWith('inf')) {
+    return valor.startsWith('-');
+  }
+  return Number(valor) <= PICO_MINIMO_DE_FALA_DB;
 }
 
 export abstract class ProcessadorDeAudio {
@@ -44,6 +70,30 @@ function executar(
           return;
         }
         resolver(saida);
+      },
+    );
+  });
+}
+
+/** Mede o pico do WAV com `volumedetect`; se a medição falhar, devolve `false` (o whisper decide). */
+function medirSemFala(wav: string): Promise<boolean> {
+  return new Promise((resolver) => {
+    execFile(
+      'ffmpeg',
+      [
+        '-nostdin',
+        '-hide_banner',
+        '-i',
+        wav,
+        '-af',
+        'volumedetect',
+        '-f',
+        'null',
+        '-',
+      ],
+      { timeout: TEMPO_LIMITE_DO_FFMPEG_MS, maxBuffer: 4 * 1024 * 1024 },
+      (erro, _saida, saidaDeErro) => {
+        resolver(erro ? false : canalSemFalaPeloVolume(saidaDeErro));
       },
     );
   });
@@ -131,6 +181,14 @@ export class ProcessadorFfmpeg extends ProcessadorDeAudio {
         esquerdo,
       ]);
     }
-    return { duracaoSegundos, canais, ogg, esquerdo, direito };
+    return {
+      duracaoSegundos,
+      canais,
+      ogg,
+      esquerdo,
+      direito,
+      esquerdoSemFala: await medirSemFala(esquerdo),
+      direitoSemFala: direito ? await medirSemFala(direito) : false,
+    };
   }
 }

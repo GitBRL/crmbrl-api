@@ -45,7 +45,8 @@ describe('BI — painel CS (e2e)', () => {
       previsao: emDias(10),
       criadoEm: quando(5),
       responsavel: c1,
-      etapaDesde: quando(4),
+      // Relativo ao instante atual (não à meia-noite UTC): a média de dias na etapa é medida com now().
+      etapaDesde: new Date(Date.now() - 4 * DIA),
     });
     await cs({
       etapa: 'onboarding',

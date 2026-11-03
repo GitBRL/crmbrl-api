@@ -65,7 +65,7 @@ const RESUMO = {
 /** whisper-server falso em processo: responde por canal (esquerdo = atendente, direito = cliente). */
 async function subirWhisperFalso() {
   const estado = {
-    modo: 'ok' as 'ok' | '500' | 'fora',
+    modo: 'ok' as 'ok' | '500' | 'fora' | 'vazio-direito',
     pedidos: [] as string[],
     saude: 200,
     atrasoMs: 0,
@@ -92,32 +92,34 @@ async function subirWhisperFalso() {
           return;
         }
         const segmentos =
-          canal === 'esquerdo'
-            ? [
-                {
-                  start: 0,
-                  end: 3,
-                  text: ' Bom dia, aqui é da BRL. Em que posso ajudar?',
-                },
-                {
-                  start: 12,
-                  end: 16,
-                  text: ' Combinado, envio a proposta amanhã e retorno a ligação na sexta.',
-                },
-              ]
-            : [
-                {
-                  start: 3.5,
-                  end: 9,
-                  text: ' Oi, queria saber o valor do plano anual, preciso de desconto.',
-                },
-                {
-                  start: 16.5,
-                  end: 20,
-                  text: ' Fechado, obrigado pelo atendimento, muito bom.',
-                },
-                { start: 21, end: 22, text: ' [BLANK_AUDIO]' },
-              ];
+          estado.modo === 'vazio-direito' && canal === 'direito'
+            ? []
+            : canal === 'esquerdo'
+              ? [
+                  {
+                    start: 0,
+                    end: 3,
+                    text: ' Bom dia, aqui é da BRL. Em que posso ajudar?',
+                  },
+                  {
+                    start: 12,
+                    end: 16,
+                    text: ' Combinado, envio a proposta amanhã e retorno a ligação na sexta.',
+                  },
+                ]
+              : [
+                  {
+                    start: 3.5,
+                    end: 9,
+                    text: ' Oi, queria saber o valor do plano anual, preciso de desconto.',
+                  },
+                  {
+                    start: 16.5,
+                    end: 20,
+                    text: ' Fechado, obrigado pelo atendimento, muito bom.',
+                  },
+                  { start: 21, end: 22, text: ' [BLANK_AUDIO]' },
+                ];
         res
           .writeHead(200, { 'content-type': 'application/json' })
           .end(JSON.stringify({ language: 'portuguese', segments: segmentos }));
@@ -136,6 +138,9 @@ async function subirWhisperFalso() {
 class ProcessadorFalso extends ProcessadorDeAudio {
   falhar = false;
   mono = false;
+  /** Canais medidos como mudos pelo ffmpeg (volumedetect). */
+  esquerdoSemFala = false;
+  direitoSemFala = false;
   /** Roda depois de converter e antes de devolver (simula um processamento demorado). */
   aoConverter: (() => Promise<void>) | null = null;
   entradas: Buffer[] = [];
@@ -157,6 +162,8 @@ class ProcessadorFalso extends ProcessadorDeAudio {
       ogg,
       esquerdo,
       direito: this.mono ? null : direito,
+      esquerdoSemFala: this.esquerdoSemFala,
+      direitoSemFala: !this.mono && this.direitoSemFala,
     };
   }
 }
@@ -206,6 +213,8 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
     claude.enfileirar({ tipo: 'resposta', corpo: RESUMO });
     audio.falhar = false;
     audio.mono = false;
+    audio.esquerdoSemFala = false;
+    audio.direitoSemFala = false;
     audio.aoConverter = null;
     audio.entradas = [];
     whisper.estado.modo = 'ok';
@@ -752,6 +761,57 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
         new Set(transcricao.trechos.map((x: { falante: string }) => x.falante)),
       ).toEqual(new Set(['participante']));
       expect(whisper.estado.pedidos).toEqual(['esquerdo']);
+    });
+
+    it('R30.3 — um canal mudo não chama o whisper e a transcrição segue só com o outro lado', async () => {
+      audio.direitoSemFala = true; // o cliente ficou mudo a ligação toda
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await gravarEProcessar(cliente, ligacao);
+      const transcricao = (
+        await cliente
+          .get(`/api/v1/ligacoes/${ligacao.id}/transcricao`)
+          .expect(200)
+      ).body;
+      expect(transcricao.situacao).toBe('pronta');
+      expect(transcricao.aviso).toBeNull();
+      expect(
+        new Set(transcricao.trechos.map((x: { falante: string }) => x.falante)),
+      ).toEqual(new Set(['atendente']));
+      expect(whisper.estado.pedidos).toEqual(['esquerdo']);
+    });
+
+    it('R30.3 — os dois canais mudos: transcrição pronta, sem trechos e com aviso em português', async () => {
+      audio.esquerdoSemFala = true;
+      audio.direitoSemFala = true;
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await gravarEProcessar(cliente, ligacao);
+      const transcricao = (
+        await cliente
+          .get(`/api/v1/ligacoes/${ligacao.id}/transcricao`)
+          .expect(200)
+      ).body;
+      expect(transcricao.situacao).toBe('pronta');
+      expect(transcricao.trechos).toEqual([]);
+      expect(transcricao.aviso).toContain('Nenhuma fala');
+      expect(whisper.estado.pedidos).toHaveLength(0);
+    });
+
+    it('R30.3 — whisper devolvendo zero segmentos em um canal não falha a transcrição', async () => {
+      whisper.estado.modo = 'vazio-direito';
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await gravarEProcessar(cliente, ligacao);
+      const transcricao = (
+        await cliente
+          .get(`/api/v1/ligacoes/${ligacao.id}/transcricao`)
+          .expect(200)
+      ).body;
+      expect(transcricao.situacao).toBe('pronta');
+      expect(
+        new Set(transcricao.trechos.map((x: { falante: string }) => x.falante)),
+      ).toEqual(new Set(['atendente']));
     });
 
     it('cenário 242 — R30.4 — sem chave da Anthropic fica só a transcrição; conversa curta não é resumida', async () => {

@@ -31,7 +31,11 @@ import { type Prisma } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { salas } from '../tempo-real/catalogo';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
-import { ClienteWhisper, ErroDeTranscricao } from './cliente-whisper';
+import {
+  ClienteWhisper,
+  ErroDeTranscricao,
+  type RespostaDoWhisper,
+} from './cliente-whisper';
 import { conferirResumo, ESQUEMA_RESUMO_DE_LIGACAO } from './esquema-resumo';
 import { ProcessadorDeAudio } from './processador-de-audio';
 import { mensagemDoResumo, PROMPT_DE_SISTEMA_DO_RESUMO } from './prompt-resumo';
@@ -43,6 +47,7 @@ import {
   textoDaConversa,
 } from './trechos';
 import {
+  AVISO_SEM_FALA,
   ESPERA_ENTRE_TENTATIVAS_S,
   FILA_PROCESSAR_LIGACAO,
   FILA_RESUMIR_LIGACAO,
@@ -229,12 +234,15 @@ export class TranscricaoService implements OnModuleInit {
         }
         return ms;
       };
-      const esquerdo = await this.whisper.transcrever(
-        convertido.esquerdo,
-        restante(),
-      );
+      // Canal mudo (ex.: o cliente não falou a ligação toda): zero trechos, sem chamar o whisper.
+      const semTrechos: RespostaDoWhisper = { idioma: null, trechos: [] };
+      const esquerdo = convertido.esquerdoSemFala
+        ? semTrechos
+        : await this.whisper.transcrever(convertido.esquerdo, restante());
       const direito = convertido.direito
-        ? await this.whisper.transcrever(convertido.direito, restante())
+        ? convertido.direitoSemFala
+          ? semTrechos
+          : await this.whisper.transcrever(convertido.direito, restante())
         : null;
       const trechos: Trecho[] = intercalar([
         // Gravação mono (sem a separação dos canais): não dá para dizer quem falou.
@@ -247,6 +255,7 @@ export class TranscricaoService implements OnModuleInit {
         modelo: this.ambiente.transcricao.modelo,
         duracaoSegundos: convertido.duracaoSegundos,
         trechos,
+        ...(trechos.length === 0 ? { aviso: AVISO_SEM_FALA } : {}),
       };
       const gravada = await this.prisma.$transaction(async (tx) => {
         if (!(await this.aindaAceita(tx, ligacaoId, originalId))) {

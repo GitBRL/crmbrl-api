@@ -127,6 +127,7 @@ export class LeituraDaGravacaoService {
       modelo: gravada?.modelo ?? null,
       duracaoSegundos: gravada?.duracaoSegundos ?? null,
       trechos: gravada?.trechos ?? [],
+      aviso: gravada?.aviso ?? null,
     };
   }
 

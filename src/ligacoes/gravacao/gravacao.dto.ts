@@ -129,6 +129,7 @@ export class TranscricaoCompletaDto {
   @ApiProperty({ type: Number, nullable: true }) duracaoSegundos: number | null;
   @ApiProperty({ type: [TrechoDaTranscricaoDto] })
   trechos: TrechoDaTranscricaoDto[];
+  @ApiProperty({ type: String, nullable: true }) aviso: string | null;
 }
 
 export class RespostaDaParteDto {
