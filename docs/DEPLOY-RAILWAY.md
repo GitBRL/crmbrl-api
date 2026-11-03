@@ -157,6 +157,20 @@ deploy (efeito do volume da seção 4) e as conexões dos números voltam sozinh
 - A tela **Saúde do sistema** mostra "nenhum backup": ela lê o `ultimo.json` do serviço `backup` do compose,
   que não existe no Railway. É esperado.
 
+## 7.1 Problemas encontrados na primeira instalação (03/11/2026)
+
+| Sintoma | Causa | Correção |
+| --- | --- | --- |
+| `docker-entrypoint: DATABASE_URL não definida` em loop | Banco criado pela imagem `postgres-ssl`, que não cria a `DATABASE_URL` | Criar o banco pelo modelo (New → Database → Add PostgreSQL), com o nome `Postgres` |
+| `/api` responde 502 e o log da `api` mostra `whisper_model_load…` | `RAILWAY_DOCKERFILE_PATH=Dockerfile.transcricao` também na `api` (ou nas Shared Variables) | Deixar essa variável só no serviço de transcrição; `api` e `whatsapp` com Dockerfile Path `/Dockerfile` |
+| Build com `Cannot find module '…/logs/…'` | Redeploy de um deploy antigo, que reconstrói o mesmo commit | Ctrl+K → "Deploy latest commit"; conferir o branch em Settings → Source |
+| `whatsapp` sem ffmpeg ou com imagem diferente da testada | Builder "Railpack" no lugar de "Dockerfile" | Settings → Build → Builder: Dockerfile |
+| Gateway: "Variáveis de ambiente inválidas" (URL_PUBLICA, CHAVE_CRIPTOGRAFIA…) | Referências `${{api.…}}` que não resolveram no serviço | Usar valores diretos, os mesmos da `api` (a CHAVE_CRIPTOGRAFIA e o WHATSAPP_TOKEN_INTERNO precisam ser iguais nos dois), ou Shared Variables com `${{shared.…}}` |
+| `wget … :3000` dá `Connection refused` a partir do `web` | Nada escutando na porta: veja o Deploy Logs da `api` | O log mostra o motivo (variável, banco ou Dockerfile errado) |
+
+Os registros que o Railway marca em vermelho como "error" no Whisper e no MinIO não são falhas. Esses
+programas escrevem tudo na saída de erro, inclusive as mensagens normais de início.
+
 ## 8. Diferenças em relação ao servidor próprio (pendentes)
 
 - **IP do cliente:** atrás do proxy do Railway, a API registra o IP do proxy, não o do visitante. Isso afeta a
