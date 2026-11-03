@@ -62,4 +62,4 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Variáveis prontas para colar no Railway (contém segredos; nunca versionar)
-/.env.railway
+/.env.railway*
