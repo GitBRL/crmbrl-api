@@ -25,6 +25,7 @@ import {
   type TranscricaoGravada,
 } from '../../transcricao/transcricao.constantes';
 import type { TranscricaoCompletaDto } from './gravacao.dto';
+import { JANELA_DA_REPRODUCAO_MS } from './gravacao.constantes';
 
 export type VersaoDoAudio = 'ouvir' | 'original';
 
@@ -172,12 +173,28 @@ export class LeituraDaGravacaoService {
     return this.arquivos.obter(arquivoId);
   }
 
-  /** Audita a reprodução (só a requisição que começa no byte 0) ou o download. */
+  /**
+   * Audita o download (todo pedido) ou a reprodução: a que começa no byte 0 e, para o `Range` que
+   * começa adiante (o player ao avançar, mas também quem pula o início para fugir do registro),
+   * a primeira de cada janela de {@link JANELA_DA_REPRODUCAO_MS} por usuário, ligação e versão.
+   */
   async registrarAcessoAoAudio(
     id: string,
     arquivo: Pick<Arquivo, 'tamanho'>,
-    opcoes: { baixar: boolean; versao: VersaoDoAudio },
+    opcoes: {
+      baixar: boolean;
+      versao: VersaoDoAudio;
+      usuarioId: string;
+      inicio: number;
+    },
   ): Promise<void> {
+    if (
+      !opcoes.baixar &&
+      !this.primeiraDaJanela(opcoes.usuarioId, id, opcoes.versao) &&
+      opcoes.inicio !== 0
+    ) {
+      return;
+    }
     const ligacao = await this.prisma.ligacao.findUniqueOrThrow({
       where: { id },
       select: { contatoId: true },
@@ -200,6 +217,32 @@ export class LeituraDaGravacaoService {
         relacionados: { contato: ligacao.contatoId },
       }),
     );
+  }
+
+  /** Reproduções já auditadas: `usuário:ligação:versão` -> quando. Só na memória do processo. */
+  private readonly reproducoes = new Map<string, number>();
+
+  /** Marca a reprodução e diz se ela abre uma janela nova (não há registro recente). */
+  private primeiraDaJanela(
+    usuarioId: string,
+    ligacaoId: string,
+    versao: VersaoDoAudio,
+  ): boolean {
+    const agora = Date.now();
+    const chave = `${usuarioId}:${ligacaoId}:${versao}`;
+    const ultima = this.reproducoes.get(chave);
+    if (this.reproducoes.size > 5000) {
+      for (const [k, quando] of this.reproducoes) {
+        if (agora - quando > JANELA_DA_REPRODUCAO_MS) {
+          this.reproducoes.delete(k);
+        }
+      }
+    }
+    if (ultima !== undefined && agora - ultima <= JANELA_DA_REPRODUCAO_MS) {
+      return false;
+    }
+    this.reproducoes.set(chave, agora);
+    return true;
   }
 
   /** O áudio de aviso do canal (o navegador toca ao atender), para quem usa o Atendimento. */

@@ -288,3 +288,22 @@ describe('Máquina de estados da ligação (R29.1)', () => {
     }
   });
 });
+
+describe('R29.2 — recusada por todos os chamados', () => {
+  it('recebida tocando vira PERDIDA com o motivo próprio; feita ou já atendida ignora', () => {
+    expect(
+      decidir('TOCANDO', 'RECEBIDA', { tipo: 'recusada_por_todos' }),
+    ).toEqual({
+      aplicar: true,
+      estado: 'PERDIDA',
+      motivo: 'recusada_pelos_atendentes',
+    });
+    expect(
+      decidir('EM_ANDAMENTO', 'RECEBIDA', { tipo: 'recusada_por_todos' })
+        .aplicar,
+    ).toBe(false);
+    expect(
+      decidir('TOCANDO', 'FEITA', { tipo: 'recusada_por_todos' }).aplicar,
+    ).toBe(false);
+  });
+});

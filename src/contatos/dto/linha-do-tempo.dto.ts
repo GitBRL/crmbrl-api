@@ -13,6 +13,7 @@ export const CONTEUDOS_DA_LINHA_DO_TEMPO = [
   'tudo',
   'eventos',
   'atividades',
+  'ligacoes',
 ] as const;
 export type ConteudoDaLinhaDoTempo =
   (typeof CONTEUDOS_DA_LINHA_DO_TEMPO)[number];
@@ -21,7 +22,8 @@ export class FiltroDaLinhaDoTempoDto extends PaginacaoDto {
   @ApiPropertyOptional({
     enum: CONTEUDOS_DA_LINHA_DO_TEMPO,
     default: 'tudo',
-    description: 'Eventos de auditoria, atividades ou os dois.',
+    description:
+      'Tudo (eventos de auditoria, atividades e ligações), só eventos, só atividades ou só ligações.',
   })
   @IsOptional()
   @IsIn(CONTEUDOS_DA_LINHA_DO_TEMPO, {
@@ -140,19 +142,74 @@ export class AtividadeDaLinhaDoTempoDto {
   criadoEm: string;
 }
 
+/** Ligação do WhatsApp na linha do tempo (R29.8): só a quem vê a ligação (R12). O painel completo abre em `/atendimento/ligacoes/:id`. */
+export class LigacaoDaLinhaDoTempoDto {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty({ enum: ['RECEBIDA', 'FEITA'] }) direcao: string;
+  @ApiProperty({
+    enum: [
+      'ENCERRADA',
+      'PERDIDA',
+      'RECUSADA',
+      'SEM_RESPOSTA',
+      'FALHOU',
+      'CHAMANDO',
+      'TOCANDO',
+      'EM_ANDAMENTO',
+    ],
+  })
+  estado: string;
+  @ApiProperty({
+    enum: ['atendida', 'perdida', 'recusada', 'sem_resposta', 'falhou'],
+    nullable: true,
+    type: String,
+    description: 'Nulo enquanto a ligação está em curso.',
+  })
+  resultado: string | null;
+  @ApiProperty({ type: String, nullable: true }) motivoTexto: string | null;
+  @ApiProperty({ type: Number, nullable: true }) duracaoSegundos: number | null;
+  @ApiProperty({ type: String, nullable: true, format: 'uuid' })
+  conversaId: string | null;
+  @ApiProperty({ type: String, nullable: true, format: 'uuid' })
+  canalId: string | null;
+  @ApiProperty({ type: String, nullable: true }) canalNome: string | null;
+  @ApiProperty({ type: () => UsuarioVinculadoDto, nullable: true })
+  atendente: UsuarioVinculadoDto | null;
+  @ApiProperty({ format: 'date-time' }) iniciadaEm: string;
+  @ApiProperty({ type: String, nullable: true, format: 'date-time' })
+  encerradaEm: string | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Assunto do resumo, quando já está pronto.',
+  })
+  resumoAssunto: string | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Primeiros pontos do resumo (até 240 caracteres), quando já está pronto.',
+  })
+  resumoTrecho: string | null;
+  @ApiProperty({ description: 'Há gravação para ouvir (e não foi apagada).' })
+  temGravacao: boolean;
+  @ApiProperty({ description: 'Há transcrição pronta.' })
+  temTranscricao: boolean;
+}
+
 /**
  * Item da linha do tempo de um contato, empresa ou negócio (R3.5): um evento
  * de auditoria ou uma atividade, ordenados por `ocorridoEm` (mais recentes
  * primeiro; atividades futuras, como reuniões marcadas, aparecem no topo).
  */
 export class RegistroDaLinhaDoTempoDto {
-  @ApiProperty({ enum: ['evento', 'atividade'] })
-  tipo: 'evento' | 'atividade';
+  @ApiProperty({ enum: ['evento', 'atividade', 'ligacao'] })
+  tipo: 'evento' | 'atividade' | 'ligacao';
 
   @ApiProperty({
     format: 'date-time',
     description:
-      'Evento: quando aconteceu. Atividade: concluída/cancelada em, senão início (reunião), vencimento ou criação.',
+      'Evento: quando aconteceu. Ligação: quando começou. Atividade: concluída/cancelada em, senão início (reunião), vencimento ou criação.',
   })
   ocorridoEm: string;
 
@@ -161,4 +218,11 @@ export class RegistroDaLinhaDoTempoDto {
 
   @ApiProperty({ type: () => AtividadeDaLinhaDoTempoDto, nullable: true })
   atividade: AtividadeDaLinhaDoTempoDto | null;
+
+  @ApiProperty({
+    type: () => LigacaoDaLinhaDoTempoDto,
+    nullable: true,
+    description: 'Preenchido quando `tipo` é `ligacao`.',
+  })
+  ligacao: LigacaoDaLinhaDoTempoDto | null;
 }

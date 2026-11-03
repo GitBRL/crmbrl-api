@@ -194,3 +194,47 @@ describe('Gatilhos das automações (R19.2)', () => {
     expect(casaComFiltros('contato.criado', {}, {})).toBe(true);
   });
 });
+
+describe('Gatilhos de ligação (R29.9)', () => {
+  it('R29.9 — "ligação perdida" e "ligação encerrada" são da entidade contato e validam os filtros', () => {
+    expect(
+      conferirGatilho({ tipoGatilho: 'EVENTO', evento: 'ligacao.perdida' }),
+    ).toMatchObject({ erros: [], entidade: 'contato' });
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'ligacao.encerrada',
+        gatilhoConfig: { resultado: 'atendida', direcao: 'RECEBIDA' },
+      }).erros,
+    ).toEqual([]);
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'ligacao.encerrada',
+        gatilhoConfig: { resultado: 'talvez', direcao: 'X' },
+      }).erros,
+    ).toHaveLength(2);
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'ligacao.perdida',
+        gatilhoConfig: { resultado: 'atendida' },
+      }).erros,
+    ).toHaveLength(1);
+  });
+
+  it('R29.9 — casa por direção e resultado', () => {
+    const dados = { direcao: 'FEITA', resultado: 'sem_resposta' };
+    expect(
+      casaComFiltros('ligacao.encerrada', dados, { direcao: 'FEITA' }),
+    ).toBe(true);
+    expect(
+      casaComFiltros('ligacao.encerrada', dados, { resultado: 'atendida' }),
+    ).toBe(false);
+    expect(
+      casaComFiltros('ligacao.encerrada', dados, {
+        resultado: ['atendida', 'sem_resposta'],
+      }),
+    ).toBe(true);
+  });
+});

@@ -472,6 +472,76 @@ export class LigacoesRecebidasService implements OnModuleInit {
   }
 
   // -------------------------------------------------------------------------
+  // Recusar
+  // -------------------------------------------------------------------------
+
+  /**
+   * O atendente recusa a ligação que toca para ele (R29.2): ela some só para ele e os outros
+   * continuam ouvindo. Se todos os chamados recusarem, a ligação é rejeitada na Meta na hora
+   * (sem esperar o tempo de toque) e vira PERDIDA (`recusada_pelos_atendentes`). Idempotente.
+   */
+  async recusar(usuario: UsuarioAutenticado, id: string): Promise<LigacaoDto> {
+    exigirAtendimento(usuario);
+    const ligacao = await this.nucleo.executar(async (tx, ctx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ligacao:${id}`}, 0))`;
+      const atual = await this.nucleo.carregar(tx, id);
+      if (atual.direcao !== 'RECEBIDA') {
+        throw new ConflitoException(
+          'Só ligações recebidas podem ser recusadas.',
+          { motivo: 'ligacao_feita' },
+        );
+      }
+      if (!atual.tocouPara.includes(usuario.id)) {
+        throw new SemPermissaoException('Esta ligação não tocou para você.', {
+          regra: REGRA_LIGACOES,
+          motivo: 'nao_chamado',
+        });
+      }
+      if (atual.estado !== 'TOCANDO' || atual.atendenteId) {
+        throw new ConflitoException(
+          atual.estado === 'TOCANDO' || atual.estado === 'EM_ANDAMENTO'
+            ? 'A ligação já foi atendida.'
+            : 'A ligação já terminou.',
+          { motivo: 'ligacao_encerrada', estado: atual.estado },
+        );
+      }
+      if (atual.recusadaPor.includes(usuario.id)) {
+        return atual;
+      }
+      const recusadaPor = [...atual.recusadaPor, usuario.id];
+      await tx.ligacao.update({ where: { id }, data: { recusadaPor } });
+      await this.auditoria.registrar(tx, {
+        acao: 'ligacao.recusada_por_atendente',
+        entidade: 'ligacao',
+        entidadeId: id,
+        resumo: `${usuario.nome} recusou a ligação de "${atual.contato.nome}"`,
+        dados: { canalId: atual.canalId, regra: REGRA_LIGACOES },
+        relacionados: { contato: atual.contatoId, usuario: usuario.id },
+      });
+      const todos = atual.tocouPara.every((alvo) => recusadaPor.includes(alvo));
+      if (!todos) {
+        ctx.emitir(salas.usuario(usuario.id), 'ligacao.deixou_de_tocar', {
+          ligacaoId: id,
+          motivo: 'recusada_por_voce',
+        });
+        await this.nucleo.limparAvisosDeToque(tx, ctx, id, [usuario.id]);
+        return { ...atual, recusadaPor };
+      }
+      const resultado = await this.nucleo.transicionar(tx, ctx, id, {
+        tipo: 'recusada_por_todos',
+      });
+      if (resultado.aplicada && atual.idMeta) {
+        const idMeta = atual.idMeta;
+        ctx.aposCommit(() =>
+          this.nucleo.agirNaMeta(atual.canalId, 'reject', idMeta),
+        );
+      }
+      return resultado.ligacao;
+    });
+    return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
+  }
+
+  // -------------------------------------------------------------------------
   // Tempo de toque esgotado
   // -------------------------------------------------------------------------
 

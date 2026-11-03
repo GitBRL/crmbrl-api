@@ -153,9 +153,10 @@ export class TranscricaoService implements OnModuleInit {
       return;
     }
     const transcreve = this.whisper.ligado;
+    const originalId = ligacao.gravacaoOriginalArquivoId;
     if (transcreve) {
-      await this.prisma.ligacao.update({
-        where: { id: ligacaoId },
+      const marcada = await this.prisma.ligacao.updateMany({
+        where: { id: ligacaoId, gravacaoRemovidaEm: null },
         data: {
           transcricaoSituacao: 'PROCESSANDO',
           transcricaoErro: null,
@@ -163,6 +164,9 @@ export class TranscricaoService implements OnModuleInit {
           resumoErro: null,
         },
       });
+      if (marcada.count === 0) {
+        return;
+      }
     }
     const pasta = await mkdtemp(join(tmpdir(), 'crmbrl-ligacao-'));
     try {
@@ -190,14 +194,18 @@ export class TranscricaoService implements OnModuleInit {
         return;
       }
 
-      await this.guardarVersaoParaOuvir(
+      const guardada = await this.guardarVersaoParaOuvir(
         ligacaoId,
+        originalId,
         convertido.ogg,
         convertido.duracaoSegundos,
       );
+      if (!guardada) {
+        return; // Apagada (guarda ou anonimização) durante o processamento.
+      }
       if (!transcreve) {
-        await this.prisma.ligacao.update({
-          where: { id: ligacaoId },
+        await this.prisma.ligacao.updateMany({
+          where: { id: ligacaoId, gravacaoRemovidaEm: null },
           data: {
             transcricaoSituacao: 'DESATIVADA',
             transcricaoErro: null,
@@ -240,7 +248,10 @@ export class TranscricaoService implements OnModuleInit {
         duracaoSegundos: convertido.duracaoSegundos,
         trechos,
       };
-      await this.prisma.$transaction(async (tx) => {
+      const gravada = await this.prisma.$transaction(async (tx) => {
+        if (!(await this.aindaAceita(tx, ligacaoId, originalId))) {
+          return false;
+        }
         await tx.ligacao.update({
           where: { id: ligacaoId },
           data: {
@@ -264,7 +275,11 @@ export class TranscricaoService implements OnModuleInit {
           },
           relacionados: { contato: ligacao.contatoId },
         });
+        return true;
       });
+      if (!gravada) {
+        return;
+      }
       await this.avisar(ligacaoId, 'transcricao');
       await this.enfileirarResumo(ligacaoId);
     } catch (erro) {
@@ -288,12 +303,40 @@ export class TranscricaoService implements OnModuleInit {
     }
   }
 
-  /** Guarda o ogg como arquivo da ligação, trocando o anterior (reprocessamento). */
+  /**
+   * Trava a linha da ligação e confere se ela ainda aceita gravação, transcrição ou resumo: a guarda
+   * (R30.11) e a anonimização (R4.6, R30.12) podem ter apagado tudo durante o processamento, e o que
+   * se gravasse depois disso nunca mais seria removido. Com `originalId`, exige também que a gravação
+   * original continue a mesma. Chamar dentro da transação que grava.
+   */
+  private async aindaAceita(
+    tx: Tx,
+    ligacaoId: string,
+    originalId?: string,
+  ): Promise<boolean> {
+    await tx.$queryRaw`SELECT id FROM ligacoes WHERE id = ${ligacaoId}::uuid FOR UPDATE`;
+    const atual = await tx.ligacao.findUnique({
+      where: { id: ligacaoId },
+      select: { gravacaoRemovidaEm: true, gravacaoOriginalArquivoId: true },
+    });
+    if (!atual || atual.gravacaoRemovidaEm) {
+      return false;
+    }
+    return (
+      originalId === undefined || atual.gravacaoOriginalArquivoId === originalId
+    );
+  }
+
+  /**
+   * Guarda o ogg como arquivo da ligação, trocando o anterior (reprocessamento). Devolve `false`
+   * (e descarta o ogg novo) se a gravação foi apagada enquanto se processava.
+   */
   private async guardarVersaoParaOuvir(
     ligacaoId: string,
+    originalId: string,
     caminho: string,
     duracaoSegundos: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const tamanho = (await stat(caminho)).size;
     const conteudo = await readFile(caminho);
     const arquivo = await this.arquivos.salvar(conteudo, {
@@ -303,7 +346,10 @@ export class TranscricaoService implements OnModuleInit {
       duracaoSegundos,
       limiteBytes: Math.max(tamanho, 1) + 1024,
     });
-    await this.prisma.$transaction(async (tx) => {
+    const guardada = await this.prisma.$transaction(async (tx) => {
+      if (!(await this.aindaAceita(tx, ligacaoId, originalId))) {
+        return false;
+      }
       const atual = await tx.ligacao.findUniqueOrThrow({
         where: { id: ligacaoId },
         select: { gravacaoArquivoId: true },
@@ -323,7 +369,12 @@ export class TranscricaoService implements OnModuleInit {
           motivo: 'Reprocessamento da gravação (R30)',
         });
       }
+      return true;
     });
+    if (!guardada) {
+      await this.arquivos.descartarNovo(arquivo.id);
+    }
+    return guardada;
   }
 
   private async falhar(
@@ -335,7 +386,10 @@ export class TranscricaoService implements OnModuleInit {
       where: { id: ligacaoId },
       select: { contatoId: true },
     });
-    await this.prisma.$transaction(async (tx) => {
+    const registrada = await this.prisma.$transaction(async (tx) => {
+      if (!(await this.aindaAceita(tx, ligacaoId))) {
+        return false;
+      }
       await tx.ligacao.update({
         where: { id: ligacaoId },
         data:
@@ -367,8 +421,11 @@ export class TranscricaoService implements OnModuleInit {
         dados: { regra: REGRA_TRANSCRICAO, etapa, motivo: mensagem },
         relacionados: ligacao ? { contato: ligacao.contatoId } : undefined,
       });
+      return true;
     });
-    await this.avisar(ligacaoId, etapa);
+    if (registrada) {
+      await this.avisar(ligacaoId, etapa);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -397,10 +454,13 @@ export class TranscricaoService implements OnModuleInit {
       );
       return;
     }
-    await this.prisma.ligacao.update({
-      where: { id: ligacaoId },
+    const marcado = await this.prisma.ligacao.updateMany({
+      where: { id: ligacaoId, gravacaoRemovidaEm: null },
       data: { resumoSituacao: 'PROCESSANDO', resumoErro: null },
     });
+    if (marcado.count === 0) {
+      return;
+    }
     const modelo = this.ambiente.transcricao.resumoModelo;
     const parametros: ParametrosDoFluxo = {
       model: modelo,
@@ -454,7 +514,10 @@ export class TranscricaoService implements OnModuleInit {
         })),
         modelo,
       };
-      await this.prisma.$transaction(async (tx) => {
+      const gravado = await this.prisma.$transaction(async (tx) => {
+        if (!(await this.aindaAceita(tx, ligacaoId))) {
+          return false;
+        }
         await tx.ligacao.update({
           where: { id: ligacaoId },
           data: {
@@ -478,8 +541,11 @@ export class TranscricaoService implements OnModuleInit {
           },
           relacionados: { contato: ligacao.contatoId },
         });
+        return true;
       });
-      await this.avisar(ligacaoId, 'resumo');
+      if (gravado) {
+        await this.avisar(ligacaoId, 'resumo');
+      }
     } catch (erro) {
       if (!(erro instanceof FalhaDaChamada)) {
         throw erro;
@@ -502,8 +568,8 @@ export class TranscricaoService implements OnModuleInit {
     ligacaoId: string,
     motivo: string,
   ): Promise<void> {
-    await this.prisma.ligacao.update({
-      where: { id: ligacaoId },
+    await this.prisma.ligacao.updateMany({
+      where: { id: ligacaoId, gravacaoRemovidaEm: null },
       data: { resumoSituacao: 'DESATIVADO', resumoErro: motivo },
     });
     await this.avisar(ligacaoId, 'resumo');

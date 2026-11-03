@@ -656,6 +656,7 @@ describe('Webhooks de saída (e2e)', () => {
         'contrato.encerrado',
         'parcela.paga',
         'parcela.atrasada',
+        'ligacao.encerrada',
         'webhook.teste',
       ],
     );

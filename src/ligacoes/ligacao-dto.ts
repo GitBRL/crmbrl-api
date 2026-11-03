@@ -40,6 +40,7 @@ export function paraLigacaoDto(
     ligacao.direcao === 'RECEBIDA' &&
     ligacao.estado === 'TOCANDO' &&
     chamado &&
+    !ligacao.recusadaPor.includes(usuarioId) &&
     (ligacao.atendenteId === null || ligacao.atendenteId === usuarioId);
   const mostraResposta =
     ligacao.direcao === 'FEITA' &&

@@ -55,6 +55,7 @@ export type ConfiguracaoLida = Pick<
   | 'avisoArquivoId'
   | 'tempoDeToqueSegundos'
   | 'mensagemPerdidaAtiva'
+  | 'webhookIncluiResumo'
   | 'mensagemPerdida'
   | 'sincronizadaEm'
   | 'ultimoErroMeta'
@@ -70,6 +71,7 @@ const PADRAO: ConfiguracaoLida = {
   avisoArquivoId: null,
   tempoDeToqueSegundos: TOQUE_PADRAO_SEGUNDOS,
   mensagemPerdidaAtiva: false,
+  webhookIncluiResumo: false,
   mensagemPerdida: null,
   sincronizadaEm: null,
   ultimoErroMeta: null,
@@ -201,6 +203,9 @@ export class ConfiguracaoDeLigacoesService {
     }
     if (dto.botaoVisivel !== undefined) dados.botaoVisivel = dto.botaoVisivel;
     if (dto.gravar !== undefined) dados.gravar = dto.gravar;
+    if (dto.webhookIncluiResumo !== undefined) {
+      dados.webhookIncluiResumo = dto.webhookIncluiResumo;
+    }
     if (dto.retencaoDias !== undefined) dados.retencaoDias = dto.retencaoDias;
     if (dto.avisoArquivoId !== undefined) {
       if (dto.avisoArquivoId !== null) {
@@ -372,6 +377,7 @@ export class ConfiguracaoDeLigacoesService {
       avisoArquivoId: config.avisoArquivoId,
       tempoDeToqueSegundos: config.tempoDeToqueSegundos,
       mensagemPerdidaAtiva: config.mensagemPerdidaAtiva,
+      webhookIncluiResumo: config.webhookIncluiResumo,
       mensagemPerdida: config.mensagemPerdida,
       sincronizadaEm: config.sincronizadaEm?.toISOString() ?? null,
       ultimoErroMeta: config.ultimoErroMeta,

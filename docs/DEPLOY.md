@@ -79,6 +79,12 @@ WHISPER_MODELO=small                                  # (small) modelo da transc
 TRANSCRICAO_CPUS=4                                    # (4) limite de CPU do serviço transcricao
 TRANSCRICAO_MEMORIA=3g                                # (3g) limite de memória do serviço transcricao
 TRANSCRICAO_URL=                                      # (http://transcricao:8080) vazio = transcrição desligada
+TRANSCRICAO_TEMPO_LIMITE_S=1800                       # (1800) tempo máximo para transcrever uma ligação
+LIGACOES_GRAVACAO_MAX_MB=200                          # (200) tamanho máximo da gravação de uma ligação
+LIGACOES_GRAVACAO_MAX_MIN=180                         # (180) duração máxima da gravação, em minutos
+LIGACOES_RESUMO_MODELO=claude-sonnet-5-5              # (claude-sonnet-5-5) modelo do resumo; usa ANTHROPIC_API_KEY
+LIGACOES_STUN_URLS=                                   # (vazio) STUN do navegador nas ligações: stun:host:porta,… (sem TURN)
+LIGACOES_ESPERA_PRE_ACEITE_MS=800                     # (800) espera entre pre_accept e accept da ligação recebida
 TICKETHUB_URL= / TICKETHUB_EMAIL= / TICKETHUB_SENHA=  # chamados do assistente (ou pela tela do Admin)
 VAPID_CHAVE_PUBLICA= / VAPID_CHAVE_PRIVADA= / VAPID_ASSUNTO=mailto:voce@suaempresa.com.br
 ```

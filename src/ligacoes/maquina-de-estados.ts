@@ -48,6 +48,8 @@ export type EventoDaLigacao =
     }
   /** Recebida: o tempo de toque acabou sem ninguém atender. */
   | { tipo: 'tempo_de_toque_esgotado' }
+  /** Recebida: todos os atendentes chamados recusaram (R29.2). */
+  | { tipo: 'recusada_por_todos' }
   /** Recebida, ao chegar: sem atendente, fora do horário, desativada ou atrasada. */
   | {
       tipo: 'nao_pode_tocar';
@@ -140,6 +142,10 @@ export function decidir(
     case 'tempo_de_toque_esgotado':
       return recebida && atual === 'TOCANDO'
         ? aplicar('PERDIDA', 'tempo_esgotado')
+        : ignorar('invalido');
+    case 'recusada_por_todos':
+      return recebida && atual === 'TOCANDO'
+        ? aplicar('PERDIDA', 'recusada_pelos_atendentes')
         : ignorar('invalido');
     case 'nao_pode_tocar':
       return recebida && atual === 'TOCANDO'

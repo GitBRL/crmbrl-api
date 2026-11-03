@@ -13,6 +13,10 @@ import {
   problemaDaDataRelativa,
   problemaDaRecorrencia,
 } from '../comum/gatilhos/agenda';
+import {
+  RESULTADOS_DE_LIGACAO,
+  type ResultadoDaLigacao,
+} from '../ligacoes/ligacoes.constantes';
 import { OrigemContato, TipoAtividade } from '../generated/prisma/client';
 
 export type TipoDeGatilho = 'EVENTO' | 'DATA_RELATIVA' | 'RECORRENCIA';
@@ -34,6 +38,7 @@ const TIPOS_DE_CANAL = [
   'MESSENGER',
   'WHATSAPP_OFICIAL',
 ];
+const DIRECOES_DE_LIGACAO = ['RECEBIDA', 'FEITA'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function gatilhoDoCatalogo(
@@ -180,6 +185,26 @@ function problemasDosFiltros(config: Record<string, unknown>): string[] {
       ) {
         erros.push('As palavras do filtro devem ser uma lista de textos.');
       }
+    } else if (chave === 'direcao') {
+      if (
+        !comoLista(valor).every((v) =>
+          DIRECOES_DE_LIGACAO.includes(v as string),
+        )
+      ) {
+        erros.push(
+          'A direção da ligação do filtro é inválida (RECEBIDA ou FEITA).',
+        );
+      }
+    } else if (chave === 'resultado') {
+      if (
+        !comoLista(valor).every((v) =>
+          RESULTADOS_DE_LIGACAO.includes(v as ResultadoDaLigacao),
+        )
+      ) {
+        erros.push(
+          `O resultado da ligação do filtro é inválido (${RESULTADOS_DE_LIGACAO.join(', ')}).`,
+        );
+      }
     } else if (chave === 'notaMinima' || chave === 'notaMaxima') {
       if (
         !Number.isInteger(valor) ||
@@ -271,6 +296,14 @@ export function casaComFiltros(
   }
   if (!valorNaLista(d.campanhaId, filtros.campanhaId)) {
     return false;
+  }
+  if (evento.startsWith('ligacao.')) {
+    if (
+      !valorNaLista(d.direcao, filtros.direcao) ||
+      !valorNaLista(d.resultado, filtros.resultado)
+    ) {
+      return false;
+    }
   }
   if (
     Array.isArray(filtros.palavras) &&

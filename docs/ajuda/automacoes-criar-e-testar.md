@@ -14,3 +14,9 @@ palavras-chave: [automação, gatilho, condição, passos, espera, cadência, mo
 5. Para ligar, ative; só funciona com tudo preenchido (o CRM lista as pendências).
 
 Na lista você ativa, pausa, duplica e exclui, e vê "Última vez". A aba **Histórico** mostra o passo a passo de cada execução, com **Tentar de novo** nos passos que falharam e cancelar nas que esperam.
+
+## Gatilhos de ligação
+No gatilho **O que acontece** há dois eventos de ligação do WhatsApp oficial, que rodam para o **contato**:
+- **Ligação perdida:** dispara quando uma ligação **recebida** termina perdida (ninguém atendeu, todos recusaram ou foi fora do horário). Filtro opcional: o **canal**.
+- **Ligação encerrada:** dispara em **todo** desfecho. Filtros opcionais: o **canal**, **quem ligou** (recebidas, feitas ou as duas) e **como a ligação terminou** (atendida, perdida, recusada, sem resposta, falhou; marque um ou mais).
+Um exemplo: "ligação perdida" mais um passo de mensagem ou de atividade para retornar o contato. Use o **modo teste** antes de ligar.

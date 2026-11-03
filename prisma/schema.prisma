@@ -3152,6 +3152,8 @@ model Ligacao {
   anotacao                  String?
   /// Quem foi chamado a atender (recebida).
   tocouPara                 String[]                    @default([]) @map("tocou_para")
+  /// Recebida: quem, dos chamados, recusou (R29.2). Se todos recusarem, a ligação é rejeitada na Meta e vira PERDIDA.
+  recusadaPor               String[]                    @default([]) @map("recusada_por")
   /// O atendente mandou o `terminate` (o webhook da Meta fecha com a duração).
   encerramentoSolicitadoEm  DateTime?                   @map("encerramento_solicitado_em") @db.Timestamptz(3)
   /// O navegador do atendente caiu durante a ligação (tolerância curta antes de encerrar).
@@ -3175,6 +3177,8 @@ model Ligacao {
   transcricao               Json?
   transcricaoErro           String?                     @map("transcricao_erro")
   transcricaoProcessadaEm   DateTime?                   @map("transcricao_processada_em") @db.Timestamptz(3)
+  /// R30.8: texto da transcrição para a busca (full text em português, sem acento). Mantido por gatilho do banco a partir de `transcricao`; índice GIN criado na migration.
+  transcricaoBusca          Unsupported("tsvector")?    @map("transcricao_busca")
   resumoSituacao            SituacaoResumoLigacao?      @map("resumo_situacao")
   /// `{assunto, pontosPrincipais, combinados, proximosPassos, sentimento, sentimentoMotivo, sugestoes:[{id, titulo, descricao, tipo, prazoDias, atividadeId, descartadaEm}], modelo}`.
   resumo                    Json?
@@ -3187,6 +3191,7 @@ model Ligacao {
   @@unique([canalId, idMeta], map: "ligacoes_canal_id_meta_key", where: raw("(id_meta IS NOT NULL)"))
   @@unique([atendenteId], map: "ligacoes_uma_ativa_por_atendente_key", where: raw("((atendente_id IS NOT NULL) AND (estado IN ('CHAMANDO'::estado_ligacao, 'TOCANDO'::estado_ligacao, 'EM_ANDAMENTO'::estado_ligacao)))"))
   @@index([estado, criadoEm])
+  @@index([iniciadaEm])
   @@index([contatoId, criadoEm])
   @@index([atendenteId, criadoEm])
   @@index([canalId, criadoEm])
@@ -3265,6 +3270,8 @@ model CanalLigacaoConfig {
   tempoDeToqueSegundos Int              @default(25) @map("tempo_de_toque_segundos")
   mensagemPerdidaAtiva Boolean          @default(false) @map("mensagem_perdida_ativa")
   mensagemPerdida      String?          @map("mensagem_perdida")
+  /// R30.9: o webhook de saída `ligacao.encerrada` leva o resumo (só quando o Admin marca; o áudio e a transcrição nunca saem).
+  webhookIncluiResumo  Boolean          @default(false) @map("webhook_inclui_resumo")
   /// Última sincronização com a Meta (`ok` / erro em português).
   sincronizadaEm       DateTime?        @map("sincronizada_em") @db.Timestamptz(3)
   ultimoErroMeta       String?          @map("ultimo_erro_meta")

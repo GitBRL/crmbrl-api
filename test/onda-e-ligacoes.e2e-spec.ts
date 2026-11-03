@@ -11,6 +11,7 @@ import {
   FILA_TOQUE_ESGOTADO,
   FILA_VIGIAR_LIGACAO,
 } from '../src/ligacoes/ligacoes.constantes';
+import { LigacoesService } from '../src/ligacoes/ligacoes.service';
 import { WebhookDeLigacoesService } from '../src/ligacoes/webhook-ligacoes.service';
 import { type CenarioDoAtendimento, montarCenario } from './atendimento-apoio';
 import {
@@ -1186,6 +1187,56 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
       expect(await t.prisma.ligacao.count()).toBe(0);
     });
 
+    it('R29.2 — o cliente atende no instante em que o atendente cancela: o job de fechamento é agendado mesmo assim', async () => {
+      await ativarLigacoes();
+      const contato = await contatoDaMaria();
+      graph.estado.permissoes.set(TELEFONE, {
+        status: 'temporary',
+        expiration: Math.floor(Date.now() / 1000) + 3 * 86_400,
+      });
+      const socketAna = await conectar(ana);
+      const criada = await pedidoDeLigacao(contato.id).expect(201);
+      const idMeta = 'wacid.FEITA1';
+      const tocando = esperarEvento(socketAna, 'ligacao.estado');
+      await entregar(statusDeChamada(idMeta, 'RINGING'));
+      expect(await tocando).toMatchObject({ estado: 'TOCANDO' });
+      // O webhook ACCEPTED aplica EM_ANDAMENTO entre a leitura do "Encerrar" e a transição.
+      const servico = t.get(LigacoesService);
+      const original = servico.agirNaMeta.bind(servico);
+      const espiao = jest
+        .spyOn(servico, 'agirNaMeta')
+        .mockImplementation(async (canalId, acao, id, sdp) => {
+          if (acao === 'terminate') {
+            await t.prisma.ligacao.update({
+              where: { id: criada.body.id },
+              data: { estado: 'EM_ANDAMENTO', atendidaEm: new Date() },
+            });
+          }
+          await original(canalId, acao, id, sdp);
+        });
+      await ana.post(`/api/v1/ligacoes/${criada.body.id}/encerrar`).expect(200);
+      espiao.mockRestore();
+      expect(
+        (
+          await t.prisma.ligacao.findUniqueOrThrow({
+            where: { id: criada.body.id },
+          })
+        ).estado,
+      ).toBe('EM_ANDAMENTO');
+      // O terminate da Meta não veio: o job fecha com o que o CRM sabe.
+      await drenarFilas(t, FILA_FECHAR_ENCERRAMENTO, {
+        incluirAgendados: true,
+      });
+      expect(
+        await t.prisma.ligacao.findUniqueOrThrow({
+          where: { id: criada.body.id },
+        }),
+      ).toMatchObject({
+        estado: 'ENCERRADA',
+        motivo: 'encerrada_pelo_atendente',
+      });
+    });
+
     it('cenário 212 — R29.3 — com permissão: connect com a oferta, resposta SDP pelo tempo real, RINGING → TOCANDO, ACCEPTED → EM_ANDAMENTO, encerrar e atividade', async () => {
       await ativarLigacoes();
       const contato = await contatoDaMaria();
@@ -1924,6 +1975,134 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
           where: { recebidoEm: { lt: new Date(Date.now() - 7 * 86_400_000) } },
         }),
       ).toBe(0);
+    });
+  });
+
+  describe('R29.2 — sobras: recusar, corrida cancelar x atender e espera curta', () => {
+    it('cenário 271 — R29.2 — recusar: some só para quem recusou; quando todos recusam, reject na Meta na hora e PERDIDA', async () => {
+      await ativarLigacoes();
+      await t.prisma.filaAtendimento.update({
+        where: { id: cenario.fila.id },
+        data: { estrategia: 'MANUAL' },
+      });
+      const socketAna = await conectar(ana);
+      const socketBruno = await conectar(bruno);
+      const tocandoAna = esperarEvento(socketAna, 'ligacao.tocando');
+      const tocandoBruno = esperarEvento(socketBruno, 'ligacao.tocando');
+      await entregar(connectRecebido('wacid.REC1', { de: '5511977776666' }));
+      const { ligacaoId } = await tocandoAna;
+      await tocandoBruno;
+      const deixouAna = esperarEvento(socketAna, 'ligacao.deixou_de_tocar');
+      await ana.post(`/api/v1/ligacoes/${ligacaoId}/recusar`).expect(200);
+      expect(await deixouAna).toMatchObject({
+        ligacaoId,
+        motivo: 'recusada_por_voce',
+      });
+      // Repetir não faz nada; Ana não vê mais a ligação tocando; ainda toca para o Bruno.
+      await ana.post(`/api/v1/ligacoes/${ligacaoId}/recusar`).expect(200);
+      expect(
+        (await ana.get('/api/v1/ligacoes/ativas').expect(200)).body.tocando,
+      ).toHaveLength(0);
+      expect(
+        (await bruno.get('/api/v1/ligacoes/ativas').expect(200)).body.tocando,
+      ).toHaveLength(1);
+      expect(chamadasNaMeta('reject')).toHaveLength(0);
+      expect(
+        (await t.prisma.ligacao.findUniqueOrThrow({ where: { id: ligacaoId } }))
+          .estado,
+      ).toBe('TOCANDO');
+      // Quem não foi chamado não recusa.
+      const marketing = await entrarComo(t, cenario.marketing);
+      await marketing.post(`/api/v1/ligacoes/${ligacaoId}/recusar`).expect(403);
+      // O último recusa: rejeita na Meta já e a ligação vira PERDIDA.
+      const deixouBruno = esperarEvento(socketBruno, 'ligacao.deixou_de_tocar');
+      await bruno.post(`/api/v1/ligacoes/${ligacaoId}/recusar`).expect(200);
+      expect(await deixouBruno).toMatchObject({ motivo: 'recusada_por_todos' });
+      expect(chamadasNaMeta('reject')).toHaveLength(1);
+      expect(
+        await t.prisma.ligacao.findUniqueOrThrow({ where: { id: ligacaoId } }),
+      ).toMatchObject({
+        estado: 'PERDIDA',
+        motivo: 'recusada_pelos_atendentes',
+        duracaoSegundos: 0,
+      });
+      // Terminada: recusar de novo é 409.
+      await ana.post(`/api/v1/ligacoes/${ligacaoId}/recusar`).expect(409);
+    });
+
+    it('cenário 272 — R29.1 — corrida cancelar x atender: o terminate com duração que chega depois do cancelamento não dá duração à SEM_RESPOSTA', async () => {
+      await ativarLigacoes();
+      const contato = await contatoDaMaria();
+      graph.estado.permissoes.set(TELEFONE, { status: 'permanent' });
+      const criada = await ana
+        .post('/api/v1/ligacoes', {
+          contatoId: contato.id,
+          sdp: OFERTA_DO_BROWSER,
+        })
+        .expect(201);
+      const ligacao = await t.prisma.ligacao.findUniqueOrThrow({
+        where: { id: criada.body.id },
+      });
+      await ana.post(`/api/v1/ligacoes/${criada.body.id}/encerrar`).expect(200);
+      expect(
+        (
+          await t.prisma.ligacao.findUniqueOrThrow({
+            where: { id: ligacao.id },
+          })
+        ).estado,
+      ).toBe('SEM_RESPOSTA');
+      // O cliente tinha atendido um instante antes: a Meta fecha com duração.
+      await entregar(
+        terminar(ligacao.idMeta!, {
+          direcao: 'BUSINESS_INITIATED',
+          duracao: 7,
+        }),
+      );
+      expect(
+        await t.prisma.ligacao.findUniqueOrThrow({ where: { id: ligacao.id } }),
+      ).toMatchObject({
+        estado: 'SEM_RESPOSTA',
+        duracaoSegundos: 0,
+        atendidaEm: null,
+      });
+    });
+
+    it('cenário 273 — R29.2 — status RINGING que chega antes de o POST gravar o id da Meta espera um instante e é aplicado sem retentativa do job', async () => {
+      await ativarLigacoes();
+      const contato = await contatoDaMaria();
+      const ligacao = await t.prisma.ligacao.create({
+        data: {
+          canalId,
+          contatoId: contato.id,
+          direcao: 'FEITA',
+          estado: 'CHAMANDO',
+          atendenteId: cenario.comercial.membros[0]!.id,
+          telefone: TELEFONE,
+        },
+      });
+      await postarWebhook(statusDeChamada('wacid.CRIANDO', 'RINGING')).expect(
+        200,
+      );
+      const gravar = new Promise<void>((resolver) =>
+        setTimeout(() => {
+          void t.prisma.ligacao
+            .update({
+              where: { id: ligacao.id },
+              data: { idMeta: 'wacid.CRIANDO' },
+            })
+            .then(() => resolver());
+        }, 500),
+      );
+      await drenarFilas(t, FILA_WEBHOOK_WHATSAPP_OFICIAL);
+      await gravar;
+      expect(
+        (
+          await t.prisma.ligacao.findUniqueOrThrow({
+            where: { id: ligacao.id },
+          })
+        ).estado,
+      ).toBe('TOCANDO');
+      expect(await t.prisma.ligacaoWebhookEvento.count()).toBe(1);
     });
   });
 

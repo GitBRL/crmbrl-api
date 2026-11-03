@@ -3,7 +3,7 @@ titulo: Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente
 area: atendimento
 telas: [/atendimento/:conversaId, /contatos/:id, /atividades, /financeiro/regua, /configuracoes/canais/whatsapp-oficial/:id]
 papeis: Atendem e ligam Admin, C-level e líderes e membros de Comercial e CS (Marketing não usa o Atendimento). Só o Admin configura as ligações do canal.
-palavras-chave: [ligação, ligar, atender, softphone, telefone, chamada, whatsapp oficial, permissão para ligar, pedir permissão, mudo, microfone, alto-falante, encerrar, ligação perdida, retornar ligação, anotação, calls, webhook, celular, tela bloqueada, push, gravação]
+palavras-chave: [ligação, ligar, atender, softphone, telefone, chamada, whatsapp oficial, permissão para ligar, pedir permissão, mudo, microfone, alto-falante, encerrar, ligação perdida, retornar ligação, anotação, calls, webhook, celular, tela bloqueada, push, gravação, histórico, atalhos, mac, recusar]
 ---
 # Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente
 
@@ -11,19 +11,21 @@ As ligações funcionam no canal **WhatsApp oficial** (API da Meta). A voz vai d
 
 ## Atender uma ligação
 1. Quando um cliente liga, aparece um aviso no canto da tela, **em qualquer página do CRM**, com o nome, o número, a empresa e o canal. O CRM toca um som e, para quem usa leitor de tela, anuncia a ligação.
-2. Clique em **Atender** (ou use **Alt+A**). O navegador pode pedir permissão para usar o microfone na primeira vez: clique em **Permitir**.
-3. **Recusar** (ou **Alt+R**) apenas silencia o toque para você. A ligação continua tocando para os outros atendentes da fila e vira **perdida** se ninguém atender dentro do tempo de toque.
+2. Clique em **Atender** (ou use o atalho **Alt+A**; no Mac, **Control+Shift+A**). A tela mostra o atalho certo para o seu computador. O navegador pode pedir permissão para usar o microfone na primeira vez: clique em **Permitir**.
+3. **Recusar** (ou **Alt+R**; no Mac, **Control+Shift+R**) tira a ligação de você e avisa o CRM. Ela continua tocando para os outros atendentes chamados. Se **todos** recusarem, ou se ninguém atender dentro do tempo de toque, ela vira **perdida** (e entra no histórico como "recusada pelos atendentes"). Se outra pessoa atendeu enquanto você clicava, o CRM só tira o aviso.
 4. Se outra pessoa atender primeiro, o aviso some e o CRM mostra quem atendeu.
 
 Quem toca primeiro é o responsável pela conversa ou pelo contato, se estiver online e livre. Se não houver, toca para todos os atendentes online e livres da fila das ligações.
 
 Se o som do toque não sair, o aviso diz "O toque está sem som": clique em qualquer lugar da página uma vez. O navegador só libera o som depois de um clique seu.
 
+Os atalhos usam a posição da tecla, então funcionam em qualquer layout de teclado. No Mac usamos Control+Shift porque a tecla Option escreve letras especiais (Option+A vira "å"). O AltGr do teclado de alguns países (que o navegador entende como Ctrl+Alt) nunca aciona um atalho.
+
 ## Durante a ligação
 Uma **barra fica fixa no pé da tela** e acompanha você por todas as páginas. Navegar não derruba a ligação.
 - **Nome e tempo.** O nome leva ao contato.
-- **Mudo (Alt+M).** Desliga só o seu microfone; o cliente continua ouvindo o silêncio da linha e você continua ouvindo.
-- **Encerrar (Alt+E).** Desliga na hora. A duração fica registrada.
+- **Mudo (Alt+S, de "silenciar"; no Mac, Control+Shift+S).** Desliga só o seu microfone; o cliente continua ouvindo o silêncio da linha e você continua ouvindo.
+- **Encerrar (Alt+E; no Mac, Control+Shift+E).** Desliga na hora. A duração fica registrada.
 - **Ajustes.** Escolha o **microfone** e o **alto-falante** (nem todo navegador deixa trocar o alto-falante) e escreva a **anotação rápida**. A anotação é salva sozinha e vai para a descrição da atividade da ligação.
 - **Gravando.** Quando o canal está configurado para gravar, a barra mostra o indicador "Gravando". Avise o cliente.
 - **Aviso de conexão ruim.** Se o áudio começa a falhar, a barra avisa. Se o áudio nem conectar (algumas redes de empresa bloqueiam chamadas de voz pela internet), ela sugere trocar de rede.
@@ -32,6 +34,9 @@ Uma **barra fica fixa no pé da tela** e acompanha você por todas as páginas. 
 No celular a barra vira uma faixa compacta (nome, tempo, mudo e encerrar); toque na seta para abrir os ajustes.
 
 Se você recarregar a página no meio da ligação, o áudio se perde. A barra mostra que a ligação segue aberta "sem áudio nesta aba" e só deixa **Encerrar**. Feche a ligação por ali.
+
+## Ver as ligações antigas
+Todas as ligações ficam na aba **Ligações** do Atendimento, com filtros e busca no texto das transcrições. Veja `atendimento-historico-de-ligacoes.md`.
 
 ## Ao terminar
 - O CRM registra a duração e o motivo, cria ou conclui a **atividade de ligação** do contato (com sua anotação) e põe um registro na conversa do Atendimento.
@@ -89,6 +94,7 @@ Em **Configurações > Canais > WhatsApp oficial**, abra o canal e a aba **Liga�
 - **Tempo de toque**, de 10 a 40 segundos (a Meta só espera de 30 a 60).
 - **Gravar as ligações** (a gravação roda no navegador de quem atende).
 - **Mensagem para ligação perdida:** resposta automática ao cliente (desligada por padrão).
+- **Webhook de ligação encerrada:** quem assina o evento `ligacao.encerrada` em Integrações recebe os dados de cada ligação deste número quando ela termina (quem, duração, espera, resultado e atendente; nunca o áudio nem a transcrição). **Incluir o resumo** manda também o assunto, os pontos principais, os combinados, os próximos passos e o sentimento; com isso ligado, o webhook só sai depois que o resumo ficar pronto (até 20 minutos).
 
 ### O que a Meta exige
 1. O número fica **só na API oficial**; não funciona junto com o aplicativo WhatsApp Business no celular (coexistência).

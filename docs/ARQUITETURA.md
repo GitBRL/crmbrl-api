@@ -1053,6 +1053,42 @@ tempos certos quando um canal fica calado por muito tempo; **sem porta no host**
 `resumo_processado_em`; `canais_ligacoes` ganha `retencao_dias` (365) e `aviso_arquivo_id`; tabela
 `ligacoes_gravacao_partes`.
 
+### Peças e fluxos da Onda E (histórico das ligações, busca e integrações)
+
+Regras: R29.9 a R29.11, R30.16 e R30.17 (e a seção 42) em `REGRAS-DE-NEGOCIO.md`. Fatia E4 (API).
+
+- **Visibilidade única.** `ligacoes/visibilidade-ligacoes.ts` (`filtroDeLigacoesVisiveis`, Prisma) e
+  `bi/escopo-bi.ts` (`sqlLigacoesVisiveis`, SQL) aplicam o mesmo recorte do detalhe
+  (`LigacoesService.exigirAcesso`): atendente, chamado ou conversa visível (R12). Lista, busca, linha do tempo
+  e BI usam esses dois; mudar a regra é mudar só eles.
+- **Lista e busca** — `HistoricoDeLigacoesService` (`GET /ligacoes`). Filtros viram `where` do Prisma; a busca
+  primeiro pega, em SQL, os ids das 5000 ligações mais recentes cujo `transcricao_busca @@
+  websearch_to_tsquery('portuguese', translate(texto))` e depois cruza com os demais filtros e a
+  visibilidade. Os trechos que casaram vêm de uma segunda consulta (`jsonb_array_elements` da transcrição, só
+  para a página). `total` é um `count` com os mesmos filtros.
+- **Índice de texto (migration `20261103000000_onda_e_historico`).** `ligacoes.transcricao_busca tsvector` +
+  índice GIN, mantido pelo gatilho `ligacoes_busca_transcricao` (`BEFORE INSERT OR UPDATE OF transcricao`):
+  junta o texto dos trechos, tira acentos com `translate` (sem a extensão `unaccent`, que o banco não tem) e
+  aplica `to_tsvector('portuguese')`. Toda gravação ou apagamento de `transcricao` (transcrição, guarda,
+  anonimização) mantém o índice sem código no aplicativo. O Prisma enxerga a coluna como `Unsupported`.
+  A migration também traz `canais_ligacoes.webhook_inclui_resumo`, `ligacoes.recusada_por` (text[]) e o índice
+  em `iniciada_em`.
+- **Linha do tempo** — `LinhaDoTempoService` ganhou o ramo `ligacao` na união SQL (contato e empresa; o
+  negócio não tem), com `sqlLigacoesVisiveis`. Eventos de fechamento da auditoria e a atividade concluída da
+  ligação são filtrados para não duplicar.
+- **BI** — `PainelAtendimentoService`: cartões `ligacoes*` e tabelas `ligacoesPorAtendente` e
+  `ligacoesPorHora`, calculados sobre `ligacoes` terminadas com `LIGACOES_AGREGADAS` (um só `SELECT` com
+  `FILTER`), usando o mesmo cache do BI.
+- **Eventos** — `EventosDeLigacaoService.aoEncerrar` roda dentro de `LigacoesService.finalizar` (mesma
+  transação): publica `ligacao.perdida` e `ligacao.encerrada` na outbox. `ligacao.encerrada` está em
+  `EVENTOS_DE_WEBHOOK` (webhook de saída, R9) e os dois estão em `CATALOGO_DE_GATILHOS` (entidade contato;
+  filtros `canalId`, `direcao`, `resultado` conferidos em `gatilho-config.ts`). Com o resumo no webhook ligado
+  e ligação atendida e gravada, o evento sai de um job (`ligacoes.publicar-encerrada`) que confere a cada 20 s
+  se o resumo terminou (máximo 20 min).
+- **Recusar** — `LigacoesRecebidasService.recusar`: marca `recusada_por` sob a trava da ligação; se todos os
+  chamados recusaram, evento `recusada_por_todos` da máquina (`PERDIDA`, `recusada_pelos_atendentes`) e
+  `reject` na Meta depois do commit. **Corrida:** `completarDuracao` só mexe em ligação `ENCERRADA`.
+
 ### Endpoints da Onda A — contrato com o front
 
 Mesmas convenções da seção anterior (`/api/v1`, 404 para o que a pessoa não

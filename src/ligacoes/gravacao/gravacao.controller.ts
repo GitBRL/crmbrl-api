@@ -62,7 +62,8 @@ async function servir(
     disposicao: 'inline' | 'attachment';
     nome: string;
     cache?: string;
-    aoComecar?: () => Promise<void>;
+    /** Chamado antes de mandar o corpo, com o primeiro byte pedido (0 sem `Range`). */
+    aoComecar?: (inicio: number) => Promise<void>;
   },
 ): Promise<void> {
   const etag = `"${arquivo.sha256}"`;
@@ -101,9 +102,7 @@ async function servir(
       .end();
     return;
   }
-  if (!parcial || parcial.inicio === 0) {
-    await opcoes.aoComecar?.();
-  }
+  await opcoes.aoComecar?.(parcial?.inicio ?? 0);
   const conteudo = await arquivos.abrirConteudo(arquivo, parcial);
   resposta.status(parcial ? HttpStatus.PARTIAL_CONTENT : HttpStatus.OK);
   resposta.set('Content-Length', String(tamanho));
@@ -241,10 +240,12 @@ export class GravacaoController {
     await servir(this.arquivos, arquivo, requisicao, resposta, {
       disposicao: 'inline',
       nome: arquivo.nome,
-      aoComecar: () =>
+      aoComecar: (inicio) =>
         this.leitura.registrarAcessoAoAudio(id, arquivo, {
           baixar: false,
           versao: v,
+          usuarioId: usuario.id,
+          inicio,
         }),
     });
   }
@@ -273,10 +274,12 @@ export class GravacaoController {
     await servir(this.arquivos, arquivo, requisicao, resposta, {
       disposicao: 'attachment',
       nome: arquivo.nome,
-      aoComecar: () =>
+      aoComecar: (inicio) =>
         this.leitura.registrarAcessoAoAudio(id, arquivo, {
           baixar: true,
           versao: v,
+          usuarioId: usuario.id,
+          inicio,
         }),
     });
   }

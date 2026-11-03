@@ -7,10 +7,7 @@ import { exigirAtendimento } from '../atendimento/conversas.service';
 import { DistribuicaoDaFila } from '../atendimento/distribuicao-fila.service';
 import { lideresParaAvisar } from '../atendimento/lideres';
 import { MotorDoAtendimento } from '../atendimento/motor-do-atendimento.service';
-import {
-  filtroDeConversasVisiveis,
-  podeUsarAtendimento,
-} from '../atendimento/visibilidade';
+import { podeUsarAtendimento } from '../atendimento/visibilidade';
 import {
   ConflitoException,
   NaoEncontradoException,
@@ -30,9 +27,11 @@ import {
 } from './gravacao/gravacao.constantes';
 import { salas } from '../tempo-real/catalogo';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
+import { filtroDeLigacoesVisiveis } from './visibilidade-ligacoes';
 import { ConfiguracaoDeLigacoesService } from './configuracao-ligacoes.service';
 import { ContextoDaLigacao } from './contexto-da-ligacao';
 import type { AcaoDeChamada } from './formato-chamadas';
+import { EventosDeLigacaoService } from './eventos-de-ligacao.service';
 import { GraphLigacoes } from './graph-ligacoes';
 import {
   formatarDuracao,
@@ -55,9 +54,7 @@ import {
 } from './ligacoes.constantes';
 import type {
   AnotarLigacaoDto,
-  FiltroDeLigacoesDto,
   LigacaoDto,
-  ListaDeLigacoesDto,
   LigacoesDoUsuarioDto,
 } from './ligacoes.dto';
 import {
@@ -108,6 +105,7 @@ export class LigacoesService implements OnModuleInit {
     private readonly config: ConfiguracaoDeLigacoesService,
     private readonly permissoes: PermissoesDeLigacaoService,
     private readonly graph: GraphLigacoes,
+    private readonly eventosDeLigacao: EventosDeLigacaoService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
 
@@ -263,7 +261,11 @@ export class LigacoesService implements OnModuleInit {
     ligacao: LigacaoCompleta,
     extra: ExtraDaTransicao,
   ): Promise<void> {
+    // Só a ligação que foi atendida ganha duração depois de fechada. Uma que o CRM já fechou como
+    // SEM_RESPOSTA, PERDIDA, RECUSADA ou FALHOU (ex.: o atendente cancelou no mesmo instante em
+    // que o cliente atendeu) continua sem duração: um desfecho "não atendida" nunca tem duração.
     if (
+      ligacao.estado !== 'ENCERRADA' ||
       extra.duracaoSegundos == null ||
       extra.duracaoSegundos === ligacao.duracaoSegundos
     ) {
@@ -372,6 +374,8 @@ export class LigacoesService implements OnModuleInit {
       },
       relacionados: { contato: ligacao.contatoId },
     });
+
+    await this.eventosDeLigacao.aoEncerrar(tx, ligacao);
 
     // Tempo real: quem estava em ligação recebe `ligacao.encerrada`; quem ainda via tocar, `deixou_de_tocar`.
     const ringues = ligacao.tocouPara.filter(
@@ -865,27 +869,22 @@ export class LigacoesService implements OnModuleInit {
   // Consulta
   // -------------------------------------------------------------------------
 
-  /** Quem pode ver a ligação: o atendente, quem foi chamado e quem vê a conversa (R12). */
+  /**
+   * Quem pode ver a ligação: o atendente, quem foi chamado, quem vê a conversa e quem tem o
+   * contato no alcance (R12, R30.9); o mesmo critério da lista, da linha do tempo e do player.
+   */
   private async exigirAcesso(
     usuario: UsuarioAutenticado,
     ligacao: LigacaoCompleta,
   ): Promise<void> {
     exigirAtendimento(usuario);
-    if (
-      ehDiretoria(usuario.papel) ||
-      ligacao.atendenteId === usuario.id ||
-      ligacao.tocouPara.includes(usuario.id)
-    ) {
+    if (ehDiretoria(usuario.papel)) {
       return;
     }
-    const filtro = filtroDeConversasVisiveis(usuario);
-    const visivel =
-      filtro && ligacao.conversaId
-        ? await this.prisma.conversa.findFirst({
-            where: { id: ligacao.conversaId, ...filtro },
-            select: { id: true },
-          })
-        : null;
+    const visivel = await this.prisma.ligacao.findFirst({
+      where: { AND: [{ id: ligacao.id }, filtroDeLigacoesVisiveis(usuario)] },
+      select: { id: true },
+    });
     if (!visivel) {
       throw new NaoEncontradoException('Ligação não encontrada.');
     }
@@ -896,43 +895,6 @@ export class LigacoesService implements OnModuleInit {
     const ligacao = await this.carregar(this.prisma, id);
     await this.exigirAcesso(usuario, ligacao);
     return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
-  }
-
-  async listar(
-    usuario: UsuarioAutenticado,
-    filtro: FiltroDeLigacoesDto,
-  ): Promise<ListaDeLigacoesDto> {
-    exigirAtendimento(usuario);
-    const visiveis = filtroDeConversasVisiveis(usuario);
-    const limite = filtro.limite ?? 20;
-    const onde: Prisma.LigacaoWhereInput[] = [];
-    if (visiveis && Object.keys(visiveis).length > 0) {
-      onde.push({
-        OR: [{ atendenteId: usuario.id }, { conversa: visiveis }],
-      });
-    }
-    if (filtro.contatoId) onde.push({ contatoId: filtro.contatoId });
-    if (filtro.conversaId) onde.push({ conversaId: filtro.conversaId });
-    if (filtro.direcao) onde.push({ direcao: filtro.direcao });
-    const cursor = filtro.cursor ? decodificarCursor(filtro.cursor) : null;
-    const itens = await this.prisma.ligacao.findMany({
-      where: { AND: onde },
-      include: INCLUIR_LIGACAO,
-      orderBy: [{ iniciadaEm: 'desc' }, { id: 'desc' }],
-      take: limite + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    });
-    const haMais = itens.length > limite;
-    const pagina = haMais ? itens.slice(0, limite) : itens;
-    return {
-      itens: pagina.map((item) =>
-        paraLigacaoDto(item, usuario.id, usuario.papel),
-      ),
-      proximoCursor:
-        haMais && pagina.length > 0
-          ? codificarCursor((pagina[pagina.length - 1] as { id: string }).id)
-          : null,
-    };
   }
 
   /** A ligação em curso do usuário e as que ainda tocam para ele (retomar depois de recarregar a página). */
@@ -948,6 +910,7 @@ export class LigacoesService implements OnModuleInit {
         estado: 'TOCANDO',
         atendenteId: null,
         tocouPara: { has: usuario.id },
+        NOT: { recusadaPor: { has: usuario.id } },
         expiraEm: { gt: new Date() },
       },
       include: INCLUIR_LIGACAO,
@@ -1064,11 +1027,20 @@ export class LigacoesService implements OnModuleInit {
       );
       return;
     }
-    await this.executar((tx, ctx) =>
+    const resultado = await this.executar((tx, ctx) =>
       this.transicionar(tx, ctx, ligacao.id, {
         tipo: 'cancelada_pelo_atendente',
       }),
     );
+    // O cliente atendeu entre a leitura e o `terminate`: já não é cancelamento, e o desfecho vem
+    // do webhook `terminate`; se ele não vier, o job fecha com o que o CRM sabe.
+    if (!resultado.aplicada && resultado.ligacao.estado === 'EM_ANDAMENTO') {
+      await this.fila.enviar(
+        FILA_FECHAR_ENCERRAMENTO,
+        { ligacaoId: ligacao.id },
+        { atrasoSegundos: ESPERA_DO_TERMINATE_S },
+      );
+    }
   }
 
   /** Job: o atendente encerrou e o webhook `terminate` não veio: fecha com o que o CRM sabe. */
@@ -1214,8 +1186,14 @@ const RESULTADO_POR_ESTADO = {
 function motivoDeDeixarDeTocar(
   estado: string,
   motivo: string | null,
-): 'tempo_esgotado' | 'cliente_desligou' | 'falha' | 'encerrada' {
+):
+  | 'tempo_esgotado'
+  | 'recusada_por_todos'
+  | 'cliente_desligou'
+  | 'falha'
+  | 'encerrada' {
   if (estado === 'PERDIDA') {
+    if (motivo === 'recusada_pelos_atendentes') return 'recusada_por_todos';
     return motivo === 'cliente_desligou'
       ? 'cliente_desligou'
       : 'tempo_esgotado';
@@ -1237,18 +1215,5 @@ function resumoDeAuditoria(ligacao: LigacaoCompleta, duracao: number): string {
       return `Ligação${quem} para "${ligacao.contato.nome}" sem resposta`;
     default:
       return `Ligação ${direcao} com "${ligacao.contato.nome}" falhou (${ligacao.motivo ?? 'erro'})`;
-  }
-}
-
-function codificarCursor(id: string): string {
-  return Buffer.from(id, 'utf8').toString('base64url');
-}
-
-function decodificarCursor(cursor: string): string | null {
-  try {
-    const id = Buffer.from(cursor, 'base64url').toString('utf8');
-    return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
-  } catch {
-    return null;
   }
 }

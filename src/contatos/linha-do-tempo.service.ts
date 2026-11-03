@@ -12,8 +12,16 @@ import {
 import { type EventoAuditoria, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsuarioVinculadoDto } from './dto/comum.dto';
+import { sqlLigacoesVisiveis } from '../bi/escopo-bi';
+import {
+  ESTADOS_TERMINAIS,
+  resultadoDaLigacao,
+  textoDoMotivo,
+} from '../ligacoes/ligacoes.constantes';
+import type { ResumoGravado } from '../transcricao/transcricao.constantes';
 import type {
   AtividadeDaLinhaDoTempoDto,
+  LigacaoDaLinhaDoTempoDto,
   ConteudoDaLinhaDoTempo,
   EventoDaLinhaDoTempoDto,
   FiltroDaLinhaDoTempoDto,
@@ -28,9 +36,10 @@ const PADRAO_UUID =
   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 
 interface LinhaDoIndice {
-  tipo: 'evento' | 'atividade';
+  tipo: 'evento' | 'atividade' | 'ligacao';
   evento_id: bigint | null;
   atividade_id: string | null;
+  ligacao_id: string | null;
   ocorrido_em: Date;
 }
 
@@ -70,10 +79,11 @@ export class LinhaDoTempoService {
     const { skip, take } = paraSkipTake(filtro);
     const [linhas, contagem] = await Promise.all([
       this.prisma.$queryRaw<LinhaDoIndice[]>`
-        SELECT tipo, evento_id, atividade_id, ocorrido_em
+        SELECT tipo, evento_id, atividade_id, ligacao_id, ocorrido_em
           FROM (${uniao}) AS itens
          ORDER BY ocorrido_em DESC, tipo ASC,
-                  evento_id DESC NULLS LAST, atividade_id DESC NULLS LAST
+                  evento_id DESC NULLS LAST, atividade_id DESC NULLS LAST,
+                  ligacao_id DESC NULLS LAST
          LIMIT ${take}::int OFFSET ${skip}::int`,
       this.prisma.$queryRaw<{ total: number }[]>`
         SELECT count(*)::int AS total FROM (${uniao}) AS itens`,
@@ -89,22 +99,45 @@ export class LinhaDoTempoService {
     incluir: ConteudoDaLinhaDoTempo,
   ): Prisma.Sql {
     const ramos: Prisma.Sql[] = [];
-    if (incluir !== 'atividades') {
+    const so = (conteudo: ConteudoDaLinhaDoTempo): boolean =>
+      incluir === 'tudo' || incluir === conteudo;
+    if (so('eventos')) {
       ramos.push(Prisma.sql`
         SELECT 'evento'::text AS tipo, e.id AS evento_id, NULL::uuid AS atividade_id,
-               e.criado_em AS ocorrido_em
+               NULL::uuid AS ligacao_id, e.criado_em AS ocorrido_em
           FROM eventos_auditoria e
          WHERE e.relacionados @> ARRAY[${referenciaDeAuditoria(entidade, id)}]::text[]
            AND ${this.eventoVisivel(usuario)}`);
     }
-    if (incluir !== 'eventos') {
+    if (so('atividades')) {
       ramos.push(Prisma.sql`
         SELECT 'atividade'::text AS tipo, NULL::bigint AS evento_id, a.id AS atividade_id,
+               NULL::uuid AS ligacao_id,
                COALESCE(a.concluida_em, a.cancelada_em, a.inicio_em, a.vence_em, a.criado_em)
                  AS ocorrido_em
           FROM atividades a
          WHERE ${this.atividadesDa(entidade, id)}
-           AND ${this.atividadeVisivel(usuario, Prisma.raw('a'))}`);
+           AND ${this.atividadeVisivel(usuario, Prisma.raw('a'))}
+           AND NOT (a.status = 'CONCLUIDA'::status_atividade AND EXISTS (
+                 SELECT 1 FROM ligacoes la WHERE la.atividade_id = a.id))`);
+    }
+    if (so('ligacoes') && entidade !== 'negocio') {
+      const coluna =
+        entidade === 'contato'
+          ? Prisma.sql`l.contato_id = ${id}::uuid`
+          : Prisma.sql`l.contato_id IN (SELECT ct.id FROM contatos ct WHERE ct.empresa_id = ${id}::uuid)`;
+      ramos.push(Prisma.sql`
+        SELECT 'ligacao'::text AS tipo, NULL::bigint AS evento_id, NULL::uuid AS atividade_id,
+               l.id AS ligacao_id, COALESCE(l.encerrada_em, l.iniciada_em) AS ocorrido_em
+          FROM ligacoes l
+          LEFT JOIN conversas c ON c.id = l.conversa_id
+          LEFT JOIN filas_atendimento f ON f.id = c.fila_id
+         WHERE ${coluna} AND ${sqlLigacoesVisiveis(usuario)}`);
+    }
+    if (ramos.length === 0) {
+      ramos.push(Prisma.sql`
+        SELECT 'evento'::text AS tipo, NULL::bigint AS evento_id, NULL::uuid AS atividade_id,
+               NULL::uuid AS ligacao_id, now() AS ocorrido_em WHERE FALSE`);
     }
     return Prisma.join(ramos, ' UNION ALL ');
   }
@@ -126,11 +159,14 @@ export class LinhaDoTempoService {
 
   /** Eventos de atividade e de negócio passam pelos mesmos filtros dos itens (R6.4, R5.9). */
   private eventoVisivel(usuario: UsuarioAutenticado): Prisma.Sql {
+    // O fechamento da ligação aparece como entrada de ligação (só a quem a vê, R12), não como evento.
+    const semFechamentoDeLigacao = Prisma.sql`NOT (e.entidade = 'ligacao' AND e.acao IN ('ligacao.encerrada', 'ligacao.perdida', 'ligacao.recusada', 'ligacao.sem_resposta', 'ligacao.falhou'))`;
     if (ehDiretoria(usuario.papel)) {
-      return Prisma.sql`TRUE`;
+      return semFechamentoDeLigacao;
     }
     const idDaEntidade = Prisma.sql`(CASE WHEN e.entidade_id ~ ${PADRAO_UUID} THEN e.entidade_id::uuid END)`;
     return Prisma.sql`(
+      ${semFechamentoDeLigacao} AND (
       e.entidade NOT IN ('negocio', 'atividade')
       OR (e.entidade = 'atividade' AND EXISTS (
             SELECT 1 FROM atividades ea
@@ -140,7 +176,7 @@ export class LinhaDoTempoService {
             SELECT 1 FROM negocios en JOIN funis ef ON ef.id = en.funil_id
              WHERE en.id = ${idDaEntidade}
                AND ${this.negocioVisivel(usuario)}))
-    )`;
+    ))`;
   }
 
   /** R6.4: responsável, criador, líder da equipe do responsável, C-level e Admin. */
@@ -186,7 +222,10 @@ export class LinhaDoTempoService {
     const idsDeAtividades = linhas.flatMap((linha) =>
       linha.atividade_id === null ? [] : [linha.atividade_id],
     );
-    const [eventos, atividades] = await Promise.all([
+    const idsDeLigacoes = linhas.flatMap((linha) =>
+      linha.ligacao_id === null ? [] : [linha.ligacao_id],
+    );
+    const [eventos, atividades, ligacoes] = await Promise.all([
       idsDeEventos.length > 0
         ? this.prisma.eventoAuditoria.findMany({
             where: { id: { in: idsDeEventos } },
@@ -198,7 +237,17 @@ export class LinhaDoTempoService {
             include: INCLUIR_NA_ATIVIDADE,
           })
         : Promise.resolve([] as AtividadeComRelacoes[]),
+      idsDeLigacoes.length > 0
+        ? this.prisma.ligacao.findMany({
+            where: { id: { in: idsDeLigacoes } },
+            include: {
+              canal: { select: { id: true, nome: true } },
+              atendente: { select: SELECIONAR_USUARIO_VINCULADO },
+            },
+          })
+        : Promise.resolve([]),
     ]);
+    const ligacoesPorId = new Map(ligacoes.map((l) => [l.id, l]));
     const eventosPorId = new Map(
       eventos.map((evento) => [evento.id.toString(), evento]),
     );
@@ -217,6 +266,7 @@ export class LinhaDoTempoService {
             ocorridoEm,
             evento: this.paraEvento(evento),
             atividade: null,
+            ligacao: null,
           });
         }
       } else if (linha.atividade_id !== null) {
@@ -227,11 +277,62 @@ export class LinhaDoTempoService {
             ocorridoEm,
             evento: null,
             atividade: this.paraAtividade(atividade, agora),
+            ligacao: null,
+          });
+        }
+      } else if (linha.ligacao_id !== null) {
+        const ligacao = ligacoesPorId.get(linha.ligacao_id);
+        if (ligacao) {
+          registros.push({
+            tipo: 'ligacao',
+            ocorridoEm,
+            evento: null,
+            atividade: null,
+            ligacao: this.paraLigacao(ligacao),
           });
         }
       }
     }
     return registros;
+  }
+
+  private paraLigacao(
+    ligacao: Prisma.LigacaoGetPayload<{
+      include: {
+        canal: { select: { id: true; nome: true } };
+        atendente: { select: typeof SELECIONAR_USUARIO_VINCULADO };
+      };
+    }>,
+  ): LigacaoDaLinhaDoTempoDto {
+    const resumo = ligacao.resumo as ResumoGravado | null;
+    const terminal = ESTADOS_TERMINAIS.includes(ligacao.estado);
+    const pronto = ligacao.resumoSituacao === 'PRONTO' && resumo !== null;
+    const trecho = pronto
+      ? [...resumo.pontosPrincipais, ...resumo.combinados].join(' • ')
+      : '';
+    return {
+      id: ligacao.id,
+      direcao: ligacao.direcao,
+      estado: ligacao.estado,
+      resultado: terminal ? resultadoDaLigacao(ligacao.estado) : null,
+      motivoTexto: textoDoMotivo(ligacao.motivo),
+      duracaoSegundos: ligacao.duracaoSegundos,
+      conversaId: ligacao.conversaId,
+      canalId: ligacao.canal.id,
+      canalNome: ligacao.canal.nome,
+      atendente: ligacao.atendente
+        ? UsuarioVinculadoDto.de(ligacao.atendente)
+        : null,
+      iniciadaEm: ligacao.iniciadaEm.toISOString(),
+      encerradaEm: ligacao.encerradaEm?.toISOString() ?? null,
+      resumoAssunto: pronto ? resumo.assunto : null,
+      resumoTrecho: trecho ? trecho.slice(0, 240) : null,
+      temGravacao:
+        ligacao.gravacaoArquivoId !== null &&
+        ligacao.gravacaoRemovidaEm === null &&
+        ligacao.gravacaoSituacao === 'PRONTA',
+      temTranscricao: ligacao.transcricaoSituacao === 'PRONTA',
+    };
   }
 
   private paraEvento(evento: EventoAuditoria): EventoDaLinhaDoTempoDto {

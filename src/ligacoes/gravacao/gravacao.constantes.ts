@@ -12,6 +12,9 @@ export const TOLERANCIA_APOS_ENCERRAR_S = 120;
 /** Se o navegador não finalizar, a API junta o que subiu depois deste tempo do fim da ligação. */
 export const ESPERA_PARA_FINALIZAR_SOZINHO_S = 90;
 
+/** Reprodução já auditada: os `Range` seguintes do mesmo player (que não recomeçam do byte 0) não geram outro registro por este tempo. */
+export const JANELA_DA_REPRODUCAO_MS = 5 * 60 * 1000;
+
 /** Uma parte de ~5 s em opus tem poucas dezenas de KB: 4 MB é muito acima do razoável. */
 export const MAX_BYTES_POR_PARTE = 4 * 1024 * 1024;
 /** Maior número de sequência aceito (5 s por parte x 20 000 = mais de 27 h). */

@@ -257,6 +257,8 @@ export interface CargaLigacaoDeixouDeTocar {
   ligacaoId: string;
   motivo:
     | 'atendida_por_outro'
+    | 'recusada_por_voce'
+    | 'recusada_por_todos'
     | 'tempo_esgotado'
     | 'cliente_desligou'
     | 'falha'

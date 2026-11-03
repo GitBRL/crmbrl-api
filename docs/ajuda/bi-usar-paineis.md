@@ -15,5 +15,8 @@ palavras-chave: [bi, relatório, painel, indicadores, período, comparar, filtro
 
 Você só vê números do que o seu papel veria nas listas: o membro vê só o que é dele.
 
+## Ligações no painel Atendimento
+A aba **Atendimento** traz, além das conversas, os números das ligações do WhatsApp oficial no período, cada um comparado com o período anterior: **recebidas**, **feitas**, **atendidas**, **perdidas**, a **taxa de atendimento**, a **espera média** até alguém atender e a **duração média**. Os gráficos mostram as ligações **por hora do dia** (recebidas e feitas; atendidas e perdidas, no horário de Brasília) e **por atendente**. As perdidas ficam em **Sem atendente**. Os filtros de área, pessoa, canal e fila valem também para as ligações. Clicar numa pessoa filtra o painel por ela.
+
 ## Exportar
 **Planilha (XLSX)** (uma aba por tabela) e **Indicadores (CSV)** exportam o painel que você está vendo.

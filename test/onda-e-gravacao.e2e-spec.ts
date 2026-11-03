@@ -68,6 +68,7 @@ async function subirWhisperFalso() {
     modo: 'ok' as 'ok' | '500' | 'fora',
     pedidos: [] as string[],
     saude: 200,
+    atrasoMs: 0,
   };
   const servidor: Server = createServer((req, res) => {
     const partes: Buffer[] = [];
@@ -80,40 +81,47 @@ async function subirWhisperFalso() {
       const corpo = Buffer.concat(partes).toString('latin1');
       const canal = /filename="(esquerdo|direito)\.wav"/.exec(corpo)?.[1];
       estado.pedidos.push(canal ?? '?');
-      if (estado.modo === '500') {
-        res.writeHead(500).end('erro');
-        return;
+      if (estado.atrasoMs > 0) {
+        setTimeout(() => responder(), estado.atrasoMs);
+      } else {
+        responder();
       }
-      const segmentos =
-        canal === 'esquerdo'
-          ? [
-              {
-                start: 0,
-                end: 3,
-                text: ' Bom dia, aqui é da BRL. Em que posso ajudar?',
-              },
-              {
-                start: 12,
-                end: 16,
-                text: ' Combinado, envio a proposta amanhã e retorno a ligação na sexta.',
-              },
-            ]
-          : [
-              {
-                start: 3.5,
-                end: 9,
-                text: ' Oi, queria saber o valor do plano anual, preciso de desconto.',
-              },
-              {
-                start: 16.5,
-                end: 20,
-                text: ' Fechado, obrigado pelo atendimento, muito bom.',
-              },
-              { start: 21, end: 22, text: ' [BLANK_AUDIO]' },
-            ];
-      res
-        .writeHead(200, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ language: 'portuguese', segments: segmentos }));
+      function responder() {
+        if (estado.modo === '500') {
+          res.writeHead(500).end('erro');
+          return;
+        }
+        const segmentos =
+          canal === 'esquerdo'
+            ? [
+                {
+                  start: 0,
+                  end: 3,
+                  text: ' Bom dia, aqui é da BRL. Em que posso ajudar?',
+                },
+                {
+                  start: 12,
+                  end: 16,
+                  text: ' Combinado, envio a proposta amanhã e retorno a ligação na sexta.',
+                },
+              ]
+            : [
+                {
+                  start: 3.5,
+                  end: 9,
+                  text: ' Oi, queria saber o valor do plano anual, preciso de desconto.',
+                },
+                {
+                  start: 16.5,
+                  end: 20,
+                  text: ' Fechado, obrigado pelo atendimento, muito bom.',
+                },
+                { start: 21, end: 22, text: ' [BLANK_AUDIO]' },
+              ];
+        res
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ language: 'portuguese', segments: segmentos }));
+      }
     });
   });
   await new Promise<void>((ok) => servidor.listen(0, '127.0.0.1', ok));
@@ -128,6 +136,8 @@ async function subirWhisperFalso() {
 class ProcessadorFalso extends ProcessadorDeAudio {
   falhar = false;
   mono = false;
+  /** Roda depois de converter e antes de devolver (simula um processamento demorado). */
+  aoConverter: (() => Promise<void>) | null = null;
   entradas: Buffer[] = [];
   async converter(entrada: string, pasta: string): Promise<AudioConvertido> {
     if (this.falhar) {
@@ -140,6 +150,7 @@ class ProcessadorFalso extends ProcessadorDeAudio {
     await writeFile(ogg, Buffer.from('OggS-0123456789-abcdefghij-KLMNOP'));
     await writeFile(esquerdo, Buffer.from('RIFF-esquerdo'));
     await writeFile(direito, Buffer.from('RIFF-direito'));
+    await this.aoConverter?.();
     return {
       duracaoSegundos: 42,
       canais: this.mono ? 1 : 2,
@@ -195,10 +206,12 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
     claude.enfileirar({ tipo: 'resposta', corpo: RESUMO });
     audio.falhar = false;
     audio.mono = false;
+    audio.aoConverter = null;
     audio.entradas = [];
     whisper.estado.modo = 'ok';
     whisper.estado.saude = 200;
     whisper.estado.pedidos = [];
+    whisper.estado.atrasoMs = 0;
     admin = await criarUsuario(t, { papel: 'ADMIN' });
     const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 2 });
     atendente = comercial.membros[0];
@@ -500,6 +513,25 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
       expect(auditoria).toHaveLength(1);
     });
 
+    it('R30.9 — o atendente não baixa o webm original por GET /arquivos/:id (só pelas rotas do áudio)', async () => {
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await gravarEProcessar(cliente, ligacao);
+      const gravada = await t.prisma.ligacao.findUniqueOrThrow({
+        where: { id: ligacao.id },
+      });
+      for (const arquivoId of [
+        gravada.gravacaoOriginalArquivoId,
+        gravada.gravacaoArquivoId,
+      ]) {
+        expect(arquivoId).not.toBeNull();
+        await cliente.get(`/api/v1/arquivos/${arquivoId}`).expect(404);
+      }
+      await cliente
+        .get(`/api/v1/ligacoes/${ligacao.id}/audio?versao=original`)
+        .expect(200);
+    });
+
     it('cenário 237 — R30.2 — finalizar sem partes não grava nada; só o atendente finaliza', async () => {
       const cliente = await entrarComo(t, atendente);
       const ligacao = await novaLigacao();
@@ -560,6 +592,43 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
       expect((await detalhe(cliente, ligacao.id)).gravacao.situacao).toBe(
         'pronta',
       );
+    });
+
+    it('R30.1 — a parte que chega depois da finalização é recusada e o objeto dela não fica no armazenamento', async () => {
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await enviarParte(cliente, ligacao.id, 0, WEBM('AAAA')).expect(200);
+      const gravar = t.arquivos.gravar.bind(t.arquivos);
+      const espiao = jest
+        .spyOn(t.arquivos, 'gravar')
+        .mockImplementation(async (chave, partes, meta) => {
+          await gravar(chave, partes, meta);
+          if (chave.endsWith('/partes/1')) {
+            espiao.mockRestore();
+            // A aba fecha: o "finalizar" corre enquanto a parte 1 ainda é gravada.
+            await cliente
+              .post(`/api/v1/ligacoes/${ligacao.id}/gravacao/finalizar`, {
+                totalPartes: 1,
+              })
+              .expect(200);
+          }
+        });
+      const atrasada = await enviarParte(
+        cliente,
+        ligacao.id,
+        1,
+        Buffer.from('BBBB'),
+      );
+      espiao.mockRestore();
+      expect(atrasada.status).toBe(409);
+      expect(atrasada.body.detalhes.motivo).toBe('gravacao_finalizada');
+      expect(
+        await t.prisma.ligacaoGravacaoParte.count({
+          where: { ligacaoId: ligacao.id },
+        }),
+      ).toBe(0);
+      // Só o webm juntado ficou; nenhuma parte solta.
+      expect(t.arquivos.quantidade).toBe(1);
     });
 
     it('cenário 240 — R30.3 — converte, transcreve cada canal, intercala por tempo e resume; avisa em tempo real', async () => {
@@ -854,6 +923,126 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
     });
   });
 
+  describe('apagar durante o processamento (correção E4)', () => {
+    async function prepararFinalizada(): Promise<{
+      cliente: ClienteHttp;
+      ligacao: Ligacao;
+    }> {
+      const cliente = await entrarComo(t, atendente);
+      const ligacao = await novaLigacao();
+      await enviarParte(cliente, ligacao.id, 0, WEBM('AAAA')).expect(200);
+      await cliente
+        .post(`/api/v1/ligacoes/${ligacao.id}/gravacao/finalizar`, {
+          totalPartes: 1,
+        })
+        .expect(200);
+      return { cliente, ligacao };
+    }
+    const anonimizar = async () =>
+      (await entrarComo(t, admin))
+        .post(`/api/v1/contatos/${contatoId}/anonimizar`, {})
+        .expect(204);
+    async function esperarAte(condicao: () => boolean): Promise<void> {
+      for (let i = 0; i < 400 && !condicao(); i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(condicao()).toBe(true);
+    }
+    async function conferirNadaRestou(ligacaoId: string): Promise<void> {
+      const depois = await t.prisma.ligacao.findUniqueOrThrow({
+        where: { id: ligacaoId },
+      });
+      expect(depois).toMatchObject({
+        gravacaoArquivoId: null,
+        gravacaoOriginalArquivoId: null,
+        gravacaoSituacao: 'SEM',
+        transcricao: null,
+        transcricaoSituacao: null,
+        resumo: null,
+        resumoSituacao: null,
+      });
+      expect(depois.gravacaoRemovidaEm).not.toBeNull();
+      expect(
+        await t.prisma.arquivo.count({
+          where: { contexto: 'LIGACAO', removidoEm: null },
+        }),
+      ).toBe(0);
+    }
+
+    it('R30.12 — anonimizar durante a conversão do áudio: o ogg novo não é guardado e nada é transcrito', async () => {
+      const { ligacao } = await prepararFinalizada();
+      audio.aoConverter = async () => {
+        audio.aoConverter = null;
+        await anonimizar();
+      };
+      await drenarTudo(t);
+      await conferirNadaRestou(ligacao.id);
+      expect(whisper.estado.pedidos).toHaveLength(0);
+      expect(claude.chamadas).toHaveLength(0);
+    });
+
+    it('R30.12 — anonimizar durante a transcrição: a transcrição pronta não volta e o resumo não é pedido', async () => {
+      const { ligacao } = await prepararFinalizada();
+      whisper.estado.atrasoMs = 300;
+      const processando = drenarFilas(t, FILA_PROCESSAR_LIGACAO);
+      await esperarAte(() => whisper.estado.pedidos.length > 0);
+      await anonimizar();
+      await processando;
+      await drenarTudo(t);
+      await conferirNadaRestou(ligacao.id);
+      expect(claude.chamadas).toHaveLength(0);
+    });
+
+    it('R30.12 — anonimizar durante o resumo: o resumo do Claude não é gravado', async () => {
+      const { ligacao } = await prepararFinalizada();
+      await drenarFilas(t, FILA_PROCESSAR_LIGACAO);
+      claude.atrasoMs = 100;
+      const resumindo = drenarFilas(t, FILA_RESUMIR_LIGACAO);
+      await esperarAte(() => claude.chamadas.length > 0);
+      await anonimizar();
+      await resumindo;
+      await drenarTudo(t);
+      await conferirNadaRestou(ligacao.id);
+    });
+
+    it('R30.11 — a guarda vencida durante o "Reprocessar": a gravação reprocessada não volta', async () => {
+      const { cliente, ligacao } = await prepararFinalizada();
+      await drenarTudo(t);
+      await t.prisma.ligacao.update({
+        where: { id: ligacao.id },
+        data: {
+          estado: 'ENCERRADA',
+          encerradaEm: new Date(Date.now() - 400 * 86_400_000),
+          duracaoSegundos: 42,
+        },
+      });
+      await cliente
+        .post(`/api/v1/ligacoes/${ligacao.id}/reprocessar`, {})
+        .expect(202);
+      audio.aoConverter = async () => {
+        audio.aoConverter = null;
+        expect(await t.get(RetencaoDeGravacoesService).executar()).toBe(1);
+      };
+      await drenarFilas(t, FILA_PROCESSAR_LIGACAO);
+      await drenarTudo(t);
+      const depois = await t.prisma.ligacao.findUniqueOrThrow({
+        where: { id: ligacao.id },
+      });
+      expect(depois).toMatchObject({
+        gravacaoArquivoId: null,
+        gravacaoOriginalArquivoId: null,
+        transcricao: null,
+        transcricaoSituacao: null,
+        gravacaoSituacao: 'SEM',
+      });
+      expect(
+        await t.prisma.arquivo.count({
+          where: { contexto: 'LIGACAO', removidoEm: null },
+        }),
+      ).toBe(0);
+    });
+  });
+
   describe('leitura, privacidade e auditoria', () => {
     it('cenário 248 — R30.8 — áudio com Range (206/416), cabeçalhos seguros e auditoria só da reprodução inteira', async () => {
       const cliente = await entrarComo(t, atendente);
@@ -905,6 +1094,42 @@ describe('Onda E — gravação, transcrição e resumo das ligações (R30)', (
         .expect(200);
       expect(versao.headers['content-type']).toContain('audio/webm');
       await cliente.get(`${url}?versao=xyz`).expect(400);
+    });
+
+    it('R30.9 — um Range que pula o começo também é auditado (uma vez por janela); baixar audita todo pedido', async () => {
+      const cliente = await entrarComo(t, atendente);
+      const lideranca = await entrarComo(t, lider);
+      const ligacao = await novaLigacao();
+      await gravarEProcessar(cliente, ligacao);
+      const url = `/api/v1/ligacoes/${ligacao.id}/audio`;
+      const contar = (acao: string) =>
+        t.prisma.eventoAuditoria.count({ where: { acao } });
+      // Pedir "bytes=1-" para não começar no 0 não escapa do registro.
+      await cliente.get(url).set('Range', 'bytes=1-').buffer(true).expect(206);
+      expect(await contar('ligacao.gravacao-reproduzida')).toBe(1);
+      // Os pedidos seguintes do mesmo player, dentro da janela, não repetem o registro.
+      await cliente.get(url).set('Range', 'bytes=5-9').buffer(true).expect(206);
+      expect(await contar('ligacao.gravacao-reproduzida')).toBe(1);
+      // A versão original é outra reprodução.
+      await cliente
+        .get(`${url}?versao=original`)
+        .set('Range', 'bytes=1-')
+        .buffer(true)
+        .expect(206);
+      expect(await contar('ligacao.gravacao-reproduzida')).toBe(2);
+      // Download: todo pedido, qualquer Range.
+      const baixar = `${url}/baixar`;
+      await lideranca
+        .get(baixar)
+        .set('Range', 'bytes=1-')
+        .buffer(true)
+        .expect(206);
+      await lideranca
+        .get(baixar)
+        .set('Range', 'bytes=3-4')
+        .buffer(true)
+        .expect(206);
+      expect(await contar('ligacao.gravacao-baixada')).toBe(2);
     });
 
     it('cenário 249 — R30.9 — quem vê a conversa ou o contato ouve e lê; os outros recebem 404; baixar só Admin e líderes', async () => {

@@ -70,6 +70,8 @@ export const MOTIVOS_DA_LIGACAO = {
   encerrada_pelo_atendente: 'Encerrada pelo atendente.',
   encerrada_pelo_cliente: 'Encerrada pelo cliente.',
   tempo_esgotado: 'Ninguém atendeu no tempo de toque.',
+  recusada_pelos_atendentes:
+    'Todos os atendentes chamados recusaram a ligação.',
   fora_do_horario: 'Ligação recebida fora do horário de ligações.',
   sem_atendente: 'Nenhum atendente disponível no momento.',
   ligacoes_desativadas: 'As ligações estão desativadas neste canal.',
@@ -95,4 +97,30 @@ export function textoDoMotivo(
     return null;
   }
   return (MOTIVOS_DA_LIGACAO as Record<string, string>)[motivo] ?? motivo;
+}
+
+/** Resultado de uma ligação nos eventos (`ligacao.encerrada`), nos filtros dos gatilhos e no webhook de saída. */
+export type ResultadoDaLigacao =
+  'atendida' | 'perdida' | 'recusada' | 'sem_resposta' | 'falhou';
+
+export const RESULTADOS_POR_ESTADO: Partial<
+  Record<EstadoLigacao, ResultadoDaLigacao>
+> = {
+  ENCERRADA: 'atendida',
+  PERDIDA: 'perdida',
+  RECUSADA: 'recusada',
+  SEM_RESPOSTA: 'sem_resposta',
+  FALHOU: 'falhou',
+};
+
+export const RESULTADOS_DE_LIGACAO: readonly ResultadoDaLigacao[] = [
+  'atendida',
+  'perdida',
+  'recusada',
+  'sem_resposta',
+  'falhou',
+];
+
+export function resultadoDaLigacao(estado: EstadoLigacao): ResultadoDaLigacao {
+  return RESULTADOS_POR_ESTADO[estado] ?? 'falhou';
 }

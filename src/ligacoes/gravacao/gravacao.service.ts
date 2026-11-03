@@ -173,6 +173,26 @@ export class GravacaoService implements OnModuleInit {
     });
     try {
       await this.prisma.$transaction(async (tx) => {
+        // Trava a ligação como o `juntar`: se a gravação foi finalizada (ou apagada) enquanto o
+        // objeto subia, a parte atrasada não entra, e o objeto sai no `catch` abaixo.
+        await tx.$queryRaw`SELECT id FROM ligacoes WHERE id = ${ligacaoId}::uuid FOR UPDATE`;
+        const atual = await tx.ligacao.findUniqueOrThrow({
+          where: { id: ligacaoId },
+          select: { gravacaoFinalizadaEm: true, gravacaoRemovidaEm: true },
+        });
+        if (atual.gravacaoFinalizadaEm || atual.gravacaoRemovidaEm) {
+          throw new ConflitoException(
+            atual.gravacaoRemovidaEm
+              ? 'A gravação desta ligação foi apagada.'
+              : 'A gravação desta ligação já foi finalizada.',
+            {
+              regra: REGRA_TRANSCRICAO,
+              motivo: atual.gravacaoRemovidaEm
+                ? 'gravacao_removida'
+                : 'gravacao_finalizada',
+            },
+          );
+        }
         await tx.ligacaoGravacaoParte.create({
           data: { ligacaoId, sequencia, chave, tamanho: dados.length, sha256 },
         });
@@ -304,7 +324,7 @@ export class GravacaoService implements OnModuleInit {
         motivo: 'gravacao_desativada',
       });
     }
-    return this.juntar(ligacaoId, totalPartes, usuario.id);
+    return this.juntar(ligacaoId, totalPartes);
   }
 
   /** Job da fila: a aba fechou sem finalizar, junta o que subiu. */
@@ -316,13 +336,12 @@ export class GravacaoService implements OnModuleInit {
     if (!ligacao?.gravar || ligacao.gravacaoFinalizadaEm) {
       return;
     }
-    await this.juntar(ligacaoId, undefined, null);
+    await this.juntar(ligacaoId, undefined);
   }
 
   private async juntar(
     ligacaoId: string,
     totalDeclarado: number | undefined,
-    usuarioId: string | null,
   ): Promise<RespostaDeFinalizacaoDto> {
     const resultado = await this.prisma.$transaction(
       async (tx): Promise<RespostaDeFinalizacaoDto & { chaves: string[] }> => {
@@ -393,7 +412,9 @@ export class GravacaoService implements OnModuleInit {
             nome: `ligacao-${ligacaoId}.webm`,
             mime: MIME_DA_GRAVACAO,
             contexto: 'LIGACAO',
-            criadoPorId: usuarioId,
+            // Sem dono: quem enviou não baixa o original estéreo por `GET /arquivos/:id` (só pelas
+            // rotas do áudio, que auditam e limitam o download aos líderes).
+            criadoPorId: null,
             limiteBytes:
               this.ambiente.transcricao.gravacaoMaxBytes + 1024 * 1024,
           },
@@ -479,7 +500,11 @@ export class GravacaoService implements OnModuleInit {
         }),
       ),
     );
-    await this.prisma.ligacaoGravacaoParte.deleteMany({ where: { ligacaoId } });
+    // Só as linhas das partes tratadas: uma parte que chegou depois da leitura não perde a linha
+    // (e o objeto, que fica sem quem aponte para ele).
+    await this.prisma.ligacaoGravacaoParte.deleteMany({
+      where: { ligacaoId, chave: { in: [...chaves] } },
+    });
   }
 
   /** Apaga as partes de uma ligação (retenção e anonimização). */

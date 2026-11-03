@@ -22,6 +22,7 @@ import { exigirAtendimento } from '../atendimento/conversas.service';
 import { ApiRespostasDeErro } from '../comum/erros/documentacao-erros';
 import { ParseIdPipe } from '../comum/validacao/parse-id.pipe';
 import { ConfiguracaoDeLigacoesService } from './configuracao-ligacoes.service';
+import { HistoricoDeLigacoesService } from './historico-ligacoes.service';
 import { LigacoesFeitasService } from './ligacoes-feitas.service';
 import { LigacoesRecebidasService } from './ligacoes-recebidas.service';
 import {
@@ -56,6 +57,7 @@ import { PermissoesDeLigacaoService } from './permissoes-de-ligacao.service';
 export class LigacoesController {
   constructor(
     private readonly ligacoes: LigacoesService,
+    private readonly historico: HistoricoDeLigacoesService,
     private readonly recebidas: LigacoesRecebidasService,
     private readonly feitas: LigacoesFeitasService,
     private readonly permissoes: PermissoesDeLigacaoService,
@@ -134,13 +136,15 @@ export class LigacoesController {
   @Get()
   @ApiOperation({
     summary: 'Histórico de ligações (do que o usuário vê)',
+    description:
+      'Filtros: `de`/`ate` (período), `direcao`, `situacao` (lista), `atendenteId` (ou `sem`), `filaId`, `canalId`, `contatoId`, `conversaId` e `busca` (full text no texto das transcrições; devolve `trechosEncontrados`). Só entram as ligações que o usuário vê (R12). Paginação por cursor, da mais recente para a mais antiga.',
   })
   @ApiOkResponse({ type: ListaDeLigacoesDto })
   listar(
     @Query() filtro: FiltroDeLigacoesDto,
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<ListaDeLigacoesDto> {
-    return this.ligacoes.listar(usuario, filtro);
+    return this.historico.listar(usuario, filtro);
   }
 
   @Post()
@@ -184,6 +188,22 @@ export class LigacoesController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<LigacaoDto> {
     return this.recebidas.atender(usuario, id, dto);
+  }
+
+  @Post(':id/recusar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Recusa a ligação recebida que toca para o usuário',
+    description:
+      'A ligação deixa de tocar só para quem recusou (`ligacao.deixou_de_tocar` com `recusada_por_voce`); os outros continuam ouvindo. Quando todos os chamados recusam, a API rejeita a ligação na Meta na hora e ela vira PERDIDA (`recusada_pelos_atendentes`, com `recusada_por_todos` para todos). Repetir a chamada não faz nada.',
+  })
+  @ApiOkResponse({ type: LigacaoDto })
+  @ApiRespostasDeErro(403, 404, 409)
+  recusar(
+    @Param('id', ParseIdPipe) id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<LigacaoDto> {
+    return this.recebidas.recusar(usuario, id);
   }
 
   @Post(':id/encerrar')

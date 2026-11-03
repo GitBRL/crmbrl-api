@@ -4,12 +4,15 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -186,6 +189,14 @@ export class AtualizarConfiguracaoLigacoesDto {
   gravar?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'O webhook de saída `ligacao.encerrada` leva o resumo da ligação (R30.9). Desligado por padrão: o resumo cita o cliente. O áudio e a transcrição nunca saem.',
+  })
+  @IsOptional()
+  @IsBoolean(MENSAGEM_BOOLEANO)
+  webhookIncluiResumo?: boolean;
+
+  @ApiPropertyOptional({
     description: `Dias de guarda da gravação e da transcrição (${RETENCAO_MINIMA_DIAS} a ${RETENCAO_MAXIMA_DIAS}; padrão 365). Passado o prazo, ambas são apagadas; o registro, a duração e o resumo ficam.`,
   })
   @IsOptional()
@@ -239,6 +250,29 @@ export class AtualizarConfiguracaoLigacoesDto {
   mensagemPerdida?: string | null;
 }
 
+const ESTADOS_DE_LIGACAO: readonly EstadoLigacao[] = [
+  'CHAMANDO',
+  'TOCANDO',
+  'EM_ANDAMENTO',
+  'ENCERRADA',
+  'PERDIDA',
+  'RECUSADA',
+  'SEM_RESPOSTA',
+  'FALHOU',
+];
+
+const MENSAGEM_DATA_LIGACAO = 'deve ser uma data no formato ISO 8601';
+
+/** Lista separada por vírgula (`?situacao=PERDIDA,RECUSADA`) ou repetida (`?situacao=A&situacao=B`). */
+function emLista({ value }: { value: unknown }): unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  const itens = Array.isArray(value) ? value : [value];
+  return itens
+    .flatMap((item) => (typeof item === 'string' ? item.split(',') : [item]))
+    .map((item) => (typeof item === 'string' ? item.trim() : item))
+    .filter((item) => item !== '');
+}
+
 export class FiltroDeLigacoesDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -255,6 +289,73 @@ export class FiltroDeLigacoesDto {
   @Transform(aparar)
   @IsString(MENSAGEM_TEXTO)
   direcao?: DirecaoLigacao;
+
+  @ApiPropertyOptional({
+    enum: ESTADOS_DE_LIGACAO,
+    isArray: true,
+    description:
+      'Situação (uma ou mais; separadas por vírgula): `ENCERRADA` (atendida), `PERDIDA` (recebida sem atendimento), `RECUSADA`, `SEM_RESPOSTA`, `FALHOU`, `EM_ANDAMENTO`…',
+  })
+  @IsOptional()
+  @Transform(emLista)
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(ESTADOS_DE_LIGACAO.length, { message: 'lista grande demais' })
+  @IsIn(ESTADOS_DE_LIGACAO, {
+    each: true,
+    message: `cada situação deve ser uma destas: ${ESTADOS_DE_LIGACAO.join(', ')}`,
+  })
+  situacao?: EstadoLigacao[];
+
+  @ApiPropertyOptional({
+    description:
+      'Quem atendeu (recebida) ou ligou (feita). `sem` = ligações sem atendente (as perdidas).',
+  })
+  @IsOptional()
+  @Transform(aparar)
+  @Matches(
+    /^(sem|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+    {
+      message: 'deve ser um identificador (UUID) válido ou "sem"',
+    },
+  )
+  atendenteId?: string;
+
+  @ApiPropertyOptional({ description: 'Fila da conversa da ligação.' })
+  @IsOptional()
+  @IsUUID('all', MENSAGEM_UUID)
+  filaId?: string;
+
+  @ApiPropertyOptional({ description: 'Canal (número) da ligação.' })
+  @IsOptional()
+  @IsUUID('all', MENSAGEM_UUID)
+  canalId?: string;
+
+  @ApiPropertyOptional({
+    format: 'date-time',
+    description:
+      'Início do período (inclusivo), pela hora em que a ligação começou.',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: MENSAGEM_DATA_LIGACAO })
+  de?: string;
+
+  @ApiPropertyOptional({
+    format: 'date-time',
+    description: 'Fim do período (exclusivo).',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: MENSAGEM_DATA_LIGACAO })
+  ate?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Busca no texto das transcrições (full text em português, sem distinguir acento nem maiúscula; aceita aspas para frase, `-palavra` para excluir e `or`). Só acha ligações que o usuário pode ver. Cada item volta com os trechos que casaram.',
+  })
+  @IsOptional()
+  @Transform(aparar)
+  @IsString(MENSAGEM_TEXTO)
+  @MaxLength(200, maximo(200))
+  busca?: string;
 
   @ApiPropertyOptional({ default: 20, description: 'Até 100.' })
   @IsOptional()
@@ -389,9 +490,32 @@ export class LigacaoDto {
   @ApiProperty({ type: String, nullable: true }) erroMensagem: string | null;
 }
 
+export class TrechoEncontradoDto {
+  @ApiProperty({ enum: ['atendente', 'cliente', 'participante'] })
+  falante: string;
+  @ApiProperty({ description: 'Segundo do áudio em que o trecho começa.' })
+  inicio: number;
+  @ApiProperty() texto: string;
+}
+
+export class LigacaoDoHistoricoDto extends LigacaoDto {
+  @ApiProperty({
+    type: [TrechoEncontradoDto],
+    description:
+      'Com `busca`: até 3 trechos da transcrição que casaram (clicar toca a gravação nesse ponto). Vazio sem busca.',
+  })
+  trechosEncontrados: TrechoEncontradoDto[];
+}
+
 export class ListaDeLigacoesDto {
-  @ApiProperty({ type: [LigacaoDto] }) itens: LigacaoDto[];
+  @ApiProperty({ type: [LigacaoDoHistoricoDto] })
+  itens: LigacaoDoHistoricoDto[];
   @ApiProperty({ type: String, nullable: true }) proximoCursor: string | null;
+  @ApiProperty({
+    description:
+      'Total de ligações que casam com os filtros e que o usuário pode ver (com `busca`, até 5000).',
+  })
+  total: number;
 }
 
 export class LigacoesDoUsuarioDto {
@@ -520,6 +644,10 @@ export class ConfiguracaoLigacoesDto {
   avisoArquivoId: string | null;
   @ApiProperty() tempoDeToqueSegundos: number;
   @ApiProperty() mensagemPerdidaAtiva: boolean;
+  @ApiProperty({
+    description: 'O webhook `ligacao.encerrada` leva o resumo (R30.9).',
+  })
+  webhookIncluiResumo: boolean;
   @ApiProperty({ type: String, nullable: true }) mensagemPerdida: string | null;
   @ApiProperty({ type: String, nullable: true }) sincronizadaEm: string | null;
   @ApiProperty({ type: String, nullable: true }) ultimoErroMeta: string | null;

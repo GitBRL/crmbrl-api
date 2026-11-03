@@ -4,11 +4,13 @@ import { CanaisComumModule } from '../canais/comum/canais-comum.module';
 import { GraphApi } from '../canais/meta/graph-api';
 import { WhatsappOficialModule } from '../canais/whatsapp-oficial/whatsapp-oficial.module';
 import { ConfiguracaoDeLigacoesService } from './configuracao-ligacoes.service';
+import { EventosDeLigacaoService } from './eventos-de-ligacao.service';
 import { GraphLigacoes } from './graph-ligacoes';
 import {
   ConfiguracaoLigacoesController,
   LigacoesController,
 } from './ligacoes.controller';
+import { HistoricoDeLigacoesService } from './historico-ligacoes.service';
 import { LigacoesFeitasService } from './ligacoes-feitas.service';
 import { LigacoesRecebidasService } from './ligacoes-recebidas.service';
 import { LigacoesService } from './ligacoes.service';
@@ -36,6 +38,8 @@ import { WebhookDeLigacoesService } from './webhook-ligacoes.service';
     ConfiguracaoDeLigacoesService,
     PermissoesDeLigacaoService,
     LigacoesService,
+    HistoricoDeLigacoesService,
+    EventosDeLigacaoService,
     LigacoesRecebidasService,
     LigacoesFeitasService,
     WebhookDeLigacoesService,
