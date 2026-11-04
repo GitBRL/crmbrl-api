@@ -80,10 +80,14 @@ export function cabecalhosDaEntrega(dados: {
   timestamp: string;
   assinatura: string;
   extras?: Readonly<Record<string, string>>;
+  /** Formato Clint com GET: sem corpo, sem `Content-Type`. */
+  semCorpo?: boolean;
 }): Record<string, string> {
   return {
     ...dados.extras,
-    'Content-Type': 'application/json; charset=utf-8',
+    ...(dados.semCorpo
+      ? {}
+      : { 'Content-Type': 'application/json; charset=utf-8' }),
     'User-Agent': AGENTE_DO_ENVIO,
     'X-CRM-Evento': dados.evento,
     'X-CRM-Entrega': dados.entregaId,

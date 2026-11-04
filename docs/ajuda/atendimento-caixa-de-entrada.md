@@ -11,7 +11,7 @@ O **Atendimento** reúne as conversas de WhatsApp, chat do site, e-mail, Instagr
 
 ## Lista de conversas
 1. Escolha a aba **Minhas**, **Sem responsável** ou **Todas** (as que o seu papel vê). Cada aba mostra um contador.
-2. Busque por nome, telefone ou e-mail e filtre por canal, status (Em aberto, Aguardando o contato, Resolvidas) e etiqueta, e use os atalhos **Não lidas** e **Prazo estourado**. Esses filtros ficam atrás do botão **Filtros**.
+2. Busque por nome, telefone ou e-mail e filtre por canal, status (Em aberto, Aguardando o contato, Resolvidas) e etiqueta, e use os atalhos **Não lidas**, **Prazo estourado** e **Atendidas pela IA** (conversas em que o SDR com IA está falando com o lead; veja `atendimento-sdr-ia.md`). Esses filtros ficam atrás do botão **Filtros**.
 3. Cada linha mostra o canal, a prévia da última mensagem, as não lidas, o responsável e o tempo de espera. O tempo fica coral quando passa do SLA da fila.
 4. Conversas novas entram no topo sem recarregar a página.
 

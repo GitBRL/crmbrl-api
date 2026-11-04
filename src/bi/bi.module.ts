@@ -8,6 +8,7 @@ import { PainelAtendimentoService } from './painel-atendimento.service';
 import { PainelComercialService } from './painel-comercial.service';
 import { PainelCsService } from './painel-cs.service';
 import { PainelFinanceiroService } from './painel-financeiro.service';
+import { PainelSdrService } from './painel-sdr.service';
 import { PainelMarketingService } from './painel-marketing.service';
 
 /**
@@ -28,6 +29,7 @@ import { PainelMarketingService } from './painel-marketing.service';
     PainelComercialService,
     PainelCsService,
     PainelAtendimentoService,
+    PainelSdrService,
     PainelFinanceiroService,
   ],
   exports: [BiService],

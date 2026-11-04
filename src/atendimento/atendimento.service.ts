@@ -45,6 +45,7 @@ import {
   situacaoDoHorario,
 } from './horario';
 import { lideresParaAvisar } from './lideres';
+import { GanchosDoAtendimento } from './ganchos-do-atendimento';
 import { MotorDoAtendimento } from './motor-do-atendimento.service';
 import {
   AGRADECIMENTO_DA_AVALIACAO,
@@ -100,6 +101,7 @@ export class AtendimentoService {
     private readonly eventos: EventosDominioService,
     private readonly motor: MotorDoAtendimento,
     private readonly notificacoes: NotificacoesService,
+    private readonly ganchos: GanchosDoAtendimento,
   ) {}
 
   /**
@@ -204,7 +206,15 @@ export class AtendimentoService {
         entrada.mensagem.recebidaEm,
       );
       if (nova) {
-        conversa = await this.motor.distribuir(tx, conversa);
+        // O SDR com IA (R31) pode ficar com a conversa: ela espera na fila, sem responsável.
+        const decisao = await this.ganchos.aoCriarConversa(tx, {
+          conversa,
+          canal,
+          contato,
+        });
+        if (!decisao.manterSemResponsavel) {
+          conversa = await this.motor.distribuir(tx, conversa);
+        }
       }
 
       await this.eventos.publicar(

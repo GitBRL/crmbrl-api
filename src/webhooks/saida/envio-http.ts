@@ -10,6 +10,8 @@ import {
 
 export interface PedidoDeEnvio {
   readonly url: string;
+  /** `POST` (padrão) ou `GET` (formato Clint: os parâmetros já vão na URL e não há corpo). */
+  readonly metodo?: 'POST' | 'GET';
   readonly corpo: string;
   readonly cabecalhos: Readonly<Record<string, string>>;
   /** Tempo limite da tentativa inteira (conexão, resposta e leitura do trecho). */
@@ -40,10 +42,11 @@ export async function enviarPost(
   const inicio = performance.now();
   const duracao = () => Math.round(performance.now() - inicio);
   try {
+    const metodo = pedido.metodo ?? 'POST';
     const resposta = await fetch(pedido.url, {
-      method: 'POST',
+      method: metodo,
       headers: { ...pedido.cabecalhos },
-      body: pedido.corpo,
+      body: metodo === 'GET' ? undefined : pedido.corpo,
       redirect: 'manual',
       signal: AbortSignal.timeout(prazoMs),
     });

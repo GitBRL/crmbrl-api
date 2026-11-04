@@ -39,7 +39,7 @@ const comoBooleano = ({ value }: { value: unknown }): unknown =>
 const DESCRICAO_DA_DEFINICAO =
   'Definição em passos: `{ passos: [{ id, tipo, rotulo?, config?, ramos?: [{ id, rotulo?, config?, passos }], proximo? }] }`. ' +
   'Tipos: mensagem, pergunta.opcoes, pergunta.aberta, condicao, acao.etiquetar, acao.definir_campo, acao.mover_fila, ' +
-  'acao.atribuir, acao.criar_negocio, acao.criar_atividade, acao.webhook, transferir, aguardar, encerrar (`GET /chatbot/passos`).';
+  'acao.atribuir, acao.criar_negocio, acao.criar_atividade, acao.webhook, acao.passar_para_ia, transferir, aguardar, encerrar (`GET /chatbot/passos`).';
 
 export class CriarFluxoChatbotDto {
   @ApiProperty({ maxLength: 120 })

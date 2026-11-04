@@ -66,13 +66,13 @@ export class BiController {
   @ApiOperation({
     summary: 'Painel do BI: cartões com comparação e tabelas dos gráficos',
     description:
-      'Painéis: `marketing`, `comercial`, `cs`, `atendimento` e `financeiro` (MRR, inadimplência por faixa e previsto × realizado; só Admin, C-level e CS). Cada resposta traz `cartoes` (valor, anterior e variação), `tabelas` (dados dos gráficos e das tabelas) e `meta`. ' +
+      'Painéis: `marketing`, `comercial`, `cs`, `atendimento`, `sdr` (SDR com IA: atendidas, qualificadas, desqualificadas, passadas para a equipe por motivo, primeira resposta, conversão para o Comercial e custo em tokens, por canal e por dia; mesma visibilidade do Atendimento e custo em tokens só para Admin e C-level) e `financeiro` (MRR, inadimplência por faixa e previsto × realizado; só Admin, C-level e CS). Cada resposta traz `cartoes` (valor, anterior e variação), `tabelas` (dados dos gráficos e das tabelas) e `meta`. ' +
       'Admin e C-level veem todos os painéis; as pessoas de área veem o da sua área (e o Atendimento, exceto Marketing); os números respeitam a visibilidade das listas. ' +
       'O resultado fica em cache por 30 segundos; envie `Cache-Control: no-cache` para recalcular.',
   })
   @ApiParam({
     name: 'painel',
-    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'],
+    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
   })
   @ApiOkResponse({ type: PainelBiDto })
   @ApiRespostasDeErro(400, 403, 404)
@@ -100,7 +100,7 @@ export class BiController {
   })
   @ApiParam({
     name: 'painel',
-    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'],
+    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
   })
   @ApiOkResponse({ type: ArquivoDto })
   @ApiRespostasDeErro(400, 403, 404)

@@ -206,7 +206,7 @@ export class FiltrosAplicadosDto {
 
 export class PainelBiDto {
   @ApiProperty({
-    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'],
+    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
   })
   painel: string;
   @ApiProperty({ type: PeriodoBiDto }) periodo: PeriodoBiDto;
@@ -242,7 +242,7 @@ export class PainelBiDto {
 export class PaineisDoUsuarioDto {
   @ApiProperty({
     type: [String],
-    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'],
+    enum: ['marketing', 'comercial', 'cs', 'atendimento', 'sdr', 'financeiro'],
     description: 'Abas que o papel vê, na ordem.',
   })
   paineis: string[];

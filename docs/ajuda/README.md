@@ -38,6 +38,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Histórico de ligações: filtrar, buscar no que foi dito, ouvir e ler a transcrição](atendimento-historico-de-ligacoes.md)
 - [Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente](atendimento-ligacoes.md)
 - [Responder uma conversa: mensagem, nota interna, anexos e respostas rápidas](atendimento-responder-conversa.md)
+- [Atendimento com o SDR com IA: selo, assumir, devolver, sugestão e qualificação](atendimento-sdr-ia.md)
 
 ## chat
 - [Chat da equipe: canais, grupos e conversas diretas](chat-da-equipe.md)
@@ -73,11 +74,24 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Configuração geral dos Disparos](configuracoes-disparos.md)
 - [Papéis e o que cada um pode acessar](configuracoes-papeis-e-permissoes.md)
 - [Meu perfil e Minha equipe](configuracoes-perfil-e-minha-equipe.md)
+- [Configurar o SDR com IA](configuracoes-sdr-ia.md)
 - [Convidar e editar usuários](configuracoes-usuarios-convidar-editar.md)
 
 ## administracao
 - [Consultar a auditoria e os logs técnicos](administracao-auditoria-e-logs.md)
 - [Histórico de dúvidas à IA (Admin)](administracao-duvidas-ia.md)
-- [Webhooks de entrada (captar leads) e de saída (avisar outros sistemas)](administracao-integracoes-webhooks.md)
+- [Integrações: aplicativos, histórico e webhooks de saída](administracao-integracoes-webhooks.md)
+- [Integração ActiveCampaign: passo a passo, teste e erros comuns](integracoes-activecampaign.md)
+- [Integração Eduzz: passo a passo, teste e erros comuns](integracoes-eduzz.md)
+- [Integração Elementor: passo a passo, teste e erros comuns](integracoes-elementor.md)
+- [Integração Facebook Lead Ads: passo a passo, teste e erros comuns](integracoes-facebook-lead-ads.md)
+- [Integração Great Pages: passo a passo, teste e erros comuns](integracoes-great-pages.md)
+- [Integração Hotmart: passo a passo, teste e erros comuns](integracoes-hotmart.md)
+- [Integração Kiwify: passo a passo, teste e erros comuns](integracoes-kiwify.md)
+- [Integração Lead Lovers: passo a passo, teste e erros comuns](integracoes-lead-lovers.md)
+- [Integração ManyChat: passo a passo, teste e erros comuns](integracoes-manychat.md)
+- [Integração RD Station: passo a passo, teste e erros comuns](integracoes-rd-station.md)
+- [Integração Typeform: passo a passo, teste e erros comuns](integracoes-typeform.md)
+- [Integração Webhook: receber leads de qualquer sistema e avisar outros sistemas](integracoes-webhook.md)
 
 Ao manter: atualize o artigo quando a tela mudar e confira com `FRONT/docs/TELAS-*.md` e `REGRAS-DE-NEGOCIO.md`.

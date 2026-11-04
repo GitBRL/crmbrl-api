@@ -96,6 +96,11 @@ describe('lerAmbiente', () => {
       meta: {
         graphUrl: META_GRAPH_URL_PADRAO,
         graphVersao: META_GRAPH_VERSAO_PADRAO,
+        dialogoUrl: 'https://www.facebook.com',
+      },
+      integracoes: {
+        typeformUrl: 'https://api.typeform.com',
+        manychatUrl: 'https://api.manychat.com',
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
       transcricao: {
@@ -484,8 +489,13 @@ describe('lerAmbiente', () => {
         ler({
           META_GRAPH_URL: 'http://apoio:8091/',
           META_GRAPH_VERSAO: 'v23.0',
+          META_DIALOGO_URL: 'http://127.0.0.1:3296/',
         }).meta,
-      ).toEqual({ graphUrl: 'http://apoio:8091', graphVersao: 'v23.0' });
+      ).toEqual({
+        graphUrl: 'http://apoio:8091',
+        graphVersao: 'v23.0',
+        dialogoUrl: 'http://127.0.0.1:3296',
+      });
       expect(
         problemasDe({ DATABASE_URL: URL_DO_BANCO, META_GRAPH_VERSAO: '24' }),
       ).toEqual([expect.stringContaining('META_GRAPH_VERSAO precisa ter')]);

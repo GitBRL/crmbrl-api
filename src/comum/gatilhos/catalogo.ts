@@ -151,6 +151,13 @@ export const CATALOGO_DE_GATILHOS: readonly GatilhoDoCatalogo[] = [
     origem: 'evento',
     filtros: ['canalId', 'direcao', 'resultado'],
   },
+  {
+    evento: 'sdr.lead_qualificado',
+    rotulo: 'Lead qualificado pela IA',
+    entidade: 'negocio',
+    origem: 'evento',
+    filtros: ['temperatura', 'canalTipo', 'canalId'],
+  },
 ];
 
 /** Ids que um evento de domínio carrega (no nível de cima dos `dados`, ou no negócio). */

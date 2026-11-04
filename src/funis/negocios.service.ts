@@ -47,8 +47,10 @@ import {
   linkDoNegocio,
   MotorDeNegociosService,
   motivoDePerdaObrigatorio,
+  type PassagemExecutada,
   relacionadosDoNegocio,
 } from './motor-de-negocios.service';
+import { sdrPorContato } from './sdr-do-negocio';
 import {
   INCLUIR_NEGOCIO,
   lerDataSemHora,
@@ -72,6 +74,10 @@ export interface EntradaNegocioAutomatico {
   utm?: Utm;
   estrategia: EstrategiaDistribuicao;
   responsavelFixoId?: string;
+  /** Integração no modo "criar" (R32.3): cria um negócio novo mesmo com outro aberto do contato no funil (sem reconversão). */
+  sempreCriar?: boolean;
+  /** Integração (R32.3): com mais de um aberto, a reconversão vai para o mais recente (padrão: o mais antigo, R5.6). */
+  abertoMaisRecente?: boolean;
 }
 
 /** Campos do negócio que a edição audita (antes/depois, R3.1). */
@@ -140,7 +146,10 @@ export class NegociosService {
       area: ligado.funil.area,
       visivel: podeVerNegocio(usuario, ligado),
     });
-    return Object.assign(NegocioDto.de(negocio), {
+    const sdr = (await sdrPorContato(this.prisma, [negocio.contatoId])).get(
+      negocio.contatoId,
+    );
+    return Object.assign(NegocioDto.de(negocio, new Date(), sdr ?? null), {
       jornada: {
         origem: origem ? daJornada(origem) : null,
         gerados: gerados.map(daJornada),
@@ -573,6 +582,8 @@ export class NegociosService {
       estrategia: entrada.estrategia,
       responsavelFixoId: entrada.responsavelFixoId ?? null,
       negocioOrigemId: null,
+      sempreCriar: entrada.sempreCriar,
+      abertoMaisRecente: entrada.abertoMaisRecente,
     });
     const { negocio } = resultado;
     const ator = contextoAtual().usuario?.id;
@@ -600,6 +611,58 @@ export class NegociosService {
       negocio,
       criado: resultado.criado,
       reconversao: resultado.reconversao,
+    };
+  }
+
+  /**
+   * Leva um negócio aberto para outra etapa **do mesmo funil** por uma
+   * automação (o SDR com IA, R31), dentro da transação de quem chama e sem a
+   * checagem de permissão de pessoa (o ator do contexto responde pela
+   * auditoria). Executa as passagens cujo gatilho é a etapa de destino (R5.7).
+   * Na etapa em que já está, só executa as passagens que ainda não rodaram.
+   */
+  async moverAutomatico(
+    tx: Tx,
+    negocioId: string,
+    etapaId: string,
+  ): Promise<{ negocio: NegocioCompleto; passagens: PassagemExecutada[] }> {
+    await tx.$queryRaw`SELECT id FROM negocios WHERE id = ${negocioId}::uuid FOR UPDATE`;
+    const atual = await tx.negocio.findFirst({
+      where: { id: negocioId, excluidoEm: null },
+      include: INCLUIR_NEGOCIO,
+    });
+    if (!atual) {
+      throw new NaoEncontradoException('Negócio não encontrado.');
+    }
+    const destino = await tx.etapa.findUnique({ where: { id: etapaId } });
+    if (!destino || destino.funilId !== atual.funilId) {
+      throw new RegraVioladaException(
+        'R5.4',
+        'A etapa de destino não pertence ao funil do negócio.',
+        { funilId: atual.funilId, etapaId },
+      );
+    }
+    if (destino.tipo === 'PERDIDO') {
+      throw new RegraVioladaException(
+        'R5.5',
+        'Uma automação não leva o negócio direto para a etapa de perda (ela exige motivo).',
+        { etapaId },
+      );
+    }
+    if (destino.id === atual.etapaId) {
+      return {
+        negocio: atual,
+        passagens: await this.motor.executarPassagens(tx, atual),
+      };
+    }
+    const posicao = await this.motor.posicaoNoTopo(tx, destino.id, atual.id);
+    const movido = await this.motor.entrarNaEtapa(tx, atual, destino, {
+      motivoPerda: null,
+      posicao,
+    });
+    return {
+      negocio: movido,
+      passagens: await this.motor.executarPassagens(tx, movido),
     };
   }
 

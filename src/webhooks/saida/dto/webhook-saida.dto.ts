@@ -1,24 +1,34 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import {
   EVENTOS_DE_WEBHOOK,
   type EventoDeWebhook,
 } from '../../../eventos/tipos-eventos';
 import {
+  FormatoWebhookSaida,
+  MetodoWebhookSaida,
+  StatusNegocio,
+} from '../../../generated/prisma/client';
+import {
   aparar,
+  MENSAGEM_UUID,
   MENSAGEM_BOOLEANO,
   MENSAGEM_TEXTO,
   maximo,
@@ -31,12 +41,95 @@ import {
   TAMANHO_MAXIMO_URL,
 } from '../../webhooks.constantes';
 
+import {
+  CAMPOS_DE_SAIDA_MAXIMOS,
+  GATILHOS_MAXIMOS,
+  TIPOS_DE_GATILHO,
+  type TipoDeGatilho,
+} from '../formato-clint';
+
 const MENSAGEM_EVENTO = {
   each: true,
   message: `(cada item) ${mensagemDeValores(EVENTOS_DE_WEBHOOK)}`,
 };
 
+export class GatilhoDto {
+  @ApiProperty({
+    enum: TIPOS_DE_GATILHO,
+    enumName: 'TipoDeGatilho',
+    example: 'ENTRA_NA_ETAPA',
+    description:
+      '`NEGOCIO_CRIADO`, `ENTRA_NA_ETAPA` (exige `etapaId`), `MUDA_DE_ETAPA` ou `MUDA_DE_STATUS` (ganho, perdido ou reaberto).',
+  })
+  @IsIn(TIPOS_DE_GATILHO, {
+    message: mensagemDeValores(TIPOS_DE_GATILHO),
+  })
+  tipo: TipoDeGatilho;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Filtro de funil: só os negócios deste funil.',
+  })
+  @OpcionalNaoNulo()
+  @IsUUID('all', MENSAGEM_UUID)
+  funilId?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Só em `ENTRA_NA_ETAPA`: a etapa (o funil é o dela).',
+  })
+  @OpcionalNaoNulo()
+  @IsUUID('all', MENSAGEM_UUID)
+  etapaId?: string;
+
+  @ApiPropertyOptional({
+    enum: StatusNegocio,
+    enumName: 'StatusNegocio',
+    description: 'Só em `MUDA_DE_STATUS`: sem ele, qualquer mudança de status.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(StatusNegocio, {
+    message: mensagemDeValores(Object.values(StatusNegocio)),
+  })
+  status?: StatusNegocio;
+}
+
+export class CampoDeSaidaDto {
+  @ApiProperty({
+    example: 'contato.email',
+    description:
+      'De onde vem o valor (lista em `GET /webhooks/saidas/formato-clint`); campos personalizados: `contato.camposPersonalizados.<chave>` ou `negocio.camposPersonalizados.<chave>`.',
+  })
+  @IsString({ message: MENSAGEM_TEXTO })
+  origem: string;
+
+  @ApiProperty({
+    example: 'email',
+    description: 'O nome do campo no envio (editável). Único no destino.',
+  })
+  @IsString({ message: MENSAGEM_TEXTO })
+  identificador: string;
+}
+
+/** Campos do formato do Clint, comuns à criação e à edição. */
+const MENSAGEM_METODO = {
+  message: mensagemDeValores(Object.values(MetodoWebhookSaida)),
+};
+
 export class CriarWebhookSaidaDto {
+  @ApiPropertyOptional({
+    enum: FormatoWebhookSaida,
+    enumName: 'FormatoWebhookSaida',
+    default: 'ENVELOPE_CRM',
+    description:
+      '`ENVELOPE_CRM`: o envelope `{ id, evento, ocorridoEm, dados }` dos eventos assinados (R9.3). `CLINT`: o estilo do Clint (R32.12) — gatilhos de negócio, POST (JSON) ou GET e os campos escolhidos com identificador editável. Não muda depois de criado.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(FormatoWebhookSaida, {
+    message: mensagemDeValores(Object.values(FormatoWebhookSaida)),
+  })
+  formato?: FormatoWebhookSaida;
+
   @ApiProperty({
     example: 'TicketHub',
     maxLength: TAMANHO_MAXIMO_NOME_WEBHOOK,
@@ -67,6 +160,7 @@ export class CriarWebhookSaidaDto {
     example: ['negocio.ganho', 'contato.criado'],
     description: 'Eventos assinados (R9.2).',
   })
+  @ValidateIf((o: CriarWebhookSaidaDto) => o.formato !== 'CLINT')
   @IsArray({ message: 'deve ser uma lista' })
   @ArrayMinSize(1, { message: 'escolha pelo menos um evento' })
   @ArrayMaxSize(EVENTOS_DE_WEBHOOK.length, {
@@ -74,7 +168,46 @@ export class CriarWebhookSaidaDto {
   })
   @ArrayUnique({ message: 'não repita eventos' })
   @IsIn(EVENTOS_DE_WEBHOOK, MENSAGEM_EVENTO)
-  eventos: EventoDeWebhook[];
+  eventos?: EventoDeWebhook[];
+
+  @ApiPropertyOptional({
+    enum: MetodoWebhookSaida,
+    enumName: 'MetodoWebhookSaida',
+    default: 'POST',
+    description:
+      '`POST` (corpo JSON, `Content-Type: application/json`) ou `GET` (os campos vão como parâmetros da URL). `GET` só no formato `CLINT`.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(MetodoWebhookSaida, MENSAGEM_METODO)
+  metodo?: MetodoWebhookSaida;
+
+  @ApiPropertyOptional({
+    type: [GatilhoDto],
+    description:
+      'Formato `CLINT`: pelo menos um gatilho. Não vale no `ENVELOPE_CRM` (que usa `eventos`).',
+  })
+  @OpcionalNaoNulo()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(GATILHOS_MAXIMOS, {
+    message: `deve ter no máximo ${GATILHOS_MAXIMOS} gatilhos`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => GatilhoDto)
+  gatilhos?: GatilhoDto[];
+
+  @ApiPropertyOptional({
+    type: [CampoDeSaidaDto],
+    description:
+      'Formato `CLINT`: os campos enviados (pelo menos um), cada um com o identificador no envio.',
+  })
+  @OpcionalNaoNulo()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(CAMPOS_DE_SAIDA_MAXIMOS, {
+    message: `deve ter no máximo ${CAMPOS_DE_SAIDA_MAXIMOS} campos`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => CampoDeSaidaDto)
+  campos?: CampoDeSaidaDto[];
 
   @ApiPropertyOptional({
     type: 'object',
@@ -124,6 +257,41 @@ export class AtualizarWebhookSaidaDto {
   @ArrayUnique({ message: 'não repita eventos' })
   @IsIn(EVENTOS_DE_WEBHOOK, MENSAGEM_EVENTO)
   eventos?: EventoDeWebhook[];
+
+  @ApiPropertyOptional({
+    enum: MetodoWebhookSaida,
+    enumName: 'MetodoWebhookSaida',
+    description: '`GET` só no formato `CLINT`.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(MetodoWebhookSaida, MENSAGEM_METODO)
+  metodo?: MetodoWebhookSaida;
+
+  @ApiPropertyOptional({
+    type: [GatilhoDto],
+    description: 'Só no formato `CLINT`: substitui a lista.',
+  })
+  @OpcionalNaoNulo()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(GATILHOS_MAXIMOS, {
+    message: `deve ter no máximo ${GATILHOS_MAXIMOS} gatilhos`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => GatilhoDto)
+  gatilhos?: GatilhoDto[];
+
+  @ApiPropertyOptional({
+    type: [CampoDeSaidaDto],
+    description: 'Só no formato `CLINT`: substitui a lista.',
+  })
+  @OpcionalNaoNulo()
+  @IsArray({ message: 'deve ser uma lista' })
+  @ArrayMaxSize(CAMPOS_DE_SAIDA_MAXIMOS, {
+    message: `deve ter no máximo ${CAMPOS_DE_SAIDA_MAXIMOS} campos`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => CampoDeSaidaDto)
+  campos?: CampoDeSaidaDto[];
 
   @ApiPropertyOptional({
     type: 'object',
@@ -182,8 +350,25 @@ export class WebhookSaidaDto {
     enum: EVENTOS_DE_WEBHOOK,
     enumName: 'EventoDeWebhook',
     isArray: true,
+    description:
+      'Vazio no formato `CLINT` (os gatilhos escolhem o que é enviado).',
   })
   eventos: string[];
+
+  @ApiProperty({ enum: FormatoWebhookSaida, enumName: 'FormatoWebhookSaida' })
+  formato: FormatoWebhookSaida;
+
+  @ApiProperty({ enum: MetodoWebhookSaida, enumName: 'MetodoWebhookSaida' })
+  metodo: MetodoWebhookSaida;
+
+  @ApiProperty({ type: [GatilhoDto], description: 'Só no formato `CLINT`.' })
+  gatilhos: GatilhoDto[];
+
+  @ApiProperty({
+    type: [CampoDeSaidaDto],
+    description: 'Só no formato `CLINT`.',
+  })
+  campos: CampoDeSaidaDto[];
 
   @ApiProperty({ type: [CabecalhoMascaradoDto] })
   cabecalhos: CabecalhoMascaradoDto[];
@@ -242,4 +427,54 @@ export class EventoDisponivelDto {
 
   @ApiProperty({ example: 'Negócio ganho.' })
   descricao: string;
+}
+
+export class OrigemDeCampoDto {
+  @ApiProperty({ example: 'contato.email' })
+  origem: string;
+
+  @ApiProperty({ example: 'E-mail' })
+  rotulo: string;
+
+  @ApiProperty({ example: 'Contato' })
+  grupo: string;
+
+  @ApiProperty({
+    example: 'email',
+    description: 'O identificador sugerido (editável).',
+  })
+  identificadorPadrao: string;
+}
+
+export class TipoDeGatilhoDto {
+  @ApiProperty({ enum: TIPOS_DE_GATILHO, enumName: 'TipoDeGatilho' })
+  tipo: string;
+
+  @ApiProperty()
+  descricao: string;
+
+  @ApiProperty({ description: 'Exige `etapaId`.' })
+  exigeEtapa: boolean;
+
+  @ApiProperty({ description: 'Aceita `status`.' })
+  aceitaStatus: boolean;
+}
+
+export class FormatoClintDto {
+  @ApiProperty({ type: [TipoDeGatilhoDto] })
+  gatilhos: TipoDeGatilhoDto[];
+
+  @ApiProperty({
+    type: [OrigemDeCampoDto],
+    description:
+      'Os campos que dá para enviar. Além deles, `contato.camposPersonalizados.<chave>` e `negocio.camposPersonalizados.<chave>`.',
+  })
+  campos: OrigemDeCampoDto[];
+
+  @ApiProperty({
+    enum: MetodoWebhookSaida,
+    enumName: 'MetodoWebhookSaida',
+    isArray: true,
+  })
+  metodos: MetodoWebhookSaida[];
 }
