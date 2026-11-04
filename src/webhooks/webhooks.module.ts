@@ -3,7 +3,11 @@ import { ContatosModule } from '../contatos/contatos.module';
 import { FunisModule } from '../funis/funis.module';
 import { ProcessamentoEntradaService } from './entrada/processamento-entrada.service';
 import { RecebimentosService } from './entrada/recebimentos.service';
+import { AplicacaoDoRecebimento } from './entrada/aplicacao-do-recebimento';
+import { AplicativosService } from './entrada/aplicativos.service';
 import {
+  AplicativosController,
+  HistoricoDeRecebimentosController,
   WebhookEntradaPublicoController,
   WebhooksEntradaController,
 } from './entrada/webhooks-entrada.controller';
@@ -28,10 +32,14 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
   controllers: [
     WebhooksEntradaController,
     WebhookEntradaPublicoController,
+    AplicativosController,
+    HistoricoDeRecebimentosController,
     WebhooksSaidaController,
   ],
   providers: [
     WebhooksEntradaService,
+    AplicativosService,
+    AplicacaoDoRecebimento,
     RecebimentosService,
     ProcessamentoEntradaService,
     WebhooksSaidaService,

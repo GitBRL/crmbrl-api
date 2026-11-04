@@ -97,6 +97,10 @@ describe('lerAmbiente', () => {
         graphUrl: META_GRAPH_URL_PADRAO,
         graphVersao: META_GRAPH_VERSAO_PADRAO,
       },
+      integracoes: {
+        typeformUrl: 'https://api.typeform.com',
+        manychatUrl: 'https://api.manychat.com',
+      },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
       transcricao: {
         url: null,

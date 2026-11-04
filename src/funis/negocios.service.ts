@@ -74,6 +74,10 @@ export interface EntradaNegocioAutomatico {
   utm?: Utm;
   estrategia: EstrategiaDistribuicao;
   responsavelFixoId?: string;
+  /** Integração no modo "criar" (R32.3): cria um negócio novo mesmo com outro aberto do contato no funil (sem reconversão). */
+  sempreCriar?: boolean;
+  /** Integração (R32.3): com mais de um aberto, a reconversão vai para o mais recente (padrão: o mais antigo, R5.6). */
+  abertoMaisRecente?: boolean;
 }
 
 /** Campos do negócio que a edição audita (antes/depois, R3.1). */
@@ -578,6 +582,8 @@ export class NegociosService {
       estrategia: entrada.estrategia,
       responsavelFixoId: entrada.responsavelFixoId ?? null,
       negocioOrigemId: null,
+      sempreCriar: entrada.sempreCriar,
+      abertoMaisRecente: entrada.abertoMaisRecente,
     });
     const { negocio } = resultado;
     const ator = contextoAtual().usuario?.id;

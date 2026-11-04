@@ -43,6 +43,6 @@ import { PassagensService } from './passagens.service';
     DistribuicaoService,
     MetricasService,
   ],
-  exports: [NegociosService, DistribuicaoService],
+  exports: [NegociosService, DistribuicaoService, MotorDeNegociosService],
 })
 export class FunisModule {}

@@ -23,8 +23,12 @@ import {
 } from '../../../comum/dominio/etiquetas';
 import { PaginacaoDto } from '../../../comum/paginacao/paginacao';
 import {
+  AlvoIntegracao,
+  AplicativoIntegracao,
   EstrategiaDistribuicao,
   ModeloMapeamento,
+  ModoIntegracao,
+  StatusNegocio,
 } from '../../../generated/prisma/client';
 import {
   aparar,
@@ -32,6 +36,7 @@ import {
   FunilDoWebhookDto,
   lerBooleano,
   MENSAGEM_BOOLEANO,
+  paraLista,
   MENSAGEM_TEXTO,
   MENSAGEM_UUID,
   maximo,
@@ -50,6 +55,18 @@ const MENSAGEM_ESTRATEGIA = {
 };
 const MENSAGEM_MODELO = {
   message: mensagemDeValores(Object.values(ModeloMapeamento)),
+};
+const MENSAGEM_APLICATIVO = {
+  message: mensagemDeValores(Object.values(AplicativoIntegracao)),
+};
+const MENSAGEM_ALVO = {
+  message: mensagemDeValores(Object.values(AlvoIntegracao)),
+};
+const MENSAGEM_MODO = {
+  message: mensagemDeValores(Object.values(ModoIntegracao)),
+};
+const MENSAGEM_STATUS_INICIAL = {
+  message: mensagemDeValores(Object.values(StatusNegocio)),
 };
 const MENSAGEM_SEGREDO = {
   message: `deve ter de ${TAMANHO_MINIMO_SEGREDO} a ${TAMANHO_MAXIMO_SEGREDO} caracteres`,
@@ -151,7 +168,7 @@ class CamposDoWebhookEntradaDto {
     enumName: 'ModeloMapeamento',
     default: 'GENERICO',
     description:
-      '`GENERICO` e `DISPAROS_BRL` são modelos prontos (veja `GET /webhooks/entradas/modelos`); `PERSONALIZADO` usa o `mapeamento`.',
+      '`GENERICO` e `DISPAROS_BRL` são modelos prontos do aplicativo Webhook (veja `GET /webhooks/entradas/modelos`); `DO_APLICATIVO` usa o modelo pronto do aplicativo (padrão dos demais aplicativos); `PERSONALIZADO` usa o `mapeamento`.',
   })
   @OpcionalNaoNulo()
   @IsEnum(ModeloMapeamento, MENSAGEM_MODELO)
@@ -184,6 +201,74 @@ class CamposDoWebhookEntradaDto {
   etiquetasFixas?: string[];
 
   @ApiPropertyOptional({
+    enum: AlvoIntegracao,
+    enumName: 'AlvoIntegracao',
+    default: 'NEGOCIO',
+    description:
+      'O que o recebimento cria ou atualiza: `NEGOCIO` (com o contato) ou só o `CONTATO` (R32.3).',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(AlvoIntegracao, MENSAGEM_ALVO)
+  alvo?: AlvoIntegracao;
+
+  @ApiPropertyOptional({
+    enum: ModoIntegracao,
+    enumName: 'ModoIntegracao',
+    default: 'CRIAR_OU_ATUALIZAR',
+    description:
+      '`CRIAR`: todo recebimento cria um negócio novo; `CRIAR_OU_ATUALIZAR`: atualiza o negócio aberto mais recente do contato no funil (registrando a reconversão) ou cria; `ATUALIZAR`: só atualiza (sem negócio aberto, o recebimento fica IGNORADO) (R32.3).',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(ModoIntegracao, MENSAGEM_MODO)
+  modo?: ModoIntegracao;
+
+  @ApiPropertyOptional({
+    enum: StatusNegocio,
+    enumName: 'StatusNegocio',
+    default: 'ABERTO',
+    description:
+      'Status do negócio criado. `PERDIDO` exige `motivoPerdaPadrao` (R5.5, R32.4).',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(StatusNegocio, MENSAGEM_STATUS_INICIAL)
+  statusInicial?: StatusNegocio;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    maxLength: 200,
+    description:
+      'Motivo da perda quando o recebimento marca o negócio como perdido sem trazer o motivo (R5.5).',
+  })
+  @IsOptional()
+  @Transform(aparar)
+  @IsString({ message: MENSAGEM_TEXTO })
+  @MaxLength(200, maximo(200))
+  motivoPerdaPadrao?: string | null;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { urlConta: 'https://conta.api-us1.com', chaveApi: '…' },
+    description:
+      'Credencial do aplicativo (veja `credencial` no catálogo). Guardada cifrada (R10.3) e devolvida só mascarada. Na edição, só os campos enviados mudam; trocar a credencial tira a integração de "precisa de atenção".',
+  })
+  @OpcionalNaoNulo()
+  @IsObject({ message: 'deve ser um objeto' })
+  credencial?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    example: { formularioId: 'lT9uwa' },
+    description:
+      'Configuração própria do aplicativo: `formularioId` (Typeform; o CRM registra o webhook nele) e `cabecalhoDeAutenticacao` (RD Station). `null` remove a chave.',
+  })
+  @OpcionalNaoNulo()
+  @IsObject({ message: 'deve ser um objeto' })
+  configuracao?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
     description:
       'Desativado, o endereço responde 410 (R8.7) e nada é registrado.',
   })
@@ -193,6 +278,17 @@ class CamposDoWebhookEntradaDto {
 }
 
 export class CriarWebhookEntradaDto extends CamposDoWebhookEntradaDto {
+  @ApiPropertyOptional({
+    enum: AplicativoIntegracao,
+    enumName: 'AplicativoIntegracao',
+    default: 'WEBHOOK',
+    description:
+      'O aplicativo da integração (veja `GET /webhooks/aplicativos`). Não muda depois de criada.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(AplicativoIntegracao, MENSAGEM_APLICATIVO)
+  aplicativo?: AplicativoIntegracao;
+
   @ApiProperty({
     example: 'Landing Black Friday',
     maxLength: TAMANHO_MAXIMO_NOME_WEBHOOK,
@@ -252,6 +348,58 @@ export class DefinirSegredoEntradaDto {
   segredo?: string;
 }
 
+export class FiltroIntegracoesDto extends PaginacaoDto {
+  @ApiPropertyOptional({
+    description: 'Parte do nome (sem diferenciar maiúsculas).',
+  })
+  @IsOptional()
+  @Transform(aparar)
+  @IsString({ message: MENSAGEM_TEXTO })
+  @MaxLength(100, maximo(100))
+  busca?: string;
+
+  @ApiPropertyOptional({
+    description: 'Só as ativas (`true`) ou só as desativadas (`false`).',
+  })
+  @IsOptional()
+  @Transform(lerBooleano)
+  @IsBoolean(MENSAGEM_BOOLEANO)
+  ativo?: boolean;
+
+  @ApiPropertyOptional({
+    enum: AplicativoIntegracao,
+    enumName: 'AplicativoIntegracao',
+    isArray: true,
+    description:
+      'Um ou vários aplicativos (repita o parâmetro ou separe por vírgula).',
+  })
+  @IsOptional()
+  @Transform(paraLista)
+  @IsArray({ message: 'deve ser uma lista' })
+  @IsEnum(AplicativoIntegracao, {
+    each: true,
+    message: `(cada item) ${mensagemDeValores(Object.values(AplicativoIntegracao))}`,
+  })
+  aplicativo?: AplicativoIntegracao[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Só as integrações deste funil.',
+  })
+  @IsOptional()
+  @IsUUID('all', MENSAGEM_UUID)
+  funilId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Só as que precisam de atenção (`true`) ou só as que não precisam (`false`).',
+  })
+  @IsOptional()
+  @Transform(lerBooleano)
+  @IsBoolean(MENSAGEM_BOOLEANO)
+  precisaAtencao?: boolean;
+}
+
 export class FiltroWebhooksDto extends PaginacaoDto {
   @ApiPropertyOptional({
     description: 'Parte do nome (sem diferenciar maiúsculas).',
@@ -284,6 +432,48 @@ export class ContagemDeRecebimentosDto {
 
   @ApiProperty({ example: 1, description: 'Deles, com erro.' })
   erros: number;
+}
+
+export class CampoDaCredencialPreenchidoDto {
+  @ApiProperty({ example: 'chaveApi' })
+  chave: string;
+
+  @ApiProperty({ example: 'Chave da API' })
+  rotulo: string;
+
+  @ApiProperty({ description: 'Segredo: só o final aparece (R10.3).' })
+  secreto: boolean;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: '••••••••3f9a',
+    description:
+      'O valor (mascarado se for segredo), ou nulo se não foi informado.',
+  })
+  valor: string | null;
+}
+
+export class CredencialDaIntegracaoDto {
+  @ApiProperty({ description: 'Há credencial guardada.' })
+  configurada: boolean;
+
+  @ApiProperty({ type: [CampoDaCredencialPreenchidoDto] })
+  campos: CampoDaCredencialPreenchidoDto[];
+}
+
+export class CampoBuscadoDto {
+  @ApiProperty({
+    example: 'contact.fields.3',
+    description: 'O caminho para o mapeamento.',
+  })
+  caminho: string;
+
+  @ApiProperty({ example: 'Cidade' })
+  rotulo: string;
+
+  @ApiProperty({ type: String, nullable: true, example: 'text' })
+  tipo: string | null;
 }
 
 export class WebhookEntradaDto {
@@ -347,6 +537,78 @@ export class WebhookEntradaDto {
     description: 'O segredo HMAC mascarado (R10.3).',
   })
   segredoMascarado: string | null;
+
+  @ApiProperty({
+    enum: AplicativoIntegracao,
+    enumName: 'AplicativoIntegracao',
+    example: 'WEBHOOK',
+  })
+  aplicativo: AplicativoIntegracao;
+
+  @ApiProperty({ example: 'Webhook' })
+  aplicativoNome: string;
+
+  @ApiProperty({ enum: AlvoIntegracao, enumName: 'AlvoIntegracao' })
+  alvo: AlvoIntegracao;
+
+  @ApiProperty({ enum: ModoIntegracao, enumName: 'ModoIntegracao' })
+  modo: ModoIntegracao;
+
+  @ApiProperty({ enum: StatusNegocio, enumName: 'StatusNegocio' })
+  statusInicial: StatusNegocio;
+
+  @ApiProperty({ type: String, nullable: true })
+  motivoPerdaPadrao: string | null;
+
+  @ApiProperty({
+    type: CredencialDaIntegracaoDto,
+    description:
+      'A credencial do aplicativo, com os segredos mascarados (R10.3).',
+  })
+  credencial: CredencialDaIntegracaoDto;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'Configuração própria do aplicativo (sem a lista de campos buscados, que vem em `camposBuscados`).',
+  })
+  configuracao: Record<string, unknown>;
+
+  @ApiProperty({
+    type: [CampoBuscadoDto],
+    nullable: true,
+    description:
+      'Os campos da última busca pela credencial ("Buscar campos da integração"), ou nulo se ainda não houve.',
+  })
+  camposBuscados: CampoBuscadoDto[] | null;
+
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  camposBuscadosEm: string | null;
+
+  @ApiProperty({
+    enum: ['ATIVA', 'INATIVA', 'PRECISA_ATENCAO'],
+    description:
+      'Situação para a lista: ativa, inativa ou precisa de atenção (credencial recusada, R32.9).',
+  })
+  situacao: 'ATIVA' | 'INATIVA' | 'PRECISA_ATENCAO';
+
+  @ApiProperty({
+    description: 'A credencial foi recusada pelo aplicativo (R32.9).',
+  })
+  precisaAtencao: boolean;
+
+  @ApiProperty({ type: String, nullable: true })
+  atencaoMotivo: string | null;
+
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  atencaoEm: string | null;
+
+  @ApiProperty({
+    description:
+      'O endereço completo pode ser reaberto (`GET /webhooks/entradas/{id}/endereco`). Falso nos pontos criados antes da Onda H: regenere o token.',
+  })
+  enderecoDisponivel: boolean;
 
   @ApiProperty()
   ativo: boolean;

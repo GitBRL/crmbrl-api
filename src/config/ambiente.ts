@@ -42,6 +42,8 @@ export const TAMANHO_MINIMO_TOKEN_INTERNO = 32;
 /** Endereço e versão padrão da Graph API da Meta (Instagram e Messenger). */
 export const META_GRAPH_URL_PADRAO = 'https://graph.facebook.com';
 export const META_GRAPH_VERSAO_PADRAO = 'v24.0';
+export const TYPEFORM_API_URL_PADRAO = 'https://api.typeform.com';
+export const MANYCHAT_API_URL_PADRAO = 'https://api.manychat.com';
 
 /** Onde ficam os arquivos (R11): MinIO/S3 ou memória (testes). */
 export type DriverDeArquivos = 's3' | 'memoria';
@@ -85,6 +87,14 @@ export interface ConfiguracaoTranscricao {
   readonly gravacaoMaxMinutos: number;
   /** `LIGACOES_RESUMO_MODELO` (padrão `claude-sonnet-5-5`): modelo do Claude que resume a ligação. */
   readonly resumoModelo: string;
+}
+
+/** Endereços-base das APIs de terceiros das integrações (R32); o ambiente dos agentes aponta para as falsas. */
+export interface ConfiguracaoIntegracoes {
+  /** `TYPEFORM_API_URL`, sem barra no fim. */
+  readonly typeformUrl: string;
+  /** `MANYCHAT_API_URL`, sem barra no fim. */
+  readonly manychatUrl: string;
 }
 
 export interface ConfiguracaoMeta {
@@ -220,6 +230,7 @@ export interface Ambiente {
   readonly whatsapp: ConfiguracaoWhatsapp;
   /** Graph API da Meta (Instagram e Messenger, R14). */
   readonly meta: ConfiguracaoMeta;
+  readonly integracoes: ConfiguracaoIntegracoes;
   /** Ligações pelo WhatsApp oficial (Onda E, R29). */
   readonly ligacoes: ConfiguracaoLigacoes;
   /** Gravação, transcrição e resumo das ligações (Onda E, R30). */
@@ -274,6 +285,8 @@ export interface VariaveisDeAmbiente {
   WHATSAPP_PORTA?: string;
   META_GRAPH_URL?: string;
   META_GRAPH_VERSAO?: string;
+  TYPEFORM_API_URL?: string;
+  MANYCHAT_API_URL?: string;
   LIGACOES_STUN_URLS?: string;
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
   TRANSCRICAO_URL?: string;
@@ -332,6 +345,8 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'WHATSAPP_PORTA',
   'META_GRAPH_URL',
   'META_GRAPH_VERSAO',
+  'TYPEFORM_API_URL',
+  'MANYCHAT_API_URL',
   'LIGACOES_STUN_URLS',
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
   'TRANSCRICAO_URL',
@@ -432,6 +447,7 @@ export function lerAmbiente(
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
+    integracoes: lerIntegracoes(variaveis, problemas),
     ligacoes: lerLigacoes(variaveis, problemas),
     transcricao: lerTranscricao(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
@@ -1229,6 +1245,29 @@ function lerTranscricao(
       'claude-sonnet-5-5',
       problemas,
     ),
+  };
+}
+
+/** `TYPEFORM_API_URL` e `MANYCHAT_API_URL` (R32): onde ficam as APIs dos aplicativos (as falsas no ambiente dos agentes). */
+function lerIntegracoes(
+  variaveis: VariaveisDeAmbiente,
+  problemas: string[],
+): ConfiguracaoIntegracoes {
+  return {
+    typeformUrl:
+      lerEnderecoHttp(
+        'TYPEFORM_API_URL',
+        variaveis.TYPEFORM_API_URL,
+        TYPEFORM_API_URL_PADRAO,
+        problemas,
+      ) ?? TYPEFORM_API_URL_PADRAO,
+    manychatUrl:
+      lerEnderecoHttp(
+        'MANYCHAT_API_URL',
+        variaveis.MANYCHAT_API_URL,
+        MANYCHAT_API_URL_PADRAO,
+        problemas,
+      ) ?? MANYCHAT_API_URL_PADRAO,
   };
 }
 

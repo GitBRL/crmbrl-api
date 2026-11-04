@@ -39,6 +39,13 @@ import {
 import { LogsTecnicosService } from '../../logs/logs-tecnicos.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { travarChave } from '../../prisma/travas';
+import { adaptadorDe } from '../aplicativos/registro';
+import { lerFormularioAninhado } from '../aplicativos/formulario';
+import { nomeDoCabecalho } from '../aplicativos/rd-station';
+import { adaptadorWebhook } from '../aplicativos/webhook';
+import { consolidarCampos } from './campos-recebidos';
+import type { CamposRecebidosDto } from './dto/integracao.dto';
+import { objetoDe } from './aplicativos.service';
 import {
   BYTES_MAXIMOS_DO_CORPO,
   CHAMADAS_POR_MINUTO,
@@ -48,12 +55,15 @@ import {
   TRAVA_RECEBIMENTO,
 } from '../webhooks.constantes';
 import {
+  type FiltroHistoricoDto,
   type FiltroRecebimentosDto,
   type RecebimentoAceitoDto,
   type RecebimentoComVinculos,
   RecebimentoDetalheDto,
   RecebimentoDto,
 } from './dto/recebimento.dto';
+import { definicaoDe } from '../aplicativos/registro';
+import { lerResultados } from './processamento-entrada.service';
 
 /** Cabeçalhos guardados sempre (os demais `x-*` também, salvo os sensíveis). */
 const CABECALHOS_GUARDADOS = new Set([
@@ -64,6 +74,7 @@ const CABECALHOS_GUARDADOS = new Set([
   'referer',
   'user-agent',
   'x-assinatura',
+  'typeform-signature',
   'x-forwarded-for',
   'x-real-ip',
   'x-request-id',
@@ -176,7 +187,13 @@ export class RecebimentosService implements OnModuleInit {
           webhookId: webhook.id,
           recebidoEm: agora,
           ip: truncar(req.ip, 100) ?? null,
-          cabecalhos: cabecalhosParaGuardar(req.headers),
+          cabecalhos: cabecalhosParaGuardar(
+            req.headers,
+            // O cabeçalho da chave do RD Station leva a própria chave: não é guardado.
+            webhook.aplicativo === 'RD_STATION'
+              ? [nomeDoCabecalho(objetoDe(webhook.configuracao))]
+              : [],
+          ),
           tipoConteudo: truncar(req.get('content-type'), 200) ?? null,
           corpo: chegada.corpo === null ? Prisma.DbNull : chegada.corpo,
           status: chegada.aceita ? 'RECEBIDO' : 'ERRO',
@@ -253,23 +270,30 @@ export class RecebimentosService implements OnModuleInit {
           }),
       };
     }
+    // Formulário aninhado (`fields[email][value]`, `contact[fields][3]`): lido pelo
+    // CRM, que mantém os índices numéricos como chaves (o `qs` os compactaria).
     const corpo = (
-      bruto && bruto.length > 0 ? (req.body ?? {}) : {}
+      bruto && bruto.length > 0
+        ? ehFormulario(req)
+          ? lerFormularioAninhado(bruto.toString('utf8'))
+          : (req.body ?? {})
+        : {}
     ) as Prisma.InputJsonValue;
 
+    const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
+    let segredo: string | null = null;
     if (webhook.segredoCifrado) {
-      let segredo: string;
       try {
         segredo = this.cripto.decifrar(webhook.segredoCifrado);
       } catch (erro) {
         await this.logs.erro(
           'Webhooks',
-          `Segredo HMAC ilegível no webhook de entrada "${webhook.nome}" (a CHAVE_CRIPTOGRAFIA mudou?).`,
+          `Segredo ilegível na integração de entrada "${webhook.nome}" (a CHAVE_CRIPTOGRAFIA mudou?).`,
           erro,
           { webhookId: webhook.id },
         );
         const mensagem =
-          'Não foi possível conferir a assinatura: o segredo HMAC deste webhook não pode ser lido. O Admin precisa definir um novo.';
+          'Não foi possível conferir a assinatura: o segredo deste webhook não pode ser lido. O Admin precisa definir um novo.';
         return {
           aceita: false,
           corpo,
@@ -278,28 +302,31 @@ export class RecebimentosService implements OnModuleInit {
             new ServicoIndisponivelException(mensagem, { recebimentoId }),
         };
       }
-      const assinatura = req.get('x-assinatura');
-      if (
-        !this.cripto.verificarHmac(
-          segredo,
-          bruto ?? Buffer.alloc(0),
-          assinatura,
-        )
-      ) {
-        const mensagem = assinatura
-          ? 'Assinatura inválida: X-Assinatura não confere com o HMAC-SHA256 do corpo.'
-          : 'Assinatura ausente: este webhook exige X-Assinatura: sha256=<hmac do corpo>.';
-        return {
-          aceita: false,
-          corpo,
-          mensagem,
-          recusa: (recebimentoId) =>
-            new NaoAutenticadoException(mensagem, {
-              regra: 'R8.3',
-              recebimentoId,
-            }),
-        };
-      }
+    }
+    const autenticidade = adaptador.verificarAutenticidade({
+      cabecalhos: req.headers,
+      query: req.query as Record<string, unknown>,
+      corpoBruto: bruto ?? Buffer.alloc(0),
+      segredo,
+      configuracao:
+        typeof webhook.configuracao === 'object' &&
+        webhook.configuracao !== null &&
+        !Array.isArray(webhook.configuracao)
+          ? webhook.configuracao
+          : {},
+    });
+    if (!autenticidade.ok) {
+      const mensagem = autenticidade.mensagem;
+      return {
+        aceita: false,
+        corpo,
+        mensagem,
+        recusa: (recebimentoId) =>
+          new NaoAutenticadoException(mensagem, {
+            regra: webhook.aplicativo === 'WEBHOOK' ? 'R8.3' : 'R32.9',
+            recebimentoId,
+          }),
+      };
     }
     return { aceita: true, corpo, mensagem: null, recusa: null };
   }
@@ -327,36 +354,114 @@ export class RecebimentosService implements OnModuleInit {
     filtro: FiltroRecebimentosDto,
   ): Promise<Pagina<RecebimentoDto>> {
     await this.garantirWebhook(webhookId);
-    const where: Prisma.WebhookRecebimentoWhereInput = {
-      webhookId,
-      ...(filtro.status?.length ? { status: { in: filtro.status } } : {}),
-      ...(filtro.de || filtro.ate
-        ? {
-            recebidoEm: {
-              ...(filtro.de ? { gte: new Date(filtro.de) } : {}),
-              ...(filtro.ate ? { lt: new Date(filtro.ate) } : {}),
-            },
-          }
-        : {}),
-    };
+    return this.listarComFiltro(
+      { ...filtroDoPeriodo(filtro), webhookId },
+      filtro,
+    );
+  }
+
+  /** O histórico de todas as integrações (R32.7): data, status, aplicativo e integração. */
+  async listarHistorico(
+    filtro: FiltroHistoricoDto,
+  ): Promise<Pagina<RecebimentoDto>> {
+    if (filtro.integracaoId) {
+      await this.garantirWebhook(filtro.integracaoId);
+    }
+    return this.listarComFiltro(
+      {
+        ...filtroDoPeriodo(filtro),
+        ...(filtro.integracaoId ? { webhookId: filtro.integracaoId } : {}),
+        ...(filtro.aplicativo?.length
+          ? { webhook: { aplicativo: { in: filtro.aplicativo } } }
+          : {}),
+      },
+      filtro,
+    );
+  }
+
+  private async listarComFiltro(
+    where: Prisma.WebhookRecebimentoWhereInput,
+    paginacao: FiltroRecebimentosDto,
+  ): Promise<Pagina<RecebimentoDto>> {
     const [recebimentos, total] = await Promise.all([
       this.prisma.webhookRecebimento.findMany({
         where,
         omit: { corpo: true, cabecalhos: true },
-        include: {
-          contato: { select: { id: true, nome: true } },
-          negocio: { select: { id: true, titulo: true } },
-        },
+        include: INCLUIR_DO_RECEBIMENTO,
         orderBy: [{ recebidoEm: 'desc' }, { id: 'desc' }],
-        ...paraSkipTake(filtro),
+        ...paraSkipTake(paginacao),
       }),
       this.prisma.webhookRecebimento.count({ where }),
     ]);
     return montarPagina(
       recebimentos.map((recebimento) => paraDto(recebimento)),
       total,
-      filtro,
+      paginacao,
     );
+  }
+
+  /**
+   * "Atualizar campos recebidos" (R32.7): os caminhos de campo dos últimos
+   * recebimentos aceitos da integração (já passados pelo adaptador do aplicativo),
+   * com um valor de exemplo mascarado. Os recusados na chegada (assinatura
+   * inválida) não entram: não são de confiança.
+   */
+  async camposRecebidos(
+    webhookId: string,
+    limite = 20,
+  ): Promise<CamposRecebidosDto> {
+    const webhook = await this.prisma.webhookEntrada.findFirst({
+      where: { id: webhookId, excluidoEm: null },
+      select: { aplicativo: true },
+    });
+    if (!webhook) {
+      throw new NaoEncontradoException('Webhook de entrada não encontrado.');
+    }
+    const recebimentos = await this.prisma.webhookRecebimento.findMany({
+      where: {
+        webhookId,
+        corpo: { not: Prisma.DbNull },
+        NOT: { status: 'ERRO', tentativas: 0 },
+      },
+      select: { corpo: true, recebidoEm: true },
+      orderBy: [{ recebidoEm: 'desc' }, { id: 'desc' }],
+      take: limite,
+    });
+    const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
+    const itens = recebimentos.flatMap(({ corpo }) =>
+      adaptador.normalizarCorpo(corpo).map((item) => item.corpo),
+    );
+    return {
+      campos: consolidarCampos(itens),
+      recebimentosLidos: recebimentos.length,
+      ultimoRecebimentoEm: recebimentos[0]?.recebidoEm.toISOString() ?? null,
+    };
+  }
+
+  /** O recebimento pelo id, sem saber a integração (a tela do histórico). */
+  async detalharPorId(recebimentoId: string): Promise<RecebimentoDetalheDto> {
+    const recebimento = await this.prisma.webhookRecebimento.findFirst({
+      where: { id: recebimentoId, webhook: { excluidoEm: null } },
+      include: INCLUIR_DO_RECEBIMENTO,
+    });
+    if (!recebimento) {
+      throw new NaoEncontradoException('Recebimento não encontrado.');
+    }
+    return Object.assign(paraDto(recebimento), {
+      cabecalhos: textosDe(recebimento.cabecalhos),
+      corpo: recebimento.corpo,
+    });
+  }
+
+  async reprocessarPorId(recebimentoId: string): Promise<RecebimentoDto> {
+    const recebimento = await this.prisma.webhookRecebimento.findFirst({
+      where: { id: recebimentoId, webhook: { excluidoEm: null } },
+      select: { webhookId: true },
+    });
+    if (!recebimento) {
+      throw new NaoEncontradoException('Recebimento não encontrado.');
+    }
+    return this.reprocessar(recebimento.webhookId, recebimentoId);
   }
 
   async detalhar(
@@ -366,10 +471,7 @@ export class RecebimentosService implements OnModuleInit {
     await this.garantirWebhook(webhookId);
     const recebimento = await this.prisma.webhookRecebimento.findFirst({
       where: { id: recebimentoId, webhookId },
-      include: {
-        contato: { select: { id: true, nome: true } },
-        negocio: { select: { id: true, titulo: true } },
-      },
+      include: INCLUIR_DO_RECEBIMENTO,
     });
     if (!recebimento) {
       throw new NaoEncontradoException('Recebimento não encontrado.');
@@ -438,6 +540,11 @@ export class RecebimentosService implements OnModuleInit {
           status: 'RECEBIDO',
           mensagem: 'Reprocessamento pedido pelo Admin: na fila.',
           processadoEm: null,
+          avisos: [],
+          // Os itens já processados não se repetem (RD Station: vários leads); os demais refazem.
+          resultados: lerResultados(recebimento.resultados).filter(
+            ({ status }) => status === 'PROCESSADO',
+          ) as unknown as Prisma.InputJsonArray,
         },
       });
       await this.fila.enviar(
@@ -461,10 +568,7 @@ export class RecebimentosService implements OnModuleInit {
     const atualizado = await this.prisma.webhookRecebimento.findUniqueOrThrow({
       where: { id: recebimentoId },
       omit: { corpo: true, cabecalhos: true },
-      include: {
-        contato: { select: { id: true, nome: true } },
-        negocio: { select: { id: true, titulo: true } },
-      },
+      include: INCLUIR_DO_RECEBIMENTO,
     });
     return paraDto(atualizado);
   }
@@ -487,12 +591,17 @@ export class RecebimentosService implements OnModuleInit {
     const mensagem =
       'Corpo, cabeçalhos e IP apagados na anonimização do contato.';
     return this.prisma.$transaction(async (tx) => {
+      // Também os recebimentos de vários itens em que o contato é de um item que não o
+      // primeiro (`resultados`): mensagens e avisos citam o nome e os dados dele.
+      const noResultado = JSON.stringify([{ contatoId }]);
       const apagados = await tx.$executeRaw`
         UPDATE webhook_recebimentos
            SET corpo = NULL, cabecalhos = '{}'::jsonb, ip = NULL,
-               mensagem = ${mensagem}
-         WHERE contato_id = ${contatoId}::uuid
-           AND (corpo IS NOT NULL OR ip IS NOT NULL OR cabecalhos <> '{}'::jsonb)`;
+               mensagem = ${mensagem}, avisos = '[]'::jsonb, resultados = NULL
+         WHERE (contato_id = ${contatoId}::uuid
+                OR resultados @> ${noResultado}::jsonb)
+           AND (corpo IS NOT NULL OR ip IS NOT NULL OR cabecalhos <> '{}'::jsonb
+                OR resultados IS NOT NULL OR avisos <> '[]'::jsonb)`;
       if (apagados > 0) {
         await this.auditoria.registrar(tx, {
           acao: 'webhook_recebimento.dados_apagados',
@@ -523,6 +632,28 @@ export function foiRecusadoNaRecepcao(
   return recebimento.status === 'ERRO' && recebimento.tentativas === 0;
 }
 
+const INCLUIR_DO_RECEBIMENTO = {
+  webhook: { select: { id: true, nome: true, aplicativo: true } },
+  contato: { select: { id: true, nome: true } },
+  negocio: { select: { id: true, titulo: true } },
+} as const satisfies Prisma.WebhookRecebimentoInclude;
+
+function filtroDoPeriodo(
+  filtro: FiltroRecebimentosDto,
+): Prisma.WebhookRecebimentoWhereInput {
+  return {
+    ...(filtro.status?.length ? { status: { in: filtro.status } } : {}),
+    ...(filtro.de || filtro.ate
+      ? {
+          recebidoEm: {
+            ...(filtro.de ? { gte: new Date(filtro.de) } : {}),
+            ...(filtro.ate ? { lt: new Date(filtro.ate) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 function paraDto(
   recebimento: Omit<RecebimentoComVinculos, 'corpo' | 'cabecalhos'>,
 ): RecebimentoDto {
@@ -530,12 +661,29 @@ function paraDto(
   return {
     id: recebimento.id,
     webhookId: recebimento.webhookId,
+    aplicativo: recebimento.webhook.aplicativo,
+    aplicativoNome:
+      definicaoDe(recebimento.webhook.aplicativo)?.nome ??
+      recebimento.webhook.aplicativo,
+    integracao: {
+      id: recebimento.webhook.id,
+      nome: recebimento.webhook.nome,
+    },
     recebidoEm: recebimento.recebidoEm.toISOString(),
     ip: recebimento.ip,
     tipoConteudo: recebimento.tipoConteudo,
     status: recebimento.status,
     // Recebimentos antigos podem trazer o código da regra na mensagem.
     mensagem: semCodigoDeRegra(recebimento.mensagem),
+    avisos: Array.isArray(recebimento.avisos)
+      ? recebimento.avisos.filter(
+          (aviso): aviso is string => typeof aviso === 'string',
+        )
+      : [],
+    itens: lerResultados(recebimento.resultados).map((resultado) => ({
+      ...resultado,
+      avisos: [...resultado.avisos],
+    })),
     tentativas: recebimento.tentativas,
     processadoEm: recebimento.processadoEm?.toISOString() ?? null,
     contato: recebimento.contato,
@@ -561,10 +709,12 @@ function declaraCorpo(cabecalhos: IncomingHttpHeaders): boolean {
  */
 export function cabecalhosParaGuardar(
   cabecalhos: IncomingHttpHeaders,
+  excluidos: readonly string[] = [],
 ): Record<string, string> {
   const guardados: Record<string, string> = {};
+  const fora = new Set(excluidos.map((nome) => nome.toLowerCase()));
   for (const [nome, valor] of Object.entries(cabecalhos)) {
-    if (valor === undefined) {
+    if (valor === undefined || fora.has(nome)) {
       continue;
     }
     const guardar =
@@ -591,4 +741,11 @@ function textosDe(valor: Prisma.JsonValue): Record<string, string> {
       (entrada): entrada is [string, string] => typeof entrada[1] === 'string',
     ),
   );
+}
+
+/** O corpo chegou como `application/x-www-form-urlencoded`? */
+function ehFormulario(req: RawBodyRequest<RequisicaoHttp>): boolean {
+  return (req.get('content-type') ?? '')
+    .toLowerCase()
+    .startsWith('application/x-www-form-urlencoded');
 }

@@ -10,42 +10,53 @@ import {
   ErroApi,
 } from '../../comum/erros/excecoes';
 import type { ProblemaDeCampo } from '../../comum/validacao/validacao';
-import { ContatosService } from '../../contatos/contatos.service';
 import { FilaService } from '../../fila/fila.service';
-import { NegociosService } from '../../funis/negocios.service';
-import type { Prisma } from '../../generated/prisma/client';
+import type { Prisma, StatusRecebimento } from '../../generated/prisma/client';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
+import { adaptadorDe } from '../aplicativos/registro';
+import type { ItemRecebido } from '../aplicativos/tipos';
+import { adaptadorWebhook } from '../aplicativos/webhook';
 import {
   ESPERA_ENTRE_PROCESSAMENTOS_SEGUNDOS,
   FILA_PROCESSAR_RECEBIMENTO,
   TENTATIVAS_DE_PROCESSAMENTO,
 } from '../webhooks.constantes';
-import { aplicarMapeamento, mapeamentoEfetivo } from './mapeamento';
+import {
+  AplicacaoDoRecebimento,
+  RecebimentoInvalidoError,
+  type ResultadoDoItem,
+} from './aplicacao-do-recebimento';
+import { aplicarMapeamento } from './mapeamento';
+import { mapeamentoDaIntegracao } from './mapeamento-da-integracao';
 
-/** Erro do recebimento que não muda numa nova tentativa (mapeamento, validação). */
-export class RecebimentoInvalidoError extends Error {
-  constructor(mensagem: string) {
-    super(mensagem);
-    this.name = 'RecebimentoInvalidoError';
-  }
-}
+export { RecebimentoInvalidoError };
 
 const TAMANHO_MAXIMO_MENSAGEM = 1_000;
 
+/** O resultado de um item, como fica gravado em `webhook_recebimentos.resultados`. */
+export interface ResultadoGravado {
+  readonly indice: number;
+  readonly rotulo: string | null;
+  readonly status: 'PROCESSADO' | 'IGNORADO' | 'ERRO';
+  readonly mensagem: string;
+  readonly contatoId: string | null;
+  readonly negocioId: string | null;
+  readonly avisos: readonly string[];
+}
+
 /**
- * Processamento dos recebimentos (R8.4, R8.5), pela fila
+ * Processamento dos recebimentos (R8.4, R8.5, R32.3), pela fila
  * `webhooks-entrada.processar`, com até 3 tentativas:
  *
- * aplica o mapeamento → valida (nome e e-mail ou telefone) → deduplica o
- * contato (`ContatosService.encontrarOuCriar`, R4.2) → cria o negócio ou
- * registra a reconversão (`NegociosService.criarAutomatico`, R5.6), que
- * distribui (R5.8), notifica o responsável e publica os eventos → dá ao
- * contato sem responsável o do negócio (R4.5).
+ * o adaptador do aplicativo transforma o corpo em itens (um, ou um por lead do
+ * RD Station) → cada item aplica o mapeamento → valida → cria ou atualiza o
+ * contato e o negócio (`AplicacaoDoRecebimento`), com ator `WEBHOOK` (o nome da
+ * integração) e o IP de quem chamou, para a auditoria (R3.1).
  *
- * Tudo numa transação, com ator `WEBHOOK` (o nome do ponto) e o IP de quem
- * chamou, para a auditoria (R3.1). Erro de dados (mapeamento, validação,
- * configuração) é definitivo: o recebimento vai para `ERRO` sem novas
- * tentativas. Falhas passageiras (banco, conflito de concorrência) voltam
+ * Cada item roda na própria transação, que também grava o resultado dele no
+ * recebimento: numa nova tentativa, os itens já concluídos não se repetem. Erro
+ * de dados (mapeamento, validação, configuração) é definitivo para o item: vira
+ * `ERRO` sem novas tentativas. Falhas passageiras (banco, concorrência) voltam
  * para a fila; na 3ª, o recebimento fica com erro.
  */
 @Injectable()
@@ -53,8 +64,7 @@ export class ProcessamentoEntradaService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fila: FilaService,
-    private readonly contatos: ContatosService,
-    private readonly negocios: NegociosService,
+    private readonly aplicacao: AplicacaoDoRecebimento,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -80,7 +90,9 @@ export class ProcessamentoEntradaService implements OnModuleInit {
         status: true,
         ip: true,
         cabecalhos: true,
-        webhook: { select: { nome: true } },
+        corpo: true,
+        resultados: true,
+        webhook: { select: { nome: true, aplicativo: true } },
       },
     });
     if (!recebimento || recebimento.status !== 'RECEBIDO') {
@@ -95,9 +107,21 @@ export class ProcessamentoEntradaService implements OnModuleInit {
     };
     await executarComContexto(contexto, async () => {
       try {
-        await this.prisma.$transaction((tx) =>
-          this.processarNaTransacao(tx, recebimentoId),
+        const adaptador =
+          adaptadorDe(recebimento.webhook.aplicativo) ?? adaptadorWebhook;
+        const itens = adaptador.normalizarCorpo(recebimento.corpo);
+        const concluidos = new Set(
+          lerResultados(recebimento.resultados)
+            .filter(({ status }) => status === 'PROCESSADO')
+            .map(({ indice }) => indice),
         );
+        for (let indice = 0; indice < itens.length; indice += 1) {
+          if (concluidos.has(indice)) {
+            continue;
+          }
+          await this.processarItem(recebimentoId, indice, itens[indice]);
+        }
+        await this.finalizar(recebimentoId, itens);
       } catch (erro) {
         await this.registrarFalha(recebimentoId, tentativa, erro);
         if (!ehDefinitivo(erro)) {
@@ -107,117 +131,165 @@ export class ProcessamentoEntradaService implements OnModuleInit {
     });
   }
 
-  private async processarNaTransacao(
+  /** Um item numa transação; erro definitivo vira resultado `ERRO` do item (os demais seguem). */
+  private async processarItem(
+    recebimentoId: string,
+    indice: number,
+    item: ItemRecebido,
+  ): Promise<void> {
+    try {
+      await this.prisma.$transaction((tx) =>
+        this.processarItemNaTransacao(tx, recebimentoId, indice, item),
+      );
+    } catch (erro) {
+      if (!ehDefinitivo(erro)) {
+        throw erro;
+      }
+      await this.prisma.$transaction(async (tx) => {
+        await travarRecebimento(tx, recebimentoId);
+        await this.gravarResultado(tx, recebimentoId, {
+          indice,
+          rotulo: item.rotulo,
+          status: 'ERRO',
+          mensagem: limitar(descreverErro(erro)),
+          contatoId: null,
+          negocioId: null,
+          avisos: [],
+        });
+      });
+    }
+  }
+
+  private async processarItemNaTransacao(
     tx: Tx,
     recebimentoId: string,
+    indice: number,
+    item: ItemRecebido,
   ): Promise<void> {
     // A linha fica presa até o fim: um job repetido espera e, ao seguir, já
-    // encontra o recebimento processado.
-    const [linha] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM webhook_recebimentos
-       WHERE id = ${recebimentoId}::uuid AND status = 'RECEBIDO'::status_recebimento
-         FOR UPDATE`;
-    if (!linha) {
+    // encontra o item concluído.
+    if (!(await travarRecebimento(tx, recebimentoId))) {
       return;
     }
     const recebimento = await tx.webhookRecebimento.findUniqueOrThrow({
       where: { id: recebimentoId },
-      select: { corpo: true, webhookId: true },
+      select: { webhookId: true, resultados: true },
     });
+    if (
+      lerResultados(recebimento.resultados).some(
+        (resultado) =>
+          resultado.indice === indice && resultado.status === 'PROCESSADO',
+      )
+    ) {
+      return;
+    }
     const webhook = await tx.webhookEntrada.findUniqueOrThrow({
       where: { id: recebimento.webhookId },
     });
+    const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
     const lead = aplicarMapeamento(
-      mapeamentoEfetivo(webhook.modeloMapeamento, webhook.mapeamento),
-      recebimento.corpo,
+      mapeamentoDaIntegracao(webhook),
+      item.corpo,
       webhook.etiquetasFixas,
+      { exigirNome: webhook.modo !== 'ATUALIZAR' },
     );
     if (lead.ignorado) {
-      await tx.webhookRecebimento.update({
-        where: { id: recebimentoId },
-        data: {
-          status: 'IGNORADO',
-          mensagem: limitar(lead.ignorado),
-          processadoEm: new Date(),
-          tentativas: { increment: 1 },
-        },
+      await this.gravarResultado(tx, recebimentoId, {
+        indice,
+        rotulo: item.rotulo,
+        status: 'IGNORADO',
+        mensagem: limitar(lead.ignorado),
+        contatoId: null,
+        negocioId: null,
+        avisos: [],
       });
       return;
     }
     if (lead.problemas.length > 0) {
-      throw new RecebimentoInvalidoError(lead.problemas.join(' '));
-    }
-
-    const { contato, criado: contatoCriado } =
-      await this.contatos.encontrarOuCriar(tx, {
-        nome: lead.contato.nome ?? '',
-        email: lead.contato.email ?? undefined,
-        telefone: lead.contato.telefone ?? undefined,
-        empresaNome: lead.contato.empresa ?? undefined,
-        cargo: lead.contato.cargo ?? undefined,
-        origem: 'WEBHOOK',
-        origemDetalhe: webhook.nome,
-        utm: lead.utm ?? undefined,
-        etiquetas: lead.etiquetas,
-        camposPersonalizados: lead.camposPersonalizados,
-      });
-    const resultado = await this.negocios.criarAutomatico(tx, {
-      contatoId: contato.id,
-      funilId: webhook.funilId,
-      etapaId: webhook.etapaId,
-      titulo: lead.negocio.titulo ?? undefined,
-      valor: lead.negocio.valor ?? undefined,
-      valorRecorrente: lead.negocio.valorRecorrente ?? undefined,
-      origem: 'WEBHOOK',
-      origemDetalhe: webhook.nome,
-      utm: lead.utm ?? undefined,
-      estrategia: webhook.estrategia,
-      responsavelFixoId: webhook.responsavelFixoId ?? undefined,
-    });
-    const { negocio } = resultado;
-    // R4.5: o contato (e a empresa) sem responsável fica com o do negócio.
-    // O `criarAutomatico` já notificou o responsável (R8.5).
-    if (negocio.responsavelId) {
-      await this.contatos.definirResponsavelSeVazio(
-        tx,
-        contato.id,
-        negocio.responsavelId,
+      const semContato =
+        !lead.contato.email &&
+        !lead.contato.telefone &&
+        lead.problemas.some((problema) =>
+          problema.startsWith('Sem e-mail nem telefone'),
+        );
+      const explicacao = semContato
+        ? adaptador.explicarFaltaDeContato?.(
+            typeof item.corpo === 'object' && item.corpo !== null
+              ? (item.corpo as Record<string, unknown>)
+              : {},
+          )
+        : null;
+      throw new RecebimentoInvalidoError(
+        explicacao ?? lead.problemas.join(' '),
       );
     }
+    const resultado: ResultadoDoItem = await this.aplicacao.aplicar(
+      tx,
+      webhook,
+      lead,
+      webhook.aplicativo === 'TYPEFORM' ? variaveisDoItem(item.corpo) : null,
+    );
+    await this.gravarResultado(tx, recebimentoId, {
+      indice,
+      rotulo: item.rotulo,
+      status: resultado.status,
+      mensagem: limitar(resultado.mensagem),
+      contatoId: resultado.contatoId,
+      negocioId: resultado.negocioId,
+      avisos: [...resultado.avisos],
+    });
+  }
 
-    const etapa = await tx.etapa.findUniqueOrThrow({
-      where: { id: negocio.etapaId },
-      select: { nome: true },
+  /** Acrescenta (ou troca) o resultado do item em `resultados`. A linha do recebimento já está presa. */
+  private async gravarResultado(
+    tx: Tx,
+    recebimentoId: string,
+    resultado: ResultadoGravado,
+  ): Promise<void> {
+    const atual = await tx.webhookRecebimento.findUniqueOrThrow({
+      where: { id: recebimentoId },
+      select: { resultados: true },
     });
-    const funil = await tx.funil.findUniqueOrThrow({
-      where: { id: negocio.funilId },
-      select: { nome: true },
-    });
-    const responsavel = negocio.responsavelId
-      ? await tx.usuario.findUnique({
-          where: { id: negocio.responsavelId },
-          select: { nome: true },
-        })
-      : null;
-    const partes = [
-      contatoCriado
-        ? `Contato "${contato.nome}" criado`
-        : `Contato "${contato.nome}" reconvertido (já existia)`,
-      resultado.criado
-        ? `negócio criado em ${funil.nome} / ${etapa.nome}, ${responsavel ? `com ${responsavel.nome}` : 'sem responsável'}`
-        : `reconversão registrada no negócio aberto "${negocio.titulo}"`,
-    ];
-    const mensagem = `${partes.join('; ')}.${lead.avisos.length > 0 ? ` Avisos: ${lead.avisos.join(' ')}` : ''}`;
+    const outros = lerResultados(atual.resultados).filter(
+      ({ indice }) => indice !== resultado.indice,
+    );
     await tx.webhookRecebimento.update({
       where: { id: recebimentoId },
       data: {
-        status: 'PROCESSADO',
-        contatoId: contato.id,
-        negocioId: negocio.id,
-        processadoEm: new Date(),
-        mensagem: limitar(mensagem),
-        tentativas: { increment: 1 },
+        resultados: [...outros, resultado].sort(
+          (a, b) => a.indice - b.indice,
+        ) as unknown as Prisma.InputJsonArray,
       },
+    });
+  }
+
+  /** Fecha o recebimento com o status que os resultados dos itens pedem. */
+  private async finalizar(
+    recebimentoId: string,
+    itens: readonly ItemRecebido[],
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      if (!(await travarRecebimento(tx, recebimentoId))) {
+        return;
+      }
+      const recebimento = await tx.webhookRecebimento.findUniqueOrThrow({
+        where: { id: recebimentoId },
+        select: { resultados: true },
+      });
+      const resultados = lerResultados(recebimento.resultados);
+      const resumo = resumir(resultados, itens.length);
+      await tx.webhookRecebimento.update({
+        where: { id: recebimentoId },
+        data: {
+          status: resumo.status,
+          mensagem: limitar(resumo.mensagem),
+          contatoId: resumo.contatoId,
+          negocioId: resumo.negocioId,
+          avisos: resumo.avisos as unknown as Prisma.InputJsonArray,
+          processadoEm: new Date(),
+          tentativas: { increment: 1 },
+        },
+      });
     });
   }
 
@@ -250,6 +322,122 @@ export class ProcessamentoEntradaService implements OnModuleInit {
       data: dados,
     });
   }
+}
+
+/** Trava a linha do recebimento ainda `RECEBIDO` (falso se outro job já a concluiu). */
+async function travarRecebimento(
+  tx: Tx,
+  recebimentoId: string,
+): Promise<boolean> {
+  const [linha] = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM webhook_recebimentos
+     WHERE id = ${recebimentoId}::uuid AND status = 'RECEBIDO'::status_recebimento
+       FOR UPDATE`;
+  return linha !== undefined;
+}
+
+export function lerResultados(
+  valor: Prisma.JsonValue | null,
+): ResultadoGravado[] {
+  if (!Array.isArray(valor)) {
+    return [];
+  }
+  return valor.flatMap((item) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      return [];
+    }
+    const r = item as Record<string, unknown>;
+    if (
+      typeof r.indice !== 'number' ||
+      (r.status !== 'PROCESSADO' &&
+        r.status !== 'IGNORADO' &&
+        r.status !== 'ERRO')
+    ) {
+      return [];
+    }
+    return [
+      {
+        indice: r.indice,
+        rotulo: typeof r.rotulo === 'string' ? r.rotulo : null,
+        status: r.status,
+        mensagem: typeof r.mensagem === 'string' ? r.mensagem : '',
+        contatoId: typeof r.contatoId === 'string' ? r.contatoId : null,
+        negocioId: typeof r.negocioId === 'string' ? r.negocioId : null,
+        avisos: Array.isArray(r.avisos)
+          ? r.avisos.filter(
+              (aviso): aviso is string => typeof aviso === 'string',
+            )
+          : [],
+      },
+    ];
+  });
+}
+
+interface ResumoDoRecebimento {
+  readonly status: StatusRecebimento;
+  readonly mensagem: string;
+  readonly contatoId: string | null;
+  readonly negocioId: string | null;
+  readonly avisos: string[];
+}
+
+/**
+ * Um item só: o resultado dele, como no R8.5. Vários (RD Station): contagem por
+ * status e os motivos dos erros; `ERRO` se algum falhou (o reprocessamento
+ * refaz só os que não foram processados).
+ */
+export function resumir(
+  resultados: readonly ResultadoGravado[],
+  total: number,
+): ResumoDoRecebimento {
+  if (total === 0) {
+    return {
+      status: 'IGNORADO',
+      mensagem: 'Nenhum item no corpo: nada a processar.',
+      contatoId: null,
+      negocioId: null,
+      avisos: [],
+    };
+  }
+  if (total === 1 && resultados.length === 1) {
+    const [unico] = resultados;
+    return {
+      status: unico.status,
+      mensagem: unico.mensagem,
+      contatoId: unico.contatoId,
+      negocioId: unico.negocioId,
+      avisos: [...unico.avisos],
+    };
+  }
+  const processados = resultados.filter(
+    ({ status }) => status === 'PROCESSADO',
+  );
+  const ignorados = resultados.filter(({ status }) => status === 'IGNORADO');
+  const erros = resultados.filter(({ status }) => status === 'ERRO');
+  const rotulo = (r: ResultadoGravado) =>
+    r.rotulo ?? `item ${r.indice + 1} de ${total}`;
+  const contagem = [
+    `${processados.length} processado(s)`,
+    ...(ignorados.length > 0 ? [`${ignorados.length} ignorado(s)`] : []),
+    ...(erros.length > 0 ? [`${erros.length} com erro`] : []),
+  ].join(', ');
+  const detalhes = [...erros, ...ignorados]
+    .map((r) => `${rotulo(r)}: ${r.mensagem}`)
+    .join(' ');
+  return {
+    status:
+      erros.length > 0
+        ? 'ERRO'
+        : processados.length > 0
+          ? 'PROCESSADO'
+          : 'IGNORADO',
+    mensagem: `${total} itens: ${contagem}.${detalhes ? ` ${detalhes}` : ''}`,
+    contatoId: processados[0]?.contatoId ?? null,
+    negocioId: processados[0]?.negocioId ?? null,
+    avisos: resultados.flatMap((r) =>
+      r.avisos.map((aviso) => (total > 1 ? `${rotulo(r)}: ${aviso}` : aviso)),
+    ),
+  };
 }
 
 /**
@@ -304,4 +492,16 @@ function limitar(texto: string): string {
   return texto.length > TAMANHO_MAXIMO_MENSAGEM
     ? `${texto.slice(0, TAMANHO_MAXIMO_MENSAGEM)}…`
     : texto;
+}
+
+function variaveisDoItem(corpo: unknown): Record<string, unknown> | null {
+  if (typeof corpo !== 'object' || corpo === null) {
+    return null;
+  }
+  const variaveis = (corpo as Record<string, unknown>).variables;
+  return typeof variaveis === 'object' &&
+    variaveis !== null &&
+    !Array.isArray(variaveis)
+    ? (variaveis as Record<string, unknown>)
+    : null;
 }

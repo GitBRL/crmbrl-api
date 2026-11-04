@@ -11,7 +11,7 @@ Esta versão cobre a **Fase 1 — núcleo do CRM** e a **primeira parte da Fase 
 A)**: arquivos, atendimento omnichannel, gateway de WhatsApp próprio, chat do site,
 e-mail, Instagram e Messenger, tempo real e chat interno da equipe; e a **segunda parte
 da Fase 2 (Onda B)**: importação de contatos (R16), disparos (R17), chatbot (R18) e
-automações (R19), nas seções 21 a 26, e a **Onda G** (SDR com IA, R31) na seção 43. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
+automações (R19), nas seções 21 a 26, a **Onda G** (SDR com IA, R31) na seção 43 e a **Onda H** (integrações por aplicativo, R32) na seção 44. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
 e ganham seções aqui quando forem detalhadas.
 
 > Atualizado em 2026-10-30. Regras marcadas com **(proposta)** dependem de validação do
@@ -2330,3 +2330,191 @@ esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o promp
 313. Janela fechada com orçamento esgotado: a mensagem de passagem não é enviada (R31.10).
 314. Transações simultâneas acima dos 80% notificam o Admin uma vez só (R31.8).
 315. LGPD: a exportação traz o que o SDR guarda; o motivo da IA não fica no título nem na auditoria (R31.9, R4.6).
+
+---
+
+## 44. Integrações: aplicativos (R32)
+
+> Onda H, fatia H1 (2026-11-04). A tela "Integrações — Webhooks e aplicativos" do Clint: um catálogo de
+> aplicativos, uma integração por aplicativo com ação (alvo × modo), mapeamento, histórico e saída. A R32
+> **estende** a R8 (entrada) e a R9 (saída): não há um segundo caminho de processamento. O Facebook Lead Ads
+> e as plataformas de curso (Hotmart, Kiwify, Eduzz) já estão no catálogo, mas só chegam na fatia H2 (R32.11).
+> Referência dos formatos: `trabalho/referencias/clint-integracoes.md`.
+
+- **R32.1 Aplicativos e catálogo.** Cada integração de entrada (`webhooks_entrada`) tem um **aplicativo**:
+  `WEBHOOK`, `ELEMENTOR`, `RD_STATION`, `ACTIVE_CAMPAIGN`, `GREAT_PAGES`, `LEAD_LOVERS`, `MANYCHAT`, `TYPEFORM` e,
+  na H2, `FACEBOOK_LEAD_ADS`, `HOTMART`, `KIWIFY`, `EDUZZ` (criar integração desses últimos dá 422). O aplicativo não
+  muda depois de criado. O catálogo (`GET /webhooks/aplicativos`, só Admin) vem em ordem alfabética e diz, por
+  aplicativo, o que ele pede: credencial (campos, com os segredos marcados), segredo de autenticidade, tipos de
+  conteúdo, o passo a passo do lado da ferramenta, o modelo de mapeamento pronto, se busca campos e se escolhe
+  formulário. Cada aplicativo é um **adaptador** (`src/webhooks/aplicativos/<app>.ts`) com: converter o corpo
+  em itens, verificar a autenticidade, o modelo, o passo a passo e, quando há credencial, testá-la e buscar
+  campos. As integrações vão a `/webhooks/entradas` (o mesmo recurso de sempre) e várias podem existir por
+  aplicativo e por funil. Os pontos de entrada que já existiam viraram o aplicativo `WEBHOOK`, alvo `NEGOCIO`,
+  modo `CRIAR_OU_ATUALIZAR`, com o **mesmo endereço e o mesmo comportamento** (R8.5, R5.6). O endereço público
+  continua `POST /webhooks/entrada/{token}` e aceita query string (a Kiwify assina por ela, H2).
+  **Endereço reaberto.** Para o assistente reabrir o passo "Endereço" e para o CRM registrar o webhook no
+  Typeform, as integrações criadas a partir da Onda H guardam também o token **cifrado** (AES-256-GCM, R10.3; o
+  hash da R8.2 continua sendo o que autentica). `GET /webhooks/entradas/{id}/endereco` devolve a URL completa
+  (só Admin); nos pontos antigos (sem o token cifrado) é 422 e a saída é regenerar o token.
+- **R32.2 Modelos, corpo e segredo.** `modeloMapeamento`: o Webhook usa `GENERICO`, `DISPAROS_BRL` (R8.1) ou
+  `PERSONALIZADO`; os demais aplicativos usam `DO_APLICATIVO` (o modelo pronto do adaptador, padrão) ou
+  `PERSONALIZADO`. O **formulário `application/x-www-form-urlencoded`** é lido pelo CRM com chaves aninhadas
+  (`fields[email][value]`, `form[name]`, `contact[fields][3]`, `tags[]`): índices numéricos viram chaves do
+  objeto, não posições de lista (o id 3 do ActiveCampaign não se perde); só `a[0]`, `a[1]`… consecutivos, `a[]` e
+  chaves repetidas viram lista. Os caminhos do mapeamento aceitam `contact.fields.3` e `contact[fields][3]`.
+  Por aplicativo, o adaptador entrega ao mapeamento: **Elementor**, o campo `<id>` com o valor (de
+  `fields[<id>][value]` com "Advanced Data", ou das chaves simples), `form_id`, `form_name` e `meta_page_url`; as
+  UTMs vêm de campos ocultos `utm_*`. **RD Station**, um item por lead de `{"leads":[…]}` (ou o lead único) com
+  `entity_type`; nome, e-mail, `mobile_phone`/`personal_phone`, empresa, cargo, etiquetas, `custom_fields.*` e
+  `cf_*` (campos personalizados) e UTMs de `last_conversion`/`first_conversion`. **ActiveCampaign**, `contact[…]` e
+  `deal[…]`, com `contact.full_name` (nome + sobrenome). **Great Pages** e **Lead Lovers**, as chaves digitadas pelo
+  usuário. **ManyChat**, o Full Contact Data (inclusive dentro de `data`), `custom_fields` como objeto ou lista
+  `{name,value}` e `tags` como lista de nomes. **Typeform**, uma chave por pergunta (o `ref`), `hidden.*`,
+  `variables.*`, `form_id`, `form_title`, os apelidos `nome`, `email` e `telefone` (a primeira pergunta do tipo) e o
+  `event_id`. O **segredo** (`segredoCifrado`) segue o aplicativo: o Webhook usa o HMAC `X-Assinatura` (R8.3) opcional;
+  o RD Station, uma **chave opcional num cabeçalho** (`X-RD-Chave`, ou o nome em `configuracao.cabecalhoDeAutenticacao`),
+  comparada em tempo constante e **não guardada** no histórico; o Typeform, um segredo **gerado pelo CRM** (R32.9); os
+  demais não usam segredo (o endereço secreto é a proteção; pedir segredo dá 400/422).
+- **R32.3 Ação: alvo × modo.** A integração escolhe o **alvo** (`NEGOCIO` ou `CONTATO`) e o **modo**: `CRIAR`
+  (todo recebimento cria um negócio novo, mesmo que o contato já tenha um aberto no funil; é a única exceção da R5.6),
+  `CRIAR_OU_ATUALIZAR` (se o contato tem negócio aberto no funil da integração, atualiza o **mais recente** e registra a
+  reconversão, R5.6; senão, cria) e `ATUALIZAR` (só atualiza: sem contato ou sem negócio aberto no funil, o
+  recebimento fica `IGNORADO`, com o motivo, e nada é criado). No alvo `CONTATO` o contato é achado por e-mail ou
+  telefone (R4.2): `CRIAR` deduplica e cria; `CRIAR_OU_ATUALIZAR` cria ou **sobrescreve** nome, cargo, etiquetas (somam) e
+  campos personalizados (mesclam) de quem já existe; `ATUALIZAR` só acha e sobrescreve. No alvo `NEGOCIO`, o contato
+  existente só ganha o que faltava (reconversão, R4.2), como sempre. Todos exigem e-mail ou telefone; só o modo
+  `ATUALIZAR` dispensa o nome (no mapeamento personalizado e na prévia). A ação padrão é `NEGOCIO` + `CRIAR_OU_ATUALIZAR`.
+- **R32.4 Atualizações pelo recebimento.** O mapeamento ganha os destinos `etapa`, `dono`, `status`, `motivoPerda` e
+  `negocio.camposPersonalizados.<chave>` (além de título, valor, valor recorrente, contato, UTMs, etiquetas e
+  `camposPersonalizados.<chave>`). **Etapa**: o nome (sem diferenciar maiúsculas e acentos) ou a posição de 1 a n no
+  funil; o nome vale antes da posição. **Dono**: o e-mail ou o **identificador nas integrações** de um usuário ativo da
+  área do funil (ou C-level/Admin); no negócio novo o dono mapeado vira o responsável (em vez do rodízio) e no existente
+  troca o responsável e o notifica. **Status**: `aberto`, `ganho` ou `perdido` (também `open`, `won`, `lost`); a perda
+  segue a **R5.5**: usa o motivo mapeado (`motivoPerda`); senão, o **motivo padrão** da integração; sem nenhum dos dois,
+  o negócio não é perdido (aviso). Etapa e status juntos: a etapa vence, com aviso. Mover roda as passagens (R5.7).
+  **Status inicial** do negócio criado: `ABERTO` (padrão), `GANHO` (vai à etapa de ganho) ou `PERDIDO` (vai à etapa de
+  perda com o motivo padrão, obrigatório com este status). **Identificador nas integrações**: campo opcional do usuário
+  (`identificadorIntegracao`, até 100 caracteres: letras, números e `. _ - @ + :`), **único sem diferenciar maiúsculas**
+  (409), editado pelo Admin em `POST/PATCH /usuarios`.
+- **R32.5 Avisos.** Valor desconhecido não derruba o recebimento: o resto é aplicado, o recebimento fica `PROCESSADO` e
+  cada valor descartado vira um **aviso** (`avisos` do recebimento e no fim da mensagem): `Etapa "X" não existe no funil
+Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`, valores monetários, e-mail ou telefone
+  inválidos. Erros de dados (sem nome, sem e-mail nem telefone, configuração) continuam `ERRO`. Contato do ManyChat sem
+  e-mail e telefone (como o do Instagram) dá a mensagem "colete e-mail ou telefone no fluxo".
+- **R32.6 Itens por recebimento.** Um recebimento pode ter vários itens (cada lead do RD Station). Cada item roda em
+  transação própria e o resultado fica em `resultados` (`itens` na API: índice, rótulo `lead 2 de 3`, status, mensagem,
+  contato, negócio, avisos). O status do recebimento: `ERRO` se algum item falhou, `PROCESSADO` se algum foi
+  processado, `IGNORADO` se todos foram ignorados; a mensagem conta e explica. **Reprocessar** refaz só os itens não
+  processados (os processados não se repetem nem somam reconversão).
+- **R32.7 Campos recebidos e histórico.** `GET /webhooks/entradas/{id}/campos-recebidos` lista os caminhos de campo
+  dos últimos recebimentos aceitos (padrão 20; o corpo passa pelo adaptador), com tipo, ocorrências e um **valor de
+  exemplo mascarado** (`ma•••@empresa.com.br`, `•••••••4321`, `Mar•••`; segredos por nome do campo viram `••••`); os
+  recusados na chegada não entram. O **histórico** de todas as integrações (`GET /webhooks/recebimentos`) filtra por data
+  (`de`, `ate`), `status`, `aplicativo` e `integracaoId` (vários valores por vírgula), traz o aplicativo, a integração, os
+  avisos e os itens, e tem detalhe (`/{id}`, com cabeçalhos e corpo, para copiar o JSON) e `POST /{id}/reprocessar`.
+  Retenção de 90 dias (R8.6). As rotas por integração (`/webhooks/entradas/{id}/recebimentos`) continuam.
+- **R32.8 Credencial e busca de campos.** Os aplicativos com credencial pedem os campos que o catálogo informa:
+  ActiveCampaign (`urlConta`, `chaveApi`), ManyChat (`chaveApi`) e Typeform (`token`, o Personal Token). A credencial é
+  **guardada cifrada (R10.3) e devolvida só mascarada** (os campos não secretos aparecem; os secretos mostram só o final);
+  na edição, só os campos enviados mudam; nunca vai para log, auditoria (só os nomes) nem aviso. **A URL da conta do
+  ActiveCampaign** precisa ser pública: passa pela proteção SSRF da R9.1 ao salvar, ao testar e a cada chamada.
+  **Testar antes de criar**: `POST /webhooks/entradas/testar-credencial {aplicativo, credencial}` chama o aplicativo e
+  responde `{valida, mensagem}` sem gravar. **Testar a guardada**: `POST /webhooks/entradas/{id}/testar-credencial`.
+  **"Buscar campos da integração"**: `POST /webhooks/entradas/{id}/buscar-campos` — ActiveCampaign:
+  `GET {conta}/api/3/fields` (cabeçalho `Api-Token`; `contact.fields.<id>` com o título); ManyChat:
+  `GET {MANYCHAT_API_URL}/fb/page/getCustomFields` (`Authorization: Bearer`; `custom_fields.<nome>`); Typeform: as
+  perguntas do formulário escolhido (`<ref>`), `hidden.*` e `variables.*`. O resultado também fica em `camposBuscados`.
+  Os endereços-base vêm de `TYPEFORM_API_URL` (padrão `https://api.typeform.com`) e `MANYCHAT_API_URL` (padrão
+  `https://api.manychat.com`); nenhum teste nem ambiente de desenvolvimento chama API real.
+- **R32.9 Autenticidade, Typeform e "precisa de atenção".** **Typeform**: o CRM gera um segredo, **registra o webhook no
+  formulário escolhido** (`PUT /forms/{id}/webhooks/{tag}` com `url`, `enabled` e `secret`; a tag é `crmbrl-…`
+  estável por integração) e confere `Typeform-Signature: sha256=<base64 do HMAC-SHA256 do corpo bruto>` em tempo
+  constante; ausente ou inválida: 401 e recebimento com erro (sem reprocessamento). Escolher outro formulário remove o
+  webhook do antigo; desativar a integração o mantém **desabilitado** (`enabled=false`); regenerar o token ou o segredo o
+  registra de novo; excluir a integração o remove (falha só vai para o log técnico). `GET …/formularios`,
+  `…/formularios/{formularioId}/campos` e `POST …/sincronizar` ajudam o assistente. O resultado do registro fica em
+  `configuracao.webhookRegistrado` e `configuracao.webhookErro`. Uma **variável** do formulário (`variables.etapa`,
+  `variables.status`, `variables.dono`) serve para o modo atualizar (R32.4). **Credencial recusada** (401/403 do
+  aplicativo: token expirado, revogado, chave inválida): a integração passa a **"precisa de atenção"**
+  (`precisaAtencao`, `atencaoMotivo`, `situacao: PRECISA_ATENCAO`), é auditada e **os Admins são notificados**
+  (`integracao.precisa_atencao`, uma vez por ocorrência, reaproveitando as notificações); trocar a credencial (ou um teste
+  que passa) limpa a situação. Falha de rede ou 5xx do aplicativo não marca atenção.
+- **R32.10 Typeform: formulário.** O assistente lista os formulários (`GET /forms`, até 200, com busca) e as perguntas
+  (`GET /forms/{id}`, inclusive as de grupos); a escolha é `PATCH {configuracao: {formularioId}}`, que registra o
+  webhook (R32.9). Respostas repetidas (mesmo `event_id`) são tratadas como quaisquer recebimentos nesta fatia; a
+  idempotência por evento é a da H2 (`ItemRecebido.chaveDoEvento` já existe para ela).
+- **R32.11 H2 (já preparado).** O enum de aplicativos e o catálogo já trazem `FACEBOOK_LEAD_ADS`, `HOTMART`,
+  `KIWIFY` e `EDUZZ` como `disponivel: false`. A interface do adaptador já recebe a query string (autenticidade da
+  Kiwify) e a chave de idempotência do evento.
+- **R32.12 Saída no estilo do Clint.** O destino de saída ganha o **formato** `CLINT` (o `ENVELOPE_CRM` da R9.3 segue
+  como padrão), que estende a R9 sem mudar a fila, as tentativas, o histórico de entregas, a proteção SSRF nem a
+  desativação automática (a R9.4: 20 falhas seguidas; o Clint desativa com 3, diferença registrada). Campos do destino:
+  `formato`, `metodo`, `gatilhos` e `campos`; `eventos` fica vazio. **Gatilhos**: `NEGOCIO_CRIADO`, `ENTRA_NA_ETAPA`
+  (exige `etapaId`; vale na criação nela e ao ser movido para ela), `MUDA_DE_ETAPA` e `MUDA_DE_STATUS` (ganho, perdido ou
+  reaberto; com `status` opcional), cada um com **filtro de funil** (`funilId`, o da etapa em `ENTRA_NA_ETAPA`). Uma
+  entrega por destino e evento. **Envio**: `POST` com `Content-Type: application/json` (só os campos escolhidos, na forma
+  `{ identificador: valor }`) ou `GET` (os campos viram parâmetros da URL, lista separada por vírgula, vazio para
+  ausente, sem corpo nem `Content-Type`). **Campos**: `GET /webhooks/saidas/formato-clint` lista os gatilhos, os campos
+  (contato: id, nome, e-mail, telefone, empresa, cargo, etiquetas; negócio: id, título, valor, valor recorrente, status,
+  motivo da perda, origem, detalhe, criado em; funil e etapa, com a etapa anterior; dono: id, nome, e-mail e
+  identificador nas integrações; UTMs; gatilho e quando), cada um com o **identificador sugerido e editável**, mais
+  `contato.camposPersonalizados.<chave>` e `negocio.camposPersonalizados.<chave>`. Os valores de negócio, funil, etapa,
+  dono, UTMs e contato são os **do momento do evento**; empresa, cargo, etiquetas e campos personalizados são lidos na
+  entrega. Os cabeçalhos `X-CRM-*` seguem e a assinatura cobre `timestamp + "." + corpo` (no GET, o corpo é a query
+  string acrescentada). O teste do destino envia `evento=webhook.teste` e `mensagem`. Validações (400): sem gatilho ou sem
+  campo, etapa inexistente ou de outro funil, origem desconhecida, identificador repetido ou inválido, `eventos` no
+  formato Clint, `gatilhos`, `campos` ou `GET` no envelope.
+- **R32.13 Acesso e auditoria.** Tudo da R32 é **só do Admin** (como o módulo `/integracoes`): catálogo, integrações,
+  credenciais, histórico e saída; os demais papéis recebem 403. Ator da auditoria: `WEBHOOK` (o nome da integração, como
+  na R8). A auditoria registra a criação, a edição (com o formulário e se a credencial foi trocada, nunca o valor),
+  quando a integração passa a precisar de atenção e quando volta a funcionar. Sem dependências novas: as APIs de
+  terceiros são chamadas por `fetch`, com o endereço-base em variável de ambiente.
+
+### Matriz de acesso — Integrações: aplicativos
+
+| Recurso                                                                                               | Admin                                                        | C-level | Líder   | Membro  | Marketing |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------- | ------- | ------- | --------- |
+| Catálogo, integrações, credencial, busca de campos, campos recebidos e endereço (R32.1, R32.7–R32.10) | ✓                                                            | — (403) | — (403) | — (403) | — (403)   |
+| Histórico de recebimentos, detalhe e reprocessar (R32.7)                                              | ✓                                                            | —       | —       | —       | —         |
+| Destinos de saída no formato Clint (R32.12)                                                           | ✓                                                            | —       | —       | —       | —         |
+| Identificador nas integrações do usuário (R32.4)                                                      | ✓ (edita)                                                    | —       | —       | —       | —         |
+| Endereço público de recebimento (`POST /webhooks/entrada/{token}`)                                    | sem login: token, mais a autenticidade do aplicativo (R32.9) |         |         |         |           |
+
+### Cenários de aceitação (Onda H, H1: integrações e aplicativos)
+
+316. O catálogo traz os 12 aplicativos em ordem alfabética, só o Admin o vê, e os da H2 não se criam (R32.1).
+317. O webhook sem aplicativo continua igual: Webhook, negócio, criar ou atualizar, reconversão no mesmo endereço, e o
+     endereço reabre para o assistente (R32.1, R8.5).
+318. Elementor com Advanced Data (formulário aninhado), sem ele e em JSON criam o negócio, com UTMs dos campos ocultos (R32.2).
+319. RD Station com `leads[]`: cada lead é processado, o resultado fica por lead e reprocessar refaz só o que falhou (R32.6).
+320. RD Station com chave no cabeçalho: sem a chave 401, com a chave 202, e a chave não fica guardada (R32.9).
+321. ActiveCampaign: `contact[…]` em formulário cria o negócio; "Buscar campos" dá nome aos campos; a credencial nunca
+     volta inteira; os campos recebidos vêm mascarados (R32.2, R32.7, R32.8).
+322. Credencial inválida: "precisa de atenção", aviso ao Admin uma vez, filtro da lista, e trocar a credencial resolve (R32.9).
+323. Testar a credencial antes de criar não grava nada (R32.8).
+324. Great Pages e Lead Lovers com mapeamento digitado, em formulário e em JSON (R32.2).
+325. ManyChat: Full Contact Data com `custom_fields` e `tags`; contato do Instagram sem e-mail e telefone dá o erro
+     claro; "Buscar campos" lista os campos personalizados (R32.2, R32.5, R32.8).
+326. Typeform: o CRM registra o webhook com segredo; resposta assinada cria o negócio; assinatura inválida, adulterada ou
+     ausente é recusada com 401 e erro registrado (R32.9).
+327. Typeform: formulários e perguntas, trocar de formulário remove o webhook do antigo, desativar o desabilita, regenerar
+     o token o registra de novo, excluir o remove (R32.9, R32.10).
+328. Typeform com token expirado: "precisa de atenção", aviso ao Admin, sem segredo em auditoria, e o token novo recupera (R32.9).
+329. Modo `CRIAR`: dois recebimentos criam dois negócios do mesmo contato (R32.3).
+330. Criar ou atualizar: atualiza o aberto (etapa e valor mapeados) com reconversão; com o negócio ganho, cria outro (R32.3, R5.6).
+331. Modo `ATUALIZAR`: sem contato ou sem negócio aberto fica `IGNORADO`; com negócio, atualiza etapa por posição, dono por
+     identificador e por e-mail e status perdido com motivo (R32.3, R32.4, R5.5).
+332. Alvo contato: cria só o contato; o segundo envio sobrescreve nome, cargo e campos; `ATUALIZAR` só acha (R32.3).
+333. Etapa por nome sem acento, dono de outra área, status `won` e motivo padrão; valores desconhecidos viram avisos (R32.4, R32.5).
+334. Perdido sem motivo não perde o negócio (aviso); status inicial `GANHO` e `PERDIDO` (este exige o motivo padrão) (R32.4, R5.5).
+335. Identificador nas integrações: opcional, único sem diferenciar maiúsculas (409), editável pelo Admin (R32.4).
+336. Histórico com filtros por aplicativo, integração, status e data; detalhe, reprocessar e acesso só do Admin (R32.7).
+337. Saída do Clint em POST: "entra na etapa X" com filtro de funil envia só os campos escolhidos, com os identificadores
+     editados, assinada, e o destino com outro funil não recebe (R32.12).
+338. Saída do Clint em GET: campos na URL, sem corpo; "muda de status" cobre perdido e reaberto, não o movimento comum;
+     teste do destino e validações (R32.12).
+339. O destino do Clint mantém a fila, as tentativas e o reenvio da R9; negócio criado por integração dispara "negócio criado" (R32.12, R9.4).
+340. A URL da conta do ActiveCampaign em rede interna é recusada ao criar e ao testar, sem chamada nenhuma (R32.8, R9.1).
+341. Anonimizar o contato de qualquer lead de um recebimento de vários itens apaga o corpo, a mensagem, os avisos e os itens
+     dele (R4.6, R32.6).

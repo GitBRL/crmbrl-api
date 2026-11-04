@@ -156,7 +156,7 @@ apagam os dados pessoais dos recebimentos e das entregas daquele contato
 | Fila (pg-boss) | Quem cria o job | O que faz |
 | --- | --- | --- |
 | `eventos-dominio` | despachante da outbox | entrega o evento aos manipuladores |
-| `webhooks-entrada.processar` | `POST /webhooks/entrada/:token`, na transação do recebimento | mapeia, deduplica, cria ou reconverte o negócio, distribui (R8.5); até 3 tentativas, só para falha passageira |
+| `webhooks-entrada.processar` | `POST /webhooks/entrada/:token`, na transação do recebimento                              | por item do corpo: mapeia, deduplica, cria ou atualiza o contato e o negócio (modos, etapa, dono e status, R32.3, R32.4), distribui (R8.5); até 3 tentativas, só para falha passageira    |
 | `webhooks-saida.entregar` | manipulador da outbox, reenvio, nova tentativa | envia o envelope assinado (R9.3); cada nova tentativa (1 min … 24 h, R9.4) é um job novo, agendado na transação do resultado |
 | `atividades.lembretes` | agendamento `*/15 * * * *` (America/Sao_Paulo) | avisa 1 h antes do vencimento e uma vez no atraso (R6.5) |
 | `administracao.retencao` | agendamento `30 3 * * *` (America/Sao_Paulo) | apaga logs técnicos e recebimentos de webhook com mais de 90 dias, em lotes (R3.6, R8.6) |
@@ -811,19 +811,55 @@ proximoCursor }` (`?cursor&limite`). Valores em reais são strings decimais
 | `GET /administracao/logs-tecnicos` · `/:id` | Admin | `?nivel&de&ate&origem&usuarioId&requisicaoId&texto&cursor&limite` → `{ itens, proximoCursor }` · detalhe com a pilha (R3.6) |
 | `GET /administracao/resumo` | Admin | `?horas` (1 a 168) → `{ periodo, auditoria, logsTecnicos, eventosDominio, webhooks, retencao }` |
 
-**Webhooks** (`WebhooksEntradaController`, `WebhookEntradaPublicoController`, `WebhooksSaidaController`)
+**Webhooks e integrações** (`WebhooksEntradaController`, `WebhookEntradaPublicoController`, `AplicativosController`, `HistoricoDeRecebimentosController`, `WebhooksSaidaController`; a Onda H, R32, estende esta tabela)
 
 | Método e rota | Quem | Recebe → devolve |
 | --- | --- | --- |
 | `POST /webhooks/entrada/:token` | **público** (token na URL; `X-Assinatura: sha256=<hex>` se houver segredo) | JSON ou formulário até 256 KB → 202 `{ id, status }`; 401 assinatura (R8.3), 404 token, 410 desativado, 413, 415, 429 com `Retry-After` (R8.7) |
 | `GET /webhooks/entradas/modelos` · `POST /webhooks/entradas/previa` | Admin | modelos `GENERICO`, `DISPAROS_BRL`, `PERSONALIZADO` · prévia do mapeamento sobre um JSON de exemplo |
-| `GET`/`POST /webhooks/entradas` · `GET`/`PATCH`/`DELETE /webhooks/entradas/:id` | Admin | `{ nome, funilId?, etapaId?, estrategia?, responsavelFixoId?, modeloMapeamento?, mapeamento?, etiquetasFixas?, segredo?, gerarSegredo?, ativo? }` → 201 com `url` completa e `segredo` (só nesta resposta) |
+| `GET`/`POST /webhooks/entradas` · `GET`/`PATCH`/`DELETE /webhooks/entradas/:id`                                                       | Admin                                                                      | `{ nome, aplicativo?, alvo?, modo?, statusInicial?, motivoPerdaPadrao?, credencial?, configuracao?, funilId?, etapaId?, estrategia?, responsavelFixoId?, modeloMapeamento?, mapeamento?, etiquetasFixas?, segredo?, gerarSegredo?, ativo? }` → 201 com `url` completa e `segredo` (só nesta resposta); a lista filtra por `aplicativo`, `funilId`, `ativo`, `precisaAtencao` |
 | `POST /webhooks/entradas/:id/regenerar-token` · `POST`/`DELETE /webhooks/entradas/:id/segredo` · `POST /webhooks/entradas/:id/previa` | Admin | nova URL (a antiga dá 404 na hora) · define/remove o segredo HMAC · prévia sobre um recebimento guardado |
 | `GET /webhooks/entradas/:id/recebimentos` · `/:recebimentoId` · `POST …/:recebimentoId/reprocessar` | Admin | recebimentos (R8.6) · detalhe com corpo e cabeçalhos · 202 reprocessa; 409 se já `PROCESSADO` |
-| `GET /webhooks/saidas/eventos` | Admin | eventos assináveis (R9.2) |
-| `GET`/`POST /webhooks/saidas` · `GET`/`PATCH`/`DELETE /webhooks/saidas/:id` | Admin | `{ nome, url, eventos, cabecalhos?, ativo? }` → 201 com o `segredo` (só nesta resposta); 422 `R9.1` URL interna/SSRF |
+| `GET /webhooks/aplicativos`                                                                                                           | Admin                                                                      | catálogo (R32.1): `{ aplicativos: [{ aplicativo, nome, disponivel, entrega, autenticidade, credencial?, buscaCampos, escolheFormulario, passoAPasso, modelo, dicas }], destinos }`                                                                                                                                                                                           |
+| `POST /webhooks/entradas/testar-credencial` · `POST /webhooks/entradas/:id/testar-credencial`                                         | Admin                                                                      | `{ aplicativo, credencial }` → `{ valida, mensagem }`; a da integração marca/limpa "precisa de atenção" (R32.9)                                                                                                                                                                                                                                                              |
+| `POST /webhooks/entradas/:id/buscar-campos` · `GET …/:id/campos-recebidos?limite` · `GET …/:id/endereco`                              | Admin                                                                      | campos do aplicativo pela credencial (R32.8) · caminhos dos últimos recebimentos com exemplo mascarado (R32.7) · URL completa (R32.1)                                                                                                                                                                                                                                        |
+| `GET …/:id/formularios?busca` · `GET …/:id/formularios/:formularioId/campos` · `POST …/:id/sincronizar`                               | Admin                                                                      | formulários e perguntas do Typeform · registra de novo o webhook no formulário (R32.9, R32.10)                                                                                                                                                                                                                                                                               |
+| `GET /webhooks/recebimentos` · `/:id` · `POST /:id/reprocessar`                                                                       | Admin                                                                      | histórico de todas as integrações com `de`, `ate`, `status`, `aplicativo`, `integracaoId`; detalhe com corpo e cabeçalhos (R32.7)                                                                                                                                                                                                                                            |
+| `GET /webhooks/saidas/eventos` · `GET /webhooks/saidas/formato-clint`                                                                 | Admin                                                                      | eventos assináveis (R9.2) · gatilhos, campos e métodos do formato Clint (R32.12)                                                                                                                                                                                                                                                                                             |
+| `GET`/`POST /webhooks/saidas` · `GET`/`PATCH`/`DELETE /webhooks/saidas/:id`                                                           | Admin                                                                      | `{ nome, url, eventos, cabecalhos?, ativo?, formato?, metodo?, gatilhos?, campos? }` (formato `CLINT`: `gatilhos` e `campos` no lugar de `eventos`) → 201 com o `segredo` (só nesta resposta); 422 `R9.1` URL interna/SSRF                                                                                                                                                   |
 | `POST /webhooks/saidas/:id/regenerar-segredo` · `POST /webhooks/saidas/:id/testar` | Admin | novo segredo · envia `webhook.teste` na hora e devolve o resultado |
 | `GET /webhooks/saidas/:id/entregas` · `/:entregaId` · `POST …/:entregaId/reenviar` | Admin | entregas (R9.5) · envelope e tentativas · 202 recomeça as tentativas |
+
+**Integrações por aplicativo (Onda H, R32).** Os webhooks de entrada viraram integrações de um
+**aplicativo** sem criar um segundo caminho de processamento: a mesma tabela `webhooks_entrada` ganhou
+`aplicativo`, `alvo`, `modo`, `status_inicial`, `motivo_perda_padrao`, `token_cifrado`, `credencial_cifrada`,
+`configuracao` e a situação "precisa de atenção"; `webhook_recebimentos` ganhou `avisos` e `resultados` (um por
+item do corpo); `usuarios.identificador_integracao` (único sem diferenciar maiúsculas) e as colunas do formato Clint
+em `webhooks_saida` (`formato`, `metodo`, `gatilhos`, `campos`). Os pontos antigos viram `WEBHOOK`/`NEGOCIO`/
+`CRIAR_OU_ATUALIZAR` pelos padrões da migration `20261104120000_onda_h_integracoes`.
+
+- `src/webhooks/aplicativos/` — um adaptador por aplicativo (`webhook`, `elementor`, `rd-station`, `active-campaign`,
+  `great-pages`, `lead-lovers`, `manychat`, `typeform`) atrás de `AdaptadorDeAplicativo` (`tipos.ts`) e do registro
+  (`registro.ts`, que também lista os aplicativos da H2 como indisponíveis). Cada adaptador: `normalizarCorpo` (o corpo →
+  itens com caminhos reconhecíveis), `verificarAutenticidade` (HMAC `X-Assinatura`, chave num cabeçalho,
+  `Typeform-Signature`…, sempre em tempo constante), o modelo de mapeamento e o passo a passo do catálogo e, com
+  credencial, `lerCredencial`, `testarCredencial` e `buscarCampos` (`fetch` com tempo limite, sem seguir
+  redirecionamento; 401/403 → `CredencialRecusadaError`). `formulario.ts` lê `application/x-www-form-urlencoded`
+  aninhado (o `qs` do Express compactaria `contact[fields][3]`).
+- `src/webhooks/entrada/` — `RecebimentosService.receber` confere token, limite, tamanho e a autenticidade **pelo
+  adaptador** e grava o recebimento com o corpo já lido; `ProcessamentoEntradaService` (fila
+  `webhooks-entrada.processar`) normaliza o corpo em itens e roda cada um numa transação (resultado gravado junto; uma
+  nova tentativa pula os já concluídos); `AplicacaoDoRecebimento` aplica o item (R32.3, R32.4): contato
+  (`ContatosService.encontrarOuCriar`), negócio (`NegociosService.criarAutomatico`, com as opções `sempreCriar` e
+  `abertoMaisRecente`), dono, etapa e status (`MotorDeNegociosService.entrarNaEtapa`, que roda as passagens);
+  `AplicativosService` guarda e testa a credencial, busca campos, registra o webhook no Typeform e marca "precisa de
+  atenção" (auditoria e `notificarAdmins`); `campos-recebidos.ts` lista e mascara os campos dos últimos recebimentos.
+- `src/webhooks/saida/formato-clint.ts` — gatilhos, catálogo de campos, corpo e parâmetros do formato Clint;
+  `EntregasService` cria a entrega do destino `CLINT` com o corpo já montado (`payload.dados`) e envia POST ou GET
+  pelo mesmo caminho da R9 (fila, tentativas, SSRF, assinatura). Para `negocio.reaberto`, que não é assinável pelo
+  envelope, o `EntregasService` registra um manipulador próprio.
+- Configuração: `TYPEFORM_API_URL` e `MANYCHAT_API_URL` (padrões das APIs reais; o ambiente dos agentes aponta para as
+  falsas do apoio). A URL da conta do ActiveCampaign vem da credencial e passa pela proteção SSRF da R9.1.
 
 **Envelope dos webhooks de saída** (R9.3): corpo `{ id, evento, ocorridoEm, dados }`
 (o `id` é o do evento na outbox, igual em todas as tentativas — use-o para
@@ -839,8 +875,8 @@ domínio (`contato.reconvertido`, `contato.anonimizado`, `empresa.*`,
 **Notificações** (`tipo`, em `src/notificacoes/tipos-notificacao.ts`):
 `negocio.atribuido`, `contato.atribuido`, `empresa.atribuida`,
 `passagem.recebida`, `desligamento.itens_recebidos`, `atividade.vencendo`,
-`atividade.atrasada`, `webhook_saida.falhou`, `webhook_saida.desativado` e
-`equipe.sem_lider`. Os `link` apontam para telas do front (`/atividades?atividade=…`,
+`atividade.atrasada`, `webhook_saida.falhou`, `webhook_saida.desativado`,
+`integracao.precisa_atencao` (Onda H, R32.9) e `equipe.sem_lider`. Os `link` apontam para telas do front (`/atividades?atividade=…`,
 `/administracao/usuarios`, `/integracoes?webhookSaida=…`, …).
 Na Onda A (constantes nos módulos donos): `conversa.atribuida`,
 `conversa.transferida`, `conversa.mensagem_recebida`, `conversa.encaminhadas`,

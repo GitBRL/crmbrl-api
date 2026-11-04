@@ -119,6 +119,42 @@ export async function exigirEmailLivre(
   );
 }
 
+/**
+ * R32.4: o identificador nas integrações é único, sem diferenciar maiúsculas
+ * (o de um desligado também conta). Vazio vira `null`.
+ */
+export async function lerIdentificadorDeIntegracao(
+  tx: Tx,
+  valor: string | null | undefined,
+  exceto?: string,
+): Promise<string | null | undefined> {
+  if (valor === undefined) {
+    return undefined;
+  }
+  const texto = valor?.trim() ?? '';
+  if (!texto) {
+    return null;
+  }
+  const existente = await tx.usuario.findFirst({
+    where: {
+      identificadorIntegracao: { equals: texto, mode: 'insensitive' },
+      ...(exceto ? { NOT: { id: exceto } } : {}),
+    },
+    select: { id: true },
+  });
+  if (existente) {
+    throw new ConflitoException(
+      'Já existe um usuário com este identificador nas integrações.',
+      {
+        regra: 'R32.4',
+        campos: ['identificadorIntegracao'],
+        usuarioId: existente.id,
+      },
+    );
+  }
+  return texto;
+}
+
 /** Telefone do usuário em E.164 só com dígitos; vazio → `null`; inválido → 400. */
 export function lerTelefone(telefone: string | null): string | null {
   try {
