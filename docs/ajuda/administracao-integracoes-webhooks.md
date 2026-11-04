@@ -3,7 +3,7 @@ titulo: Integrações — aplicativos, histórico e webhooks de saída
 area: administracao
 telas: [/integracoes, /integracoes/aplicativos, /integracoes/historico, /integracoes/saida]
 papeis: Só o Admin.
-palavras-chave: [webhook, integração, aplicativo, catálogo, assistente, mapeamento, histórico, clint, elementor, typeform, rd station, activecampaign, manychat, great pages, lead lovers, captação de leads, formulário, api, assinatura, hmac, entrega, reprocessar, reenviar, url secreta]
+palavras-chave: [facebook lead ads, hotmart, kiwify, eduzz, webhook, integração, aplicativo, catálogo, assistente, mapeamento, histórico, clint, elementor, typeform, rd station, activecampaign, manychat, great pages, lead lovers, captação de leads, formulário, api, assinatura, hmac, entrega, reprocessar, reenviar, url secreta]
 ---
 # Integrações: aplicativos, histórico e webhooks de saída
 
@@ -12,7 +12,7 @@ Abra **Integrações** (menu **Sistema**).
 ## Aplicativos (receber leads das suas ferramentas)
 A tela **Integrações** tem três seções: **Aplicativos**, **Histórico** e **Webhooks de saída**.
 
-1. Em **Aplicativos**, escolha a ferramenta no catálogo (cartões com o logotipo, em ordem alfabética; use a busca). Hoje estão disponíveis ActiveCampaign, Elementor, Great Pages, Lead Lovers, ManyChat, RD Station, Typeform e o **Webhook** genérico, para qualquer sistema que chame uma URL. Facebook Lead Ads, Hotmart, Kiwify e Eduzz aparecem como **Em breve**.
+1. Em **Aplicativos**, escolha a ferramenta no catálogo (cartões com o logotipo, em ordem alfabética; use a busca). Estão disponíveis ActiveCampaign, Eduzz, Elementor, Facebook Lead Ads, Great Pages, Hotmart, Kiwify, Lead Lovers, ManyChat, RD Station, Typeform e o **Webhook** genérico, para qualquer sistema que chame uma URL. O Facebook Lead Ads e as plataformas de curso (Hotmart, Kiwify e Eduzz) têm passos próprios: conectar a página e o formulário, ou a tabela de eventos.
 2. O assistente abre em passos: **Começar** (o que a integração faz e o passo a passo dentro da ferramenta), **Ação e nome**, **Endereço**, **Mapeamento**, **Configurações** e **Salvar**. No celular ele ocupa a tela inteira.
 3. **Ação e nome:** dê um nome, escolha o que receber (**Negócio** ou **Contato**) e o que fazer: **Criar** (todo recebimento abre um negócio novo), **Atualizar** (só atualiza o negócio aberto do contato; sem negócio aberto, o recebimento fica como ignorado) ou **Criar ou atualizar** (atualiza o negócio aberto do funil e registra a reconversão; senão cria). Todo recebimento precisa de e-mail ou telefone. Aplicativos com credencial (ActiveCampaign, ManyChat, Typeform) pedem a chave aqui; use **Testar** para conferir sem gravar.
 4. Ao sair deste passo a integração é criada **inativa**, para o CRM gerar o endereço. Ela só vira **ativa** no último passo (**Salvar e ativar**). Quem fecha no meio encontra a integração na lista, inativa, e continua por **Editar**.
@@ -29,7 +29,22 @@ Integrações criadas antes do assistente aparecem com **Endereço antigo**: o C
 ### Histórico
 Em **Histórico** estão todos os recebimentos dos últimos 90 dias, com filtros de **data**, **status**, **aplicativo** e **integração** (também por **Ver histórico**, no menu da integração). Abra um recebimento para ver o resultado, os avisos, o resultado de cada lead (o RD Station pode mandar vários de uma vez), o contato e o negócio criados ou atualizados, os cabeçalhos e o corpo recebido, com **Copiar** o JSON. Use **Reprocessar** para tentar de novo com a configuração atual (não vale para o que já foi processado nem para o que foi recusado na chegada), **Simular com a configuração atual** e **Editar integração**.
 
-Os artigos de cada aplicativo, com o passo a passo dentro da ferramenta, ficam na ajuda por aplicativo.
+## Um artigo por aplicativo
+Cada aplicativo tem um artigo com o que precisa ter antes (plano, credencial), o passo a passo no CRM e na ferramenta, como testar, o que aparece no histórico, erros comuns e os modos criar e atualizar:
+- [Webhook](integracoes-webhook.md) (receber e enviar)
+- [ActiveCampaign](integracoes-activecampaign.md)
+- [Eduzz](integracoes-eduzz.md)
+- [Elementor](integracoes-elementor.md)
+- [Facebook Lead Ads](integracoes-facebook-lead-ads.md) (exige app da Meta com `leads_retrieval` e o CRM em Leads Access na Central de Leads)
+- [Great Pages](integracoes-great-pages.md)
+- [Hotmart](integracoes-hotmart.md)
+- [Kiwify](integracoes-kiwify.md)
+- [Lead Lovers](integracoes-lead-lovers.md)
+- [ManyChat](integracoes-manychat.md)
+- [RD Station](integracoes-rd-station.md)
+- [Typeform](integracoes-typeform.md)
+
+Em aplicativos cujo formato de envio foi inferido da documentação pública (Elementor, Great Pages, Lead Lovers, RD Station, ManyChat e as plataformas de curso), confira o **primeiro recebimento** no histórico e ajuste o mapeamento se algum campo vier com outro nome.
 
 ## Webhook de saída (avisar outro sistema quando algo acontece)
 1. Crie informando nome, URL e o **formato do envio**. No **Envelope do CRM**, escolha os eventos desejados (cada um tem descrição) e os cabeçalhos extras. No **Formato Clint**, escolha o método (**POST** com JSON ou **GET** com parâmetros na URL), os **gatilhos** (negócio criado, negócio entra na etapa X, negócio muda de etapa, negócio muda de status, cada um com filtro de funil) e os **campos enviados**, cada um com o nome (identificador) que o destino espera, que você pode editar. O formato não muda depois de criado. O segredo aparece uma vez.

@@ -621,6 +621,53 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
     );
   });
 
+  it('R32.14 — reconexão: o ator do retorno é o Admin que iniciou o login (vai no state assinado), não o criador da conexão', async () => {
+    const primeira = await conectar();
+    const outro = await criarUsuario(t, {
+      papel: 'ADMIN',
+      nome: 'Outro Admin',
+    });
+    const clienteOutro = await entrarComo(t, outro);
+    const { body } = await clienteOutro
+      .post(`${API}/oauth/iniciar`, { conexaoId: primeira.conexaoId })
+      .expect(201);
+    const dialogo = new URL((body as { urlDialogo: string }).urlDialogo);
+    const code = graph.novoCodigo(
+      dialogo.searchParams.get('redirect_uri') ?? '',
+    );
+    await request(t.servidor)
+      .get('/api/v1/publico/facebook/oauth/retorno')
+      .query({ code, state: dialogo.searchParams.get('state') })
+      .expect(302);
+    const eventos = await t.prisma.eventoAuditoria.findMany({
+      where: { acao: 'conexao_facebook.conectada' },
+      orderBy: { id: 'asc' },
+    });
+    expect(eventos.map(({ usuarioId }) => usuarioId)).toEqual([
+      adminUsuario.id,
+      outro.id,
+    ]);
+    // Admin desligado depois de iniciar: o retorno é recusado.
+    const { body: segundo } = await clienteOutro
+      .post(`${API}/oauth/iniciar`, { conexaoId: primeira.conexaoId })
+      .expect(201);
+    const dialogo2 = new URL((segundo as { urlDialogo: string }).urlDialogo);
+    await t.prisma.usuario.update({
+      where: { id: outro.id },
+      data: { ativo: false },
+    });
+    const recusado = await request(t.servidor)
+      .get('/api/v1/publico/facebook/oauth/retorno')
+      .query({
+        code: graph.novoCodigo(dialogo2.searchParams.get('redirect_uri') ?? ''),
+        state: dialogo2.searchParams.get('state'),
+      })
+      .expect(302);
+    expect(recusado.headers.location as string).toContain(
+      'motivo=state_invalido',
+    );
+  });
+
   it('cenário 346 (R32.14) — state vencido, repetido, adulterado e login cancelado: nada é trocado e o navegador volta com o motivo', async () => {
     const iniciar = async () => {
       const { body } = await admin
@@ -1083,6 +1130,19 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
     expect(graph.pedidos.length).toBe(pedidos);
   });
 
+  it('R32.14 — duas conexões do mesmo app dividem a assinatura da página: soltar a integração de uma não desassina enquanto a outra usa a página', async () => {
+    const a = await conectar();
+    const b = await conectar();
+    expect(b.conexaoId).not.toBe(a.conexaoId);
+    const primeira = await criarIntegracao(a.conexaoId);
+    await criarIntegracao(b.conexaoId, { formularioId: FORM_2 });
+    expect(graph.assinadas.get(PAGINA_1)).toContain('leadgen');
+    await admin
+      .patch(`/api/v1/webhooks/entradas/${primeira.id}`, { ativo: false })
+      .expect(200);
+    expect(graph.assinadas.get(PAGINA_1)).toContain('leadgen');
+  });
+
   // -------------------------------------------------------------------------
   // Webhook leadgen
   // -------------------------------------------------------------------------
@@ -1489,6 +1549,74 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
         'hub.challenge': 'x',
       })
       .expect(403);
+  });
+
+  it('R32.14, R14 — leadgen com assinatura que não confere não derruba as entradas de Messenger do mesmo POST assinadas pelo app do canal', async () => {
+    const { conexaoId } = await conectar();
+    const integracao = await criarIntegracao(conexaoId);
+    const SEGREDO_DO_CANAL = 'segredo-do-app-do-canal-00000000';
+    await admin
+      .post('/api/v1/meta/canais', {
+        tipo: 'MESSENGER',
+        nome: 'Página do Messenger',
+        appId: '9876543210123456',
+        appSecret: SEGREDO_DO_CANAL,
+        pageId: PAGINA_1,
+        tokenPagina: 'EAAB-token-da-pagina-1',
+      })
+      .expect(201);
+    const lead = graph.novoLead(FORM_1, {
+      full_name: 'Ana',
+      email: 'ana@exemplo.com.br',
+    });
+    const corpo = JSON.stringify({
+      object: 'page',
+      entry: [
+        {
+          id: PAGINA_1,
+          time: 1,
+          messaging: [
+            {
+              sender: { id: '1' },
+              recipient: { id: PAGINA_1 },
+              timestamp: 1,
+              message: { mid: 'm_9', text: 'oi' },
+            },
+          ],
+          changes: [
+            {
+              field: 'leadgen',
+              value: {
+                leadgen_id: lead.id,
+                page_id: PAGINA_1,
+                form_id: FORM_1,
+                created_time: 1,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const resposta = await request(t.servidor)
+      .post('/api/v1/publico/meta/webhook')
+      .set('content-type', 'application/json')
+      .set('x-hub-signature-256', assinar(corpo, SEGREDO_DO_CANAL))
+      .send(corpo)
+      .expect(200);
+    expect(resposta.body).toEqual({ recebidas: 1 });
+    await processar();
+    // O lead não foi lido (assinatura do app do Lead Ads não confere).
+    expect(await recebimentosDe(integracao.id)).toHaveLength(0);
+    // Sem nenhum ramo autêntico: 401.
+    await request(t.servidor)
+      .post('/api/v1/publico/meta/webhook')
+      .set('content-type', 'application/json')
+      .set(
+        'x-hub-signature-256',
+        assinar(corpo, 'segredo-qualquer-xxxxxxxxxxxxxxx'),
+      )
+      .send(corpo)
+      .expect(401);
   });
 
   it('cenário 359 (R32.14) — excluir a conexão: 409 enquanto há integração, 204 depois, com os tokens apagados e a conexão fora da lista', async () => {

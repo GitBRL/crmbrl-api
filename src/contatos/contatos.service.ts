@@ -1038,55 +1038,63 @@ export class ContatosService {
       if (!contato) {
         throw new NaoEncontradoException('Contato não encontrado.');
       }
-      const [identificadores, negocios, atividades, conversas, ligacoes, sdr] =
-        await Promise.all([
-          tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
-          tx.negocio.findMany({ where: { contatoId: id } }),
-          tx.atividade.findMany({ where: { contatoId: id } }),
-          tx.conversa.findMany({
-            where: { contatoId: id },
-            include: {
-              mensagens: {
-                orderBy: { ocorridaEm: 'asc' },
-                select: {
-                  id: true,
-                  direcao: true,
-                  tipo: true,
-                  texto: true,
-                  ocorridaEm: true,
-                  arquivo: {
-                    select: { nome: true, mime: true, tamanho: true },
-                  },
+      const [
+        identificadores,
+        negocios,
+        atividades,
+        conversas,
+        ligacoes,
+        sdr,
+        recebimentos,
+      ] = await Promise.all([
+        tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
+        tx.negocio.findMany({ where: { contatoId: id } }),
+        tx.atividade.findMany({ where: { contatoId: id } }),
+        tx.conversa.findMany({
+          where: { contatoId: id },
+          include: {
+            mensagens: {
+              orderBy: { ocorridaEm: 'asc' },
+              select: {
+                id: true,
+                direcao: true,
+                tipo: true,
+                texto: true,
+                ocorridaEm: true,
+                arquivo: {
+                  select: { nome: true, mime: true, tamanho: true },
                 },
               },
             },
-          }),
-          tx.ligacao.findMany({
-            where: { contatoId: id },
-            orderBy: { iniciadaEm: 'asc' },
-            select: {
-              id: true,
-              direcao: true,
-              estado: true,
-              motivo: true,
-              telefone: true,
-              iniciadaEm: true,
-              atendidaEm: true,
-              encerradaEm: true,
-              duracaoSegundos: true,
-              anotacao: true,
-              gravacaoSituacao: true,
-              gravacaoDuracaoSegundos: true,
-              gravacaoRemovidaEm: true,
-              transcricaoSituacao: true,
-              transcricao: true,
-              resumoSituacao: true,
-              resumo: true,
-              atendente: { select: { nome: true } },
-            },
-          }),
-          this.dadosDoSdr(tx, id),
-        ]);
+          },
+        }),
+        tx.ligacao.findMany({
+          where: { contatoId: id },
+          orderBy: { iniciadaEm: 'asc' },
+          select: {
+            id: true,
+            direcao: true,
+            estado: true,
+            motivo: true,
+            telefone: true,
+            iniciadaEm: true,
+            atendidaEm: true,
+            encerradaEm: true,
+            duracaoSegundos: true,
+            anotacao: true,
+            gravacaoSituacao: true,
+            gravacaoDuracaoSegundos: true,
+            gravacaoRemovidaEm: true,
+            transcricaoSituacao: true,
+            transcricao: true,
+            resumoSituacao: true,
+            resumo: true,
+            atendente: { select: { nome: true } },
+          },
+        }),
+        this.dadosDoSdr(tx, id),
+        this.recebimentosDeWebhook(tx, id),
+      ]);
       await this.auditoria.registrar(tx, {
         acao: 'contato.dados-exportados',
         entidade: 'contato',
@@ -1101,6 +1109,7 @@ export class ContatosService {
           sdrConversas: sdr.conversas.length,
           sdrDecisoes: sdr.decisoes.length,
           sdrSugestoes: sdr.sugestoes.length,
+          recebimentosDeWebhook: recebimentos.length,
         },
       });
       return {
@@ -1120,8 +1129,59 @@ export class ContatosService {
         ligacoes,
         // R31.9: o que a IA do SDR guarda do titular (qualificação, valores descobertos, decisões e sugestões).
         sdr,
+        // R8.6, R32: os corpos recebidos por webhook e integração (formulários, compras, respostas), guardados por 90 dias.
+        recebimentosDeWebhook: recebimentos,
       };
     });
+  }
+
+  /**
+   * Os recebimentos de webhook do titular, para a exportação LGPD: os que criaram
+   * ou reconverteram o contato e os de vários itens em que ele é de algum item
+   * (`resultados`), com o corpo, os cabeçalhos guardados e o IP, mais o lead do
+   * Facebook ligado a cada um.
+   */
+  private async recebimentosDeWebhook(tx: Tx, contatoId: string) {
+    const recebimentos = await tx.webhookRecebimento.findMany({
+      where: {
+        OR: [
+          { contatoId },
+          { resultados: { array_contains: [{ contatoId }] } },
+        ],
+      },
+      orderBy: { recebidoEm: 'asc' },
+      select: {
+        id: true,
+        recebidoEm: true,
+        ip: true,
+        cabecalhos: true,
+        tipoConteudo: true,
+        corpo: true,
+        status: true,
+        mensagem: true,
+        avisos: true,
+        resultados: true,
+        webhook: { select: { id: true, nome: true, aplicativo: true } },
+      },
+    });
+    const leads = await tx.leadFacebook.findMany({
+      where: { recebimentoId: { in: recebimentos.map(({ id }) => id) } },
+      select: {
+        recebimentoId: true,
+        leadgenId: true,
+        formularioId: true,
+        origem: true,
+        criadoNaMetaEm: true,
+        recebidoEm: true,
+      },
+    });
+    return recebimentos.map(({ webhook, ...recebimento }) => ({
+      ...recebimento,
+      integracao: webhook,
+      leadFacebook:
+        leads.find(({ recebimentoId }) => recebimentoId === recebimento.id) ??
+        null,
+    }));
   }
 
   /** O que o SDR com IA guarda do contato, para a exportação LGPD (R31.9). */

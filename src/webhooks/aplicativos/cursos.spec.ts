@@ -79,7 +79,7 @@ function autenticar(
   });
 }
 
-describe('R32.20 — plataformas de curso: catálogo', () => {
+describe('R32.15 — plataformas de curso: catálogo', () => {
   it('Hotmart, Kiwify e Eduzz estão disponíveis, com tabela de eventos, modelos e filtro por produto', () => {
     const catalogo = catalogoDeAplicativos();
     for (const aplicativo of ['HOTMART', 'KIWIFY', 'EDUZZ'] as const) {
@@ -156,7 +156,7 @@ describe('R32.20 — plataformas de curso: catálogo', () => {
   });
 });
 
-describe('R32.20 — Hotmart: corpo, evento, produto e idempotência', () => {
+describe('R32.15 — Hotmart: corpo, evento, produto e idempotência', () => {
   const variantes: [string, string][] = [
     ['compra-aprovada', 'PURCHASE_APPROVED'],
     ['compra-completa', 'PURCHASE_COMPLETE'],
@@ -302,7 +302,7 @@ describe('R32.20 — Hotmart: corpo, evento, produto e idempotência', () => {
   });
 });
 
-describe('R32.20 — Kiwify: corpo, evento, produto e idempotência', () => {
+describe('R32.15 — Kiwify: corpo, evento, produto e idempotência', () => {
   const variantes: [string, string][] = [
     ['compra-aprovada', 'order_approved'],
     ['boleto-gerado', 'billet_created'],
@@ -472,7 +472,7 @@ describe('R32.20 — Kiwify: corpo, evento, produto e idempotência', () => {
   });
 });
 
-describe('R32.20 — Eduzz: corpo, evento, produto e idempotência', () => {
+describe('R32.15 — Eduzz: corpo, evento, produto e idempotência', () => {
   const variantes: [string, string][] = [
     ['fatura-paga', 'myeduzz.invoice_paid'],
     ['fatura-aberta', 'myeduzz.invoice_opened'],
@@ -637,7 +637,7 @@ describe('R32.20 — Eduzz: corpo, evento, produto e idempotência', () => {
   });
 });
 
-describe('R32.20 — tabela de eventos e filtro por produto', () => {
+describe('R32.15 — tabela de eventos e filtro por produto', () => {
   const eventos = adaptadorHotmart.definicao.eventos!.eventos;
 
   it('a regra gravada vale; o que faltar usa o padrão do evento; código desconhecido não tem regra', () => {

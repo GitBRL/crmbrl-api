@@ -843,8 +843,8 @@ em `webhooks_saida` (`formato`, `metodo`, `gatilhos`, `campos`). Os pontos antig
 `CRIAR_OU_ATUALIZAR` pelos padrões da migration `20261104120000_onda_h_integracoes`.
 
 - `src/webhooks/aplicativos/` — um adaptador por aplicativo (`webhook`, `elementor`, `rd-station`, `active-campaign`,
-  `great-pages`, `lead-lovers`, `manychat`, `typeform`) atrás de `AdaptadorDeAplicativo` (`tipos.ts`) e do registro
-  (`registro.ts`, que também lista os aplicativos da H2 como indisponíveis). Cada adaptador: `normalizarCorpo` (o corpo →
+  `great-pages`, `lead-lovers`, `manychat`, `typeform`, `facebook-lead-ads`, `hotmart`, `kiwify`, `eduzz`) atrás de
+  `AdaptadorDeAplicativo` (`tipos.ts`) e do registro (`registro.ts`: todos os aplicativos do enum têm adaptador). Cada adaptador: `normalizarCorpo` (o corpo →
   itens com caminhos reconhecíveis), `verificarAutenticidade` (HMAC `X-Assinatura`, chave num cabeçalho,
   `Typeform-Signature`…, sempre em tempo constante), o modelo de mapeamento e o passo a passo do catálogo e, com
   credencial, `lerCredencial`, `testarCredencial` e `buscarCampos` (`fetch` com tempo limite, sem seguir
@@ -858,11 +858,26 @@ em `webhooks_saida` (`formato`, `metodo`, `gatilhos`, `campos`). Os pontos antig
   `abertoMaisRecente`), dono, etapa e status (`MotorDeNegociosService.entrarNaEtapa`, que roda as passagens);
   `AplicativosService` guarda e testa a credencial, busca campos, registra o webhook no Typeform e marca "precisa de
   atenção" (auditoria e `notificarAdmins`); `campos-recebidos.ts` lista e mascara os campos dos últimos recebimentos.
+- `src/webhooks/facebook/` (R32.14) — `ConexoesFacebookService` (login OAuth com `state` assinado e de uso único, tokens
+  e páginas cifrados em `conexoes_facebook`, escolha de página, formulário e perguntas pela `graph-facebook.ts`, que chama a
+  Graph em `META_GRAPH_URL` e abre o diálogo em `META_DIALOGO_URL`); `FacebookLeadAdsService` (assinatura da página,
+  jobs `facebook.lead` e `facebook.reconciliar`, um registro por `(integração, leadgen_id)` em `leads_facebook`). O roteador
+  Meta (`src/canais/meta`) só confere `X-Hub-Signature-256` e entrega `leadgen` a esse serviço. Os leads entram pelo
+  mesmo recebimento e processamento das demais integrações.
+- `src/webhooks/aplicativos/cursos.ts` (R32.15) — tabela de eventos (ignorar, abrir, ganho, perdido ou etiquetar), modelos
+  prontos, filtro por produto e a chave de idempotência do evento (gravada nos resultados do recebimento; reenvio →
+  `IGNORADO` apontando o original). Hotmart (`X-HOTMART-HOTTOK`), Kiwify (`signature` na query, HMAC-SHA1) e Eduzz
+  (`x-signature`, HMAC-SHA256) conferem em tempo constante; reembolso e chargeback acham o negócio pela `transacao`.
+- O histórico (`GET /webhooks/recebimentos`) só lista recebimentos de integrações não excluídas, como o detalhe e o
+  reprocessar (R32.17); os registros ficam no banco até a retenção de 90 dias.
+- Acesso (R32.13): todas as rotas acima são `@Papeis('ADMIN')`; as públicas são `POST /webhooks/entrada/:token` (token e
+  autenticidade do aplicativo), `GET /publico/facebook/oauth/retorno` (`state`) e `POST /publico/meta/webhook`
+  (`X-Hub-Signature-256`). O teste `test/integracoes-acesso.e2e-spec.ts` (cenário 381) percorre as 49 rotas por papel.
 - `src/webhooks/saida/formato-clint.ts` — gatilhos, catálogo de campos, corpo e parâmetros do formato Clint;
   `EntregasService` cria a entrega do destino `CLINT` com o corpo já montado (`payload.dados`) e envia POST ou GET
   pelo mesmo caminho da R9 (fila, tentativas, SSRF, assinatura). Para `negocio.reaberto`, que não é assinável pelo
   envelope, o `EntregasService` registra um manipulador próprio.
-- Configuração: `TYPEFORM_API_URL` e `MANYCHAT_API_URL` (padrões das APIs reais; o ambiente dos agentes aponta para as
+- Configuração: `TYPEFORM_API_URL`, `MANYCHAT_API_URL`, `META_GRAPH_URL` e `META_DIALOGO_URL` (padrões das APIs reais; o ambiente dos agentes aponta para as
   falsas do apoio). A URL da conta do ActiveCampaign vem da credencial e passa pela proteção SSRF da R9.1.
 
 **Envelope dos webhooks de saída** (R9.3): corpo `{ id, evento, ocorridoEm, dados }`

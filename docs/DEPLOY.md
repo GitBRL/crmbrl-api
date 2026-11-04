@@ -85,9 +85,20 @@ LIGACOES_GRAVACAO_MAX_MIN=180                         # (180) duração máxima 
 LIGACOES_RESUMO_MODELO=claude-sonnet-5-5              # (claude-sonnet-5-5) modelo do resumo; usa ANTHROPIC_API_KEY
 LIGACOES_STUN_URLS=                                   # (vazio) STUN do navegador nas ligações: stun:host:porta,… (sem TURN)
 LIGACOES_ESPERA_PRE_ACEITE_MS=800                     # (800) espera entre pre_accept e accept da ligação recebida
+TYPEFORM_API_URL=                                     # (https://api.typeform.com) só mude para uma API de teste
+MANYCHAT_API_URL=                                     # (https://api.manychat.com) só mude para uma API de teste
+META_DIALOGO_URL=                                     # (https://www.facebook.com) diálogo de login do Facebook Lead Ads; só mude para teste
 TICKETHUB_URL= / TICKETHUB_EMAIL= / TICKETHUB_SENHA=  # chamados do assistente (ou pela tela do Admin)
 VAPID_CHAVE_PUBLICA= / VAPID_CHAVE_PRIVADA= / VAPID_ASSUNTO=mailto:voce@suaempresa.com.br
 ```
+
+**Facebook Lead Ads e Typeform (Onda H, R32):** o Facebook (o retorno do login e o aviso `leadgen` da Meta) e o Typeform
+(que chama o CRM a cada resposta) precisam alcançar o CRM: `URL_PUBLICA` tem de ser pública e com **https**, como no WhatsApp
+oficial. Não há variável nova para as credenciais (ID e segredo do app da Meta e o token do Typeform são cadastrados na
+tela Integrações e guardados cifrados). No app da Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` como
+URI de redirecionamento do login e o webhook de páginas (campo `leadgen`) no mesmo endereço do webhook da Meta
+(`URL_PUBLICA/api/v1/publico/meta/webhook`); o endereço exato aparece no assistente do Facebook. As três variáveis `*_URL` acima
+só existem para apontar para APIs de teste: em produção deixe-as vazias.
 
 `COOKIE_SEGURO=true`, `DOCS_PUBLICAS=false` e `WHATSAPP_SIMULADO=false` já vêm fixados no
 `docker-compose.producao.yml`. A lista completa de variáveis está no `README.md` ("Variáveis de ambiente").

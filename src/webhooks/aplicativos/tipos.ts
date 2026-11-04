@@ -19,7 +19,7 @@ export interface ItemRecebido {
   readonly rotulo: string | null;
   /** Chave de idempotência do evento (H2: plataformas de curso), quando o aplicativo define uma. */
   readonly chaveDoEvento?: string | null;
-  /** Plataformas de curso (R32.20): o código do evento (`PURCHASE_APPROVED`, `order_approved`, `myeduzz.invoice_paid`…). */
+  /** Plataformas de curso (R32.15): o código do evento (`PURCHASE_APPROVED`, `order_approved`, `myeduzz.invoice_paid`…). */
   readonly evento?: string | null;
   /** Plataformas de curso: os produtos do evento (para o filtro por produto). */
   readonly produtos?: readonly ProdutoDoItem[];
@@ -47,7 +47,7 @@ export type ResultadoDeAutenticidade =
 export type ModoDoSegredo =
   'NAO_USA' | 'OPCIONAL' | 'GERADO_PELO_CRM' | 'OBRIGATORIO';
 
-/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.20). */
+/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.15). */
 export type AcaoDoEvento =
   'IGNORAR' | 'ABRIR' | 'GANHO' | 'PERDIDO' | 'ETIQUETAR';
 
@@ -152,7 +152,7 @@ export interface DefinicaoDoAplicativo {
   readonly modelo: ModeloDoAplicativo | null;
   /** Dicas dos destinos do mapeamento que o aplicativo usa (`etapa`, `dono`, `status`). */
   readonly dicas: readonly string[];
-  /** Plataformas de curso: a tabela de eventos (R32.20). `undefined` nos demais. */
+  /** Plataformas de curso: a tabela de eventos (R32.15). `undefined` nos demais. */
   readonly eventos?: EventosDoAplicativo;
 }
 

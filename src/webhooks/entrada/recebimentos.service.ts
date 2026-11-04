@@ -100,7 +100,7 @@ interface Chegada {
   readonly mensagem: string | null;
   /** O erro HTTP da recusa, já com o id do recebimento gravado. */
   readonly recusa: ((recebimentoId: string) => ErroApi) | null;
-  /** Aviso de teste do aplicativo (o `ping` da Eduzz): aceito com 2xx, gravado como ignorado e sem processamento (R32.20). */
+  /** Aviso de teste do aplicativo (o `ping` da Eduzz): aceito com 2xx, gravado como ignorado e sem processamento (R32.15). */
   readonly semProcessar?: string | null;
 }
 
@@ -381,7 +381,7 @@ export class RecebimentosService implements OnModuleInit {
     );
   }
 
-  /** O histórico de todas as integrações (R32.7): data, status, aplicativo e integração. */
+  /** O histórico de todas as integrações ativas ou inativas, não as excluídas (R32.7, R32.17): data, status, aplicativo e integração. */
   async listarHistorico(
     filtro: FiltroHistoricoDto,
   ): Promise<Pagina<RecebimentoDto>> {
@@ -392,9 +392,14 @@ export class RecebimentosService implements OnModuleInit {
       {
         ...filtroDoPeriodo(filtro),
         ...(filtro.integracaoId ? { webhookId: filtro.integracaoId } : {}),
-        ...(filtro.aplicativo?.length
-          ? { webhook: { aplicativo: { in: filtro.aplicativo } } }
-          : {}),
+        // Integração excluída sai do histórico, como já sai do detalhe e do reprocessar
+        // (R32.17): os corpos ficam guardados até a retenção, mas ninguém os vê.
+        webhook: {
+          excluidoEm: null,
+          ...(filtro.aplicativo?.length
+            ? { aplicativo: { in: filtro.aplicativo } }
+            : {}),
+        },
       },
       filtro,
     );

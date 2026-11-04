@@ -28,7 +28,8 @@ const STATUS: Readonly<Record<string, StatusNegocio>> = {
 
 /** `aberto`, `ganho`, `perdido` (e `open`, `won`, `lost`), sem diferenciar maiúsculas; `null` se não reconhecer. */
 export function lerStatus(texto: string): StatusNegocio | null {
-  return STATUS[normalizarNome(texto)] ?? null;
+  const chave = normalizarNome(texto);
+  return Object.hasOwn(STATUS, chave) ? STATUS[chave] : null;
 }
 
 export interface EtapaParaBusca {

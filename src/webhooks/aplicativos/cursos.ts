@@ -1,5 +1,5 @@
 /**
- * Peças comuns das plataformas de curso (Hotmart, Kiwify e Eduzz, R32.20): a
+ * Peças comuns das plataformas de curso (Hotmart, Kiwify e Eduzz, R32.15): a
  * tabela de eventos (cada evento → ignorar, abrir negócio na etapa X, ganho,
  * perdido com motivo ou só etiqueta), o filtro por produto, os modelos prontos
  * e a leitura/validação de `configuracao.eventos` e `configuracao.produtos`.

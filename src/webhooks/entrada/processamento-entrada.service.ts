@@ -31,6 +31,7 @@ import { adaptadorWebhook } from '../aplicativos/webhook';
 import {
   ESPERA_ENTRE_PROCESSAMENTOS_SEGUNDOS,
   FILA_PROCESSAR_RECEBIMENTO,
+  MAXIMO_DE_ITENS_POR_RECEBIMENTO,
   TENTATIVAS_DE_PROCESSAMENTO,
   TRAVA_EVENTO_DE_ENTRADA,
 } from '../webhooks.constantes';
@@ -59,7 +60,7 @@ export interface ResultadoGravado {
   readonly avisos: readonly string[];
   /** Plataformas de curso: o código do evento. */
   readonly evento?: string | null;
-  /** Chave de idempotência do evento (só nos itens processados: é ela que barra o reenvio, R32.20). */
+  /** Chave de idempotência do evento (só nos itens processados: é ela que barra o reenvio, R32.15). */
   readonly chave?: string | null;
 }
 
@@ -128,7 +129,9 @@ export class ProcessamentoEntradaService implements OnModuleInit {
       try {
         const adaptador =
           adaptadorDe(recebimento.webhook.aplicativo) ?? adaptadorWebhook;
-        const itens = adaptador.normalizarCorpo(recebimento.corpo);
+        const todos = adaptador.normalizarCorpo(recebimento.corpo);
+        const itens = todos.slice(0, MAXIMO_DE_ITENS_POR_RECEBIMENTO);
+        const excedentes = todos.length - itens.length;
         const concluidos = new Set(
           lerResultados(recebimento.resultados)
             .filter(({ status }) => status === 'PROCESSADO')
@@ -140,13 +143,45 @@ export class ProcessamentoEntradaService implements OnModuleInit {
           }
           await this.processarItem(recebimentoId, indice, itens[indice]);
         }
-        await this.finalizar(recebimentoId, itens);
+        if (excedentes > 0) {
+          await this.registrarExcedentes(
+            recebimentoId,
+            itens.length,
+            excedentes,
+          );
+        }
+        await this.finalizar(
+          recebimentoId,
+          itens.length + (excedentes > 0 ? 1 : 0),
+        );
       } catch (erro) {
         await this.registrarFalha(recebimentoId, tentativa, erro);
         if (!ehDefinitivo(erro)) {
           throw erro;
         }
       }
+    });
+  }
+
+  /** Os itens além do limite por recebimento viram um único resultado ignorado, com o motivo. */
+  private async registrarExcedentes(
+    recebimentoId: string,
+    indice: number,
+    excedentes: number,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      if (!(await travarRecebimento(tx, recebimentoId))) {
+        return;
+      }
+      await this.gravarResultado(tx, recebimentoId, {
+        indice,
+        rotulo: 'excedentes',
+        status: 'IGNORADO',
+        mensagem: `${excedentes} item(ns) além do limite de ${MAXIMO_DE_ITENS_POR_RECEBIMENTO} por recebimento não foram processados: reenvie-os em outro recebimento.`,
+        contatoId: null,
+        negocioId: null,
+        avisos: [],
+      });
     });
   }
 
@@ -297,7 +332,7 @@ export class ProcessamentoEntradaService implements OnModuleInit {
   }
 
   /**
-   * O que fazer com o item antes de aplicar o mapeamento (R32.20):
+   * O que fazer com o item antes de aplicar o mapeamento (R32.15):
    *
    * 1. **Produto**: com o filtro da integração, só os produtos listados passam.
    * 2. **Tabela de eventos** (plataformas de curso): o evento sem regra é
@@ -413,7 +448,7 @@ export class ProcessamentoEntradaService implements OnModuleInit {
   /** Fecha o recebimento com o status que os resultados dos itens pedem. */
   private async finalizar(
     recebimentoId: string,
-    itens: readonly ItemRecebido[],
+    totalDeItens: number,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       if (!(await travarRecebimento(tx, recebimentoId))) {
@@ -424,7 +459,7 @@ export class ProcessamentoEntradaService implements OnModuleInit {
         select: { resultados: true },
       });
       const resultados = lerResultados(recebimento.resultados);
-      const resumo = resumir(resultados, itens.length);
+      const resumo = resumir(resultados, totalDeItens);
       await tx.webhookRecebimento.update({
         where: { id: recebimentoId },
         data: {

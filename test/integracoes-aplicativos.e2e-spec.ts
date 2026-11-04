@@ -346,7 +346,7 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
     )
       .get('/api/v1/webhooks/aplicativos')
       .expect(403);
-    // Hotmart, Kiwify e Eduzz chegaram na H2 (R32.20, cenários 360 a 379 em integracoes-cursos).
+    // Hotmart, Kiwify e Eduzz chegaram na H2 (R32.15, cenários 360 a 379 em integracoes-cursos).
     for (const aplicativo of ['HOTMART', 'KIWIFY', 'EDUZZ']) {
       expect(
         catalogo.aplicativos.find((a) => a.aplicativo === aplicativo)
@@ -730,6 +730,82 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
         credencial: { lixo: 'x' },
       })
       .expect(400);
+  });
+
+  it('R32.8, R10.3 — trocar a URL da conta exige a chave no mesmo envio: a chave guardada não vai para outro destino', async () => {
+    const integracao = await criar({
+      aplicativo: 'ACTIVE_CAMPAIGN',
+      credencial: { urlConta: AC_CONTA, chaveApi: 'ac-valida' },
+    });
+    const antes = await t.prisma.webhookEntrada.findUniqueOrThrow({
+      where: { id: integracao.id },
+      select: { credencialCifrada: true },
+    });
+    const recusa = (
+      await admin
+        .patch(`/api/v1/webhooks/entradas/${integracao.id}`, {
+          credencial: { urlConta: 'https://coletor.exemplo.org' },
+        })
+        .expect(400)
+    ).body as { mensagem: string };
+    expect(recusa.mensagem).toMatch(/Chave da API/);
+    const depois = await t.prisma.webhookEntrada.findUniqueOrThrow({
+      where: { id: integracao.id },
+      select: { credencialCifrada: true },
+    });
+    expect(depois.credencialCifrada).toBe(antes.credencialCifrada);
+    // Com a chave nova no mesmo envio, a troca vale; só a chave também vale.
+    await admin
+      .patch(`/api/v1/webhooks/entradas/${integracao.id}`, {
+        credencial: { urlConta: AC_CONTA, chaveApi: 'ac-valida' },
+      })
+      .expect(200);
+  });
+
+  it('R4.6 — a exportação de dados pessoais traz os recebimentos de webhook do titular (corpo, IP e integração)', async () => {
+    const integracao = await criar({ aplicativo: 'RD_STATION' });
+    await enviar(integracao, {
+      leads: [
+        { name: 'Ana Titular', email: 'ana.titular@x.com', cf_cpf: '123' },
+        { name: 'Beto Outro', email: 'beto.outro@x.com' },
+      ],
+    });
+    const ana = await t.prisma.contato.findFirstOrThrow({
+      where: { email: 'ana.titular@x.com' },
+    });
+    const exportado = (
+      await admin.get(`/api/v1/contatos/${ana.id}/dados-pessoais`).expect(200)
+    ).body as {
+      recebimentosDeWebhook: {
+        corpo: { leads: { email: string }[] };
+        integracao: { aplicativo: string };
+      }[];
+    };
+    expect(exportado.recebimentosDeWebhook).toHaveLength(1);
+    expect(exportado.recebimentosDeWebhook[0].integracao.aplicativo).toBe(
+      'RD_STATION',
+    );
+    expect(exportado.recebimentosDeWebhook[0].corpo.leads[0].email).toBe(
+      'ana.titular@x.com',
+    );
+  });
+
+  it('R32.2 — RD Station: o recebimento processa no máximo 100 leads e registra os excedentes como ignorados', async () => {
+    const integracao = await criar({ aplicativo: 'RD_STATION' });
+    const leads = Array.from({ length: 103 }, (_, i) => ({
+      name: `Lead ${i + 1}`,
+      email: `lead${i + 1}@x.com`,
+    }));
+    const recebimento = await enviar(integracao, { leads });
+    expect(await t.prisma.contato.count()).toBe(100);
+    expect(recebimento?.itens).toHaveLength(101);
+    expect(recebimento?.itens[100]).toMatchObject({
+      status: 'IGNORADO',
+      rotulo: 'excedentes',
+    });
+    expect(recebimento?.itens[100].mensagem).toMatch(
+      /3 item\(ns\) além do limite de 100/,
+    );
   });
 
   it('cenário 323 (R32.8) — testar credencial antes de criar: o aplicativo aceita ou recusa, sem gravar nada', async () => {

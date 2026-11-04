@@ -149,18 +149,32 @@ export class WebhookMetaService implements OnModuleInit {
     }
     // `object: page` com `changes[].field = leadgen` é do Facebook Lead Ads (R32.14).
     const leadgens = extrairLeadgens(corpo);
-    const recebidasDeLeads =
-      leadgens.length > 0
-        ? await this.facebookLeadAds.receberLeadgens(
-            leadgens,
-            bruto,
-            assinatura,
-          )
-        : 0;
+    // Os dois ramos do POST são independentes: a assinatura dos leadgens que não confere
+    // (segredo desatualizado na conexão do Lead Ads) não derruba as entradas de Messenger
+    // e Instagram assinadas pelo app do canal. O 401 só sai se nenhum ramo for autêntico.
+    let recebidasDeLeads = 0;
+    let erroDosLeads: NaoAutenticadoException | null = null;
+    if (leadgens.length > 0) {
+      try {
+        recebidasDeLeads = await this.facebookLeadAds.receberLeadgens(
+          leadgens,
+          bruto,
+          assinatura,
+        );
+      } catch (erro) {
+        if (!(erro instanceof NaoAutenticadoException)) {
+          throw erro;
+        }
+        erroDosLeads = erro;
+      }
+    }
     const entradas = entradasDoWebhook(corpo).filter(
       ({ bruta }) => leadgens.length === 0 || Array.isArray(bruta.messaging),
     );
     if (entradas.length === 0) {
+      if (erroDosLeads) {
+        throw erroDosLeads;
+      }
       return { recebidas: recebidasDeLeads };
     }
     const canais = await this.prisma.canal.findMany({
@@ -176,6 +190,9 @@ export class WebhookMetaService implements OnModuleInit {
       this.logger.debug?.(
         `Webhook da Meta para ${entradas.map(({ idDoCanal }) => idDoCanal).join(', ')}: nenhum canal.`,
       );
+      if (erroDosLeads) {
+        throw erroDosLeads;
+      }
       return { recebidas: recebidasDeLeads };
     }
     const assinadoPor = canais.find((canal) => {

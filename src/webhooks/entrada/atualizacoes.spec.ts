@@ -49,6 +49,15 @@ describe('Atualizações pelo recebimento (R32.4)', () => {
     expect(lerStatus('Perdido')).toBe('PERDIDO');
     expect(lerStatus('lost')).toBe('PERDIDO');
     expect(lerStatus('talvez')).toBeNull();
+    // propriedades herdadas do Object nunca são status
+    for (const texto of [
+      'constructor',
+      '__proto__',
+      'toString',
+      'hasOwnProperty',
+    ]) {
+      expect(lerStatus(texto)).toBeNull();
+    }
     expect(statusDoTipo('GANHO')).toBe('GANHO');
     expect(statusDoTipo('ABERTA')).toBe('ABERTO');
   });

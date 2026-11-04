@@ -193,7 +193,7 @@ export class ClienteDaGraphFacebook {
 
   /** As páginas do usuário, com o token de cada uma (`/me/accounts`). */
   async paginas(tokenDoUsuario: string): Promise<PaginaDoFacebook[]> {
-    const itens = await this.listar(
+    const { itens } = await this.listar(
       'me/accounts',
       tokenDoUsuario,
       'id,name,category,access_token',
@@ -219,7 +219,7 @@ export class ClienteDaGraphFacebook {
     tokenDaPagina: string,
     paginaId: string,
   ): Promise<FormularioDoFacebook[]> {
-    const itens = await this.listar(
+    const { itens } = await this.listar(
       `${encodeURIComponent(paginaId)}/leadgen_forms`,
       tokenDaPagina,
       'id,name,status,locale,created_time,leads_count',
@@ -342,14 +342,17 @@ export class ClienteDaGraphFacebook {
     return lerLead(dados);
   }
 
-  /** Os leads do formulário criados a partir de `desde` (reconciliação). */
+  /**
+   * Os leads do formulário criados a partir de `desde` (reconciliação).
+   * `completo` falso: a listagem parou no limite de páginas e há mais leads.
+   */
   async leadsDoFormulario(
     tokenDaPagina: string,
     formularioId: string,
     desde: Date,
-  ): Promise<LeadDoFacebook[]> {
+  ): Promise<{ leads: LeadDoFacebook[]; completo: boolean }> {
     const segundos = Math.floor(desde.getTime() / 1000);
-    const itens = await this.listar(
+    const { itens, completo } = await this.listar(
       `${encodeURIComponent(formularioId)}/leads`,
       tokenDaPagina,
       CAMPOS_DO_LEAD.join(','),
@@ -360,10 +363,11 @@ export class ClienteDaGraphFacebook {
         since: String(segundos),
       },
     );
-    return itens.map(lerLead).filter((lead) => {
+    const leads = itens.map(lerLead).filter((lead) => {
       const criado = instanteDaMeta(lead.criadoEm);
       return lead.id !== '' && (criado === null || criado >= desde);
     });
+    return { leads, completo };
   }
 
   // -------------------------------------------------------------------------
@@ -376,9 +380,10 @@ export class ClienteDaGraphFacebook {
     token: string,
     campos: string,
     extra: Record<string, string> = {},
-  ): Promise<Objeto[]> {
+  ): Promise<{ itens: Objeto[]; completo: boolean }> {
     const itens: Objeto[] = [];
     let depois: string | null = null;
+    let completo = false;
     for (let pagina = 0; pagina < MAXIMO_DE_PAGINAS; pagina++) {
       const dados: Objeto = objeto(
         await this.pedir('GET', caminho, token, {
@@ -398,11 +403,13 @@ export class ClienteDaGraphFacebook {
         proxima === depois ||
         data.length === 0
       ) {
+        completo = true;
         break;
       }
       depois = proxima;
     }
-    return itens;
+    // `completo` falso: parou no limite de páginas, havia mais itens.
+    return { itens, completo };
   }
 
   private async pedir(
@@ -454,6 +461,31 @@ export function instanteDaMeta(valor: string | null): Date | null {
   const normalizado = valor.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
   const data = new Date(normalizado);
   return Number.isNaN(data.getTime()) ? null : data;
+}
+
+/**
+ * Até onde a reconciliação pode avançar o marco `reconciliadoAte`. Lista completa:
+ * até agora. Lista cortada no limite de páginas: se vier em ordem crescente, até o
+ * último lead lido (a próxima rodada continua dali); em ordem decrescente (ou sem
+ * datas), não avança, para os leads além do corte não ficarem de fora para sempre.
+ */
+export function marcoDaReconciliacao(
+  agora: Date,
+  leads: readonly Pick<LeadDoFacebook, 'criadoEm'>[],
+  completo: boolean,
+): Date | null {
+  if (completo) {
+    return agora;
+  }
+  const datas = leads.flatMap(({ criadoEm }) => {
+    const data = instanteDaMeta(criadoEm);
+    return data ? [data] : [];
+  });
+  if (datas.length < 2) {
+    return null;
+  }
+  const crescente = datas[0].getTime() <= datas[datas.length - 1].getTime();
+  return crescente ? datas[datas.length - 1] : null;
 }
 
 /** `field_data` e metadados de um lead da Graph → `LeadDoFacebook` (tolerante). */

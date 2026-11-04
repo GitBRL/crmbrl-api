@@ -55,7 +55,7 @@ export async function chamarAplicativo(
         : `Não foi possível falar com o ${pedido.aplicativo} (falha de conexão).`,
     );
   }
-  const texto = await lerTexto(resposta);
+  const texto = await lerTexto(resposta, pedido.aplicativo);
   if (resposta.status === 401 || resposta.status === 403) {
     throw new CredencialRecusadaError(
       `O ${pedido.aplicativo} recusou a credencial (HTTP ${resposta.status}): ela expirou, foi revogada ou está errada.`,
@@ -86,8 +86,44 @@ export async function chamarAplicativo(
   return { status: resposta.status, dados };
 }
 
-/** Lê no máximo 1 MB da resposta. */
-async function lerTexto(resposta: Response): Promise<string> {
-  const texto = await resposta.text().catch(() => '');
-  return texto.length > 1_000_000 ? texto.slice(0, 1_000_000) : texto;
+export const TAMANHO_MAXIMO_DA_RESPOSTA = 1_000_000;
+
+/**
+ * Lê a resposta em partes e desiste (cancelando o fluxo) ao passar de 1 MB, para uma
+ * resposta enorme ou sem fim não ocupar a memória. Falha de leitura no meio do corpo
+ * vale como corpo vazio, como antes.
+ */
+async function lerTexto(
+  resposta: Response,
+  aplicativo: string,
+): Promise<string> {
+  const grandeDemais = () =>
+    new FalhaNoAplicativoError(
+      `A resposta do ${aplicativo} é grande demais (mais de 1 MB).`,
+    );
+  const declarado = Number(resposta.headers.get('content-length'));
+  if (Number.isFinite(declarado) && declarado > TAMANHO_MAXIMO_DA_RESPOSTA) {
+    await resposta.body?.cancel().catch(() => undefined);
+    throw grandeDemais();
+  }
+  if (!resposta.body) return '';
+  const leitor = resposta.body.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > TAMANHO_MAXIMO_DA_RESPOSTA) {
+        await leitor.cancel().catch(() => undefined);
+        throw grandeDemais();
+      }
+      partes.push(value);
+    }
+  } catch (erro) {
+    if (erro instanceof FalhaNoAplicativoError) throw erro;
+    return '';
+  }
+  return new TextDecoder().decode(Buffer.concat(partes));
 }

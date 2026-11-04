@@ -148,7 +148,7 @@ export class ItemDoRecebimentoDto {
     type: String,
     nullable: true,
     description:
-      'Chave de idempotência do evento (R32.20): o mesmo evento não se processa duas vezes.',
+      'Chave de idempotência do evento (R32.15): o mesmo evento não se processa duas vezes.',
   })
   chave?: string | null;
 }

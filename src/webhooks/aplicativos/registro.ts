@@ -1,4 +1,4 @@
-/** Registro dos aplicativos (R32.1): o adaptador de cada um e o catálogo, inclusive os que chegam na fatia H2. */
+/** Registro dos aplicativos (R32.1): o adaptador de cada um e o catálogo. */
 import type { AplicativoIntegracao } from '../../generated/prisma/client';
 import { adaptadorActiveCampaign } from './active-campaign';
 import { adaptadorEduzz } from './eduzz';
@@ -31,39 +31,6 @@ const ADAPTADORES: Readonly<
   EDUZZ: adaptadorEduzz,
 };
 
-function emBreve(
-  aplicativo: AplicativoIntegracao,
-  nome: string,
-  descricao: string,
-  entrega: 'WEBHOOK' | 'API',
-): DefinicaoDoAplicativo {
-  return {
-    aplicativo,
-    nome,
-    descricao,
-    disponivel: false,
-    entrega,
-    tiposDeConteudo: [],
-    autenticidade: {
-      tipo: 'NENHUMA',
-      descricao: 'Disponível na próxima etapa da Onda H.',
-      segredo: 'NAO_USA',
-      rotuloDoSegredo: null,
-      cabecalho: null,
-    },
-    credencial: null,
-    buscaCampos: false,
-    escolheFormulario: false,
-    passoAPasso: { titulo: nome, passos: [] },
-    modelo: null,
-    dicas: [],
-  };
-}
-
-/** Aplicativos já no enum e ainda sem adaptador (fatia H2). */
-const EM_BREVE: readonly DefinicaoDoAplicativo[] = [
-];
-
 /** O adaptador do aplicativo, ou `undefined` se ele ainda não está disponível. */
 export function adaptadorDe(
   aplicativo: AplicativoIntegracao,
@@ -71,13 +38,11 @@ export function adaptadorDe(
   return ADAPTADORES[aplicativo];
 }
 
-/** O catálogo em ordem alfabética (como a tela do Clint), com os que chegam depois marcados como indisponíveis. */
+/** O catálogo em ordem alfabética (como a tela do Clint). */
 export function catalogoDeAplicativos(): DefinicaoDoAplicativo[] {
-  const definicoes = [
-    ...Object.values(ADAPTADORES).map((adaptador) => adaptador.definicao),
-    ...EM_BREVE,
-  ];
-  return definicoes.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return Object.values(ADAPTADORES)
+    .map((adaptador) => adaptador.definicao)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
 export function definicaoDe(

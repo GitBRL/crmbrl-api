@@ -27,6 +27,7 @@ import { ConexoesFacebookService } from './conexoes-facebook.service';
 import {
   ErroDaGraph,
   instanteDaMeta,
+  marcoDaReconciliacao,
   type LeadDoFacebook,
 } from './graph-facebook';
 import {
@@ -335,14 +336,15 @@ export class FacebookLeadAdsService
       ),
     );
     let leads: LeadDoFacebook[];
+    let completo: boolean;
     try {
-      leads = await this.conexoes
+      ({ leads, completo } = await this.conexoes
         .graph()
         .leadsDoFormulario(
           this.conexoes.tokenDaPagina(conexao, paginaId),
           formularioId,
           desde,
-        );
+        ));
     } catch (erro) {
       if (await this.tratarFalhaDaMeta(erro, integracao, conexao)) {
         return 0;
@@ -362,10 +364,20 @@ export class FacebookLeadAdsService
       }
     }
     await this.aplicativos.limparAtencao(integracao);
-    await this.gravarConfiguracao(integracao.id, (atual) => ({
-      ...atual,
-      reconciliadoAte: agora.toISOString(),
-    }));
+    const marco = marcoDaReconciliacao(agora, leads, completo);
+    if (!completo) {
+      await this.logs.aviso(
+        'FacebookLeadAds',
+        `A reconciliação da integração "${integracao.nome}" parou no limite de leads por rodada; ${marco ? 'continua do último lead lido na próxima' : 'o marco não avançou'}.`,
+        { integracaoId: integracao.id },
+      );
+    }
+    if (marco) {
+      await this.gravarConfiguracao(integracao.id, (atual) => ({
+        ...atual,
+        reconciliadoAte: marco.toISOString(),
+      }));
+    }
     return novos;
   }
 
@@ -753,6 +765,18 @@ export class FacebookLeadAdsService
     paginaId: string,
     ignorarIntegracaoId: string,
   ): Promise<void> {
+    const conexao = await this.prisma.conexaoFacebook.findFirst({
+      where: { id: conexaoId, excluidoEm: null },
+    });
+    if (!conexao) {
+      return;
+    }
+    // A assinatura na Meta é por app e página, não por conexão: outra conexão do mesmo app
+    // (ex.: criada de novo em vez de "Reconectar") que usa a página divide a assinatura.
+    const doMesmoApp = await this.prisma.conexaoFacebook.findMany({
+      where: { appId: conexao.appId, excluidoEm: null },
+      select: { id: true },
+    });
     const outras = await this.prisma.webhookEntrada.count({
       where: {
         id: { not: ignorarIntegracaoId },
@@ -760,18 +784,19 @@ export class FacebookLeadAdsService
         excluidoEm: null,
         ativo: true,
         AND: [
-          { configuracao: { path: ['conexaoId'], equals: conexaoId } },
+          {
+            OR: [
+              ...doMesmoApp.map(({ id }) => ({
+                configuracao: { path: ['conexaoId'], equals: id },
+              })),
+              { configuracao: { path: ['conexaoId'], equals: conexaoId } },
+            ],
+          },
           { configuracao: { path: ['paginaId'], equals: paginaId } },
         ],
       },
     });
     if (outras > 0) {
-      return;
-    }
-    const conexao = await this.prisma.conexaoFacebook.findFirst({
-      where: { id: conexaoId, excluidoEm: null },
-    });
-    if (!conexao) {
       return;
     }
     const token = this.conexoes.tokenDaPagina(conexao, paginaId);

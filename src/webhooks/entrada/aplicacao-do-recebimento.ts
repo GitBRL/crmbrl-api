@@ -49,7 +49,7 @@ export class RecebimentoInvalidoError extends Error {
 }
 
 /**
- * O que a tabela de eventos decidiu para o item (plataformas de curso, R32.20):
+ * O que a tabela de eventos decidiu para o item (plataformas de curso, R32.15):
  * a aplicação a segue no lugar do mapeamento de etapa e status.
  */
 export interface AcaoDoEventoAplicada {
@@ -611,7 +611,7 @@ export class AplicacaoDoRecebimento {
           depois,
           CAMPOS_AUDITADOS_DO_CONTATO,
         ),
-        regra: 'R32.20',
+        regra: 'R32.15',
       },
       relacionados: { empresa: depois.empresaId },
     });

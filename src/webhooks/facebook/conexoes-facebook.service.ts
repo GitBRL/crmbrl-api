@@ -267,7 +267,7 @@ export class ConexoesFacebookService {
         return criada;
       });
     }
-    const nonce = randomBytes(24).toString('base64url');
+    const nonce = `${randomBytes(24).toString('base64url')}~${usuario.id}`;
     const expiraEm = new Date(Date.now() + VALIDADE_DO_STATE_MS);
     await this.prisma.conexaoFacebook.update({
       where: { id: conexao.id },
@@ -331,7 +331,11 @@ export class ConexoesFacebookService {
     if (count === 0) {
       return this.retorno('erro', conexao.id, 'state_usado');
     }
-    const ator = await this.atorDaConexao(conexao);
+    // O ator é o Admin que iniciou o login (vai no state assinado), não o criador da conexão.
+    const ator = await this.atorDoLogin(state.usuarioId);
+    if (!ator) {
+      return this.retorno('erro', conexao.id, 'state_invalido');
+    }
     return executarComoAtor(ator, async () => {
       if (typeof consulta.error === 'string' && consulta.error) {
         await this.logs.aviso(
@@ -417,16 +421,13 @@ export class ConexoesFacebookService {
     };
   }
 
-  private async atorDaConexao(conexao: ConexaoFacebook) {
-    const usuario = conexao.criadoPorId
-      ? await this.prisma.usuario.findUnique({
-          where: { id: conexao.criadoPorId },
-          select: { id: true, nome: true, papel: true },
-        })
-      : null;
-    return usuario
-      ? { tipoAtor: 'USUARIO' as const, usuario }
-      : { tipoAtor: 'SISTEMA' as const, descricao: 'Facebook Lead Ads' };
+  /** O Admin que iniciou o login, se ainda ativo; senão `null` (o retorno é recusado). */
+  private async atorDoLogin(usuarioId: string) {
+    const usuario = await this.prisma.usuario.findFirst({
+      where: { id: usuarioId, ativo: true, papel: 'ADMIN' },
+      select: { id: true, nome: true, papel: true },
+    });
+    return usuario ? { tipoAtor: 'USUARIO' as const, usuario } : null;
   }
 
   private async gravarLogin(
@@ -921,6 +922,7 @@ export class ConexoesFacebookService {
 
   /** `<conexaoId>.<nonce>.<expiraEmSegundos>.<hmac>`: o HMAC usa a chave de criptografia (separada por domínio). */
   private assinarState(conexaoId: string, nonce: string, exp: number): string {
+    // `nonce` já traz `~<id do Admin que iniciou o login>`: o ator do retorno é ele, não o criador da conexão.
     const carga = `${conexaoId}.${nonce}.${exp}`;
     return `${carga}.${this.macDoState(carga)}`;
   }
@@ -933,7 +935,10 @@ export class ConexoesFacebookService {
 
   private lerState(
     valor: unknown,
-  ): { conexaoId: string; nonce: string } | 'invalido' | 'vencido' {
+  ):
+    | { conexaoId: string; nonce: string; usuarioId: string }
+    | 'invalido'
+    | 'vencido' {
     if (typeof valor !== 'string' || valor.length > 300) {
       return 'invalido';
     }
@@ -953,7 +958,13 @@ export class ConexoesFacebookService {
     ) {
       return 'invalido';
     }
-    return Number(exp) * 1000 < Date.now() ? 'vencido' : { conexaoId, nonce };
+    const usuarioId = nonce.split('~')[1] ?? '';
+    if (!/^[0-9a-f-]{36}$/i.test(usuarioId)) {
+      return 'invalido';
+    }
+    return Number(exp) * 1000 < Date.now()
+      ? 'vencido'
+      : { conexaoId, nonce, usuarioId };
   }
 
   // -------------------------------------------------------------------------

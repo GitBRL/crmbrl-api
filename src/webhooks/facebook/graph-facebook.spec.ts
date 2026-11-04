@@ -1,4 +1,8 @@
-import { ClienteDaGraphFacebook, ErroDaGraph } from './graph-facebook';
+import {
+  ClienteDaGraphFacebook,
+  ErroDaGraph,
+  marcoDaReconciliacao,
+} from './graph-facebook';
 
 interface Pedido {
   url: string;
@@ -145,12 +149,13 @@ describe('Cliente da Graph do Facebook (R32.14)', () => {
         },
       },
     ]);
-    const leads = await graph.leadsDoFormulario(
+    const { leads, completo } = await graph.leadsDoFormulario(
       'pg',
       '400',
       new Date('2026-11-04T10:00:00Z'),
     );
     expect(leads.map(({ id }) => id)).toEqual(['2']);
+    expect(completo).toBe(true);
     const url = new URL(pedidos[0].url);
     expect(url.pathname).toBe('/v24.0/400/leads');
     expect(JSON.parse(url.searchParams.get('filtering') ?? '[]')).toEqual([
@@ -160,6 +165,36 @@ describe('Cliente da Graph do Facebook (R32.14)', () => {
         value: Date.parse('2026-11-04T10:00:00Z') / 1000,
       },
     ]);
+  });
+
+  it('R32.14 — a listagem para no limite de páginas (finito) e avisa que não está completa; o marco da reconciliação não pula os leads além do corte', async () => {
+    const paginas = Array.from({ length: 20 }, (_, i) => ({
+      corpo: {
+        data: [
+          {
+            id: `${i + 1}`,
+            created_time: `2026-11-04T${String(i).padStart(2, '0')}:00:00+0000`,
+          },
+        ],
+        paging: { cursors: { after: `c${i + 1}` }, next: 'https://x/proxima' },
+      },
+    }));
+    const { graph, pedidos } = cliente([...paginas]);
+    const { leads, completo } = await graph.leadsDoFormulario(
+      'pg',
+      '400',
+      new Date('2026-11-03T00:00:00Z'),
+    );
+    expect(completo).toBe(false);
+    expect(leads).toHaveLength(20);
+    expect(pedidos).toHaveLength(20);
+    const agora = new Date('2026-11-05T00:00:00Z');
+    // Ordem crescente: avança só até o último lido. Decrescente: não avança. Completa: até agora.
+    expect(marcoDaReconciliacao(agora, leads, false)?.toISOString()).toBe(
+      '2026-11-04T19:00:00.000Z',
+    );
+    expect(marcoDaReconciliacao(agora, [...leads].reverse(), false)).toBeNull();
+    expect(marcoDaReconciliacao(agora, leads, true)).toBe(agora);
   });
 
   it('R32.14 — os campos assinados pelo app são lidos pelo id do app; assinar e desassinar usam POST e DELETE', async () => {

@@ -44,7 +44,7 @@ export const CHAVES_EDITAVEIS_DA_CONFIGURACAO = [
   // Facebook Lead Ads (R32.14): a conexão, a página e o formulário (`formularioId`, acima).
   'conexaoId',
   'paginaId',
-  // Plataformas de curso (R32.20): a tabela de eventos e o filtro por produto.
+  // Plataformas de curso (R32.15): a tabela de eventos e o filtro por produto.
   'eventos',
   'produtos',
 ] as const;
@@ -220,6 +220,24 @@ export class AplicativosService {
       throw new DadosInvalidosException(resumirProblemas(problemas), {
         campos: problemas,
       });
+    }
+    // Um campo não secreto (como a URL da conta) define para onde o segredo
+    // vai: ao trocá-lo, o segredo guardado não pode ser reaproveitado (R10.3).
+    if (atual) {
+      const mudou = campos.find(
+        (campo) =>
+          !campo.secreto &&
+          resultado.credencial[campo.chave] !== atual[campo.chave],
+      );
+      const semSegredoNovo = campos.find(
+        (campo) => campo.secreto && enviada[campo.chave] === undefined,
+      );
+      if (mudou && semSegredoNovo) {
+        throw erroDeCampo(
+          `credencial.${semSegredoNovo.chave}`,
+          `informe também ${semSegredoNovo.rotulo} ao trocar ${mudou.rotulo}: o valor guardado não é reaproveitado para outro destino`,
+        );
+      }
     }
     if (aplicativo === 'ACTIVE_CAMPAIGN') {
       const verificado = await verificarDestino(resultado.credencial.urlConta, {

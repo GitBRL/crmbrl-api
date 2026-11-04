@@ -79,6 +79,9 @@ WHISPER_MODELO=small
 #            LIGACOES_GRAVACAO_MAX_MB, LIGACOES_GRAVACAO_MAX_MIN
 # opcionais: ANTHROPIC_API_KEY (assistente, BI, resumo das ligações e SDR com IA; sem ela o SDR fica indisponível), LIGACOES_RESUMO_MODELO, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
 #            VAPID_CHAVE_PUBLICA, VAPID_CHAVE_PRIVADA, VAPID_ASSUNTO
+# integrações (Onda H, R32), opcionais e só para apontar para APIs de teste; em produção deixe sem definir:
+#            TYPEFORM_API_URL (padrão https://api.typeform.com), MANYCHAT_API_URL (padrão https://api.manychat.com),
+#            META_DIALOGO_URL (padrão https://www.facebook.com, diálogo de login do Facebook Lead Ads)
 
 # --- whatsapp ---
 DATABASE_URL=${{Postgres.DATABASE_URL}}
@@ -99,6 +102,14 @@ MINIO_BROWSER=off
 MINIO_SKIP_CLIENT=yes
 RAILWAY_RUN_UID=0                                     # a imagem roda sem root e o volume do Railway é do root
 ```
+
+**O que muda no Railway para o Facebook Lead Ads e o Typeform (Onda H):** nenhuma variável nova é obrigatória.
+Os dois dependem de `URL_PUBLICA` ser o domínio público do serviço do front, com **https** (o domínio do Railway ou o
+seu próprio): o Typeform chama o CRM a cada resposta e a Meta chama o retorno do login e o aviso de novos leads. No app da
+Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` em "URIs de redirecionamento OAuth válidos" e o webhook
+de páginas (campo `leadgen`) em `URL_PUBLICA/api/v1/publico/meta/webhook`. O ID e o segredo do app da Meta e o token do
+Typeform são cadastrados na tela Integrações (guardados cifrados com a `CHAVE_CRIPTOGRAFIA`), não em variáveis. Ao trocar o
+domínio, refaça esses cadastros e reconecte o Facebook.
 
 ## 4. Ajustes de cada serviço (Settings)
 

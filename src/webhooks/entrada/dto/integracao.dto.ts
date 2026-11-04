@@ -105,7 +105,7 @@ export class ModeloDoAplicativoDto {
   exemplo: Record<string, unknown>;
 }
 
-/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.20). */
+/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.15). */
 export class RegraDoEventoDto {
   @ApiProperty({
     enum: ['IGNORAR', 'ABRIR', 'GANHO', 'PERDIDO', 'ETIQUETAR'],

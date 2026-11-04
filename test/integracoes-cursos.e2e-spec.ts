@@ -24,7 +24,7 @@ import {
 } from './webhooks-apoio';
 
 /**
- * Plataformas de curso (R32.20, cenários 360 a 379): Hotmart, Kiwify e Eduzz
+ * Plataformas de curso (R32.15, cenários 360 a 379): Hotmart, Kiwify e Eduzz
  * com os corpos reais do enviador de exemplos do apoio
  * (`test/fixtures/cursos-apoio.json`), a tabela de eventos, o filtro por
  * produto, a autenticidade de cada plataforma, a idempotência e o gatilho
@@ -91,7 +91,7 @@ interface RecebimentoLido {
   }[];
 }
 
-describe('Plataformas de curso (e2e, R32.20)', () => {
+describe('Plataformas de curso (e2e, R32.15)', () => {
   let t: AppTeste;
   let admin: ClienteHttp;
   let adminUsuario: Usuario;
@@ -264,7 +264,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Catálogo e configuração
   // -------------------------------------------------------------------------
 
-  it('cenário 360 (R32.20) — o catálogo traz Hotmart, Kiwify e Eduzz disponíveis, com os eventos, os modelos prontos e o filtro por produto; a criação grava a tabela padrão', async () => {
+  it('cenário 360 (R32.15) — o catálogo traz Hotmart, Kiwify e Eduzz disponíveis, com os eventos, os modelos prontos e o filtro por produto; a criação grava a tabela padrão', async () => {
     const catalogo = (
       await admin.get('/api/v1/webhooks/aplicativos').expect(200)
     ).body as {
@@ -352,7 +352,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
       .expect(403);
   });
 
-  it('cenário 361 (R32.20) — configuração da tabela e do filtro: valida ação, etapa (do funil e aberta), motivo e produtos; só vale nas plataformas de curso; mudar o funil limpa as etapas escolhidas', async () => {
+  it('cenário 361 (R32.15) — configuração da tabela e do filtro: valida ação, etapa (do funil e aberta), motivo e produtos; só vale nas plataformas de curso; mudar o funil limpa as etapas escolhidas', async () => {
     const integracao = await criarHotmart();
     const qualificacao = await etapaId('qualificacao');
     const ganho = await etapaId('ganho');
@@ -469,7 +469,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Hotmart
   // -------------------------------------------------------------------------
 
-  it('cenário 362 (R32.20) — Hotmart: compra aprovada vira ganho com valor, produto, origem e etiqueta; o histórico mostra o evento', async () => {
+  it('cenário 362 (R32.15) — Hotmart: compra aprovada vira ganho com valor, produto, origem e etiqueta; o histórico mostra o evento', async () => {
     const integracao = await criarHotmart({ etiquetasFixas: ['Hotmart'] });
     const recebimento = await enviarHotmart(
       integracao,
@@ -520,7 +520,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     });
   });
 
-  it('cenário 363 (R32.20) — Hotmart: carrinho abandonado e boleto abrem o negócio na etapa inicial (ou na escolhida) e a compra aprovada o ganha, sem duplicar', async () => {
+  it('cenário 363 (R32.15) — Hotmart: carrinho abandonado e boleto abrem o negócio na etapa inicial (ou na escolhida) e a compra aprovada o ganha, sem duplicar', async () => {
     const qualificacao = await etapaId('qualificacao');
     const integracao = await criarHotmart();
     await admin
@@ -577,7 +577,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     );
   });
 
-  it('cenário 364 (R32.20) — Hotmart: carrinho sem e-mail nem telefone é ignorado (não é erro); a compra sem contato é erro', async () => {
+  it('cenário 364 (R32.15) — Hotmart: carrinho sem e-mail nem telefone é ignorado (não é erro); a compra sem contato é erro', async () => {
     const integracao = await criarHotmart();
     const semContato = exemplo('hotmart/carrinho-abandonado', {
       'data.buyer': {},
@@ -598,7 +598,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(compra.mensagem).toMatch(/Sem e-mail nem telefone/);
   });
 
-  it('cenário 365 (R32.20) — Hotmart: reembolso e chargeback etiquetam e perdem o negócio da mesma transação, com motivo, sem mexer no valor; sem compra conhecida, nada é criado', async () => {
+  it('cenário 365 (R32.15) — Hotmart: reembolso e chargeback etiquetam e perdem o negócio da mesma transação, com motivo, sem mexer no valor; sem compra conhecida, nada é criado', async () => {
     const integracao = await criarHotmart();
     const aprovada = exemplo('hotmart/compra-aprovada');
     await enviarHotmart(integracao, aprovada);
@@ -665,7 +665,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     ).toBe(0);
   });
 
-  it('cenário 366 (R32.20) — Hotmart: a tabela personalizada manda: ignorar, só etiquetar, evento fora da tabela; assinatura cancelada etiqueta o contato', async () => {
+  it('cenário 366 (R32.15) — Hotmart: a tabela personalizada manda: ignorar, só etiquetar, evento fora da tabela; assinatura cancelada etiqueta o contato', async () => {
     const integracao = await criarHotmart();
     await admin
       .patch(`/api/v1/webhooks/entradas/${integracao.id}`, {
@@ -744,7 +744,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(tratado.status).toBe('PROCESSADO');
   });
 
-  it('cenário 367 (R32.20) — Hotmart: o hottok vale (igual, diferente, ausente); recusado fica no histórico como erro e não processa', async () => {
+  it('cenário 367 (R32.15) — Hotmart: o hottok vale (igual, diferente, ausente); recusado fica no histórico como erro e não processa', async () => {
     const integracao = await criarHotmart();
     const corpo = exemplo('hotmart/compra-aprovada');
     const errado = await postar(integracao, corpo, {
@@ -792,7 +792,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Kiwify
   // -------------------------------------------------------------------------
 
-  it('cenário 368 (R32.20) — Kiwify: signature na query (HMAC-SHA1 hex do corpo bruto); a do enviador confere; inválida, ausente e corpo alterado dão 401', async () => {
+  it('cenário 368 (R32.15) — Kiwify: signature na query (HMAC-SHA1 hex do corpo bruto); a do enviador confere; inválida, ausente e corpo alterado dão 401', async () => {
     const integracao = await criarKiwify();
     const amostra = EXEMPLOS['kiwify/compra-aprovada'];
     // A assinatura que o enviador do apoio calculou, no corpo exatamente como saiu dele.
@@ -829,7 +829,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(recusados).toBe(5);
   });
 
-  it('cenário 369 (R32.20) — Kiwify: aprovada ganha com o valor em reais; Pix, boleto, recusada e carrinho abrem; reembolso e chargeback perdem; assinatura etiqueta', async () => {
+  it('cenário 369 (R32.15) — Kiwify: aprovada ganha com o valor em reais; Pix, boleto, recusada e carrinho abrem; reembolso e chargeback perdem; assinatura etiqueta', async () => {
     const integracao = await criarKiwify();
     const pix = await enviarKiwify(integracao, exemplo('kiwify/pix-gerado'));
     expect(pix.itens[0]).toMatchObject({
@@ -911,7 +911,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(chargeback.status).toBe('IGNORADO');
   });
 
-  it('cenário 370 (R32.20) — Kiwify: as chaves minúsculas do objeto de venda da API também são lidas', async () => {
+  it('cenário 370 (R32.15) — Kiwify: as chaves minúsculas do objeto de venda da API também são lidas', async () => {
     const integracao = await criarKiwify();
     const r = await enviarKiwify(
       integracao,
@@ -928,7 +928,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Eduzz
   // -------------------------------------------------------------------------
 
-  it('cenário 371 (R32.20) — Eduzz: x-signature (HMAC-SHA256 do corpo bruto) em hexadecimal ou base64; a do enviador confere; inválida e ausente dão 401', async () => {
+  it('cenário 371 (R32.15) — Eduzz: x-signature (HMAC-SHA256 do corpo bruto) em hexadecimal ou base64; a do enviador confere; inválida e ausente dão 401', async () => {
     const integracao = await criarEduzz();
     for (const chave of ['eduzz/fatura-paga', 'eduzz/fatura-paga+base64']) {
       const amostra = EXEMPLOS[chave];
@@ -974,7 +974,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(enviado.status).toBe('PROCESSADO');
   });
 
-  it('cenário 372 (R32.20) — Eduzz: o ping responde 2xx sem processar nada (fica no histórico como ignorado); ping com assinatura inválida é recusado', async () => {
+  it('cenário 372 (R32.15) — Eduzz: o ping responde 2xx sem processar nada (fica no histórico como ignorado); ping com assinatura inválida é recusado', async () => {
     const integracao = await criarEduzz();
     const ping = EXEMPLOS['eduzz/ping'];
     const resposta = await postar(integracao, ping.corpo, {
@@ -1004,7 +1004,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     }).expect(202);
   });
 
-  it('cenário 373 (R32.20) — Eduzz: fatura aguardando abre, paga ganha, expirada e chargeback perdem; carrinho abre; contrato cancelado etiqueta; contrato sem comprador é ignorado', async () => {
+  it('cenário 373 (R32.15) — Eduzz: fatura aguardando abre, paga ganha, expirada e chargeback perdem; carrinho abre; contrato cancelado etiqueta; contrato sem comprador é ignorado', async () => {
     const integracao = await criarEduzz();
     const aguardando = await enviarEduzz(
       integracao,
@@ -1111,7 +1111,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Filtro por produto, idempotência e modos
   // -------------------------------------------------------------------------
 
-  it('cenário 374 (R32.20) — filtro opcional por produto: por id ou nome, nas três plataformas; fora do filtro é ignorado com o motivo', async () => {
+  it('cenário 374 (R32.15) — filtro opcional por produto: por id ou nome, nas três plataformas; fora do filtro é ignorado com o motivo', async () => {
     const hotmart = await criarHotmart({
       configuracao: { produtos: ['1234567'] },
     });
@@ -1187,7 +1187,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(todos.status).toBe('PROCESSADO');
   });
 
-  it('cenário 375 (R32.20) — idempotência: o mesmo evento de cada plataforma, reenviado, não cria outro negócio; o repetido fica ignorado e aponta o primeiro', async () => {
+  it('cenário 375 (R32.15) — idempotência: o mesmo evento de cada plataforma, reenviado, não cria outro negócio; o repetido fica ignorado e aponta o primeiro', async () => {
     const hotmart = await criarHotmart();
     const compra = exemplo('hotmart/compra-aprovada');
     const primeiro = await enviarHotmart(hotmart, compra);
@@ -1253,7 +1253,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(await negociosDe(EMAIL)).toHaveLength(3);
   });
 
-  it('cenário 376 (R32.20) — idempotência: um envio que deu erro pode ser reenviado e processar; dois envios simultâneos do mesmo evento processam só um', async () => {
+  it('cenário 376 (R32.15) — idempotência: um envio que deu erro pode ser reenviado e processar; dois envios simultâneos do mesmo evento processam só um', async () => {
     const hotmart = await criarHotmart();
     const comErro = exemplo('hotmart/compra-aprovada', {
       'data.buyer': { name: 'Sem Meio' },
@@ -1286,7 +1286,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
     expect(lidos.filter((r) => r.status === 'IGNORADO')).toHaveLength(2);
   });
 
-  it('cenário 377 (R32.20) — modo Criar: cada compra aprovada cria o negócio (a idempotência continua barrando o reenvio do mesmo evento)', async () => {
+  it('cenário 377 (R32.15) — modo Criar: cada compra aprovada cria o negócio (a idempotência continua barrando o reenvio do mesmo evento)', async () => {
     const integracao = await criarHotmart({ modo: 'CRIAR' });
     await enviarHotmart(integracao, exemplo('hotmart/compra-aprovada'));
     await enviarHotmart(
@@ -1315,7 +1315,7 @@ describe('Plataformas de curso (e2e, R32.20)', () => {
   // Typeform e saída no estilo do Clint
   // -------------------------------------------------------------------------
 
-  it('cenário 378 (R32.20, R32.10) — Typeform: o mesmo event_id reenviado não cria outro negócio; outro event_id da mesma pessoa só reconverte', async () => {
+  it('cenário 378 (R32.15, R32.10) — Typeform: o mesmo event_id reenviado não cria outro negócio; outro event_id da mesma pessoa só reconverte', async () => {
     const integracao = await criar({
       aplicativo: 'TYPEFORM',
       credencial: { token: 'tf-valido' },

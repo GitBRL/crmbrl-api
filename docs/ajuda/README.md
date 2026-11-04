@@ -81,5 +81,17 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Consultar a auditoria e os logs técnicos](administracao-auditoria-e-logs.md)
 - [Histórico de dúvidas à IA (Admin)](administracao-duvidas-ia.md)
 - [Integrações: aplicativos, histórico e webhooks de saída](administracao-integracoes-webhooks.md)
+- [Integração ActiveCampaign: passo a passo, teste e erros comuns](integracoes-activecampaign.md)
+- [Integração Eduzz: passo a passo, teste e erros comuns](integracoes-eduzz.md)
+- [Integração Elementor: passo a passo, teste e erros comuns](integracoes-elementor.md)
+- [Integração Facebook Lead Ads: passo a passo, teste e erros comuns](integracoes-facebook-lead-ads.md)
+- [Integração Great Pages: passo a passo, teste e erros comuns](integracoes-great-pages.md)
+- [Integração Hotmart: passo a passo, teste e erros comuns](integracoes-hotmart.md)
+- [Integração Kiwify: passo a passo, teste e erros comuns](integracoes-kiwify.md)
+- [Integração Lead Lovers: passo a passo, teste e erros comuns](integracoes-lead-lovers.md)
+- [Integração ManyChat: passo a passo, teste e erros comuns](integracoes-manychat.md)
+- [Integração RD Station: passo a passo, teste e erros comuns](integracoes-rd-station.md)
+- [Integração Typeform: passo a passo, teste e erros comuns](integracoes-typeform.md)
+- [Integração Webhook: receber leads de qualquer sistema e avisar outros sistemas](integracoes-webhook.md)
 
 Ao manter: atualize o artigo quando a tela mudar e confira com `FRONT/docs/TELAS-*.md` e `REGRAS-DE-NEGOCIO.md`.

@@ -13,6 +13,13 @@ export const FILA_PROCESSAR_RECEBIMENTO = 'webhooks-entrada.processar';
 /** Tentativas de processamento de um recebimento, contando a primeira (R8.4). */
 export const TENTATIVAS_DE_PROCESSAMENTO = 3;
 
+/**
+ * Itens (leads) processados por recebimento: um corpo com milhares de leads
+ * ocuparia o banco e o worker além do prazo do job. Os que passam do limite
+ * ficam registrados como ignorados, com o aviso (R32.2).
+ */
+export const MAXIMO_DE_ITENS_POR_RECEBIMENTO = 100;
+
 /** Espera antes de tentar processar de novo (com espera exponencial), em segundos. */
 export const ESPERA_ENTRE_PROCESSAMENTOS_SEGUNDOS = 30;
 
@@ -39,7 +46,7 @@ export const TRAVA_RECEBIMENTO = 'webhook-entrada-recebimento';
 export const TRAVA_NOME_ENTRADA = 'webhook-entrada-nome';
 export const TRAVA_NOME_SAIDA = 'webhook-saida-nome';
 
-/** Trava consultiva de um evento de entrada (integração + chave de idempotência, R32.20): o mesmo evento não se processa em paralelo. */
+/** Trava consultiva de um evento de entrada (integração + chave de idempotência, R32.15): o mesmo evento não se processa em paralelo. */
 export const TRAVA_EVENTO_DE_ENTRADA = 'webhook-entrada-evento';
 
 /** Segredo HMAC informado pelo Admin (R8.3): tamanho aceito. */
