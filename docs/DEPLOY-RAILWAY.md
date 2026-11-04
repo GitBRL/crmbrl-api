@@ -77,8 +77,11 @@ TRANSCRICAO_URL=http://transcricao.railway.internal:8080
 WHISPER_MODELO=small
 # ligações (R29/R30), opcionais: LIGACOES_STUN_URLS, LIGACOES_ESPERA_PRE_ACEITE_MS, TRANSCRICAO_TEMPO_LIMITE_S,
 #            LIGACOES_GRAVACAO_MAX_MB, LIGACOES_GRAVACAO_MAX_MIN
-# opcionais: ANTHROPIC_API_KEY, LIGACOES_RESUMO_MODELO, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
+# opcionais: ANTHROPIC_API_KEY (assistente, BI, resumo das ligações e SDR com IA; sem ela o SDR fica indisponível), LIGACOES_RESUMO_MODELO, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
 #            VAPID_CHAVE_PUBLICA, VAPID_CHAVE_PRIVADA, VAPID_ASSUNTO
+# integrações (Onda H, R32), opcionais e só para apontar para APIs de teste; em produção deixe sem definir:
+#            TYPEFORM_API_URL (padrão https://api.typeform.com), MANYCHAT_API_URL (padrão https://api.manychat.com),
+#            META_DIALOGO_URL (padrão https://www.facebook.com, diálogo de login do Facebook Lead Ads)
 
 # --- whatsapp ---
 DATABASE_URL=${{Postgres.DATABASE_URL}}
@@ -99,6 +102,15 @@ MINIO_BROWSER=off
 MINIO_SKIP_CLIENT=yes
 RAILWAY_RUN_UID=0                                     # a imagem roda sem root e o volume do Railway é do root
 ```
+
+**O que muda no Railway para o Facebook Lead Ads e o Typeform (Onda H):** nenhuma variável nova é obrigatória.
+Os dois dependem de `URL_PUBLICA` ser o domínio público do serviço do front, com **https** (o domínio do Railway ou o
+seu próprio): o Typeform chama o CRM a cada resposta e a Meta chama o retorno do login e o aviso de novos leads. No app da
+Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` em "URIs de redirecionamento OAuth válidos" e o webhook
+de páginas (campo `leadgen`) em `URL_PUBLICA/api/v1/publico/meta/webhook`, com o token de verificação mostrado na conexão do
+Facebook (Integrações; cada conexão tem o seu). O ID e o segredo do app da Meta e o token do
+Typeform são cadastrados na tela Integrações (guardados cifrados com a `CHAVE_CRIPTOGRAFIA`), não em variáveis. Ao trocar o
+domínio, refaça esses cadastros e reconecte o Facebook.
 
 ## 4. Ajustes de cada serviço (Settings)
 
@@ -156,6 +168,20 @@ deploy (efeito do volume da seção 4) e as conexões dos números voltam sozinh
   Railway) e copie os arquivos do MinIO periodicamente.
 - A tela **Saúde do sistema** mostra "nenhum backup": ela lê o `ultimo.json` do serviço `backup` do compose,
   que não existe no Railway. É esperado.
+
+## 7.1 Problemas encontrados na primeira instalação (03/11/2026)
+
+| Sintoma | Causa | Correção |
+| --- | --- | --- |
+| `docker-entrypoint: DATABASE_URL não definida` em loop | Banco criado pela imagem `postgres-ssl`, que não cria a `DATABASE_URL` | Criar o banco pelo modelo (New → Database → Add PostgreSQL), com o nome `Postgres` |
+| `/api` responde 502 e o log da `api` mostra `whisper_model_load…` | `RAILWAY_DOCKERFILE_PATH=Dockerfile.transcricao` também na `api` (ou nas Shared Variables) | Deixar essa variável só no serviço de transcrição; `api` e `whatsapp` com Dockerfile Path `/Dockerfile` |
+| Build com `Cannot find module '…/logs/…'` | Redeploy de um deploy antigo, que reconstrói o mesmo commit | Ctrl+K → "Deploy latest commit"; conferir o branch em Settings → Source |
+| `whatsapp` sem ffmpeg ou com imagem diferente da testada | Builder "Railpack" no lugar de "Dockerfile" | Settings → Build → Builder: Dockerfile |
+| Gateway: "Variáveis de ambiente inválidas" (URL_PUBLICA, CHAVE_CRIPTOGRAFIA…) | Referências `${{api.…}}` que não resolveram no serviço | Usar valores diretos, os mesmos da `api` (a CHAVE_CRIPTOGRAFIA e o WHATSAPP_TOKEN_INTERNO precisam ser iguais nos dois), ou Shared Variables com `${{shared.…}}` |
+| `wget … :3000` dá `Connection refused` a partir do `web` | Nada escutando na porta: veja o Deploy Logs da `api` | O log mostra o motivo (variável, banco ou Dockerfile errado) |
+
+Os registros que o Railway marca em vermelho como "error" no Whisper e no MinIO não são falhas. Esses
+programas escrevem tudo na saída de erro, inclusive as mensagens normais de início.
 
 ## 8. Diferenças em relação ao servidor próprio (pendentes)
 

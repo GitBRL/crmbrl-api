@@ -26,10 +26,11 @@ const AREA_DO_PAINEL: Record<PainelBi, Area | null> = {
   comercial: 'COMERCIAL',
   cs: 'CS',
   atendimento: null,
+  sdr: null,
   financeiro: 'CS',
 };
 
-/** O papel enxerga o painel? Admin e C-level todos; as pessoas de área, o da sua (Atendimento: não o Marketing). */
+/** O papel enxerga o painel? Admin e C-level todos; as pessoas de área, o da sua (Atendimento e SDR, que olham conversas: não o Marketing). */
 export function podeVerPainel(papel: Papel, painel: PainelBi): boolean {
   if (ehDiretoria(papel)) {
     return true;
@@ -38,7 +39,7 @@ export function podeVerPainel(papel: Papel, painel: PainelBi): boolean {
   if (!area) {
     return false;
   }
-  if (painel === 'atendimento') {
+  if (painel === 'atendimento' || painel === 'sdr') {
     return area !== 'MARKETING';
   }
   return AREA_DO_PAINEL[painel] === area;
@@ -47,7 +48,14 @@ export function podeVerPainel(papel: Papel, painel: PainelBi): boolean {
 /** Painéis que o papel vê, na ordem das abas. */
 export function paineisDoPapel(papel: Papel): PainelBi[] {
   return (
-    ['marketing', 'comercial', 'cs', 'atendimento', 'financeiro'] as const
+    [
+      'marketing',
+      'comercial',
+      'cs',
+      'atendimento',
+      'sdr',
+      'financeiro',
+    ] as const
   ).filter((painel) => podeVerPainel(papel, painel));
 }
 

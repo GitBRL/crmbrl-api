@@ -59,6 +59,7 @@ import {
   exigirEmailLivre,
   exigirLiderValido,
   exigirOutroAdminAtivo,
+  lerIdentificadorDeIntegracao,
   lerTelefone,
   lideradosAtivos,
   travarHierarquia,
@@ -71,6 +72,7 @@ const CAMPOS_EDITAVEIS = [
   'papel',
   'liderId',
   'telefone',
+  'identificadorIntegracao',
   'avatarUrl',
 ] as const;
 
@@ -179,6 +181,10 @@ export class UsuariosService {
     const criado = await this.prisma.$transaction(async (tx) => {
       await travarHierarquia(tx);
       await exigirEmailLivre(tx, email);
+      const identificadorIntegracao = await lerIdentificadorDeIntegracao(
+        tx,
+        dto.identificadorIntegracao,
+      );
       const liderId = await exigirLiderValido(
         tx,
         dto.papel,
@@ -191,6 +197,7 @@ export class UsuariosService {
           papel: dto.papel,
           liderId,
           telefone,
+          identificadorIntegracao,
           avatarUrl: dto.avatarUrl ?? null,
           senhaHash,
           deveTrocarSenha: senhaHash !== null,
@@ -286,6 +293,11 @@ export class UsuariosService {
       if (email !== undefined && email !== antes.email) {
         await exigirEmailLivre(tx, email, antes.id);
       }
+      const identificadorIntegracao = await lerIdentificadorDeIntegracao(
+        tx,
+        dto.identificadorIntegracao,
+        antes.id,
+      );
 
       const depois = await tx.usuario.update({
         where: { id },
@@ -295,6 +307,7 @@ export class UsuariosService {
           papel: mudouPapel ? papel : undefined,
           liderId,
           telefone,
+          identificadorIntegracao,
           avatarUrl: dto.avatarUrl,
         },
         include: INCLUIR_LIDER,

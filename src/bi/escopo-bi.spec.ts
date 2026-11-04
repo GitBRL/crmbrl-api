@@ -9,6 +9,7 @@ describe('Escopo do BI', () => {
         'comercial',
         'cs',
         'atendimento',
+        'sdr',
         'financeiro',
       ]);
     }
@@ -17,15 +18,26 @@ describe('Escopo do BI', () => {
   it('R20 — cada área vê o seu painel e o Atendimento, exceto o Marketing', () => {
     expect(paineisDoPapel('MARKETING')).toEqual(['marketing']);
     expect(paineisDoPapel('LIDER_MARKETING')).toEqual(['marketing']);
-    expect(paineisDoPapel('COMERCIAL')).toEqual(['comercial', 'atendimento']);
+    expect(paineisDoPapel('COMERCIAL')).toEqual([
+      'comercial',
+      'atendimento',
+      'sdr',
+    ]);
     expect(paineisDoPapel('LIDER_COMERCIAL')).toEqual([
       'comercial',
       'atendimento',
+      'sdr',
     ]);
-    expect(paineisDoPapel('CS')).toEqual(['cs', 'atendimento', 'financeiro']);
+    expect(paineisDoPapel('CS')).toEqual([
+      'cs',
+      'atendimento',
+      'sdr',
+      'financeiro',
+    ]);
     expect(paineisDoPapel('LIDER_CS')).toEqual([
       'cs',
       'atendimento',
+      'sdr',
       'financeiro',
     ]);
   });

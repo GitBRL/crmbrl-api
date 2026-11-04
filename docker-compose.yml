@@ -64,6 +64,10 @@ x-ambiente-da-imagem: &ambiente-da-imagem
   # Graph API da Meta (Instagram e Messenger, R14).
   META_GRAPH_URL: ${META_GRAPH_URL:-https://graph.facebook.com}
   META_GRAPH_VERSAO: ${META_GRAPH_VERSAO:-v24.0}
+  META_DIALOGO_URL: ${META_DIALOGO_URL:-https://www.facebook.com}
+  # APIs dos aplicativos das integrações (Typeform e ManyChat, R32); no ambiente dos agentes, as falsas do apoio.
+  TYPEFORM_API_URL: ${TYPEFORM_API_URL:-https://api.typeform.com}
+  MANYCHAT_API_URL: ${MANYCHAT_API_URL:-https://api.manychat.com}
   # Ligações pelo WhatsApp oficial (R29): STUN opcional do navegador e espera entre pre_accept e accept.
   LIGACOES_STUN_URLS: ${LIGACOES_STUN_URLS:-}
   LIGACOES_ESPERA_PRE_ACEITE_MS: ${LIGACOES_ESPERA_PRE_ACEITE_MS:-800}

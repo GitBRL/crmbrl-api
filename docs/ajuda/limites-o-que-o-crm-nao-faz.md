@@ -36,7 +36,7 @@ Use esta lista para reconhecer pedidos sem funcionalidade correspondente. Se o p
 ## Outros
 - Sem aplicativo separado em lojas de aplicativos: o CRM é usado no navegador (também no celular).
 - A interface é só em português.
-- Não consta sincronização com agendas externas (Google Agenda, Outlook) nem conectores prontos de outros sistemas além de webhooks de entrada e saída.
+- Não consta sincronização com agendas externas (Google Agenda, Outlook) nem conectores prontos de outros sistemas além das integrações por aplicativo (Facebook Lead Ads, Hotmart, Kiwify, Eduzz, ActiveCampaign, Elementor, Great Pages, Lead Lovers, ManyChat, RD Station e Typeform) e dos webhooks de entrada e saída.
 - Mudar papel, líder, canais, integrações e senhas de outras pessoas é do Admin; o assistente não consegue fazer isso por você.
 
 ## Fora do escopo do assistente

@@ -115,6 +115,14 @@ export class UsuarioDto extends UsuarioResumoDto {
   })
   telefone: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: 'ana.vendas',
+    description: 'Identificador nas integrações (R32.4): nulo se não definido.',
+  })
+  identificadorIntegracao: string | null;
+
   @ApiPropertyOptional({ nullable: true, type: String })
   avatarUrl: string | null;
 
@@ -136,6 +144,7 @@ export class UsuarioDto extends UsuarioResumoDto {
       deveTrocarSenha: usuario.deveTrocarSenha,
       senhaDefinida: usuario.senhaHash !== null,
       telefone: usuario.telefone,
+      identificadorIntegracao: usuario.identificadorIntegracao,
       avatarUrl: usuario.avatarUrl,
       ultimoAcessoEm: usuario.ultimoAcessoEm?.toISOString() ?? null,
       criadoEm: usuario.criadoEm.toISOString(),

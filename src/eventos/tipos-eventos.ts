@@ -24,6 +24,9 @@ export const EVENTOS_DE_WEBHOOK = [
   'parcela.atrasada',
   // Onda E: Ligações (R29.9). Sem áudio nem transcrição; o resumo só se o Admin marcar no canal.
   'ligacao.encerrada',
+  // Onda G: SDR com IA (R31.22). Sem o histórico da conversa; só contato, negócio, nota, temperatura, critérios e resumo.
+  'sdr.lead_qualificado',
+  'sdr.lead_desqualificado',
   'webhook.teste',
 ] as const;
 

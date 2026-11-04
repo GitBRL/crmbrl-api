@@ -37,6 +37,7 @@ import {
   AtualizarWebhookSaidaDto,
   CriarWebhookSaidaDto,
   EventoDisponivelDto,
+  FormatoClintDto,
   WebhookSaidaComSegredoDto,
   WebhookSaidaDto,
 } from './dto/webhook-saida.dto';
@@ -47,7 +48,12 @@ import { WebhooksSaidaService } from './webhooks-saida.service';
  * Webhooks de saída (R9): destinos, entregas, reenvio e evento de teste. Só o
  * Admin (§12).
  *
- * Toda entrega é um `POST` com o envelope `{ id, evento, ocorridoEm, dados }`
+ * O destino de formato `CLINT` (R32.12) envia só os campos escolhidos, com os
+ * identificadores escolhidos: `POST` (corpo JSON) ou `GET` (parâmetros na URL),
+ * disparado pelos gatilhos de negócio. Os cabeçalhos `X-CRM-*` seguem iguais; a
+ * assinatura cobre `timestamp + "." + corpo` (no GET, o corpo é a query string).
+ *
+ * No formato `ENVELOPE_CRM`, toda entrega é um `POST` com o envelope `{ id, evento, ocorridoEm, dados }`
  * e os cabeçalhos `X-CRM-Evento`, `X-CRM-Entrega`, `X-CRM-Timestamp` e
  * `X-CRM-Assinatura: sha256=<hmac>` — HMAC-SHA256 de `timestamp + "." + corpo`
  * com o segredo do destino (R9.3). Use o `id` do envelope para não processar o
@@ -69,6 +75,18 @@ export class WebhooksSaidaController {
   @ApiOkResponse({ type: [EventoDisponivelDto] })
   eventos(): EventoDisponivelDto[] {
     return this.destinos.eventosDisponiveis();
+  }
+
+  @Get('formato-clint')
+  @ApiOperation({
+    summary:
+      'O que o formato do Clint oferece: gatilhos, campos e métodos (R32.12)',
+    description:
+      'Para a tela "Enviar" do cartão Webhook: os gatilhos (negócio criado, entra na etapa X, muda de etapa, muda de status), os campos de contato, negócio, funil, etapa, dono, UTMs e evento com o identificador sugerido e o POST ou GET. Campos personalizados: `contato.camposPersonalizados.<chave>` e `negocio.camposPersonalizados.<chave>`.',
+  })
+  @ApiOkResponse({ type: FormatoClintDto })
+  formatoClint(): FormatoClintDto {
+    return this.destinos.formatoClint();
   }
 
   @Get()

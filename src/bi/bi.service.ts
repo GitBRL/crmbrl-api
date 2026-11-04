@@ -12,6 +12,7 @@ import { FiltrosBiService } from './filtros-bi.service';
 import { PainelAtendimentoService } from './painel-atendimento.service';
 import { PainelComercialService } from './painel-comercial.service';
 import { PainelCsService } from './painel-cs.service';
+import { PainelSdrService } from './painel-sdr.service';
 import { PainelFinanceiroService } from './painel-financeiro.service';
 import { PainelMarketingService } from './painel-marketing.service';
 
@@ -32,6 +33,7 @@ export class BiService {
     private readonly comercial: PainelComercialService,
     private readonly cs: PainelCsService,
     private readonly atendimento: PainelAtendimentoService,
+    private readonly sdr: PainelSdrService,
     private readonly financeiro: PainelFinanceiroService,
     private readonly exportacao: ExportacaoBiService,
   ) {}
@@ -99,6 +101,9 @@ export class BiService {
         break;
       case 'atendimento':
         conteudo = await this.atendimento.calcular(usuario, filtro);
+        break;
+      case 'sdr':
+        conteudo = await this.sdr.calcular(usuario, filtro);
         break;
       case 'financeiro':
         conteudo = await this.financeiro.calcular(usuario, filtro);

@@ -53,8 +53,19 @@ import {
   timestampDoEnvio,
 } from './envelope';
 import { enviarPost, type ResultadoDoEnvio } from './envio-http';
+import {
+  type CampoDeSaida,
+  EVENTOS_DOS_GATILHOS,
+  ehEventoDeGatilho,
+  type Gatilho,
+  gatilhoQueCasa,
+  montarCorpoClint,
+  montarParametros,
+  urlComParametros,
+  type ValorDeSaida,
+} from './formato-clint';
 import { verificarDestino } from './protecao-ssrf';
-import { WebhooksSaidaService } from './webhooks-saida.service';
+import { lerLista, WebhooksSaidaService } from './webhooks-saida.service';
 
 /** Dados do job de uma tentativa. `agendadaPara` identifica a tentativa vigente da entrega. */
 export interface TrabalhoDeEntrega {
@@ -117,6 +128,19 @@ export class EntregasService implements OnModuleInit {
         `webhooks-saida:${tipo}`,
       );
     }
+    // Gatilhos do formato Clint (R32.12): os eventos de negócio que não são assináveis
+    // pelo envelope (negocio.reaberto) também chegam aqui.
+    for (const tipo of EVENTOS_DOS_GATILHOS) {
+      if (!ehEventoDeWebhook(tipo)) {
+        this.eventos.registrarManipulador(
+          tipo,
+          async (evento) => {
+            await this.criarEntregas(evento);
+          },
+          `webhooks-saida:${tipo}`,
+        );
+      }
+    }
     this.eventos.registrarManipulador(
       'contato.anonimizado',
       async (evento) => {
@@ -146,14 +170,33 @@ export class EntregasService implements OnModuleInit {
   // Da outbox para as entregas
   // -------------------------------------------------------------------------
 
-  /** Manipulador da outbox: uma entrega (e um job) por destino assinante. Devolve quantas criou. */
+  /**
+   * Manipulador da outbox: uma entrega (e um job) por destino assinante — os de
+   * envelope pelos eventos assinados e os de formato Clint pelos gatilhos.
+   * Devolve quantas criou.
+   */
   async criarEntregas(evento: EventoPublicado): Promise<number> {
-    if (!ehEventoDeWebhook(evento.tipo) || evento.tipo === EVENTO_DE_TESTE) {
-      return 0;
+    let criadas = 0;
+    if (ehEventoDeWebhook(evento.tipo) && evento.tipo !== EVENTO_DE_TESTE) {
+      criadas += await this.criarEntregasDeEnvelope(evento);
     }
+    if (ehEventoDeGatilho(evento.tipo)) {
+      criadas += await this.criarEntregasDoClint(evento);
+    }
+    return criadas;
+  }
+
+  private async criarEntregasDeEnvelope(
+    evento: EventoPublicado,
+  ): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
       const destinos = await tx.webhookSaida.findMany({
-        where: { ativo: true, excluidoEm: null, eventos: { has: evento.tipo } },
+        where: {
+          ativo: true,
+          excluidoEm: null,
+          formato: 'ENVELOPE_CRM',
+          eventos: { has: evento.tipo },
+        },
         select: { id: true },
       });
       if (destinos.length === 0) {
@@ -180,6 +223,187 @@ export class EntregasService implements OnModuleInit {
       }
       return criadas.length;
     });
+  }
+
+  /**
+   * Formato Clint (R32.12): para cada destino com um gatilho que casa com o
+   * evento do negócio, monta os campos escolhidos (com os identificadores) e
+   * cria a entrega. O envelope fica gravado como `{ id, evento, ocorridoEm,
+   * formato, gatilho, contatoId, dados: <o corpo enviado> }`.
+   */
+  private async criarEntregasDoClint(evento: EventoPublicado): Promise<number> {
+    const dados = objeto(evento.dados);
+    const negocioId = texto(dados.negocioId);
+    const funilId = texto(dados.funilId);
+    const etapaId = texto(dados.etapaId);
+    if (!negocioId || !funilId || !etapaId) {
+      return 0;
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const destinos = await tx.webhookSaida.findMany({
+        where: { ativo: true, excluidoEm: null, formato: 'CLINT' },
+      });
+      const casados = destinos.flatMap((destino) => {
+        const gatilho = gatilhoQueCasa(lerGatilhos(destino.gatilhos), {
+          tipo: evento.tipo,
+          funilId,
+          etapaId,
+        });
+        return gatilho ? [{ destino, gatilho }] : [];
+      });
+      if (casados.length === 0) {
+        return 0;
+      }
+      const valores = await this.valoresDoNegocio(tx, negocioId, evento);
+      if (!valores) {
+        return 0;
+      }
+      const agora = new Date();
+      const entregas = casados.map(({ destino, gatilho }) => {
+        const todos = new Map(valores.valores);
+        todos.set('evento.gatilho', gatilho.tipo);
+        const corpo = montarCorpoClint(lerCampos(destino.campos), todos);
+        return {
+          webhookId: destino.id,
+          eventoId: evento.id,
+          tipoEvento: evento.tipo,
+          payload: {
+            id: evento.id,
+            evento: evento.tipo,
+            ocorridoEm: evento.ocorridoEm.toISOString(),
+            formato: 'CLINT',
+            gatilho: gatilho.tipo,
+            contatoId: valores.contatoId,
+            dados: corpo,
+          } as unknown as Prisma.InputJsonObject,
+          status: 'PENDENTE' as const,
+          proximaTentativaEm: agora,
+        };
+      });
+      const criadas = await tx.webhookEntrega.createManyAndReturn({
+        data: entregas,
+        skipDuplicates: true,
+        select: { id: true },
+      });
+      for (const { id } of criadas) {
+        await this.agendar(tx, id, agora);
+      }
+      return criadas.length;
+    });
+  }
+
+  /**
+   * Os valores de cada origem de campo. O que o negócio era no momento do evento
+   * (status, etapa, valor, motivo, dono, UTMs, contato) vem do próprio evento; o
+   * que o evento não leva (empresa, cargo, etiquetas, campos personalizados e o
+   * e-mail e identificador do dono) é lido agora.
+   */
+  private async valoresDoNegocio(
+    tx: Tx,
+    negocioId: string,
+    evento: EventoPublicado,
+  ): Promise<{
+    valores: Map<string, ValorDeSaida>;
+    contatoId: string;
+  } | null> {
+    const negocio = await tx.negocio.findUnique({
+      where: { id: negocioId },
+      include: {
+        contato: { include: { empresa: { select: { nome: true } } } },
+        responsavel: {
+          select: {
+            id: true,
+            nome: true,
+            email: true,
+            identificadorIntegracao: true,
+          },
+        },
+        funil: { select: { id: true, nome: true } },
+        etapa: { select: { id: true, nome: true } },
+      },
+    });
+    if (!negocio) {
+      return null;
+    }
+    const dados = objeto(evento.dados);
+    const foto = objeto(dados.negocio);
+    const fotoDoContato = objeto(foto.contato);
+    const fotoDoFunil = objeto(foto.funil);
+    const fotoDaEtapa = objeto(foto.etapa);
+    const fotoDoDono = objeto(foto.responsavel);
+    const fotoDaUtm = objeto(foto.utm);
+    const valores = new Map<string, ValorDeSaida>();
+    const definir = (origem: string, valor: unknown) => {
+      valores.set(origem, paraValorDeSaida(valor));
+    };
+    const { contato, responsavel } = negocio;
+    // O dono do momento do evento; se ele mudou depois, e-mail e identificador do atual.
+    const donoId = texto(fotoDoDono.id);
+    const dono =
+      donoId === null
+        ? null
+        : responsavel?.id === donoId
+          ? responsavel
+          : await tx.usuario.findUnique({
+              where: { id: donoId },
+              select: {
+                id: true,
+                nome: true,
+                email: true,
+                identificadorIntegracao: true,
+              },
+            });
+    definir('contato.id', texto(fotoDoContato.id) ?? contato.id);
+    definir('contato.nome', fotoDoContato.nome ?? contato.nome);
+    definir('contato.email', fotoDoContato.email ?? contato.email);
+    definir('contato.telefone', fotoDoContato.telefone ?? contato.telefone);
+    definir('contato.empresa', contato.empresa?.nome);
+    definir('contato.cargo', contato.cargo);
+    definir('contato.etiquetas', contato.etiquetas);
+    definir('negocio.id', negocio.id);
+    definir('negocio.titulo', foto.titulo ?? negocio.titulo);
+    definir('negocio.valor', foto.valor ?? negocio.valor.toFixed(2));
+    definir('negocio.valorRecorrente', foto.valorRecorrente);
+    definir(
+      'negocio.status',
+      typeof foto.status === 'string'
+        ? foto.status.toLowerCase()
+        : negocio.status.toLowerCase(),
+    );
+    definir('negocio.motivoPerda', foto.motivoPerda);
+    definir('negocio.origem', foto.origem ?? negocio.origem);
+    definir(
+      'negocio.origemDetalhe',
+      foto.origemDetalhe ?? negocio.origemDetalhe,
+    );
+    definir(
+      'negocio.criadoEm',
+      foto.criadoEm ?? negocio.criadoEm.toISOString(),
+    );
+    definir('funil.id', fotoDoFunil.id ?? negocio.funil.id);
+    definir('funil.nome', fotoDoFunil.nome ?? negocio.funil.nome);
+    definir('etapa.id', fotoDaEtapa.id ?? negocio.etapa.id);
+    definir('etapa.nome', fotoDaEtapa.nome ?? negocio.etapa.nome);
+    definir('etapa.anterior', objeto(dados.deEtapa).nome);
+    definir('dono.id', dono?.id);
+    definir('dono.nome', dono?.nome);
+    definir('dono.email', dono?.email);
+    definir('dono.identificador', dono?.identificadorIntegracao);
+    for (const campo of ['source', 'medium', 'campaign', 'term', 'content']) {
+      definir(`utm.${campo}`, fotoDaUtm[campo]);
+    }
+    definir('evento.ocorridoEm', evento.ocorridoEm.toISOString());
+    for (const [chave, valor] of Object.entries(
+      objeto(contato.camposPersonalizados),
+    )) {
+      definir(`contato.camposPersonalizados.${chave}`, valor);
+    }
+    for (const [chave, valor] of Object.entries(
+      objeto(negocio.camposPersonalizados),
+    )) {
+      definir(`negocio.camposPersonalizados.${chave}`, valor);
+    }
+    return { valores, contatoId: contato.id };
   }
 
   // -------------------------------------------------------------------------
@@ -272,8 +496,30 @@ export class EntregasService implements OnModuleInit {
         'O segredo ou os cabeçalhos do destino não podem ser lidos (a CHAVE_CRIPTOGRAFIA mudou?): regenere o segredo e revise os cabeçalhos.',
       );
     }
-    const corpo = serializarEnvelope(entrega.payload);
     const timestamp = timestampDoEnvio(agora);
+    if (destino.formato === 'CLINT') {
+      // Só os campos escolhidos: POST com JSON ou GET com parâmetros na URL (R32.12).
+      const campos = objeto(objeto(entrega.payload).dados);
+      const get = destino.metodo === 'GET';
+      const corpo = get ? montarParametros(campos) : JSON.stringify(campos);
+      const assinatura = formatarAssinatura(
+        this.cripto.assinarHmac(segredo, conteudoAssinado(timestamp, corpo)),
+      );
+      return enviarPost({
+        url: get ? urlComParametros(destino.url, corpo) : destino.url,
+        metodo: destino.metodo,
+        corpo,
+        cabecalhos: cabecalhosDaEntrega({
+          evento: entrega.tipoEvento,
+          entregaId: entrega.id,
+          timestamp,
+          assinatura,
+          extras,
+          semCorpo: get,
+        }),
+      });
+    }
+    const corpo = serializarEnvelope(entrega.payload);
     const assinatura = formatarAssinatura(
       this.cripto.assinarHmac(segredo, conteudoAssinado(timestamp, corpo)),
     );
@@ -574,21 +820,26 @@ export class EntregasService implements OnModuleInit {
     const entregaId = await this.prisma.$transaction(async (tx) => {
       const destino = await tx.webhookSaida.findFirst({
         where: { id: webhookId, excluidoEm: null },
-        select: { id: true, nome: true },
+        select: { id: true, nome: true, formato: true },
       });
       if (!destino) {
         throw new NaoEncontradoException('Webhook de saída não encontrado.');
       }
+      const mensagem =
+        'Evento de teste do BRL CRM: se chegou, o destino está configurado.';
       const envelope = montarEnvelope({
         id: randomUUID(),
         tipo: EVENTO_DE_TESTE,
         ocorridoEm: agora,
-        dados: {
-          mensagem:
-            'Evento de teste do BRL CRM: se chegou, o destino está configurado.',
-          destino: { id: destino.id, nome: destino.nome },
-          solicitadoPor: { id: usuario.id, nome: usuario.nome },
-        },
+        // No formato Clint o teste leva só campos simples (vai como JSON ou como parâmetros da URL).
+        dados:
+          destino.formato === 'CLINT'
+            ? { evento: EVENTO_DE_TESTE, mensagem }
+            : {
+                mensagem,
+                destino: { id: destino.id, nome: destino.nome },
+                solicitadoPor: { id: usuario.id, nome: usuario.nome },
+              },
       });
       const entrega = await tx.webhookEntrega.create({
         data: {
@@ -686,4 +937,46 @@ function semEnvio(erro: string): ResultadoDoEnvio {
     trechoResposta: null,
     erro,
   };
+}
+
+function objeto(valor: unknown): Record<string, unknown> {
+  return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
+    ? (valor as Record<string, unknown>)
+    : {};
+}
+
+function texto(valor: unknown): string | null {
+  return typeof valor === 'string' && valor ? valor : null;
+}
+
+function lerGatilhos(valor: Prisma.JsonValue): Gatilho[] {
+  return lerLista(valor).flatMap((g) =>
+    typeof g.tipo === 'string' ? [g as unknown as Gatilho] : [],
+  );
+}
+
+function lerCampos(valor: Prisma.JsonValue): CampoDeSaida[] {
+  return lerLista(valor).flatMap((c) =>
+    typeof c.origem === 'string' && typeof c.identificador === 'string'
+      ? [{ origem: c.origem, identificador: c.identificador }]
+      : [],
+  );
+}
+
+/** Texto, número, booleano ou lista de textos; objetos viram JSON; vazio vira `null`. */
+function paraValorDeSaida(valor: unknown): ValorDeSaida {
+  if (valor === null || valor === undefined || valor === '') {
+    return null;
+  }
+  if (
+    typeof valor === 'string' ||
+    typeof valor === 'number' ||
+    typeof valor === 'boolean'
+  ) {
+    return valor;
+  }
+  if (Array.isArray(valor) && valor.every((item) => typeof item === 'string')) {
+    return valor as string[];
+  }
+  return JSON.stringify(valor);
 }

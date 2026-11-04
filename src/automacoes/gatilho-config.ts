@@ -38,6 +38,7 @@ const TIPOS_DE_CANAL = [
   'MESSENGER',
   'WHATSAPP_OFICIAL',
 ];
+const TEMPERATURAS_DO_SDR = ['QUENTE', 'MORNO', 'FRIO'];
 const DIRECOES_DE_LIGACAO = ['RECEBIDA', 'FEITA'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -205,6 +206,16 @@ function problemasDosFiltros(config: Record<string, unknown>): string[] {
           `O resultado da ligação do filtro é inválido (${RESULTADOS_DE_LIGACAO.join(', ')}).`,
         );
       }
+    } else if (chave === 'temperatura') {
+      if (
+        !comoLista(valor).every((v) =>
+          TEMPERATURAS_DO_SDR.includes(v as string),
+        )
+      ) {
+        erros.push(
+          `A temperatura do filtro é inválida (${TEMPERATURAS_DO_SDR.join(', ')}).`,
+        );
+      }
     } else if (chave === 'notaMinima' || chave === 'notaMaxima') {
       if (
         !Number.isInteger(valor) ||
@@ -295,6 +306,12 @@ export function casaComFiltros(
     return false;
   }
   if (!valorNaLista(d.campanhaId, filtros.campanhaId)) {
+    return false;
+  }
+  if (
+    evento.startsWith('sdr.') &&
+    !valorNaLista(d.temperatura, filtros.temperatura)
+  ) {
     return false;
   }
   if (evento.startsWith('ligacao.')) {

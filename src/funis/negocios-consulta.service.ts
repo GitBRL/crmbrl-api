@@ -8,6 +8,7 @@ import {
   type Pagina,
   paraSkipTake,
 } from '../comum/paginacao/paginacao';
+import { sdrPorContato } from './sdr-do-negocio';
 import { Prisma } from '../generated/prisma/client';
 import type {
   FiltroDaLinhaDoTempoDto,
@@ -90,8 +91,14 @@ export class NegociosConsultaService {
       }),
       this.prisma.negocio.count({ where }),
     ]);
+    const sdr = await sdrPorContato(
+      this.prisma,
+      itens.map((negocio) => negocio.contatoId),
+    );
     return montarPagina(
-      itens.map((negocio) => NegocioDto.de(negocio, agora)),
+      itens.map((negocio) =>
+        NegocioDto.de(negocio, agora, sdr.get(negocio.contatoId) ?? null),
+      ),
       total,
       filtro,
     );
@@ -156,6 +163,10 @@ export class NegociosConsultaService {
             : Promise.resolve(0),
         ]);
         const total = totalPorEtapa.get(etapa.id);
+        const sdr = await sdrPorContato(
+          this.prisma,
+          cartoes.map((negocio) => negocio.contatoId),
+        );
         return {
           etapa: EtapaDto.de(etapa),
           total: total?._count._all ?? 0,
@@ -163,7 +174,9 @@ export class NegociosConsultaService {
           parados,
           negocios: cartoes
             .slice(0, filtro.limitePorEtapa)
-            .map((negocio) => NegocioDto.de(negocio, agora)),
+            .map((negocio) =>
+              NegocioDto.de(negocio, agora, sdr.get(negocio.contatoId) ?? null),
+            ),
           temMais: cartoes.length > filtro.limitePorEtapa,
         };
       }),

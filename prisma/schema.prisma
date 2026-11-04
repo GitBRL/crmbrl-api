@@ -195,6 +195,8 @@ enum ModeloMapeamento {
   GENERICO
   DISPAROS_BRL
   PERSONALIZADO
+  /// O modelo pronto do aplicativo da integração (R32.2).
+  DO_APLICATIVO
 
   @@map("modelo_mapeamento")
 }
@@ -210,29 +212,31 @@ enum ModeloMapeamento {
 /// O e-mail é gravado aparado e em minúsculas (R1.1; um CHECK garante).
 /// `senhaHash` fica nulo para quem foi convidado e ainda não definiu a senha.
 model Usuario {
-  id              String    @id @default(uuid()) @db.Uuid
-  nome            String
-  email           String    @unique
-  papel           Papel
-  liderId         String?   @map("lider_id") @db.Uuid
-  lider           Usuario?  @relation("Lideranca", fields: [liderId], references: [id], onDelete: SetNull)
-  liderados       Usuario[] @relation("Lideranca")
-  ativo           Boolean   @default(true)
-  desligadoEm     DateTime? @map("desligado_em") @db.Timestamptz(3)
+  id                      String    @id @default(uuid()) @db.Uuid
+  nome                    String
+  email                   String    @unique
+  /// Identificador do usuário nas integrações (R32.4): opcional e único (sem diferenciar maiúsculas).
+  identificadorIntegracao String?   @unique @map("identificador_integracao")
+  papel                   Papel
+  liderId                 String?   @map("lider_id") @db.Uuid
+  lider                   Usuario?  @relation("Lideranca", fields: [liderId], references: [id], onDelete: SetNull)
+  liderados               Usuario[] @relation("Lideranca")
+  ativo                   Boolean   @default(true)
+  desligadoEm             DateTime? @map("desligado_em") @db.Timestamptz(3)
   /// `scrypt$N$r$p$sal$hash` (R2.1). Nunca sai da API.
-  senhaHash       String?   @map("senha_hash")
+  senhaHash               String?   @map("senha_hash")
   /// Troca de senha obrigatória no próximo acesso (R2.6, R2.7, R2.8).
-  deveTrocarSenha Boolean   @default(false) @map("deve_trocar_senha")
-  senhaAlteradaEm DateTime? @map("senha_alterada_em") @db.Timestamptz(3)
-  ultimoAcessoEm  DateTime? @map("ultimo_acesso_em") @db.Timestamptz(3)
+  deveTrocarSenha         Boolean   @default(false) @map("deve_trocar_senha")
+  senhaAlteradaEm         DateTime? @map("senha_alterada_em") @db.Timestamptz(3)
+  ultimoAcessoEm          DateTime? @map("ultimo_acesso_em") @db.Timestamptz(3)
   /// Quando a pessoa passou a ter senha própria (definiu a do convite ou trocou a
   /// temporária / a inicial). Preenchido pelo banco (gatilho); nulo = ainda não
   /// ativou o acesso e fica fora dos rodízios de leads e de conversas (R5.8, R12).
-  acessoAtivadoEm DateTime? @map("acesso_ativado_em") @db.Timestamptz(3)
-  avatarUrl       String?   @map("avatar_url")
-  telefone        String?
-  criadoEm        DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm    DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  acessoAtivadoEm         DateTime? @map("acesso_ativado_em") @db.Timestamptz(3)
+  avatarUrl               String?   @map("avatar_url")
+  telefone                String?
+  criadoEm                DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
   sessoes                    Sessao[]
   tokensSenha                TokenSenha[]
@@ -863,8 +867,58 @@ model EventoDominio {
 }
 
 // ---------------------------------------------------------------------------
-// Webhooks (R8, R9)
+// Webhooks (R8, R9) e integrações por aplicativo (R32)
 // ---------------------------------------------------------------------------
+
+/// Aplicativo de uma integração de entrada (R32.1). Os de H2 já existem no enum.
+enum AplicativoIntegracao {
+  WEBHOOK
+  ELEMENTOR
+  RD_STATION
+  ACTIVE_CAMPAIGN
+  GREAT_PAGES
+  LEAD_LOVERS
+  MANYCHAT
+  TYPEFORM
+  FACEBOOK_LEAD_ADS
+  HOTMART
+  KIWIFY
+  EDUZZ
+
+  @@map("aplicativo_integracao")
+}
+
+/// O que o recebimento cria ou atualiza (R32.3).
+enum AlvoIntegracao {
+  CONTATO
+  NEGOCIO
+
+  @@map("alvo_integracao")
+}
+
+/// Modo do recebimento (R32.3).
+enum ModoIntegracao {
+  CRIAR
+  ATUALIZAR
+  CRIAR_OU_ATUALIZAR
+
+  @@map("modo_integracao")
+}
+
+/// Formato do corpo de um destino de saída (R32.12).
+enum FormatoWebhookSaida {
+  ENVELOPE_CRM
+  CLINT
+
+  @@map("formato_webhook_saida")
+}
+
+enum MetodoWebhookSaida {
+  POST
+  GET
+
+  @@map("metodo_webhook_saida")
+}
 
 /// Ponto de entrada de leads (R8.1). O endereço leva um token de 32 bytes; o banco guarda só o hash.
 model WebhookEntrada {
@@ -884,18 +938,36 @@ model WebhookEntrada {
   /// Caminho no JSON → campo do contato/negócio.
   mapeamento          Json                   @default("{}")
   etiquetasFixas      String[]               @default([]) @map("etiquetas_fixas")
-  /// Segredo HMAC opcional, cifrado com AES-256-GCM (R10.3).
+  /// Segredo de autenticidade (HMAC, chave do cabeçalho, segredo do Typeform), cifrado com AES-256-GCM (R10.3).
   segredoCifrado      String?                @map("segredo_cifrado")
   ativo               Boolean                @default(true)
   ultimoRecebimentoEm DateTime?              @map("ultimo_recebimento_em") @db.Timestamptz(3)
+  // R32: aplicativo, ação, status inicial, credencial e situação.
+  aplicativo          AplicativoIntegracao   @default(WEBHOOK)
+  alvo                AlvoIntegracao         @default(NEGOCIO)
+  modo                ModoIntegracao         @default(CRIAR_OU_ATUALIZAR)
+  statusInicial       StatusNegocio          @default(ABERTO) @map("status_inicial")
+  motivoPerdaPadrao   String?                @map("motivo_perda_padrao")
+  /// O token cifrado (R10.3), para reabrir o endereço e registrar o webhook no Typeform. Nulo nos pontos antigos.
+  tokenCifrado        String?                @map("token_cifrado")
+  /// JSON cifrado com a credencial do aplicativo (chave de API, token pessoal, URL da conta). Nunca devolvido inteiro.
+  credencialCifrada   String?                @map("credencial_cifrada")
+  /// Configuração própria do aplicativo (formulário do Typeform, cabeçalho do RD, campos buscados…).
+  configuracao        Json                   @default("{}")
+  /// A credencial foi recusada pelo aplicativo: a integração precisa de atenção (R32.9).
+  precisaAtencao      Boolean                @default(false) @map("precisa_atencao")
+  atencaoMotivo       String?                @map("atencao_motivo")
+  atencaoEm           DateTime?              @map("atencao_em") @db.Timestamptz(3)
   criadoPorId         String?                @map("criado_por_id") @db.Uuid
   criadoPor           Usuario?               @relation("WebhookEntradaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
   criadoEm            DateTime               @default(now()) @map("criado_em") @db.Timestamptz(3)
   atualizadoEm        DateTime               @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   excluidoEm          DateTime?              @map("excluido_em") @db.Timestamptz(3)
 
-  recebimentos WebhookRecebimento[]
+  recebimentos  WebhookRecebimento[]
+  leadsFacebook LeadFacebook[]
 
+  @@index([aplicativo])
   @@map("webhooks_entrada")
 }
 
@@ -918,6 +990,10 @@ model WebhookRecebimento {
   negocio      Negocio?          @relation(fields: [negocioId], references: [id], onDelete: SetNull)
   processadoEm DateTime?         @map("processado_em") @db.Timestamptz(3)
   tentativas   Int               @default(0)
+  /// Valores desconhecidos e descartados que não derrubaram o recebimento (R32.5).
+  avisos       Json              @default("[]")
+  /// Um resultado por item do corpo (ex.: cada lead do RD Station): `[{indice,status,mensagem,contatoId,negocioId,avisos}]`.
+  resultados   Json?
 
   @@index([webhookId, recebidoEm])
   @@index([recebidoEm])
@@ -925,24 +1001,101 @@ model WebhookRecebimento {
   @@map("webhook_recebimentos")
 }
 
+/// Como a conexão com o Facebook foi feita: "Entrar com o Facebook" (token de usuário de longa duração) ou token de página colado (R32.14).
+enum TipoConexaoFacebook {
+  USUARIO
+  PAGINA
+
+  @@map("tipo_conexao_facebook")
+}
+
+/// De onde veio o lead do Facebook: o webhook `leadgen` ou a reconciliação periódica (R32.14).
+enum OrigemLeadFacebook {
+  WEBHOOK
+  RECONCILIACAO
+
+  @@map("origem_lead_facebook")
+}
+
+/// Conexão com o Facebook Lead Ads (R32.14): o app da Meta (id e segredo) e o acesso às páginas. Várias integrações
+/// (uma por formulário) usam a mesma conexão. Tudo que é segredo fica cifrado (R10.3) e nunca sai da API.
+model ConexaoFacebook {
+  id                      String              @id @default(uuid()) @db.Uuid
+  nome                    String
+  tipo                    TipoConexaoFacebook
+  appId                   String              @map("app_id")
+  appSecretCifrado        String              @map("app_secret_cifrado")
+  /// Token de usuário de longa duração (USUARIO) ou o token da página (PAGINA), cifrado. Nulo enquanto o login não terminou.
+  tokenCifrado            String?             @map("token_cifrado")
+  /// JSON cifrado `[{id, nome, categoria, token}]` com as páginas e seus tokens (que não expiram com o do usuário).
+  paginasCifradas         String?             @map("paginas_cifradas")
+  /// Token de verificação do webhook de páginas no app da Meta (desafio GET), aleatório por conexão, cifrado. Gerado na criação (ou na primeira leitura, nas conexões antigas).
+  tokenVerificacaoCifrado String?             @map("token_verificacao_cifrado")
+  usuarioFacebookId       String?             @map("usuario_facebook_id")
+  usuarioFacebookNome     String?             @map("usuario_facebook_nome")
+  /// Quando o token do usuário expira (a Meta informa ~60 dias); as páginas seguem valendo.
+  expiraEm                DateTime?           @map("expira_em") @db.Timestamptz(3)
+  /// Canal Messenger/Instagram de onde o app foi reaproveitado (só informativo).
+  canalOrigemId           String?             @map("canal_origem_id") @db.Uuid
+  /// SHA-256 do `state` do login em andamento (uso único) e a validade dele.
+  estadoHash              String?             @map("estado_hash")
+  estadoExpiraEm          DateTime?           @map("estado_expira_em") @db.Timestamptz(3)
+  conectadaEm             DateTime?           @map("conectada_em") @db.Timestamptz(3)
+  precisaAtencao          Boolean             @default(false) @map("precisa_atencao")
+  atencaoMotivo           String?             @map("atencao_motivo")
+  atencaoEm               DateTime?           @map("atencao_em") @db.Timestamptz(3)
+  criadoPorId             String?             @map("criado_por_id") @db.Uuid
+  criadoEm                DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm              DateTime?           @map("excluido_em") @db.Timestamptz(3)
+
+  @@index([excluidoEm])
+  @@map("conexoes_facebook")
+}
+
+/// Lead do Facebook já recebido por uma integração (R32.14): a chave `(integração, leadgen_id)` impede repetir o mesmo lead
+/// (o webhook pode chegar duas vezes e a reconciliação encontra o que o webhook já trouxe). Sem dados pessoais.
+model LeadFacebook {
+  id             String             @id @default(uuid()) @db.Uuid
+  webhookId      String             @map("webhook_id") @db.Uuid
+  webhook        WebhookEntrada     @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  leadgenId      String             @map("leadgen_id")
+  formularioId   String             @map("formulario_id")
+  criadoNaMetaEm DateTime?          @map("criado_na_meta_em") @db.Timestamptz(3)
+  origem         OrigemLeadFacebook
+  recebimentoId  String?            @map("recebimento_id") @db.Uuid
+  recebidoEm     DateTime           @default(now()) @map("recebido_em") @db.Timestamptz(3)
+
+  @@unique([webhookId, leadgenId])
+  @@index([webhookId, criadoNaMetaEm])
+  @@map("leads_facebook")
+}
+
 /// Destino de eventos (R9.1). Segredo e cabeçalhos extras ficam cifrados (R10.3).
 model WebhookSaida {
-  id                          String    @id @default(uuid()) @db.Uuid
+  id                          String              @id @default(uuid()) @db.Uuid
   nome                        String
   url                         String
   /// Eventos assinados (R9.2).
-  eventos                     String[]  @default([])
-  segredoCifrado              String    @map("segredo_cifrado")
+  eventos                     String[]            @default([])
+  segredoCifrado              String              @map("segredo_cifrado")
   /// JSON `{ "Cabecalho": "valor" }` cifrado com AES-256-GCM (pode levar credenciais).
-  cabecalhosCifrados          String?   @map("cabecalhos_cifrados")
-  ativo                       Boolean   @default(true)
-  falhasConsecutivas          Int       @default(0) @map("falhas_consecutivas")
-  desativadoAutomaticamenteEm DateTime? @map("desativado_automaticamente_em") @db.Timestamptz(3)
-  criadoPorId                 String?   @map("criado_por_id") @db.Uuid
-  criadoPor                   Usuario?  @relation("WebhookSaidaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
-  criadoEm                    DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm                DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
-  excluidoEm                  DateTime? @map("excluido_em") @db.Timestamptz(3)
+  cabecalhosCifrados          String?             @map("cabecalhos_cifrados")
+  ativo                       Boolean             @default(true)
+  falhasConsecutivas          Int                 @default(0) @map("falhas_consecutivas")
+  desativadoAutomaticamenteEm DateTime?           @map("desativado_automaticamente_em") @db.Timestamptz(3)
+  criadoPorId                 String?             @map("criado_por_id") @db.Uuid
+  criadoPor                   Usuario?            @relation("WebhookSaidaCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm                    DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm                DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm                  DateTime?           @map("excluido_em") @db.Timestamptz(3)
+  // R32.12: formato do Clint.
+  formato                     FormatoWebhookSaida @default(ENVELOPE_CRM)
+  metodo                      MetodoWebhookSaida  @default(POST)
+  /// Gatilhos do formato Clint: `[{tipo, funilId?, etapaId?, status?}]`.
+  gatilhos                    Json                @default("[]")
+  /// Campos enviados no formato Clint: `[{origem, identificador}]`.
+  campos                      Json                @default("[]")
 
   entregas WebhookEntrega[]
 
@@ -1279,6 +1432,8 @@ model Canal {
   ligacoes             Ligacao[]
   permissoesDeLigacao  PermissaoDeLigacao[]
   configuracaoLigacoes CanalLigacaoConfig?
+  /// Onda G: SDR com IA deste canal (modo desligado, automático ou sugestão).
+  sdr                  SdrCanal?
   conversas            Conversa[]
   mensagens            Mensagem[]
   identificadores      ContatoIdentificador[]
@@ -1434,11 +1589,15 @@ model Conversa {
   criadoEm                     DateTime           @default(now()) @map("criado_em") @db.Timestamptz(3)
   atualizadoEm                 DateTime           @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  mensagens   Mensagem[]           @relation("MensagensDaConversa")
-  atribuicoes ConversaAtribuicao[]
-  visitantes  WebchatVisitante[]
-  execucoes   Execucao[]
-  ligacoes    Ligacao[]
+  mensagens    Mensagem[]           @relation("MensagensDaConversa")
+  atribuicoes  ConversaAtribuicao[]
+  visitantes   WebchatVisitante[]
+  execucoes    Execucao[]
+  ligacoes     Ligacao[]
+  /// Onda G: estado do SDR com IA, decisões e sugestões desta conversa.
+  sdr          SdrConversa?
+  sdrDecisoes  SdrDecisao[]
+  sdrSugestoes SdrSugestao[]
 
   @@unique([canalId, contatoId], map: "conversas_uma_em_aberto_key", where: raw("(status <> 'RESOLVIDA'::status_conversa)"))
   @@index([status, filaId])
@@ -3292,4 +3451,336 @@ model LigacaoWebhookEvento {
 
   @@index([recebidoEm])
   @@map("ligacoes_webhook_eventos")
+}
+
+// ---------------------------------------------------------------------------
+// SDR com IA (Onda G, R31)
+// ---------------------------------------------------------------------------
+
+/// Como o SDR atua num canal: desligado, responde sozinho (automático) ou só
+/// propõe a resposta ao atendente (sugestão).
+enum ModoSdr {
+  DESLIGADO
+  AUTOMATICO
+  SUGESTAO
+
+  @@map("modo_sdr")
+}
+
+/// Quem está com a conversa do ponto de vista do SDR. Só `ATIVA` deixa a IA agir.
+enum SituacaoSdr {
+  /// A IA está atendendo (ou, na sugestão, sugerindo).
+  ATIVA
+  /// Um humano assumiu: a IA parou até "Devolver para a IA".
+  HUMANO
+  /// A IA passou para a equipe (pedido do lead, assunto sensível, limite, falha…).
+  PASSADA_HUMANO
+  /// Qualificada: o negócio foi para o Comercial.
+  QUALIFICADA
+  /// Desqualificada: fica no Marketing com o motivo.
+  DESQUALIFICADA
+  /// A conversa foi resolvida.
+  ENCERRADA
+
+  @@map("situacao_sdr")
+}
+
+enum TipoCriterioSdr {
+  TEXTO
+  OPCAO
+  NUMERO
+  DATA
+  SIM_NAO
+
+  @@map("tipo_criterio_sdr")
+}
+
+/// Onde o valor descoberto é gravado: num campo do contato, do negócio ou só na qualificação.
+enum AlvoCriterioSdr {
+  NENHUM
+  CONTATO
+  NEGOCIO
+
+  @@map("alvo_criterio_sdr")
+}
+
+enum TemperaturaSdr {
+  QUENTE
+  MORNO
+  FRIO
+
+  @@map("temperatura_sdr")
+}
+
+enum AcaoSdr {
+  CONTINUAR
+  QUALIFICADO
+  DESQUALIFICADO
+  PASSAR_HUMANO
+
+  @@map("acao_sdr")
+}
+
+enum StatusSugestaoSdr {
+  PENDENTE
+  ENVIADA
+  DESCARTADA
+  /// Perdeu a vez: o lead escreveu de novo, um humano respondeu ou a IA foi parada.
+  OBSOLETA
+
+  @@map("status_sugestao_sdr")
+}
+
+enum TipoDecisaoSdr {
+  /// A IA assumiu a conversa (nova, chamada pelo fluxo ou devolvida).
+  ASSUMIU
+  /// Um turno da IA (resposta enviada ou sugerida, critérios, nota).
+  TURNO
+  QUALIFICADO
+  DESQUALIFICADO
+  PASSOU_HUMANO
+  HUMANO_ASSUMIU
+  DEVOLVIDA
+  /// Algo impediu a IA (orçamento, janela de 24 h, opt-out, limite).
+  BLOQUEIO
+  FALHA
+
+  @@map("tipo_decisao_sdr")
+}
+
+/// Configuração geral do SDR (uma linha, `chave = 'padrao'`).
+model SdrConfiguracao {
+  id                        String    @id @default(uuid()) @db.Uuid
+  chave                     String    @unique @default("padrao")
+  nomeAssistente            String    @default("Bia") @map("nome_assistente")
+  tom                       String    @default("Simpático, claro e objetivo, sem gírias.")
+  /// Texto da apresentação obrigatória como assistente virtual.
+  apresentacao              String    @default("Sou a Bia, assistente virtual da BRL.")
+  /// Enviada ao lead quando a conversa passa para uma pessoa.
+  mensagemPassagem          String    @default("Vou chamar uma pessoa da nossa equipe para continuar com você. Já passei o que conversamos, não precisa repetir.") @map("mensagem_passagem")
+  modelo                    String    @default("claude-sonnet-5-5")
+  esforco                   String    @default("low")
+  esperaAgrupamentoSegundos Int       @default(8) @map("espera_agrupamento_segundos")
+  maxMensagensPorConversa   Int       @default(30) @map("max_mensagens_por_conversa")
+  maxMensagensSemAvanco     Int       @default(8) @map("max_mensagens_sem_avanco")
+  maxTokensPorConversa      Int       @default(200000) @map("max_tokens_por_conversa")
+  /// Orçamento mensal de tokens (entrada + saída + cache). Nulo = sem orçamento.
+  orcamentoMensalTokens     Int?      @default(5000000) @map("orcamento_mensal_tokens")
+  notaMinimaQualificado     Int       @default(60) @map("nota_minima_qualificado")
+  faixaQuente               Int       @default(70) @map("faixa_quente")
+  faixaMorno                Int       @default(40) @map("faixa_morno")
+  /// `{ pedidoHumano, assuntoSensivel, baixaConfianca, confiancaMinima, semAvanco, reclamacao }`.
+  regrasPassagem            Json      @default("{\"pedidoHumano\": true, \"assuntoSensivel\": true, \"baixaConfianca\": true, \"confiancaMinima\": 0.4, \"semAvanco\": true, \"reclamacao\": true}") @map("regras_passagem")
+  /// Sobe a cada mudança na base de conhecimento (vai no registro de cada decisão).
+  baseVersao                Int       @default(1) @map("base_versao")
+  /// Avisos ao Admin já enviados por mês: `{ "2026-11": { "80": true, "100": true } }`.
+  avisosDeOrcamento         Json      @default("{}") @map("avisos_de_orcamento")
+  modeloCaptacaoAplicadoEm  DateTime? @map("modelo_captacao_aplicado_em") @db.Timestamptz(3)
+  atualizadoPorId           String?   @map("atualizado_por_id") @db.Uuid
+  criadoEm                  DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm              DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("sdr_configuracoes")
+}
+
+/// Modo do SDR em cada canal (sem linha = desligado).
+model SdrCanal {
+  id              String   @id @default(uuid()) @db.Uuid
+  canalId         String   @unique @map("canal_id") @db.Uuid
+  canal           Canal    @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  modo            ModoSdr  @default(DESLIGADO)
+  atualizadoPorId String?  @map("atualizado_por_id") @db.Uuid
+  criadoEm        DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("sdr_canais")
+}
+
+/// Artigo da base de conhecimento do SDR (cursos, valores, condições, FAQ…).
+model SdrArtigo {
+  id              String    @id @default(uuid()) @db.Uuid
+  titulo          String
+  conteudo        String
+  ordem           Int       @default(0)
+  ativo           Boolean   @default(true)
+  versaoAtual     Int       @default(1) @map("versao_atual")
+  criadoPorId     String?   @map("criado_por_id") @db.Uuid
+  atualizadoPorId String?   @map("atualizado_por_id") @db.Uuid
+  criadoEm        DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm    DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm      DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  versoes SdrArtigoVersao[]
+
+  @@index([ativo, ordem])
+  @@map("sdr_artigos")
+}
+
+/// Cada gravação de um artigo guarda uma versão (histórico imutável).
+model SdrArtigoVersao {
+  id       String    @id @default(uuid()) @db.Uuid
+  artigoId String    @map("artigo_id") @db.Uuid
+  artigo   SdrArtigo @relation(fields: [artigoId], references: [id], onDelete: Cascade)
+  numero   Int
+  titulo   String
+  conteudo String
+  ativo    Boolean
+  excluido Boolean   @default(false)
+  autorId  String?   @map("autor_id") @db.Uuid
+  criadoEm DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@unique([artigoId, numero])
+  @@map("sdr_artigos_versoes")
+}
+
+/// O que a IA precisa descobrir do lead (critério de qualificação).
+model SdrCriterio {
+  id           String          @id @default(uuid()) @db.Uuid
+  /// Identificador estável (minúsculas, números e `_`), usado no prompt e na saída da IA.
+  chave        String
+  rotulo       String
+  /// Instrução para a IA: o que perguntar e como entender a resposta.
+  instrucao    String
+  tipo         TipoCriterioSdr @default(TEXTO)
+  opcoes       String[]        @default([])
+  alvo         AlvoCriterioSdr @default(NENHUM)
+  /// Com `alvo = CONTATO`: `nome`, `cargo` ou `campos.<chave>`; com `NEGOCIO`: `campos.<chave>`.
+  campo        String?
+  peso         Int             @default(10)
+  obrigatorio  Boolean         @default(false)
+  ordem        Int             @default(0)
+  ativo        Boolean         @default(true)
+  criadoEm     DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm   DateTime?       @map("excluido_em") @db.Timestamptz(3)
+
+  @@unique([chave], map: "sdr_criterios_chave_ativa_key", where: raw("(excluido_em IS NULL)"))
+  @@index([ativo, ordem])
+  @@map("sdr_criterios")
+}
+
+/// Estado do SDR numa conversa (uma linha por conversa que a IA atendeu ou atende).
+model SdrConversa {
+  id                 String          @id @default(uuid()) @db.Uuid
+  conversaId         String          @unique @map("conversa_id") @db.Uuid
+  conversa           Conversa        @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  situacao           SituacaoSdr     @default(ATIVA)
+  /// Modo do canal quando a IA assumiu (`AUTOMATICO` ou `SUGESTAO`).
+  modo               ModoSdr
+  /// `novo` (conversa nova), `fluxo` (chamada pelo chatbot) ou `devolvida`.
+  origem             String          @default("novo")
+  nota               Int?
+  temperatura        TemperaturaSdr?
+  /// Resumo atual da conversa para quem assumir.
+  resumo             String?
+  /// Motivo da última mudança de situação.
+  motivo             String?
+  mensagensIa        Int             @default(0) @map("mensagens_ia")
+  mensagensSemAvanco Int             @default(0) @map("mensagens_sem_avanco")
+  tokensEntrada      Int             @default(0) @map("tokens_entrada")
+  tokensSaida        Int             @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int             @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int             @default(0) @map("tokens_cache_escrita")
+  /// `criado_em` da última mensagem do lead já considerada pela IA.
+  processadoAte      DateTime?       @map("processado_ate") @db.Timestamptz(3)
+  /// Trava de execução: a IA está num turno desde este instante (vence em minutos).
+  execucaoDesde      DateTime?       @map("execucao_desde") @db.Timestamptz(3)
+  /// Quem assumiu (situação `HUMANO`).
+  humanoId           String?         @map("humano_id") @db.Uuid
+  situacaoDesde      DateTime        @default(now()) @map("situacao_desde") @db.Timestamptz(3)
+  /// Negócio criado no Comercial pela passagem (situação `QUALIFICADA`).
+  negocioId          String?         @map("negocio_id") @db.Uuid
+  qualificadaEm      DateTime?       @map("qualificada_em") @db.Timestamptz(3)
+  primeiraRespostaEm DateTime?       @map("primeira_resposta_em") @db.Timestamptz(3)
+  criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm       DateTime        @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  valores SdrValor[]
+
+  @@index([situacao])
+  @@index([criadoEm])
+  @@map("sdr_conversas")
+}
+
+/// Valor descoberto de um critério, com a origem (IA) e a confiança.
+model SdrValor {
+  id            String      @id @default(uuid()) @db.Uuid
+  sdrConversaId String      @map("sdr_conversa_id") @db.Uuid
+  sdrConversa   SdrConversa @relation(fields: [sdrConversaId], references: [id], onDelete: Cascade)
+  chave         String
+  rotulo        String
+  /// Texto, número, booleano ou data (`AAAA-MM-DD`), já normalizado pelo tipo do critério.
+  valor         Json
+  /// 0 a 1.
+  confianca     Decimal     @db.Decimal(3, 2)
+  origem        String      @default("IA")
+  /// Onde foi gravado, por exemplo `contato:campos.curso` (nulo = só na qualificação).
+  destino       String?
+  mensagemId    String?     @map("mensagem_id") @db.Uuid
+  criadoEm      DateTime    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm  DateTime    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([sdrConversaId, chave])
+  @@map("sdr_valores")
+}
+
+/// Linha do tempo das decisões da IA (e do registro de tokens). `conversaId`
+/// nulo = simulador (conta no orçamento, mas não aparece em conversa nenhuma).
+model SdrDecisao {
+  id                 String          @id @default(uuid()) @db.Uuid
+  conversaId         String?         @map("conversa_id") @db.Uuid
+  conversa           Conversa?       @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  tipo               TipoDecisaoSdr
+  acao               AcaoSdr?
+  /// Frase curta para a linha do tempo ("Descobriu: curso = Enfermagem").
+  titulo             String
+  motivo             String?
+  resumo             String?
+  resposta           String?
+  /// Critérios que a IA devolveu (`[{ chave, valor, confianca }]`).
+  criterios          Json?
+  nota               Int?
+  temperatura        TemperaturaSdr?
+  modo               ModoSdr?
+  modelo             String?
+  baseVersao         Int?            @map("base_versao")
+  /// Categoria da passagem para a equipe (`pedido_humano`, `orcamento`…), para o BI (R31.22).
+  categoria          String?
+  mensagemId         String?         @map("mensagem_id") @db.Uuid
+  usuarioId          String?         @map("usuario_id") @db.Uuid
+  tokensEntrada      Int             @default(0) @map("tokens_entrada")
+  tokensSaida        Int             @default(0) @map("tokens_saida")
+  tokensCacheLeitura Int             @default(0) @map("tokens_cache_leitura")
+  tokensCacheEscrita Int             @default(0) @map("tokens_cache_escrita")
+  tentativas         Int             @default(1)
+  simulador          Boolean         @default(false)
+  criadoEm           DateTime        @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([conversaId, criadoEm])
+  @@index([tipo, criadoEm])
+  @@index([criadoEm])
+  @@map("sdr_decisoes")
+}
+
+/// Resposta proposta pela IA no modo sugestão, esperando o atendente.
+model SdrSugestao {
+  id                String            @id @default(uuid()) @db.Uuid
+  conversaId        String            @map("conversa_id") @db.Uuid
+  conversa          Conversa          @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  decisaoId         String?           @map("decisao_id") @db.Uuid
+  texto             String
+  acao              AcaoSdr
+  motivo            String?
+  resumo            String?
+  /// Critérios que a IA devolveu (só dados; a gravação acontece ao aprovar).
+  criterios         Json?
+  status            StatusSugestaoSdr @default(PENDENTE)
+  resolvidaEm       DateTime?         @map("resolvida_em") @db.Timestamptz(3)
+  resolvidaPorId    String?           @map("resolvida_por_id") @db.Uuid
+  mensagemEnviadaId String?           @map("mensagem_enviada_id") @db.Uuid
+  textoEnviado      String?           @map("texto_enviado")
+  criadoEm          DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([conversaId, status])
+  @@map("sdr_sugestoes")
 }

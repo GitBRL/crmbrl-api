@@ -89,6 +89,18 @@ export interface DadosDeUsuario {
 }
 
 /** Cria um usuário (padrão: Admin ativo com `SENHA_DE_TESTE`). Não valida a hierarquia. */
+/**
+ * Horário de criação estritamente crescente entre os usuários criados pelos testes. O rodízio
+ * (R5) ordena por `criadoEm` (timestamptz(3)) e, no empate, pelo id aleatório: dois usuários
+ * criados no mesmo milissegundo, comum numa CI rápida, inverteriam a ordem de criação que os
+ * testes supõem ("o primeiro membro recebe o primeiro negócio").
+ */
+let ultimoCriadoEm = 0;
+function proximoCriadoEm(): Date {
+  ultimoCriadoEm = Math.max(Date.now(), ultimoCriadoEm + 1);
+  return new Date(ultimoCriadoEm);
+}
+
 export async function criarUsuario(
   t: AppTeste,
   dados: DadosDeUsuario = {},
@@ -107,6 +119,7 @@ export async function criarUsuario(
       senhaHash: senha === null ? null : await hashDe(t, senha),
       deveTrocarSenha: dados.deveTrocarSenha ?? false,
       telefone: dados.telefone ?? null,
+      criadoEm: proximoCriadoEm(),
     },
   });
 }
