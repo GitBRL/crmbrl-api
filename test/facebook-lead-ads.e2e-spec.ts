@@ -1642,4 +1642,72 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
     await admin.get(`${API}/conexoes/${conexaoId}`).expect(404);
     await admin.delete(`${API}/conexoes/${conexaoId}`).expect(404);
   });
+
+  it('cenário 382 (R32.14, R14, R10.3) — o desafio do webhook de páginas passa com o token da conexão do Facebook, sem canal Meta; token errado é 403; o token vem cifrado e a conexão antiga ganha um', async () => {
+    const desafio = (token: string) =>
+      request(t.servidor).get('/api/v1/publico/meta/webhook').query({
+        'hub.mode': 'subscribe',
+        'hub.verify_token': token,
+        'hub.challenge': 'desafio-382',
+      });
+    expect(await t.prisma.canal.count()).toBe(0);
+    const { conexaoId } = await conectar();
+    const conexao = (
+      await admin.get(`${API}/conexoes/${conexaoId}`).expect(200)
+    ).body as {
+      webhook: { url: string; tokenVerificacao: string; campos: string[] };
+    };
+    expect(conexao.webhook.url).toMatch(/\/api\/v1\/publico\/meta\/webhook$/);
+    expect(conexao.webhook.campos).toEqual(['leadgen']);
+    const token = conexao.webhook.tokenVerificacao;
+    expect(token.length).toBeGreaterThanOrEqual(24);
+    const resposta = await desafio(token).expect(200);
+    expect(resposta.text).toBe('desafio-382');
+    await desafio(`${token}x`).expect(403);
+    await desafio('').expect(403);
+    // Guardado cifrado, nunca em claro.
+    const linha = await t.prisma.conexaoFacebook.findUniqueOrThrow({
+      where: { id: conexaoId },
+    });
+    expect(linha.tokenVerificacaoCifrado).not.toBeNull();
+    expect(linha.tokenVerificacaoCifrado).not.toContain(token);
+    // A lista mostra o mesmo token e dois conexões têm tokens diferentes.
+    const outra = await conectar({ appId: APP_ID, appSecret: APP_SECRET });
+    const lista = (await admin.get(`${API}/conexoes`).expect(200)).body as {
+      id: string;
+      webhook: { tokenVerificacao: string };
+    }[];
+    const tokens = lista.map((item) => item.webhook.tokenVerificacao);
+    expect(new Set(tokens).size).toBe(2);
+    expect(
+      lista.find(({ id }) => id === conexaoId)?.webhook.tokenVerificacao,
+    ).toBe(token);
+    // Conexão antiga (sem token): ganha um na primeira leitura, uma vez, com auditoria.
+    await t.prisma.conexaoFacebook.update({
+      where: { id: outra.conexaoId },
+      data: { tokenVerificacaoCifrado: null },
+    });
+    const antigo = (
+      await admin.get(`${API}/conexoes/${outra.conexaoId}`).expect(200)
+    ).body as { webhook: { tokenVerificacao: string } };
+    const tokenAntigo = antigo.webhook.tokenVerificacao;
+    expect(tokenAntigo.length).toBeGreaterThanOrEqual(24);
+    const depois = (
+      await admin.get(`${API}/conexoes/${outra.conexaoId}`).expect(200)
+    ).body as { webhook: { tokenVerificacao: string } };
+    expect(depois.webhook.tokenVerificacao).toBe(tokenAntigo);
+    await desafio(tokenAntigo).expect(200);
+    expect(
+      await t.prisma.eventoAuditoria.count({
+        where: {
+          acao: 'conexao_facebook.token_verificacao_gerado',
+          entidadeId: outra.conexaoId,
+        },
+      }),
+    ).toBe(1);
+    // Conexão excluída deixa de valer.
+    await admin.delete(`${API}/conexoes/${outra.conexaoId}`).expect(204);
+    await desafio(tokenAntigo).expect(403);
+    await desafio(token).expect(200);
+  });
 });

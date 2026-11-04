@@ -96,7 +96,7 @@ export class WebhookMetaService implements OnModuleInit {
     );
   }
 
-  /** Desafio de verificação: o `hub.challenge` se o token é de algum canal; senão 403. */
+  /** Desafio de verificação: o `hub.challenge` se o token é de algum canal ou conexão do Facebook; senão 403. */
   async verificarDesafio(
     modo: unknown,
     token: unknown,
@@ -123,6 +123,10 @@ export class WebhookMetaService implements OnModuleInit {
       }
       // O verify token de um canal do WhatsApp oficial também vale (R28).
       if (await this.whatsappOficial.tokenDeVerificacaoValido(token)) {
+        return desafio;
+      }
+      // E o de uma conexão do Facebook Lead Ads (R32.14).
+      if (await this.facebookLeadAds.tokenDeVerificacaoValido(token)) {
         return desafio;
       }
     }

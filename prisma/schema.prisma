@@ -964,8 +964,8 @@ model WebhookEntrada {
   atualizadoEm        DateTime               @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   excluidoEm          DateTime?              @map("excluido_em") @db.Timestamptz(3)
 
-  recebimentos   WebhookRecebimento[]
-  leadsFacebook  LeadFacebook[]
+  recebimentos  WebhookRecebimento[]
+  leadsFacebook LeadFacebook[]
 
   @@index([aplicativo])
   @@map("webhooks_entrada")
@@ -1020,32 +1020,34 @@ enum OrigemLeadFacebook {
 /// Conexão com o Facebook Lead Ads (R32.14): o app da Meta (id e segredo) e o acesso às páginas. Várias integrações
 /// (uma por formulário) usam a mesma conexão. Tudo que é segredo fica cifrado (R10.3) e nunca sai da API.
 model ConexaoFacebook {
-  id                  String              @id @default(uuid()) @db.Uuid
-  nome                String
-  tipo                TipoConexaoFacebook
-  appId               String              @map("app_id")
-  appSecretCifrado    String              @map("app_secret_cifrado")
+  id                      String              @id @default(uuid()) @db.Uuid
+  nome                    String
+  tipo                    TipoConexaoFacebook
+  appId                   String              @map("app_id")
+  appSecretCifrado        String              @map("app_secret_cifrado")
   /// Token de usuário de longa duração (USUARIO) ou o token da página (PAGINA), cifrado. Nulo enquanto o login não terminou.
-  tokenCifrado        String?             @map("token_cifrado")
+  tokenCifrado            String?             @map("token_cifrado")
   /// JSON cifrado `[{id, nome, categoria, token}]` com as páginas e seus tokens (que não expiram com o do usuário).
-  paginasCifradas     String?             @map("paginas_cifradas")
-  usuarioFacebookId   String?             @map("usuario_facebook_id")
-  usuarioFacebookNome String?             @map("usuario_facebook_nome")
+  paginasCifradas         String?             @map("paginas_cifradas")
+  /// Token de verificação do webhook de páginas no app da Meta (desafio GET), aleatório por conexão, cifrado. Gerado na criação (ou na primeira leitura, nas conexões antigas).
+  tokenVerificacaoCifrado String?             @map("token_verificacao_cifrado")
+  usuarioFacebookId       String?             @map("usuario_facebook_id")
+  usuarioFacebookNome     String?             @map("usuario_facebook_nome")
   /// Quando o token do usuário expira (a Meta informa ~60 dias); as páginas seguem valendo.
-  expiraEm            DateTime?           @map("expira_em") @db.Timestamptz(3)
+  expiraEm                DateTime?           @map("expira_em") @db.Timestamptz(3)
   /// Canal Messenger/Instagram de onde o app foi reaproveitado (só informativo).
-  canalOrigemId       String?             @map("canal_origem_id") @db.Uuid
+  canalOrigemId           String?             @map("canal_origem_id") @db.Uuid
   /// SHA-256 do `state` do login em andamento (uso único) e a validade dele.
-  estadoHash          String?             @map("estado_hash")
-  estadoExpiraEm      DateTime?           @map("estado_expira_em") @db.Timestamptz(3)
-  conectadaEm         DateTime?           @map("conectada_em") @db.Timestamptz(3)
-  precisaAtencao      Boolean             @default(false) @map("precisa_atencao")
-  atencaoMotivo       String?             @map("atencao_motivo")
-  atencaoEm           DateTime?           @map("atencao_em") @db.Timestamptz(3)
-  criadoPorId         String?             @map("criado_por_id") @db.Uuid
-  criadoEm            DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm        DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
-  excluidoEm          DateTime?           @map("excluido_em") @db.Timestamptz(3)
+  estadoHash              String?             @map("estado_hash")
+  estadoExpiraEm          DateTime?           @map("estado_expira_em") @db.Timestamptz(3)
+  conectadaEm             DateTime?           @map("conectada_em") @db.Timestamptz(3)
+  precisaAtencao          Boolean             @default(false) @map("precisa_atencao")
+  atencaoMotivo           String?             @map("atencao_motivo")
+  atencaoEm               DateTime?           @map("atencao_em") @db.Timestamptz(3)
+  criadoPorId             String?             @map("criado_por_id") @db.Uuid
+  criadoEm                DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm              DateTime?           @map("excluido_em") @db.Timestamptz(3)
 
   @@index([excluidoEm])
   @@map("conexoes_facebook")

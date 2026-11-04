@@ -2501,6 +2501,13 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
   segredo e páginas nunca saem da API (a resposta só traz o segredo mascarado), nem vão para log, auditoria ou
   recebimento. `GET /webhooks/facebook/configuracao` traz o endereço de retorno que o Admin cadastra no app da Meta.
   Excluir a conexão (409 enquanto há integração) apaga os tokens. Conexões cujo login nunca terminou somem em 1 dia.
+  **Token de verificação do webhook de páginas.** Cada conexão tem o seu, aleatório, gerado na criação (e, uma vez, na
+  primeira leitura das conexões anteriores, com auditoria `conexao_facebook.token_verificacao_gerado`), guardado
+  **cifrado** (`token_verificacao_cifrado`, R10.3). A conexão devolve ao Admin `webhook: {url, tokenVerificacao,
+  campos: ['leadgen']}` (como o WhatsApp oficial, R28): `url` é `URL_PUBLICA/api/v1/publico/meta/webhook` e o token é
+  mostrado inteiro, para colar em Webhooks > Page no app da Meta. O desafio `GET /publico/meta/webhook` (R14) passa
+  também com o token de **qualquer conexão do Facebook ativa** (comparação em tempo constante), sem precisar de canal
+  Messenger, Instagram ou WhatsApp oficial; token errado ou de conexão excluída continua 403.
   **Escolhas.** `GET /webhooks/facebook/conexoes/{id}/paginas` (`?atualizar=true` pergunta de novo à Meta),
   `…/paginas/{pagina}/formularios` (`?busca`) e `…/formularios/{formulario}/perguntas` (cada pergunta como `{caminho: chave,
   rotulo, tipo}`, mais os metadados `leadgen_id`, `created_time`, `page_id`, `form_id`, `ad_id`, `ad_name`, `adset_id`,
@@ -2695,6 +2702,8 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
      entrega leads (R32.14, R32.9).
 358. O roteador continua tratando o Messenger e o desafio de verificação como antes (R14, R32.14).
 359. Excluir a conexão: 409 enquanto há integração; depois, 204 com os tokens apagados e fora da lista (R32.14).
+382. O desafio do webhook de páginas passa com o token da conexão do Facebook, sem nenhum canal Meta; token errado, vazio ou de conexão
+     excluída é 403; o token fica cifrado e a conexão antiga ganha um na primeira leitura, uma vez, com auditoria (R32.14, R14, R10.3).
 
 ### Cenários de aceitação (Onda H, H2: Hotmart, Kiwify e Eduzz)
 

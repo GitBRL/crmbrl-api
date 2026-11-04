@@ -107,7 +107,8 @@ RAILWAY_RUN_UID=0                                     # a imagem roda sem root e
 Os dois dependem de `URL_PUBLICA` ser o domínio público do serviço do front, com **https** (o domínio do Railway ou o
 seu próprio): o Typeform chama o CRM a cada resposta e a Meta chama o retorno do login e o aviso de novos leads. No app da
 Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` em "URIs de redirecionamento OAuth válidos" e o webhook
-de páginas (campo `leadgen`) em `URL_PUBLICA/api/v1/publico/meta/webhook`. O ID e o segredo do app da Meta e o token do
+de páginas (campo `leadgen`) em `URL_PUBLICA/api/v1/publico/meta/webhook`, com o token de verificação mostrado na conexão do
+Facebook (Integrações; cada conexão tem o seu). O ID e o segredo do app da Meta e o token do
 Typeform são cadastrados na tela Integrações (guardados cifrados com a `CHAVE_CRIPTOGRAFIA`), não em variáveis. Ao trocar o
 domínio, refaça esses cadastros e reconecte o Facebook.
 

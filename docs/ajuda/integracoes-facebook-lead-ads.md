@@ -28,9 +28,10 @@ Diferente das outras integrações, **não há endereço para colar**: a Meta av
 1. Em **Integrações → Aplicativos**, escolha **Facebook Lead Ads**.
 2. Em **Conexão**, informe o ID e o segredo do app (ou escolha um canal Messenger ou Instagram existente) e clique em **Entrar com o Facebook**. Autorize e volte ao CRM. Para reconectar uma conexão existente, use **Reconectar**.
 3. Sem login (ambiente sem domínio público): cole um **token de página** no lugar do login e informe a página.
-4. Escolha a **página** e o **formulário** de leads. O CRM assina sozinho o campo `leadgen` da página (você não precisa mexer em Webhooks no painel do app) e remove a assinatura quando a integração é excluída ou desativada.
-5. No **Mapeamento**, use **Buscar campos da integração**: cada pergunta do formulário aparece pela chave dela (`full_name`, `email`, `phone_number` e as personalizadas), junto com os dados do anúncio (`ad_id`, `ad_name`, `campaign_name`, `form_id`, `platform`). O modelo pronto leva nome, e-mail, telefone, empresa e cargo, e usa campanha, anúncio e plataforma como UTMs. Mapeie as perguntas personalizadas para campos personalizados do contato ou do negócio.
-6. Em **Configurações**, escolha funil, etapa, etiquetas e distribuição. Termine em **Salvar e ativar**.
+4. Com a conexão criada, o CRM mostra **Webhook de páginas no app da Meta**: o endereço e o token de verificação (cada conexão tem o seu; use o botão de copiar de cada um). No app da Meta, vá em **Webhooks → Page**, cole o endereço e o token e **assine o campo `leadgen`**. Sem isso a Meta não avisa o CRM e os leads só chegam pela conferência periódica, a cada 15 minutos.
+5. Escolha a **página** e o **formulário** de leads. O CRM assina sozinho o campo `leadgen` da página (a assinatura da página é automática; o cadastro do endereço do webhook no painel do app, no passo 4 do CRM, é feito uma vez) e remove a assinatura quando a integração é excluída ou desativada.
+6. No **Mapeamento**, use **Buscar campos da integração**: cada pergunta do formulário aparece pela chave dela (`full_name`, `email`, `phone_number` e as personalizadas), junto com os dados do anúncio (`ad_id`, `ad_name`, `campaign_name`, `form_id`, `platform`). O modelo pronto leva nome, e-mail, telefone, empresa e cargo, e usa campanha, anúncio e plataforma como UTMs. Mapeie as perguntas personalizadas para campos personalizados do contato ou do negócio.
+7. Em **Configurações**, escolha funil, etapa, etiquetas e distribuição. Termine em **Salvar e ativar**.
 
 **Na Central de Leads**
 1. Libere o seu app/CRM em **Leads Access**, como descrito acima.

@@ -110,6 +110,11 @@ export class FacebookLeadAdsService
     private readonly logs: LogsTecnicosService,
   ) {}
 
+  /** Desafio do webhook de páginas: o token de verificação é de alguma conexão do Facebook? */
+  tokenDeVerificacaoValido(token: string): Promise<boolean> {
+    return this.conexoes.tokenDeVerificacaoValido(token);
+  }
+
   async onModuleInit(): Promise<void> {
     this.aplicativos.registrarDelegado('FACEBOOK_LEAD_ADS', this);
     await this.fila.trabalhar<TrabalhoDoLeadFacebook>(

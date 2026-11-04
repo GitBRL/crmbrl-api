@@ -228,6 +228,28 @@ export class UsuarioDoFacebookDto {
   nome: string;
 }
 
+export class WebhookDaConexaoFacebookDto {
+  @ApiProperty({
+    example: 'https://crm.brl.com.br/api/v1/publico/meta/webhook',
+    description:
+      'URL de retorno (callback) para Webhooks > Page no app da Meta (a mesma do Instagram, do Messenger e do WhatsApp oficial).',
+  })
+  url: string;
+
+  @ApiProperty({
+    description:
+      'Token de verificação desta conexão, para colar no painel da Meta (o `hub.verify_token` do desafio).',
+  })
+  tokenVerificacao: string;
+
+  @ApiProperty({
+    type: [String],
+    example: ['leadgen'],
+    description: 'Campos a assinar no objeto Page.',
+  })
+  campos: string[];
+}
+
 export class ConexaoFacebookDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -284,6 +306,9 @@ export class ConexaoFacebookDto {
     description: 'Integrações (não excluídas) que usam esta conexão.',
   })
   integracoes: number;
+
+  @ApiProperty({ type: WebhookDaConexaoFacebookDto })
+  webhook: WebhookDaConexaoFacebookDto;
 
   @ApiProperty()
   precisaAtencao: boolean;

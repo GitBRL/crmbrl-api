@@ -253,6 +253,9 @@ export class ConexoesFacebookService {
             tipo: 'USUARIO',
             appId: app.appId,
             appSecretCifrado: this.cripto.cifrar(app.appSecret),
+            tokenVerificacaoCifrado: this.cripto.cifrar(
+              this.cripto.gerarToken(24),
+            ),
             canalOrigemId: app.canalId,
             criadoPorId: usuario.id,
           },
@@ -516,6 +519,9 @@ export class ConexoesFacebookService {
           tipo: 'PAGINA',
           appId: app.appId,
           appSecretCifrado: this.cripto.cifrar(app.appSecret),
+          tokenVerificacaoCifrado: this.cripto.cifrar(
+            this.cripto.gerarToken(24),
+          ),
           tokenCifrado: this.cripto.cifrar(dto.tokenPagina),
           paginasCifradas: this.cifrarPaginas([
             { ...pagina, token: dto.tokenPagina },
@@ -534,7 +540,7 @@ export class ConexoesFacebookService {
       });
       return conexao;
     });
-    return this.paraDto(criada, 0);
+    return await this.paraDto(criada, 0);
   }
 
   // -------------------------------------------------------------------------
@@ -549,15 +555,17 @@ export class ConexoesFacebookService {
     const contagens = await this.contarIntegracoes(
       conexoes.map(({ id }) => id),
     );
-    return conexoes.map((conexao) =>
-      this.paraDto(conexao, contagens.get(conexao.id) ?? 0),
+    return Promise.all(
+      conexoes.map((conexao) =>
+        this.paraDto(conexao, contagens.get(conexao.id) ?? 0),
+      ),
     );
   }
 
   async detalhar(id: string): Promise<ConexaoFacebookDto> {
     const conexao = await this.carregar(id);
     const contagens = await this.contarIntegracoes([id]);
-    return this.paraDto(conexao, contagens.get(id) ?? 0);
+    return await this.paraDto(conexao, contagens.get(id) ?? 0);
   }
 
   async paginas(
@@ -651,7 +659,7 @@ export class ConexoesFacebookService {
   async atualizarPaginasPorId(id: string): Promise<ConexaoFacebookDto> {
     const conexao = await this.atualizarPaginas(await this.carregar(id));
     const contagens = await this.contarIntegracoes([id]);
-    return this.paraDto(conexao, contagens.get(id) ?? 0);
+    return await this.paraDto(conexao, contagens.get(id) ?? 0);
   }
 
   async excluir(id: string): Promise<void> {
@@ -971,11 +979,83 @@ export class ConexoesFacebookService {
   // DTO
   // -------------------------------------------------------------------------
 
-  private paraDto(
+  /** Endereço do webhook de páginas para o painel do app da Meta (o mesmo do Instagram e do Messenger). */
+  get urlDoWebhook(): string {
+    return `${this.ambiente.urlPublica}/${PREFIXO_DAS_ROTAS}/v${VERSAO_PADRAO_DA_API}/publico/meta/webhook`;
+  }
+
+  /**
+   * O token de verificação do webhook da conexão. Conexões anteriores a ele
+   * ganham um na primeira leitura (uma vez; auditado).
+   */
+  private async tokenDeVerificacaoDe(
+    conexao: ConexaoFacebook,
+  ): Promise<string> {
+    if (conexao.tokenVerificacaoCifrado) {
+      try {
+        return this.cripto.decifrar(conexao.tokenVerificacaoCifrado);
+      } catch {
+        return '';
+      }
+    }
+    const novo = this.cripto.gerarToken(24);
+    const gravou = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.conexaoFacebook.updateMany({
+        where: { id: conexao.id, tokenVerificacaoCifrado: null },
+        data: { tokenVerificacaoCifrado: this.cripto.cifrar(novo) },
+      });
+      if (count > 0) {
+        await this.auditoria.registrar(tx, {
+          acao: 'conexao_facebook.token_verificacao_gerado',
+          entidade: 'conexao_facebook',
+          entidadeId: conexao.id,
+          resumo: `Token de verificação do webhook gerado para a conexão com o Facebook "${conexao.nome}"`,
+          dados: {},
+        });
+      }
+      return count > 0;
+    });
+    if (gravou) {
+      return novo;
+    }
+    const atual = await this.prisma.conexaoFacebook.findUnique({
+      where: { id: conexao.id },
+    });
+    try {
+      return atual?.tokenVerificacaoCifrado
+        ? this.cripto.decifrar(atual.tokenVerificacaoCifrado)
+        : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** O `hub.verify_token` do desafio GET vale se é o de alguma conexão do Facebook ativa (tempo constante). */
+  async tokenDeVerificacaoValido(token: string): Promise<boolean> {
+    const conexoes = await this.prisma.conexaoFacebook.findMany({
+      where: { excluidoEm: null, tokenVerificacaoCifrado: { not: null } },
+      select: { tokenVerificacaoCifrado: true },
+    });
+    let valido = false;
+    for (const { tokenVerificacaoCifrado } of conexoes) {
+      try {
+        const guardado = this.cripto.decifrar(tokenVerificacaoCifrado ?? '');
+        if (guardado && this.cripto.compararSeguro(guardado, token)) {
+          valido = true;
+        }
+      } catch {
+        // segredo ilegível (chave mudou): não vale.
+      }
+    }
+    return valido;
+  }
+
+  private async paraDto(
     conexao: ConexaoFacebook,
     integracoes: number,
-  ): ConexaoFacebookDto {
+  ): Promise<ConexaoFacebookDto> {
     const segredos = this.lerSegredosParaDto(conexao);
+    const tokenVerificacao = await this.tokenDeVerificacaoDe(conexao);
     return {
       id: conexao.id,
       nome: conexao.nome,
@@ -1000,6 +1080,11 @@ export class ConexoesFacebookService {
         categoria,
       })),
       integracoes,
+      webhook: {
+        url: this.urlDoWebhook,
+        tokenVerificacao,
+        campos: ['leadgen'],
+      },
       precisaAtencao: conexao.precisaAtencao,
       atencaoMotivo: conexao.atencaoMotivo,
       criadoEm: conexao.criadoEm.toISOString(),
