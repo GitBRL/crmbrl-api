@@ -1110,6 +1110,15 @@ describe('Webhooks de entrada (e2e)', () => {
       },
       negocio: { titulo: null, valor: '2500.00', valorRecorrente: null },
       utm: null,
+      // Onda H (R32.4): atualizações pelo recebimento e itens do corpo.
+      atualizacoes: {
+        etapa: null,
+        dono: null,
+        status: null,
+        motivoPerda: null,
+      },
+      camposDoNegocio: {},
+      itens: 1,
       encontrados: expect.arrayContaining([
         { destino: 'email', caminho: 'lead.contatos[0].email' },
         { destino: 'camposPersonalizados.*', caminho: 'cidade' },

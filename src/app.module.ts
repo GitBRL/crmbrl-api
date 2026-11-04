@@ -33,6 +33,7 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MonitoramentoModule } from './saude/monitoramento/monitoramento.module';
 import { SaudeModule } from './saude/saude.module';
+import { SdrModule } from './sdr/sdr.module';
 import { SeedsModule } from './seeds/seeds.module';
 import { TempoRealModule } from './tempo-real/tempo-real.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
@@ -105,6 +106,8 @@ export class AppModule {
         FinanceiroModule,
         // Onda D: assistente de IA e chamados.
         AssistenteModule,
+        // Onda G: SDR com IA.
+        SdrModule,
         // Onda D: notificações push.
         PushModule,
       ],

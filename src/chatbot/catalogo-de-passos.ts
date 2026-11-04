@@ -180,6 +180,16 @@ export const CATALOGO_DE_PASSOS: readonly PassoDoCatalogo[] = [
     },
   },
   {
+    tipo: 'acao.passar_para_ia',
+    rotulo: 'Passar para a IA (SDR)',
+    grupo: 'fim',
+    descricao:
+      'Encerra o fluxo e entrega a conversa ao SDR com IA do canal (R31): a IA continua a partir daqui, apresenta-se e conduz a qualificação. Sem efeito se o SDR estiver desligado no canal (a conversa segue com a equipe).',
+    ramos: 'nenhum',
+    esperaResposta: false,
+    exemplo: {},
+  },
+  {
     tipo: 'aguardar',
     rotulo: 'Aguardar',
     grupo: 'logica',

@@ -24,7 +24,9 @@ import { PaginacaoDto } from '../../comum/paginacao/paginacao';
 import {
   Area,
   OrigemContato,
+  SituacaoSdr,
   StatusNegocio,
+  TemperaturaSdr,
   TipoAtor,
 } from '../../generated/prisma/client';
 import {
@@ -62,6 +64,22 @@ export class EtapaDoNegocioDto extends ResumoEtapaDto {
 
   @ApiPropertyOptional({ nullable: true, type: Number })
   probabilidade: number | null;
+}
+
+/** SDR com IA no cartão do funil (R31): a temperatura e a nota da qualificação mais recente do contato. */
+export class SdrDoCartaoDto {
+  @ApiProperty({ enum: TemperaturaSdr, enumName: 'TemperaturaSdr' })
+  temperatura: TemperaturaSdr;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description: '0 a 100.',
+  })
+  nota: number | null;
+
+  @ApiProperty({ enum: SituacaoSdr, enumName: 'SituacaoSdr' })
+  situacao: SituacaoSdr;
 }
 
 export class NegocioDto {
@@ -178,13 +196,25 @@ export class NegocioDto {
   @ApiPropertyOptional({ nullable: true, type: String, format: 'uuid' })
   criadoPorId: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: SdrDoCartaoDto,
+    description:
+      'SDR com IA (R31): temperatura e nota do lead. Preenchido nas listas, no quadro e no detalhe; nulo se a IA nunca qualificou o contato.',
+  })
+  sdr: SdrDoCartaoDto | null;
+
   @ApiProperty({ format: 'date-time' })
   criadoEm: string;
 
   @ApiProperty({ format: 'date-time' })
   atualizadoEm: string;
 
-  static de(negocio: NegocioCompleto, agora: Date = new Date()): NegocioDto {
+  static de(
+    negocio: NegocioCompleto,
+    agora: Date = new Date(),
+    sdr: SdrDoCartaoDto | null = null,
+  ): NegocioDto {
     return {
       id: negocio.id,
       titulo: negocio.titulo,
@@ -237,6 +267,7 @@ export class NegocioDto {
             avatarUrl: negocio.responsavel.avatarUrl,
           }
         : null,
+      sdr,
       criadoPorId: negocio.criadoPorId,
       criadoEm: negocio.criadoEm.toISOString(),
       atualizadoEm: negocio.atualizadoEm.toISOString(),

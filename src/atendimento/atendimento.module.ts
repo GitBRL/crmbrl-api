@@ -18,6 +18,7 @@ import { DesligamentoNoAtendimento } from './desligamento-atendimento.service';
 import { DistribuicaoDaFila } from './distribuicao-fila.service';
 import { EnvioDoAtendimento } from './envio.service';
 import { FilasService } from './filas.service';
+import { GanchosDoAtendimento } from './ganchos-do-atendimento';
 import { MensagensService } from './mensagens.service';
 import { MetricasDoAtendimentoService } from './metricas-atendimento.service';
 import { MotorDoAtendimento } from './motor-do-atendimento.service';
@@ -51,6 +52,7 @@ import { SlaDoAtendimento } from './sla.service';
   providers: [
     AtendimentoService,
     AcessoAtendimentoService,
+    GanchosDoAtendimento,
     MotorDoAtendimento,
     DistribuicaoDaFila,
     ConversasService,
@@ -68,6 +70,9 @@ import { SlaDoAtendimento } from './sla.service';
   exports: [
     AtendimentoService,
     AcessoAtendimentoService,
+    GanchosDoAtendimento,
+    MensagensService,
+    ConversasService,
     MotorDoAtendimento,
     DistribuicaoDaFila,
   ],

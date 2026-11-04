@@ -103,6 +103,12 @@ export const EVENTOS_DO_SERVIDOR = {
   LIGACAO_PROCESSADA: 'ligacao.processada',
   /** Ligações: a permissão do cliente para ligar mudou (sala `conversa:<id>`, para o botão "Ligar"). */
   LIGACAO_PERMISSAO: 'ligacao.permissao',
+  /**
+   * SDR com IA (R31): o estado do SDR numa conversa mudou (IA assumiu, nova sugestão, critério
+   * descoberto, passou para humano, qualificada…). Vai para as salas da conversa; recarregue
+   * `GET /sdr/conversas/:id`.
+   */
+  SDR_ATUALIZADO: 'sdr.atualizado',
 } as const;
 
 export type EventoDoServidor =
@@ -299,6 +305,20 @@ export type CargaLigacaoPermissao = Record<string, unknown> & {
   situacao: string;
 };
 
+export interface CargaSdrAtualizado {
+  conversaId: string;
+  /** `ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA` ou `ENCERRADA`. */
+  situacao: string;
+  /** `AUTOMATICO` ou `SUGESTAO`. */
+  modo: string;
+  nota: number | null;
+  temperatura: string | null;
+  /** Há uma sugestão da IA esperando o atendente (modo sugestão). */
+  sugestaoPendente: boolean;
+  /** O que mudou: `assumiu`, `turno`, `sugestao`, `qualificada`, `desqualificada`, `passou_humano`, `humano_assumiu`, `devolvida`, `encerrada`, `sugestao_resolvida`. */
+  motivo: string;
+}
+
 export interface CargaLigacaoEncerrada {
   ligacaoId: string;
   estado: string;
@@ -331,6 +351,7 @@ export interface CargasDoServidor {
   'ligacao.encerrada': CargaLigacaoEncerrada;
   'ligacao.processada': CargaLigacaoProcessada;
   'ligacao.permissao': CargaLigacaoPermissao;
+  'sdr.atualizado': CargaSdrAtualizado;
 }
 
 // ---------------------------------------------------------------------------

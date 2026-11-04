@@ -1,0 +1,370 @@
+{
+ "hotmart/compra-aprovada": {
+  "aplicativo": "hotmart",
+  "variante": "compra-aprovada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"97d42100-fb77-4547-a142-4a7da35999ff\",\"creation_date\":1793805206556,\"event\":\"PURCHASE_APPROVED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"approved_date\":1793805206556,\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805146556,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"APPROVED\",\"transaction\":\"HPE4AD74C36C2F49\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/compra-completa": {
+  "aplicativo": "hotmart",
+  "variante": "compra-completa",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"c9fd493e-53eb-41ae-98c2-e04c1c6816dd\",\"creation_date\":1793805206715,\"event\":\"PURCHASE_COMPLETE\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"approved_date\":1793805206715,\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805146715,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"COMPLETE\",\"transaction\":\"HPB50A494D187C4E\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/compra-cancelada": {
+  "aplicativo": "hotmart",
+  "variante": "compra-cancelada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"70c619b2-1773-4dc0-8807-6eee6077aef3\",\"creation_date\":1793805206870,\"event\":\"PURCHASE_CANCELED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805146870,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"CANCELLED\",\"transaction\":\"HPC3C6C5386AAD49\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/boleto-gerado": {
+  "aplicativo": "hotmart",
+  "variante": "boleto-gerado",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"092be26b-9b2a-4596-83e8-c21ddd171820\",\"creation_date\":1793805207024,\"event\":\"PURCHASE_BILLET_PRINTED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147024,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"BILLET\",\"installments_number\":1,\"billet_barcode\":\"23793.38128 60000.000003 00000.000400 1 84340000049700\",\"billet_url\":\"https://hotmart.exemplo/boleto/abc\"},\"status\":\"PRINTED_BILLET\",\"transaction\":\"HP0320C823119C46\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/compra-atrasada": {
+  "aplicativo": "hotmart",
+  "variante": "compra-atrasada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"d7e96eb7-e807-46ea-b0c8-8fc57e521fa2\",\"creation_date\":1793805207180,\"event\":\"PURCHASE_DELAYED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147180,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"OVERDUE\",\"transaction\":\"HPA007FE70D10047\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/compra-expirada": {
+  "aplicativo": "hotmart",
+  "variante": "compra-expirada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"3ba7d477-43a7-4652-b85e-fbbe5050e7d9\",\"creation_date\":1793805207334,\"event\":\"PURCHASE_EXPIRED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147334,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"EXPIRED\",\"transaction\":\"HP19699E19CEE54D\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/protesto": {
+  "aplicativo": "hotmart",
+  "variante": "protesto",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"8023ab02-f4e8-47ab-820f-bb80ea6a8c0f\",\"creation_date\":1793805207489,\"event\":\"PURCHASE_PROTEST\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147489,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"DISPUTE\",\"transaction\":\"HPAA0E4EFBF98A42\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/reembolso": {
+  "aplicativo": "hotmart",
+  "variante": "reembolso",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"8a3b1321-cb88-4559-804e-cfe73d1524db\",\"creation_date\":1793805207643,\"event\":\"PURCHASE_REFUNDED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"approved_date\":1793805207643,\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147643,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"REFUNDED\",\"transaction\":\"HP5940E5EFA33140\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/chargeback": {
+  "aplicativo": "hotmart",
+  "variante": "chargeback",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"dba7ab84-fa85-4bb3-97f6-21c4a889d37f\",\"creation_date\":1793805207798,\"event\":\"PURCHASE_CHARGEBACK\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"approved_date\":1793805207798,\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805147798,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"CHARGEBACK\",\"transaction\":\"HPF711F990408742\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\"}}}"
+ },
+ "hotmart/carrinho-abandonado": {
+  "aplicativo": "hotmart",
+  "variante": "carrinho-abandonado",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"f2909ce0-ffde-40ef-b72d-6f4c616148fc\",\"creation_date\":1793805207952,\"event\":\"PURCHASE_OUT_OF_SHOPPING_CART\",\"version\":\"2.0.0\",\"data\":{\"affiliate\":false,\"product\":{\"id\":1234567,\"name\":\"Curso Online BRL\"},\"buyer\":{\"name\":\"Maria Souza\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"5511988887777\"},\"offer\":{\"code\":\"abc12345\"},\"checkout_country\":{\"name\":\"Brasil\",\"iso\":\"BR\"}}}"
+ },
+ "hotmart/assinatura-cancelada": {
+  "aplicativo": "hotmart",
+  "variante": "assinatura-cancelada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"63f8f99c-4f0b-4a61-b4e6-3ebd285acc19\",\"creation_date\":1793805208106,\"event\":\"SUBSCRIPTION_CANCELLATION\",\"version\":\"2.0.0\",\"data\":{\"cancellation_date\":1793805208106,\"date_next_charge\":1796397208106,\"actual_recurrence_value\":97,\"subscriber_code\":\"S1A2B3C4\",\"subscription_status\":\"CANCELLED_BY_CUSTOMER\",\"subscriber\":{\"code\":\"S1A2B3C4\",\"name\":\"Maria Souza\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":{\"dddPhone\":\"\",\"phone\":\"\",\"dddCell\":\"11\",\"cell\":\"988887777\"}},\"subscription\":{\"id\":1234567,\"plan\":{\"id\":7654321,\"name\":\"Plano mensal\"}},\"product\":{\"id\":1234567,\"name\":\"Curso Online BRL\"}}}"
+ },
+ "hotmart/assinatura-aprovada": {
+  "aplicativo": "hotmart",
+  "variante": "assinatura-aprovada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-hotmart-hottok": "segredo-de-teste-1234"
+  },
+  "corpo": "{\"id\":\"594fb5de-c5c8-4806-b5e1-5e0929e6b20e\",\"creation_date\":1793805208260,\"event\":\"PURCHASE_APPROVED\",\"version\":\"2.0.0\",\"data\":{\"product\":{\"id\":1234567,\"ucode\":\"fb056612-bcc6-4217-9e6d-2a5d1110ac2f\",\"name\":\"Curso Online BRL\",\"has_co_production\":false},\"buyer\":{\"email\":\"maria.souza@exemplo.com.br\",\"name\":\"Maria Souza\",\"first_name\":\"Maria\",\"last_name\":\"Souza\",\"checkout_phone\":\"11988887777\",\"checkout_phone_code\":\"55\",\"address\":{\"country\":\"Brasil\",\"country_iso\":\"BR\",\"state\":\"SP\",\"city\":\"São Paulo\"},\"document\":\"12345678909\",\"document_type\":\"CPF\"},\"producer\":{\"name\":\"Produtor Exemplo\"},\"commissions\":[{\"value\":450,\"source\":\"PRODUCER\",\"currency_value\":\"BRL\"}],\"purchase\":{\"approved_date\":1793805208260,\"full_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"original_offer_price\":{\"value\":497,\"currency_value\":\"BRL\"},\"price\":{\"value\":497,\"currency_value\":\"BRL\"},\"offer\":{\"code\":\"abc12345\",\"name\":\"Oferta principal\"},\"order_date\":1793805148260,\"origin\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"xcod\":\"\"},\"payment\":{\"type\":\"CREDIT_CARD\",\"installments_number\":12},\"status\":\"APPROVED\",\"transaction\":\"HP320D144CA74E4E\",\"is_order_bump\":false,\"sales_channel\":\"Hotmart\",\"recurrence_number\":1},\"subscription\":{\"status\":\"ACTIVE\",\"plan\":{\"id\":7654321,\"name\":\"Plano mensal\"},\"subscriber\":{\"code\":\"S1A2B3C4\"}}}}"
+ },
+ "kiwify/compra-aprovada": {
+  "aplicativo": "kiwify",
+  "variante": "compra-aprovada",
+  "url": "/x?signature=519beed21ac683b1385a18d0f4fd9e1c7cc634c8",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"c3947fae-660e-47d3-a79d-8da81895ab89\",\"order_ref\":\"8675395\",\"order_status\":\"paid\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"c461fd0f76ec46e5\",\"payment_merchant_id\":4,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"order_approved\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"718af151-66d3-49f0-9fe0-d566ce60d655\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"30b2d2b4\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/boleto-gerado": {
+  "aplicativo": "kiwify",
+  "variante": "boleto-gerado",
+  "url": "/x?signature=7de03b53cb8ccbb8ca06267135c175bbe323b7c9",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"921ac97c-cae6-46f5-b141-9708ab5fdad5\",\"order_ref\":\"f27488a\",\"order_status\":\"waiting_payment\",\"product_type\":\"membership\",\"payment_method\":\"boleto\",\"store_id\":\"1d1c7751d0ed4d23\",\"payment_merchant_id\":5,\"installments\":1,\"card_type\":null,\"card_last4digits\":null,\"card_rejection_reason\":null,\"boleto_URL\":\"https://pay.kiwify.com.br/boleto/abc\",\"boleto_barcode\":\"23793381286000000000300000000400184340000049700\",\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":null,\"webhook_event_type\":\"billet_created\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"fbb508a7-bbb7-4f07-ad90-75cf6d7ed01b\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"5a20086f\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/pix-gerado": {
+  "aplicativo": "kiwify",
+  "variante": "pix-gerado",
+  "url": "/x?signature=0e5182897d170b630c107bb7a9d43f55f6c1f34c",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"67819bd6-734d-4cbe-83e0-3d9053e5ce7a\",\"order_ref\":\"798f2d3\",\"order_status\":\"waiting_payment\",\"product_type\":\"membership\",\"payment_method\":\"pix\",\"store_id\":\"4029e7034ad942ef\",\"payment_merchant_id\":6,\"installments\":1,\"card_type\":null,\"card_last4digits\":null,\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":\"00020126580014br.gov.bcb.pix0136abc\",\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":null,\"webhook_event_type\":\"pix_created\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"faeb7aa1-99ba-413c-b8b0-4ded8461863e\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"d63ff9c4\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/compra-recusada": {
+  "aplicativo": "kiwify",
+  "variante": "compra-recusada",
+  "url": "/x?signature=ceba223dd5d093c2c46ba34ceeafa2f74dcc8e41",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"cfa97351-f8c3-451e-a865-f207a7aaf07e\",\"order_ref\":\"d88ff57\",\"order_status\":\"refused\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"06fefcfe4b344382\",\"payment_merchant_id\":7,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":\"insufficient_funds\",\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":null,\"webhook_event_type\":\"order_rejected\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"aec20ee6-a892-4786-9227-ac08a4b2ceeb\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"174ce991\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/compra-reembolsada": {
+  "aplicativo": "kiwify",
+  "variante": "compra-reembolsada",
+  "url": "/x?signature=5ce244a76bcc8203d3aef76f99398b76db7ec905",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"4290b676-e0a8-4d10-8528-0527634ba7c7\",\"order_ref\":\"eef3905\",\"order_status\":\"refunded\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"164399f734594a51\",\"payment_merchant_id\":8,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"order_refunded\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"7e39d1e0-d904-47b5-9eb2-9b62471b4a7e\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"f8b6d0e2\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/chargeback": {
+  "aplicativo": "kiwify",
+  "variante": "chargeback",
+  "url": "/x?signature=a61d9c06a242eb53f5d7760cc80ad43fe98619e6",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"2ff5d233-7e9f-491b-ab31-b0293cc210cc\",\"order_ref\":\"3456877\",\"order_status\":\"chargedback\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"b248ad292f4443ad\",\"payment_merchant_id\":9,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"chargeback\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"2fdb801a-122b-4c1c-a9d4-f2ccb5b9902c\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"5c092601\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "kiwify/carrinho-abandonado": {
+  "aplicativo": "kiwify",
+  "variante": "carrinho-abandonado",
+  "url": "/x?signature=c8ac7f63b59af2eba1509c2970e7070b172ddc94",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"id\":\"27cce187-589b-4af0-a164-eca4dbe3ddf1\",\"checkout_link\":\"https://pay.kiwify.com.br/AbCdEfG\",\"product_id\":\"de94dfb7-71fc-4bff-b18f-479a59434635\",\"product_name\":\"Curso Online BRL\",\"name\":\"Maria Souza\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"+5511988887777\",\"country\":\"br\",\"status\":\"abandoned\",\"created_at\":\"2026-11-04 12:13\"}"
+ },
+ "kiwify/assinatura-cancelada": {
+  "aplicativo": "kiwify",
+  "variante": "assinatura-cancelada",
+  "url": "/x?signature=250a3f83af3e25a92a13af090dd877dc760bd3c7",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"5ac8b83d-e0f1-4a9d-a2a7-ae95a111eeec\",\"order_ref\":\"32b8ee5\",\"order_status\":\"paid\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"56adb3fece3045cc\",\"payment_merchant_id\":10,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"subscription_canceled\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"b2da3041-6b45-4827-82d2-9d75ed8c01f9\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"06d09fab\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null},\"subscription_id\":\"15923c8b-5703-464b-8c56-30db1f3312c5\",\"Subscription\":{\"id\":\"15923c8b-5703-464b-8c56-30db1f3312c5\",\"start_date\":\"2026-11-04 12:13\",\"next_payment\":\"2026-12-04 12:13\",\"status\":\"canceled\",\"customer_access\":{\"has_access\":false,\"active_period\":true,\"access_until\":\"2026-12-04 12:13\"},\"plan\":{\"id\":\"c94e2e30-a198-4dd0-b472-4c3c3ab7c119\",\"name\":\"Plano mensal\",\"frequency\":\"monthly\",\"qty_charges\":0},\"charges\":{\"completed\":[],\"future\":[]}}}"
+ },
+ "kiwify/assinatura-atrasada": {
+  "aplicativo": "kiwify",
+  "variante": "assinatura-atrasada",
+  "url": "/x?signature=1d7386f01031862929f22e08bf0b91f0fcacd543",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"72ff9aa4-0b64-40d6-b910-9a379c3ff7db\",\"order_ref\":\"16a60d9\",\"order_status\":\"paid\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"6ec3af943e9a42d6\",\"payment_merchant_id\":11,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"subscription_late\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"b13387e6-4e18-4f1a-94d0-58a96d2166ff\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"eff79999\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null},\"subscription_id\":\"2007002c-7f35-4df0-b59d-0947226b6bc6\",\"Subscription\":{\"id\":\"2007002c-7f35-4df0-b59d-0947226b6bc6\",\"start_date\":\"2026-11-04 12:13\",\"next_payment\":\"2026-12-04 12:13\",\"status\":\"overdue\",\"customer_access\":{\"has_access\":true,\"active_period\":true,\"access_until\":\"2026-12-04 12:13\"},\"plan\":{\"id\":\"4733090f-ef80-4a15-814a-b5027399b257\",\"name\":\"Plano mensal\",\"frequency\":\"monthly\",\"qty_charges\":0},\"charges\":{\"completed\":[],\"future\":[]}}}"
+ },
+ "kiwify/assinatura-renovada": {
+  "aplicativo": "kiwify",
+  "variante": "assinatura-renovada",
+  "url": "/x?signature=8a43de2eff692a0a4cbc0d59121310a4af01bd9d",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"992d916e-ec19-4631-b7fb-f424502862f8\",\"order_ref\":\"690815b\",\"order_status\":\"paid\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"85f8b45d664e461d\",\"payment_merchant_id\":12,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"subscription_renewed\",\"Customer\":{\"full_name\":\"Maria Souza\",\"first_name\":\"Maria\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"CPF\":\"12345678909\",\"ip\":\"203.0.113.7\",\"instagram\":null,\"country\":\"br\",\"city\":\"São Paulo\",\"state\":\"SP\"},\"Product\":{\"product_id\":\"147b02e4-f704-4b5e-8b2f-f9ab56d05022\",\"product_name\":\"Curso Online BRL\"},\"Commissions\":{\"charge_amount\":49700,\"product_base_price\":49700,\"kiwify_fee\":5000,\"commissioned_stores\":[{\"id\":\"d94ad2bc\",\"type\":\"producer\",\"value\":44700}],\"currency\":\"BRL\",\"my_commission\":44700},\"TrackingParameters\":{\"src\":\"google\",\"sck\":\"matriculas-2027\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null},\"subscription_id\":\"a6ccfb7e-9aef-4341-8f98-f3894d70b6e3\",\"Subscription\":{\"id\":\"a6ccfb7e-9aef-4341-8f98-f3894d70b6e3\",\"start_date\":\"2026-11-04 12:13\",\"next_payment\":\"2026-12-04 12:13\",\"status\":\"active\",\"customer_access\":{\"has_access\":true,\"active_period\":true,\"access_until\":\"2026-12-04 12:13\"},\"plan\":{\"id\":\"60a88297-b763-4d8d-9fbe-ab597825e29f\",\"name\":\"Plano mensal\",\"frequency\":\"monthly\",\"qty_charges\":0},\"charges\":{\"completed\":[],\"future\":[]}}}"
+ },
+ "kiwify/compra-aprovada-alt": {
+  "aplicativo": "kiwify",
+  "variante": "compra-aprovada-alt",
+  "url": "/x?signature=6f1736aad7090a3dacdd8bda6a1fd2b520001b3e",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"order_id\":\"4dbc3305-26e7-45a2-b73b-16c3a06abf6e\",\"order_ref\":\"cf50f14\",\"order_status\":\"paid\",\"product_type\":\"membership\",\"payment_method\":\"credit_card\",\"store_id\":\"f416d87a8b8042b0\",\"payment_merchant_id\":13,\"installments\":1,\"card_type\":\"visa\",\"card_last4digits\":\"4242\",\"card_rejection_reason\":null,\"boleto_URL\":null,\"boleto_barcode\":null,\"pix_code\":null,\"sale_type\":\"producer\",\"created_at\":\"2026-11-04 12:13\",\"updated_at\":\"2026-11-04 12:13\",\"approved_date\":\"2026-11-04 12:13\",\"webhook_event_type\":\"order_approved\",\"customer\":{\"name\":\"Maria Souza\",\"email\":\"maria.souza@exemplo.com.br\",\"mobile\":\"+5511988887777\",\"cpf\":\"12345678909\",\"country\":\"br\"},\"product\":{\"id\":\"00ed0ba6-7eda-45cc-a5f1-13cd4d3fa221\",\"name\":\"Curso Online BRL\"},\"payment\":{\"charge_amount\":49700,\"charge_currency\":\"BRL\",\"net_amount\":44700,\"product_base_price\":49700},\"tracking\":{\"sck\":\"matriculas-2027\",\"src\":\"google\",\"utm_source\":\"google\",\"utm_medium\":\"cpc\",\"utm_campaign\":\"matriculas-2027\",\"utm_content\":\"anuncio-1\",\"utm_term\":\"escola particular\",\"s1\":null,\"s2\":null,\"s3\":null}}"
+ },
+ "eduzz/fatura-paga": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-paga",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "7fa52bc87e7533f3757d8b3374e0f95cfe45a6fd1eaa44bf22106ca34028abff"
+  },
+  "corpo": "{\"id\":\"cf91dfbc-d18c-42ea-bf91-e76a9984a2ec\",\"event\":\"myeduzz.invoice_paid\",\"data\":{\"id\":\"9014\",\"status\":\"paid\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":497},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"T1c5fa6ca\",\"key\":\"882079b58968\"},\"createdAt\":\"2026-11-04T15:13:30.107Z\",\"dueDate\":\"2026-11-04T15:13:30.107Z\",\"paidAt\":\"2026-11-04T15:13:30.107Z\",\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.107Z\"}"
+ },
+ "eduzz/fatura-paga+base64": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-paga",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "egHurD6kXXRxJKVrVmG0xZxuY1fbRoNWhrwNQzs6z2U="
+  },
+  "corpo": "{\"id\":\"9f30b6b2-3d19-4c6f-af28-d32fefff1bce\",\"event\":\"myeduzz.invoice_paid\",\"data\":{\"id\":\"9015\",\"status\":\"paid\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":497},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"Td0482440\",\"key\":\"d6e68ef3ec64\"},\"createdAt\":\"2026-11-04T15:13:30.261Z\",\"dueDate\":\"2026-11-04T15:13:30.261Z\",\"paidAt\":\"2026-11-04T15:13:30.261Z\",\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.261Z\"}"
+ },
+ "eduzz/fatura-aberta": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-aberta",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "d6e01524e24cb0d2aab481894618c0e86d661c998533df57973aef9309836b34"
+  },
+  "corpo": "{\"id\":\"3df25eca-e35f-4e9e-8fab-75da70655dfc\",\"event\":\"myeduzz.invoice_opened\",\"data\":{\"id\":\"9016\",\"status\":\"opened\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":0},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"T01bf9f61\",\"key\":\"0c65a281e71c\"},\"createdAt\":\"2026-11-04T15:13:30.415Z\",\"dueDate\":\"2026-11-04T15:13:30.415Z\",\"paidAt\":null,\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.415Z\"}"
+ },
+ "eduzz/fatura-aguardando-pagamento": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-aguardando-pagamento",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "72c5098b02628761c6d839e0830c001a629c4a12e15c1a2ed79e9cd4918ee990"
+  },
+  "corpo": "{\"id\":\"fab8ec0d-c487-434d-b5a2-e859d8ed42b0\",\"event\":\"myeduzz.invoice_waiting_payment\",\"data\":{\"id\":\"9017\",\"status\":\"waiting_payment\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":0},\"installments\":1,\"paymentMethod\":\"bankslip\",\"transaction\":{\"id\":\"Td2599b0c\",\"key\":\"464a788669c9\"},\"createdAt\":\"2026-11-04T15:13:30.568Z\",\"dueDate\":\"2026-11-04T15:13:30.568Z\",\"paidAt\":null,\"barcode\":\"23793381286000000000300000000400184340000049700\",\"bankslipUrl\":\"https://sun.eduzz.com/boleto/abc\",\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.568Z\"}"
+ },
+ "eduzz/fatura-recuperando": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-recuperando",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "b45e13c9a6bf823d7631698778880df724b0a962c3810dd251617074797d84a3"
+  },
+  "corpo": "{\"id\":\"df49d11b-0733-4c5c-98e0-4b1c3c43cdbb\",\"event\":\"myeduzz.invoice_recovering\",\"data\":{\"id\":\"9018\",\"status\":\"recovering\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":0},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"T260e6ec2\",\"key\":\"f6606c420b64\"},\"createdAt\":\"2026-11-04T15:13:30.722Z\",\"dueDate\":\"2026-11-04T15:13:30.722Z\",\"paidAt\":null,\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.722Z\"}"
+ },
+ "eduzz/fatura-expirada": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-expirada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "f9a424b2b66925e5a965165c543768884b67955f1464db4db6ae1cbb0308f99a"
+  },
+  "corpo": "{\"id\":\"019cb63a-d766-482b-90fa-aa77f1b3b503\",\"event\":\"myeduzz.invoice_expired\",\"data\":{\"id\":\"9019\",\"status\":\"expired\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":0},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"Te758d84c\",\"key\":\"dee2e6206d8e\"},\"createdAt\":\"2026-11-04T15:13:30.876Z\",\"dueDate\":\"2026-11-04T15:13:30.876Z\",\"paidAt\":null,\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:30.876Z\"}"
+ },
+ "eduzz/fatura-cancelada": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-cancelada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "cbbbae5940f9c0876e0e59ca8a126e06168fe138eeb1507d4f4608e3ab2d6f86"
+  },
+  "corpo": "{\"id\":\"88890373-5301-4b97-8838-af881b4473bb\",\"event\":\"myeduzz.invoice_canceled\",\"data\":{\"id\":\"9020\",\"status\":\"canceled\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":0},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"Tb6d8af1a\",\"key\":\"76c5f715980b\"},\"createdAt\":\"2026-11-04T15:13:31.029Z\",\"dueDate\":\"2026-11-04T15:13:31.029Z\",\"paidAt\":null,\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:31.029Z\"}"
+ },
+ "eduzz/fatura-reembolsada": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-reembolsada",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "ebc9b38b9a669c69bf0dc5ad6bea4a17023e74c06e27bc7b1094d0350b2355a0"
+  },
+  "corpo": "{\"id\":\"3733d181-f938-467c-8afe-bb277621e948\",\"event\":\"myeduzz.invoice_refunded\",\"data\":{\"id\":\"9021\",\"status\":\"refunded\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":497},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"Ta59dd1ef\",\"key\":\"16cfa2555a35\"},\"createdAt\":\"2026-11-04T15:13:31.182Z\",\"dueDate\":\"2026-11-04T15:13:31.182Z\",\"paidAt\":\"2026-11-04T15:13:31.182Z\",\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"}},\"sentDate\":\"2026-11-04T15:13:31.182Z\"}"
+ },
+ "eduzz/fatura-chargeback": {
+  "aplicativo": "eduzz",
+  "variante": "fatura-chargeback",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "705cdd6d9f763cc1120a2eccd9678e2c63474861dfdbe5b1c10dc4f0709989f1"
+  },
+  "corpo": "{\"id\":\"48cbea05-82a5-46d4-84cc-28f97fa7d6de\",\"event\":\"myeduzz.invoice_chargeback\",\"data\":{\"id\":\"9022\",\"status\":\"chargeback\",\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"student\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}},\"items\":[{\"productId\":\"123456\",\"name\":\"Curso Online BRL\",\"price\":{\"currency\":\"BRL\",\"value\":497},\"coupon\":null,\"billingType\":\"single\",\"isBump\":false,\"skuReference\":\"CURSO-BRL\"}],\"totalItems\":1,\"offer\":{\"name\":\"Oferta principal\"},\"price\":{\"currency\":\"BRL\",\"value\":497},\"paid\":{\"currency\":\"BRL\",\"value\":497},\"installments\":1,\"paymentMethod\":\"creditCard\",\"transaction\":{\"id\":\"T8b9316f8\",\"key\":\"faf9b16dcdcc\"},\"createdAt\":\"2026-11-04T15:13:31.336Z\",\"dueDate\":\"2026-11-04T15:13:31.336Z\",\"paidAt\":\"2026-11-04T15:13:31.336Z\",\"checkoutUrl\":\"https://sun.eduzz.com/abc\",\"utm\":{\"source\":\"google\",\"campaign\":\"matriculas-2027\",\"medium\":\"cpc\",\"content\":\"anuncio-1\",\"term\":\"escola particular\"},\"tracker\":{\"code1\":\"matriculas-2027\",\"code2\":null,\"code3\":null},\"affiliate\":null,\"orderBump\":{\"has\":false,\"isMainSale\":false,\"mainSaleId\":null},\"producer\":{\"id\":\"98765\",\"name\":\"Produtor Exemplo\",\"originSecret\":\"segredo-de-teste-1234\"},\"chargeback\":{\"status\":\"opened\",\"createdAt\":\"2026-11-04T15:13:31.336Z\",\"limitDate\":\"2026-11-04T15:13:31.336Z\",\"finishedAt\":null}},\"sentDate\":\"2026-11-04T15:13:31.336Z\"}"
+ },
+ "eduzz/carrinho-abandonado": {
+  "aplicativo": "eduzz",
+  "variante": "carrinho-abandonado",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "c7ace21bb8f877f692139797ccee2429691dd1286182469a2f5ddff11eb5a611"
+  },
+  "corpo": "{\"id\":\"ace4336b-6508-4ae1-bade-051e7eb77e1a\",\"event\":\"sun.cart_abandonment\",\"data\":{\"transactionId\":\"3c3673ada1\",\"saleRecoveryUrl\":\"https://sun.eduzz.com/recuperar/abc\",\"href\":\"https://sun.eduzz.com/abc\",\"customer\":{\"name\":\"Maria Souza\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"+5511988887777\"},\"productId\":[\"123456\"],\"tracker\":{\"utmSource\":\"google\",\"utmCampaign\":\"matriculas-2027\",\"utmMedium\":\"cpc\",\"utmContent\":\"anuncio-1\"},\"paymentMethod\":\"creditCard\",\"lastStep\":\"user_data\",\"producerId\":\"98765\",\"updatedAt\":\"2026-11-04T15:13:31.490Z\"},\"sentDate\":\"2026-11-04T15:13:31.490Z\"}"
+ },
+ "eduzz/contrato-criado": {
+  "aplicativo": "eduzz",
+  "variante": "contrato-criado",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "926da98b3b3f887a9a909c6064719eaec4f3c631a4bcb97a5347f3b621c2d2e7"
+  },
+  "corpo": "{\"id\":\"2cb639f9-dd8e-4816-98db-9e82e7a9a01d\",\"event\":\"myeduzz.contract_created\",\"data\":{\"contract\":{\"id\":\"777\",\"status\":\"upToDate\",\"trialDays\":0,\"createdAt\":\"2026-11-04T15:13:31.643Z\",\"updatedAt\":\"2026-11-04T15:13:31.643Z\",\"payment\":{\"method\":\"creditCard\",\"totalOfInstallments\":1},\"recurrence\":{\"startsAt\":\"2026-11-04T15:13:31.643Z\",\"nextDue\":\"2026-11-04T15:13:31.643Z\",\"currentDue\":\"2026-11-04T15:13:31.643Z\",\"finalDue\":null,\"finishesAt\":null}},\"products\":[{\"id\":\"123456\",\"name\":\"Curso Online BRL\",\"plan\":{\"id\":\"9\",\"name\":\"Plano mensal\"},\"price\":97}],\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}}},\"sentDate\":\"2026-11-04T15:13:31.643Z\"}"
+ },
+ "eduzz/contrato-sem-comprador": {
+  "aplicativo": "eduzz",
+  "variante": "contrato-sem-comprador",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "cfc44d3238e1f7b9d09b4fefcbd01afe052f9fdc218e4c37f33b8ebc446a0fd5"
+  },
+  "corpo": "{\"id\":\"20176c4e-e73b-4822-ba5a-e275102bc7d7\",\"event\":\"myeduzz.contract_created\",\"data\":{\"contract\":{\"id\":\"777\",\"status\":\"upToDate\",\"trialDays\":0,\"createdAt\":\"2026-11-04T15:13:31.797Z\",\"updatedAt\":\"2026-11-04T15:13:31.797Z\",\"payment\":{\"method\":\"creditCard\",\"totalOfInstallments\":1},\"recurrence\":{\"startsAt\":\"2026-11-04T15:13:31.797Z\",\"nextDue\":\"2026-11-04T15:13:31.797Z\",\"currentDue\":\"2026-11-04T15:13:31.797Z\",\"finalDue\":null,\"finishesAt\":null}},\"products\":[{\"id\":\"123456\",\"name\":\"Curso Online BRL\",\"plan\":{\"id\":\"9\",\"name\":\"Plano mensal\"},\"price\":97}]},\"sentDate\":\"2026-11-04T15:13:31.797Z\"}"
+ },
+ "eduzz/contrato-cancelado": {
+  "aplicativo": "eduzz",
+  "variante": "contrato-cancelado",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "655550da1667a5e860468d7d02c654455d705c8c302be66ec03d0c3212cf1b35"
+  },
+  "corpo": "{\"id\":\"20f8869e-f1e9-4d6e-86d5-c02071ef3bc4\",\"event\":\"myeduzz.contract_updated\",\"data\":{\"contract\":{\"id\":\"777\",\"status\":\"canceled\",\"trialDays\":0,\"createdAt\":\"2026-11-04T15:13:31.951Z\",\"updatedAt\":\"2026-11-04T15:13:31.951Z\",\"payment\":{\"method\":\"creditCard\",\"totalOfInstallments\":1},\"recurrence\":{\"startsAt\":\"2026-11-04T15:13:31.951Z\",\"nextDue\":\"2026-11-04T15:13:31.951Z\",\"currentDue\":\"2026-11-04T15:13:31.951Z\",\"finalDue\":null,\"finishesAt\":null}},\"products\":[{\"id\":\"123456\",\"name\":\"Curso Online BRL\",\"plan\":{\"id\":\"9\",\"name\":\"Plano mensal\"},\"price\":97}],\"buyer\":{\"id\":\"555\",\"name\":\"Maria Souza\",\"document\":\"12345678909\",\"email\":\"maria.souza@exemplo.com.br\",\"phone\":\"\",\"phone2\":\"\",\"cellphone\":\"(11) 98888-7777\",\"address\":{\"city\":\"São Paulo\",\"state\":\"SP\",\"country\":\"BR\"}}},\"sentDate\":\"2026-11-04T15:13:31.951Z\"}"
+ },
+ "eduzz/ping": {
+  "aplicativo": "eduzz",
+  "variante": "ping",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json",
+   "x-signature": "61fef87b9d6473bc9034e8830950807925f8115872e90cd2c2ed41426d505136"
+  },
+  "corpo": "{\"id\":\"61af4a0c-877c-446f-ac19-6cf485abe6da\",\"event\":\"ping\",\"data\":{\"message\":\"ping\"},\"sentDate\":\"2026-11-04T15:13:32.104Z\"}"
+ },
+ "typeform/padrao": {
+  "aplicativo": "typeform",
+  "variante": "padrao",
+  "url": "/x",
+  "cabecalhos": {
+   "content-type": "application/json"
+  },
+  "corpo": "{\"event_id\":\"4f9c02006c20479a874ae403ac\",\"event_type\":\"form_response\",\"form_response\":{\"form_id\":\"aB3dE5gH\",\"token\":\"0ae3c56eefb340b785f70d3bfe79d9\",\"landed_at\":\"2026-11-04T15:14:11Z\",\"submitted_at\":\"2026-11-04T15:15:41Z\",\"hidden\":{\"utm_source\":\"google\",\"utm_medium\":\"cpc\"},\"variables\":[{\"key\":\"score\",\"type\":\"number\",\"number\":4}],\"definition\":{\"id\":\"aB3dE5gH\",\"title\":\"Pesquisa de interesse em matrícula\",\"fields\":[{\"id\":\"tf0000000001\",\"ref\":\"nome_completo\",\"type\":\"short_text\",\"title\":\"Qual é o seu nome completo?\",\"properties\":{}},{\"id\":\"tf0000000002\",\"ref\":\"email\",\"type\":\"email\",\"title\":\"Qual é o seu melhor e-mail?\",\"properties\":{}},{\"id\":\"tf0000000003\",\"ref\":\"telefone\",\"type\":\"phone_number\",\"title\":\"Qual é o seu WhatsApp?\",\"properties\":{}},{\"id\":\"tf0000000004\",\"ref\":\"serie\",\"type\":\"multiple_choice\",\"title\":\"Para qual série?\",\"properties\":{}},{\"id\":\"tf0000000005\",\"ref\":\"filhos\",\"type\":\"number\",\"title\":\"Quantos filhos pretende matricular?\",\"properties\":{}},{\"id\":\"tf0000000006\",\"ref\":\"aceita_contato\",\"type\":\"yes_no\",\"title\":\"Aceita receber contato por WhatsApp?\",\"properties\":{}}],\"endings\":[{\"id\":\"en0000000001\",\"ref\":\"fim\",\"title\":\"Obrigado!\",\"type\":\"thankyou_screen\"}]},\"answers\":[{\"type\":\"text\",\"text\":\"Maria Souza\",\"field\":{\"id\":\"tf0000000001\",\"type\":\"short_text\",\"ref\":\"nome_completo\"}},{\"type\":\"email\",\"email\":\"maria.souza@exemplo.com.br\",\"field\":{\"id\":\"tf0000000002\",\"type\":\"email\",\"ref\":\"email\"}},{\"type\":\"phone_number\",\"phone_number\":\"+5511988887777\",\"field\":{\"id\":\"tf0000000003\",\"type\":\"phone_number\",\"ref\":\"telefone\"}},{\"type\":\"choice\",\"choice\":{\"id\":\"ch0000000003\",\"label\":\"Ensino Médio\",\"ref\":\"ch-medio\"},\"field\":{\"id\":\"tf0000000004\",\"type\":\"multiple_choice\",\"ref\":\"serie\"}},{\"type\":\"number\",\"number\":2,\"field\":{\"id\":\"tf0000000005\",\"type\":\"number\",\"ref\":\"filhos\"}},{\"type\":\"boolean\",\"boolean\":true,\"field\":{\"id\":\"tf0000000006\",\"type\":\"yes_no\",\"ref\":\"aceita_contato\"}}],\"ending\":{\"id\":\"en0000000001\",\"ref\":\"fim\"}}}"
+ }
+}

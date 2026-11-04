@@ -34,6 +34,8 @@ export const EVENTOS_DO_ATENDIMENTO = {
   CONVERSA_RESOLVIDA: 'conversa.resolvida',
   CONVERSA_REABERTA: 'conversa.reaberta',
   CONVERSA_AVALIADA: 'conversa.avaliada',
+  /** Uma pessoa da equipe escreveu ao contato (o SDR com IA, R31, para de responder). */
+  MENSAGEM_DA_EQUIPE: 'conversa.mensagem_da_equipe',
 } as const;
 
 /**

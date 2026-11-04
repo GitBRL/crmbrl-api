@@ -48,7 +48,7 @@ export class FiltrosBiService {
     const canalId = await this.canal(painel, dto.canalId);
     const filaId = await this.fila(painel, dto.filaId);
     const area =
-      painel === 'marketing' || painel === 'atendimento'
+      painel === 'marketing' || painel === 'atendimento' || painel === 'sdr'
         ? (dto.area ?? null)
         : areaDoPainelAtual;
     return {
@@ -130,7 +130,12 @@ export class FiltrosBiService {
     areaDoPainelAtual: ReturnType<typeof areaDoPainel>,
     funilId: string | undefined,
   ): Promise<string | null> {
-    if (!funilId || painel === 'atendimento' || painel === 'financeiro') {
+    if (
+      !funilId ||
+      painel === 'atendimento' ||
+      painel === 'sdr' ||
+      painel === 'financeiro'
+    ) {
       return null;
     }
     const funil = await this.prisma.funil.findFirst({
@@ -147,7 +152,10 @@ export class FiltrosBiService {
     painel: PainelBi,
     canalId: string | undefined,
   ): Promise<string | null> {
-    if (!canalId || (painel !== 'marketing' && painel !== 'atendimento')) {
+    if (
+      !canalId ||
+      (painel !== 'marketing' && painel !== 'atendimento' && painel !== 'sdr')
+    ) {
       return null;
     }
     const canal = await this.prisma.canal.findFirst({
@@ -164,7 +172,7 @@ export class FiltrosBiService {
     painel: PainelBi,
     filaId: string | undefined,
   ): Promise<string | null> {
-    if (!filaId || painel !== 'atendimento') {
+    if (!filaId || (painel !== 'atendimento' && painel !== 'sdr')) {
       return null;
     }
     const fila = await this.prisma.filaAtendimento.findFirst({

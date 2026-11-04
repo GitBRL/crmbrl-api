@@ -9,6 +9,7 @@ import {
   seguir,
 } from '../comum/passos/tipos';
 import { PrismaService } from '../prisma/prisma.service';
+import { MotorSdr } from '../sdr/motor-sdr.service';
 import {
   MOTIVOS_DE_FIM,
   PREFIXO_DE_ESTADO,
@@ -34,6 +35,7 @@ import {
   validarMoverFila,
   validarPerguntaAberta,
   validarPerguntaComOpcoes,
+  validarPassarParaIa,
   validarTransferir,
   validarWebhook,
 } from './configuracao-dos-passos';
@@ -154,6 +156,7 @@ export class PassosDoChatbot implements OnModuleInit {
     private readonly mensagens: MensagensDoBot,
     private readonly acoes: AcoesDoBot,
     private readonly transferencia: TransferenciaDoBot,
+    private readonly sdr: MotorSdr,
   ) {}
 
   onModuleInit(): void {
@@ -290,6 +293,12 @@ export class PassosDoChatbot implements OnModuleInit {
           },
         });
       }),
+    });
+    this.passos.registrarTipo<Record<string, unknown>>({
+      tipo: 'acao.passar_para_ia',
+      execucoes,
+      validar: validarPassarParaIa,
+      executar: proteger((ctx) => this.passarParaIa(ctx)),
     });
     this.passos.registrarTipo<ConfigDeTransferir>({
       tipo: 'transferir',
@@ -638,6 +647,32 @@ export class PassosDoChatbot implements OnModuleInit {
         {
           de: 'sistema',
           texto: `${rotulo}${saida.simulado ? ' (simulado)' : ''}`,
+        },
+      ]),
+    });
+  }
+
+  /** Entrega a conversa ao SDR com IA e encerra o fluxo (a IA assume ao fim do fluxo). */
+  private async passarParaIa(
+    ctx: Ctx<Record<string, unknown>>,
+  ): Promise<ResultadoDoPasso> {
+    if (ctx.execucao.teste || !ctx.execucao.conversaId) {
+      return encerrar(MOTIVOS_DE_FIM.PASSADA_PARA_IA, {
+        saida: { simulado: true },
+        variaveis: transcricao(ctx, [
+          { de: 'sistema', texto: 'Passaria a conversa para a IA (simulado).' },
+        ]),
+      });
+    }
+    const resultado = await this.sdr.chamarPeloFluxo(ctx.execucao.conversaId);
+    return encerrar(MOTIVOS_DE_FIM.PASSADA_PARA_IA, {
+      saida: { ativado: resultado.ativado, motivo: resultado.motivo },
+      variaveis: transcricao(ctx, [
+        {
+          de: 'sistema',
+          texto: resultado.ativado
+            ? 'Conversa passada para a IA (SDR).'
+            : `A IA não assumiu: ${resultado.motivo ?? 'motivo não informado'}`,
         },
       ]),
     });

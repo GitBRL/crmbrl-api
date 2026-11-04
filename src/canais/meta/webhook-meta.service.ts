@@ -29,6 +29,8 @@ import {
 import { WebhookWhatsappOficialService } from '../whatsapp-oficial/webhook-whatsapp-oficial.service';
 import { OBJETO_DO_WEBHOOK_WHATSAPP } from '../whatsapp-oficial/eventos-oficial';
 import { GraphApi } from './graph-api';
+import { extrairLeadgens } from '../../webhooks/facebook/lead-facebook';
+import { FacebookLeadAdsService } from '../../webhooks/facebook/facebook-lead-ads.service';
 
 /** Fila (pg-boss) das entradas do webhook, processadas fora da requisição. */
 export const FILA_WEBHOOK_META = 'meta.webhook';
@@ -77,6 +79,7 @@ export class WebhookMetaService implements OnModuleInit {
     private readonly graph: GraphApi,
     private readonly logs: LogsTecnicosService,
     private readonly whatsappOficial: WebhookWhatsappOficialService,
+    private readonly facebookLeadAds: FacebookLeadAdsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -93,7 +96,7 @@ export class WebhookMetaService implements OnModuleInit {
     );
   }
 
-  /** Desafio de verificação: o `hub.challenge` se o token é de algum canal; senão 403. */
+  /** Desafio de verificação: o `hub.challenge` se o token é de algum canal ou conexão do Facebook; senão 403. */
   async verificarDesafio(
     modo: unknown,
     token: unknown,
@@ -122,6 +125,10 @@ export class WebhookMetaService implements OnModuleInit {
       if (await this.whatsappOficial.tokenDeVerificacaoValido(token)) {
         return desafio;
       }
+      // E o de uma conexão do Facebook Lead Ads (R32.14).
+      if (await this.facebookLeadAds.tokenDeVerificacaoValido(token)) {
+        return desafio;
+      }
     }
     throw new SemPermissaoException('Token de verificação inválido.');
   }
@@ -144,9 +151,35 @@ export class WebhookMetaService implements OnModuleInit {
     ) {
       return this.whatsappOficial.receber(corpo, bruto, assinatura);
     }
-    const entradas = entradasDoWebhook(corpo);
+    // `object: page` com `changes[].field = leadgen` é do Facebook Lead Ads (R32.14).
+    const leadgens = extrairLeadgens(corpo);
+    // Os dois ramos do POST são independentes: a assinatura dos leadgens que não confere
+    // (segredo desatualizado na conexão do Lead Ads) não derruba as entradas de Messenger
+    // e Instagram assinadas pelo app do canal. O 401 só sai se nenhum ramo for autêntico.
+    let recebidasDeLeads = 0;
+    let erroDosLeads: NaoAutenticadoException | null = null;
+    if (leadgens.length > 0) {
+      try {
+        recebidasDeLeads = await this.facebookLeadAds.receberLeadgens(
+          leadgens,
+          bruto,
+          assinatura,
+        );
+      } catch (erro) {
+        if (!(erro instanceof NaoAutenticadoException)) {
+          throw erro;
+        }
+        erroDosLeads = erro;
+      }
+    }
+    const entradas = entradasDoWebhook(corpo).filter(
+      ({ bruta }) => leadgens.length === 0 || Array.isArray(bruta.messaging),
+    );
     if (entradas.length === 0) {
-      return { recebidas: 0 };
+      if (erroDosLeads) {
+        throw erroDosLeads;
+      }
+      return { recebidas: recebidasDeLeads };
     }
     const canais = await this.prisma.canal.findMany({
       where: {
@@ -161,7 +194,10 @@ export class WebhookMetaService implements OnModuleInit {
       this.logger.debug?.(
         `Webhook da Meta para ${entradas.map(({ idDoCanal }) => idDoCanal).join(', ')}: nenhum canal.`,
       );
-      return { recebidas: 0 };
+      if (erroDosLeads) {
+        throw erroDosLeads;
+      }
+      return { recebidas: recebidasDeLeads };
     }
     const assinadoPor = canais.find((canal) => {
       const { appSecret } =
@@ -186,7 +222,7 @@ export class WebhookMetaService implements OnModuleInit {
           : 'Assinatura ausente: envie X-Hub-Signature-256.',
       );
     }
-    let recebidas = 0;
+    let recebidas = recebidasDeLeads;
     for (const entrada of entradas) {
       const canal = canais.find(
         (item) =>

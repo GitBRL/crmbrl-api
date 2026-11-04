@@ -69,6 +69,11 @@ export const DESTINOS_DE_TEXTO = [
   'titulo',
   'valor',
   'valorRecorrente',
+  // Atualizações pelo recebimento (R32.4): valores lidos como texto e conferidos no processamento.
+  'etapa',
+  'dono',
+  'status',
+  'motivoPerda',
   ...CAMPOS_UTM.map((campo) => `utm.${campo}` as const),
 ] as const;
 
@@ -76,6 +81,8 @@ export type DestinoDeTexto = (typeof DESTINOS_DE_TEXTO)[number];
 
 export const DESTINO_ETIQUETAS = 'etiquetas';
 export const PREFIXO_CAMPO_PERSONALIZADO = 'camposPersonalizados.';
+/** Campo personalizado do negócio (o `camposPersonalizados.` é do contato). */
+export const PREFIXO_CAMPO_DO_NEGOCIO = 'negocio.camposPersonalizados.';
 
 /** Todos os destinos fixos, para documentação e mensagens. */
 export const DESTINOS_FIXOS: readonly string[] = [
@@ -101,7 +108,10 @@ const LIMITE_PADRAO_DE_TEXTO = 200;
 // Modelos prontos (R8.1)
 // ---------------------------------------------------------------------------
 
-export type ModeloPronto = Exclude<ModeloMapeamento, 'PERSONALIZADO'>;
+export type ModeloPronto = Exclude<
+  ModeloMapeamento,
+  'PERSONALIZADO' | 'DO_APLICATIVO'
+>;
 
 export interface DefinicaoDeModelo {
   readonly modelo: ModeloPronto;
@@ -196,6 +206,10 @@ export function mapeamentoEfetivo(
   if (modelo === 'PERSONALIZADO') {
     return lerMapeamentoGravado(gravado);
   }
+  if (modelo === 'DO_APLICATIVO') {
+    // O modelo do aplicativo vem do adaptador (`mapeamentoDaIntegracao`).
+    return { campos: [], ignorarQuando: [] };
+  }
   return MODELOS_PRONTOS[modelo].mapeamento;
 }
 
@@ -249,6 +263,7 @@ export type ResultadoDaValidacao =
 export function validarMapeamento(
   entrada: unknown,
   prefixo = 'mapeamento',
+  opcoes: { exigirNome?: boolean } = {},
 ): ResultadoDaValidacao {
   const problemas: ProblemaDeCampo[] = [];
   const problema = (campo: string, mensagem: string) =>
@@ -334,7 +349,7 @@ export function validarMapeamento(
 
   if (problemas.length === 0) {
     const destinos = new Set(regras.map(({ destino }) => destino));
-    if (!destinos.has('nome')) {
+    if (opcoes.exigirNome !== false && !destinos.has('nome')) {
       problema(
         '.campos',
         'precisa de uma regra com destino "nome" (o contato exige nome)',
@@ -395,17 +410,23 @@ export function problemaDoDestino(
   if (!destino) {
     return 'é obrigatório';
   }
-  if (destino.startsWith(PREFIXO_CAMPO_PERSONALIZADO)) {
-    const chave = destino.slice(PREFIXO_CAMPO_PERSONALIZADO.length);
+  if (
+    destino.startsWith(PREFIXO_CAMPO_PERSONALIZADO) ||
+    destino.startsWith(PREFIXO_CAMPO_DO_NEGOCIO)
+  ) {
+    const prefixoDoDestino = destino.startsWith(PREFIXO_CAMPO_DO_NEGOCIO)
+      ? PREFIXO_CAMPO_DO_NEGOCIO
+      : PREFIXO_CAMPO_PERSONALIZADO;
+    const chave = destino.slice(prefixoDoDestino.length);
     if (!chave.trim()) {
-      return 'informe a chave do campo personalizado (camposPersonalizados.<chave>)';
+      return `informe a chave do campo personalizado (${prefixoDoDestino}<chave>)`;
     }
     if (chave.length > TAMANHO_MAXIMO_CHAVE_PERSONALIZADA) {
       return `a chave do campo personalizado deve ter no máximo ${TAMANHO_MAXIMO_CHAVE_PERSONALIZADA} caracteres`;
     }
     const curingas = (chave.match(/\*/g) ?? []).length;
     if (caminhoComCuringa && curingas !== 1) {
-      return 'com curinga no caminho, a chave precisa de um "*" (ex.: camposPersonalizados.*)';
+      return `com curinga no caminho, a chave precisa de um "*" (ex.: ${prefixoDoDestino}*)`;
     }
     if (!caminhoComCuringa && curingas > 0) {
       return 'só use "*" na chave quando o caminho tiver curinga';
@@ -420,17 +441,18 @@ export function problemaDoDestino(
       ? 'com curinga no caminho, o destino deve ser "etiquetas" ou "camposPersonalizados.<…*…>"'
       : null;
   }
-  return `destino desconhecido: use ${DESTINOS_FIXOS.join(', ')} ou camposPersonalizados.<chave>`;
+  return `destino desconhecido: use ${DESTINOS_FIXOS.join(', ')}, camposPersonalizados.<chave> ou negocio.camposPersonalizados.<chave>`;
 }
 
 // ---------------------------------------------------------------------------
 // Leitura de caminhos
 // ---------------------------------------------------------------------------
 
-/** `lead.contatos[0].email` → `['lead', 'contatos', '0', 'email']`. */
+/** `lead.contatos[0].email` → `['lead', 'contatos', '0', 'email']`; `contact[fields][3]` → `['contact', 'fields', '3']`. */
 export function segmentosDoCaminho(caminho: string): string[] {
+  // `contato[fields][3]` (formulário aninhado) vale como `contato.fields.3`.
   return caminho
-    .replace(/\[(\d+)\]/g, '.$1')
+    .replace(/\[([^\].]*)\]/g, '.$1')
     .split('.')
     .map((segmento) => segmento.trim());
 }
@@ -532,6 +554,15 @@ export interface LeadMapeado {
   readonly utm: Utm | null;
   readonly etiquetas: string[];
   readonly camposPersonalizados: Record<string, unknown>;
+  /** Campos personalizados do negócio (`negocio.camposPersonalizados.<chave>`). */
+  readonly camposDoNegocio: Record<string, unknown>;
+  /** Atualizações pedidas pelo recebimento (R32.4), ainda como texto: o processamento as confere. */
+  readonly atualizacoes: {
+    readonly etapa: string | null;
+    readonly dono: string | null;
+    readonly status: string | null;
+    readonly motivoPerda: string | null;
+  };
   /** Que caminho preencheu cada destino (para a prévia e o diagnóstico). */
   readonly encontrados: readonly CampoEncontrado[];
 }
@@ -549,6 +580,7 @@ export function aplicarMapeamento(
   mapeamento: Mapeamento,
   corpo: unknown,
   etiquetasFixas: readonly string[] = [],
+  opcoes: { exigirNome?: boolean } = {},
 ): LeadMapeado {
   const vazio = leadVazio(etiquetasFixas);
   if (Array.isArray(corpo)) {
@@ -584,6 +616,7 @@ export function aplicarMapeamento(
   const valores = new Map<'valor' | 'valorRecorrente', string>();
   const etiquetas: string[] = [];
   const camposPersonalizados: Record<string, unknown> = {};
+  const camposDoNegocio: Record<string, unknown> = {};
   const encontrados: CampoEncontrado[] = [];
   const avisos: string[] = [];
   const caminhosPorDestino = new Map<string, string[]>();
@@ -606,12 +639,21 @@ export function aplicarMapeamento(
         if (regra.destino === DESTINO_ETIQUETAS) {
           etiquetas.push(...comoEtiquetas(casada.valor));
         } else {
+          const doNegocio = regra.destino.startsWith(PREFIXO_CAMPO_DO_NEGOCIO);
+          const alvoDosCampos = doNegocio
+            ? camposDoNegocio
+            : camposPersonalizados;
           const chave = regra.destino
-            .slice(PREFIXO_CAMPO_PERSONALIZADO.length)
+            .slice(
+              (doNegocio
+                ? PREFIXO_CAMPO_DO_NEGOCIO
+                : PREFIXO_CAMPO_PERSONALIZADO
+              ).length,
+            )
             .replace('*', casada.parte)
             .trim();
-          if (chave && !(chave in camposPersonalizados)) {
-            camposPersonalizados[chave] = comoValorPersonalizado(casada.valor);
+          if (chave && !(chave in alvoDosCampos)) {
+            alvoDosCampos[chave] = comoValorPersonalizado(casada.valor);
           }
         }
         registrar(regra.destino, casada.chave);
@@ -632,12 +674,20 @@ export function aplicarMapeamento(
       }
       continue;
     }
-    if (regra.destino.startsWith(PREFIXO_CAMPO_PERSONALIZADO)) {
+    if (
+      regra.destino.startsWith(PREFIXO_CAMPO_PERSONALIZADO) ||
+      regra.destino.startsWith(PREFIXO_CAMPO_DO_NEGOCIO)
+    ) {
+      const doNegocio = regra.destino.startsWith(PREFIXO_CAMPO_DO_NEGOCIO);
+      const alvoDosCampos = doNegocio ? camposDoNegocio : camposPersonalizados;
       const chave = regra.destino
-        .slice(PREFIXO_CAMPO_PERSONALIZADO.length)
+        .slice(
+          (doNegocio ? PREFIXO_CAMPO_DO_NEGOCIO : PREFIXO_CAMPO_PERSONALIZADO)
+            .length,
+        )
         .trim();
-      if (!(chave in camposPersonalizados)) {
-        camposPersonalizados[chave] = comoValorPersonalizado(valor);
+      if (!(chave in alvoDosCampos)) {
+        alvoDosCampos[chave] = comoValorPersonalizado(valor);
         registrar(regra.destino, regra.caminho);
       }
       continue;
@@ -695,7 +745,7 @@ export function aplicarMapeamento(
       `Nenhum dos caminhos do mapeamento foi encontrado no corpo (procurados: ${esperados}).`,
     );
   } else {
-    if (!nome) {
+    if (!nome && opcoes.exigirNome !== false) {
       problemas.push(
         `Sem nome: ${semValorEm(caminhosPorDestino.get('nome'))}.`,
       );
@@ -745,6 +795,13 @@ export function aplicarMapeamento(
     utm: Object.keys(utm).length > 0 ? utm : null,
     etiquetas: normalizarEtiquetas([...etiquetasFixas, ...etiquetas]),
     camposPersonalizados,
+    camposDoNegocio,
+    atualizacoes: {
+      etapa: textos.get('etapa') ?? null,
+      dono: textos.get('dono') ?? null,
+      status: textos.get('status') ?? null,
+      motivoPerda: textos.get('motivoPerda') ?? null,
+    },
     encontrados,
   };
 }
@@ -765,6 +822,8 @@ function leadVazio(etiquetasFixas: readonly string[]): LeadMapeado {
     utm: null,
     etiquetas: normalizarEtiquetas(etiquetasFixas),
     camposPersonalizados: {},
+    camposDoNegocio: {},
+    atualizacoes: { etapa: null, dono: null, status: null, motivoPerda: null },
     encontrados: [],
   };
 }

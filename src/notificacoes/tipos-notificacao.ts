@@ -21,6 +21,8 @@ export const TIPOS_NOTIFICACAO = {
   WEBHOOK_SAIDA_FALHOU: 'webhook_saida.falhou',
   /** Destino desativado automaticamente após 20 falhas seguidas (Admin, R9.4). */
   WEBHOOK_SAIDA_DESATIVADO: 'webhook_saida.desativado',
+  /** Integração com a credencial recusada pelo aplicativo: precisa de atenção (Admin, R32.9). */
+  INTEGRACAO_PRECISA_ATENCAO: 'integracao.precisa_atencao',
   /** Líder desligado deixou a equipe sem líder (Admin, R7.3). */
   EQUIPE_SEM_LIDER: 'equipe.sem_lider',
 } as const;

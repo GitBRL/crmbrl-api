@@ -657,6 +657,8 @@ describe('Webhooks de saída (e2e)', () => {
         'parcela.paga',
         'parcela.atrasada',
         'ligacao.encerrada',
+        'sdr.lead_qualificado',
+        'sdr.lead_desqualificado',
         'webhook.teste',
       ],
     );

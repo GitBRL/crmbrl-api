@@ -72,6 +72,10 @@ import {
   descreverOrigem,
   instantaneoDoContato,
 } from './instantaneos';
+import {
+  TITULO_DESQUALIFICOU_O_LEAD,
+  TITULO_PASSOU_PARA_A_EQUIPE,
+} from '../sdr/sdr.constantes';
 import { LinhaDoTempoService } from './linha-do-tempo.service';
 import {
   type AlcanceDeEdicao,
@@ -962,7 +966,44 @@ export class ContatosService {
     const permissoes = await tx.permissaoDeLigacao.deleteMany({
       where: { contatoId },
     });
+    // SDR com IA (R31): os valores descobertos, as sugestões e os textos das decisões saem; o
+    // registro (tipo, tokens, nota, temperatura) fica.
+    const valoresDoSdr = await tx.sdrValor.deleteMany({
+      where: { sdrConversa: { conversaId: { in: conversaIds } } },
+    });
+    await tx.sdrSugestao.deleteMany({
+      where: { conversaId: { in: conversaIds } },
+    });
+    await tx.sdrConversa.updateMany({
+      where: { conversaId: { in: conversaIds } },
+      data: { resumo: null, motivo: null },
+    });
+    // Decisões gravadas antes de o motivo sair do título: o texto da IA sobrava lá.
+    await tx.sdrDecisao.updateMany({
+      where: {
+        conversaId: { in: conversaIds },
+        titulo: { startsWith: `${TITULO_PASSOU_PARA_A_EQUIPE}: ` },
+      },
+      data: { titulo: TITULO_PASSOU_PARA_A_EQUIPE },
+    });
+    await tx.sdrDecisao.updateMany({
+      where: {
+        conversaId: { in: conversaIds },
+        titulo: { startsWith: `${TITULO_DESQUALIFICOU_O_LEAD}: ` },
+      },
+      data: { titulo: TITULO_DESQUALIFICOU_O_LEAD },
+    });
+    await tx.sdrDecisao.updateMany({
+      where: { conversaId: { in: conversaIds } },
+      data: {
+        resposta: null,
+        resumo: null,
+        motivo: null,
+        criterios: Prisma.DbNull,
+      },
+    });
     return {
+      sdrValoresApagados: valoresDoSdr.count,
       identificadoresApagados: identificadores.count,
       conversasEncerradas: encerradas.count,
       mensagensLimpas: comTexto.count,
@@ -997,54 +1038,63 @@ export class ContatosService {
       if (!contato) {
         throw new NaoEncontradoException('Contato não encontrado.');
       }
-      const [identificadores, negocios, atividades, conversas, ligacoes] =
-        await Promise.all([
-          tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
-          tx.negocio.findMany({ where: { contatoId: id } }),
-          tx.atividade.findMany({ where: { contatoId: id } }),
-          tx.conversa.findMany({
-            where: { contatoId: id },
-            include: {
-              mensagens: {
-                orderBy: { ocorridaEm: 'asc' },
-                select: {
-                  id: true,
-                  direcao: true,
-                  tipo: true,
-                  texto: true,
-                  ocorridaEm: true,
-                  arquivo: {
-                    select: { nome: true, mime: true, tamanho: true },
-                  },
+      const [
+        identificadores,
+        negocios,
+        atividades,
+        conversas,
+        ligacoes,
+        sdr,
+        recebimentos,
+      ] = await Promise.all([
+        tx.contatoIdentificador.findMany({ where: { contatoId: id } }),
+        tx.negocio.findMany({ where: { contatoId: id } }),
+        tx.atividade.findMany({ where: { contatoId: id } }),
+        tx.conversa.findMany({
+          where: { contatoId: id },
+          include: {
+            mensagens: {
+              orderBy: { ocorridaEm: 'asc' },
+              select: {
+                id: true,
+                direcao: true,
+                tipo: true,
+                texto: true,
+                ocorridaEm: true,
+                arquivo: {
+                  select: { nome: true, mime: true, tamanho: true },
                 },
               },
             },
-          }),
-          tx.ligacao.findMany({
-            where: { contatoId: id },
-            orderBy: { iniciadaEm: 'asc' },
-            select: {
-              id: true,
-              direcao: true,
-              estado: true,
-              motivo: true,
-              telefone: true,
-              iniciadaEm: true,
-              atendidaEm: true,
-              encerradaEm: true,
-              duracaoSegundos: true,
-              anotacao: true,
-              gravacaoSituacao: true,
-              gravacaoDuracaoSegundos: true,
-              gravacaoRemovidaEm: true,
-              transcricaoSituacao: true,
-              transcricao: true,
-              resumoSituacao: true,
-              resumo: true,
-              atendente: { select: { nome: true } },
-            },
-          }),
-        ]);
+          },
+        }),
+        tx.ligacao.findMany({
+          where: { contatoId: id },
+          orderBy: { iniciadaEm: 'asc' },
+          select: {
+            id: true,
+            direcao: true,
+            estado: true,
+            motivo: true,
+            telefone: true,
+            iniciadaEm: true,
+            atendidaEm: true,
+            encerradaEm: true,
+            duracaoSegundos: true,
+            anotacao: true,
+            gravacaoSituacao: true,
+            gravacaoDuracaoSegundos: true,
+            gravacaoRemovidaEm: true,
+            transcricaoSituacao: true,
+            transcricao: true,
+            resumoSituacao: true,
+            resumo: true,
+            atendente: { select: { nome: true } },
+          },
+        }),
+        this.dadosDoSdr(tx, id),
+        this.recebimentosDeWebhook(tx, id),
+      ]);
       await this.auditoria.registrar(tx, {
         acao: 'contato.dados-exportados',
         entidade: 'contato',
@@ -1056,6 +1106,10 @@ export class ContatosService {
           negocios: negocios.length,
           atividades: atividades.length,
           ligacoes: ligacoes.length,
+          sdrConversas: sdr.conversas.length,
+          sdrDecisoes: sdr.decisoes.length,
+          sdrSugestoes: sdr.sugestoes.length,
+          recebimentosDeWebhook: recebimentos.length,
         },
       });
       return {
@@ -1073,8 +1127,127 @@ export class ContatosService {
         conversas,
         // R30: o registro de cada ligação, a transcrição e o resumo (o áudio não vai no JSON).
         ligacoes,
+        // R31.9: o que a IA do SDR guarda do titular (qualificação, valores descobertos, decisões e sugestões).
+        sdr,
+        // R8.6, R32: os corpos recebidos por webhook e integração (formulários, compras, respostas), guardados por 90 dias.
+        recebimentosDeWebhook: recebimentos,
       };
     });
+  }
+
+  /**
+   * Os recebimentos de webhook do titular, para a exportação LGPD: os que criaram
+   * ou reconverteram o contato e os de vários itens em que ele é de algum item
+   * (`resultados`), com o corpo, os cabeçalhos guardados e o IP, mais o lead do
+   * Facebook ligado a cada um.
+   */
+  private async recebimentosDeWebhook(tx: Tx, contatoId: string) {
+    const recebimentos = await tx.webhookRecebimento.findMany({
+      where: {
+        OR: [
+          { contatoId },
+          { resultados: { array_contains: [{ contatoId }] } },
+        ],
+      },
+      orderBy: { recebidoEm: 'asc' },
+      select: {
+        id: true,
+        recebidoEm: true,
+        ip: true,
+        cabecalhos: true,
+        tipoConteudo: true,
+        corpo: true,
+        status: true,
+        mensagem: true,
+        avisos: true,
+        resultados: true,
+        webhook: { select: { id: true, nome: true, aplicativo: true } },
+      },
+    });
+    const leads = await tx.leadFacebook.findMany({
+      where: { recebimentoId: { in: recebimentos.map(({ id }) => id) } },
+      select: {
+        recebimentoId: true,
+        leadgenId: true,
+        formularioId: true,
+        origem: true,
+        criadoNaMetaEm: true,
+        recebidoEm: true,
+      },
+    });
+    return recebimentos.map(({ webhook, ...recebimento }) => ({
+      ...recebimento,
+      integracao: webhook,
+      leadFacebook:
+        leads.find(({ recebimentoId }) => recebimentoId === recebimento.id) ??
+        null,
+    }));
+  }
+
+  /** O que o SDR com IA guarda do contato, para a exportação LGPD (R31.9). */
+  private async dadosDoSdr(tx: Tx, contatoId: string) {
+    const dele = { conversa: { contatoId } };
+    const [conversas, decisoes, sugestoes] = await Promise.all([
+      tx.sdrConversa.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          situacao: true,
+          modo: true,
+          origem: true,
+          nota: true,
+          temperatura: true,
+          resumo: true,
+          motivo: true,
+          criadoEm: true,
+          qualificadaEm: true,
+          valores: {
+            orderBy: { chave: 'asc' },
+            select: {
+              chave: true,
+              rotulo: true,
+              valor: true,
+              confianca: true,
+              origem: true,
+              criadoEm: true,
+            },
+          },
+        },
+      }),
+      tx.sdrDecisao.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          tipo: true,
+          acao: true,
+          titulo: true,
+          motivo: true,
+          resumo: true,
+          resposta: true,
+          criterios: true,
+          nota: true,
+          temperatura: true,
+          criadoEm: true,
+        },
+      }),
+      tx.sdrSugestao.findMany({
+        where: dele,
+        orderBy: { criadoEm: 'asc' },
+        select: {
+          conversaId: true,
+          texto: true,
+          acao: true,
+          motivo: true,
+          resumo: true,
+          criterios: true,
+          status: true,
+          criadoEm: true,
+        },
+      }),
+    ]);
+    return { conversas, decisoes, sugestoes };
   }
 
   /** Títulos de negócios do contato com nome, e-mail ou telefone dele (R4.6). */

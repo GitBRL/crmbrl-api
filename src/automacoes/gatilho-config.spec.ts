@@ -238,3 +238,52 @@ describe('Gatilhos de ligação (R29.9)', () => {
     ).toBe(true);
   });
 });
+
+describe('Gatilho "Lead qualificado pela IA" (R31.23)', () => {
+  it('R31.23 — é da entidade negócio e valida temperatura, tipo e canal', () => {
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'sdr.lead_qualificado',
+        gatilhoConfig: {
+          temperatura: ['QUENTE', 'MORNO'],
+          canalTipo: 'WEBCHAT',
+        },
+      }),
+    ).toMatchObject({ erros: [], entidade: 'negocio' });
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'sdr.lead_qualificado',
+        gatilhoConfig: { temperatura: 'GELADO' },
+      }).erros,
+    ).toHaveLength(1);
+    expect(
+      conferirGatilho({
+        tipoGatilho: 'EVENTO',
+        evento: 'sdr.lead_qualificado',
+        gatilhoConfig: { palavras: ['x'] },
+      }).erros,
+    ).toHaveLength(1);
+  });
+
+  it('R31.23 — casa por temperatura e canal', () => {
+    const dados = {
+      temperatura: 'QUENTE',
+      canalTipo: 'WHATSAPP',
+      canalId: 'a',
+    };
+    expect(
+      casaComFiltros('sdr.lead_qualificado', dados, { temperatura: 'QUENTE' }),
+    ).toBe(true);
+    expect(
+      casaComFiltros('sdr.lead_qualificado', dados, {
+        temperatura: ['FRIO', 'MORNO'],
+      }),
+    ).toBe(false);
+    expect(
+      casaComFiltros('sdr.lead_qualificado', dados, { canalTipo: 'WEBCHAT' }),
+    ).toBe(false);
+    expect(casaComFiltros('sdr.lead_qualificado', dados, {})).toBe(true);
+  });
+});

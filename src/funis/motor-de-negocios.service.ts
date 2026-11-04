@@ -16,8 +16,8 @@ import type {
   Etapa,
   Funil,
   OrigemContato,
-  Prisma,
 } from '../generated/prisma/client';
+import { Prisma } from '../generated/prisma/client';
 import { LogsTecnicosService } from '../logs/logs-tecnicos.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TIPOS_NOTIFICACAO } from '../notificacoes/tipos-notificacao';
@@ -81,6 +81,10 @@ export interface EntradaDeAutomacao {
   estrategia: EstrategiaDistribuicao;
   responsavelFixoId: string | null;
   negocioOrigemId: string | null;
+  /** Cria sempre, sem procurar um aberto do contato no funil (integração no modo "criar", R32.3). */
+  sempreCriar?: boolean;
+  /** Com mais de um aberto, escolhe o mais recente em vez do mais antigo (integrações, R32.3). */
+  abertoMaisRecente?: boolean;
   /** Vai para os `dados` da auditoria (ex.: a passagem que pediu). */
   detalhesDaCriacao?: Record<string, unknown>;
 }
@@ -437,11 +441,14 @@ export class MotorDeNegociosService {
       entrada.contatoId,
       entrada.funil.id,
     );
-    const aberto = await this.travarNegocioAberto(
-      tx,
-      entrada.contatoId,
-      entrada.funil.id,
-    );
+    const aberto = entrada.sempreCriar
+      ? null
+      : await this.travarNegocioAberto(
+          tx,
+          entrada.contatoId,
+          entrada.funil.id,
+          entrada.abertoMaisRecente ?? false,
+        );
     if (aberto) {
       return {
         negocio: await this.registrarReconversao(tx, aberto, entrada),
@@ -494,7 +501,11 @@ export class MotorDeNegociosService {
     tx: Tx,
     contatoId: string,
     funilId: string,
+    maisRecente = false,
   ): Promise<NegocioCompleto | null> {
+    const ordem = maisRecente
+      ? Prisma.sql`ORDER BY criado_em DESC, id DESC`
+      : Prisma.sql`ORDER BY criado_em, id`;
     for (let tentativa = 0; tentativa < 3; tentativa++) {
       const [linha] = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM negocios
@@ -502,7 +513,7 @@ export class MotorDeNegociosService {
            AND funil_id = ${funilId}::uuid
            AND status = 'ABERTO'::status_negocio
            AND excluido_em IS NULL
-         ORDER BY criado_em, id
+         ${ordem}
          LIMIT 1
            FOR UPDATE`;
       if (linha) {

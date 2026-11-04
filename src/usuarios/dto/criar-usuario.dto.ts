@@ -9,6 +9,7 @@ import {
   IsUrl,
   IsUUID,
   Length,
+  Matches,
   MaxLength,
 } from 'class-validator';
 import {
@@ -63,6 +64,22 @@ export class CriarUsuarioDto {
   @Transform(idEmMinusculas)
   @IsUUID('all', { message: MENSAGEM_UUID })
   liderId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'ana.vendas',
+    nullable: true,
+    maxLength: 100,
+    description:
+      'Identificador do usuário nas integrações (R32.4): o que ferramentas como ActiveCampaign, ManyChat e Typeform mandam no lugar do e-mail para definir o dono do negócio. Opcional e único (sem diferenciar maiúsculas); letras, números e . _ - @ + :. `null` ou vazio apaga.',
+  })
+  @IsOptional()
+  @Transform(aparar)
+  @IsString({ message: 'deve ser um texto' })
+  @MaxLength(100, { message: 'deve ter no máximo 100 caracteres' })
+  @Matches(/^[A-Za-z0-9._@+:-]*$/, {
+    message: 'use só letras, números e . _ - @ + :',
+  })
+  identificadorIntegracao?: string | null;
 
   @ApiPropertyOptional({
     example: '(11) 98765-4321',

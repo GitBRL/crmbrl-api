@@ -382,6 +382,13 @@ export function validarWebhook(config: Record<string, unknown>): string | null {
   return null;
 }
 
+/** `acao.passar_para_ia` não tem configuração. */
+export function validarPassarParaIa(
+  _config: Record<string, unknown>,
+): string | null {
+  return null;
+}
+
 export function validarTransferir(
   config: Record<string, unknown>,
 ): string | null {

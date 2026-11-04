@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 import { PaginacaoDto } from '../../../comum/paginacao/paginacao';
 import {
+  AplicativoIntegracao,
   StatusRecebimento,
   type WebhookRecebimento,
 } from '../../../generated/prisma/client';
@@ -58,6 +59,33 @@ export class FiltroRecebimentosDto extends PaginacaoDto {
   ate?: string;
 }
 
+/** Filtros do histórico de todas as integrações (R32.7): data, status, aplicativo e integração. */
+export class FiltroHistoricoDto extends FiltroRecebimentosDto {
+  @ApiPropertyOptional({
+    enum: AplicativoIntegracao,
+    enumName: 'AplicativoIntegracao',
+    isArray: true,
+    description:
+      'Um ou vários aplicativos (repita o parâmetro ou separe por vírgula).',
+  })
+  @IsOptional()
+  @Transform(paraLista)
+  @IsArray({ message: 'deve ser uma lista' })
+  @IsEnum(AplicativoIntegracao, {
+    each: true,
+    message: `(cada item) ${mensagemDeValores(Object.values(AplicativoIntegracao))}`,
+  })
+  aplicativo?: AplicativoIntegracao[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Só os recebimentos desta integração.',
+  })
+  @IsOptional()
+  @IsUUID('all', MENSAGEM_UUID)
+  integracaoId?: string;
+}
+
 export class ContatoDoRecebimentoDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -74,13 +102,76 @@ export class NegocioDoRecebimentoDto {
   titulo: string;
 }
 
+export class IntegracaoDoRecebimentoDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Landing Black Friday' })
+  nome: string;
+}
+
+/** O resultado de um item do corpo (cada lead do RD Station, por exemplo). */
+export class ItemDoRecebimentoDto {
+  @ApiProperty({
+    example: 0,
+    description: 'Posição do item no corpo, a partir de 0.',
+  })
+  indice: number;
+
+  @ApiProperty({ type: String, nullable: true, example: 'lead 2 de 3' })
+  rotulo: string | null;
+
+  @ApiProperty({ enum: ['PROCESSADO', 'IGNORADO', 'ERRO'] })
+  status: string;
+
+  @ApiProperty()
+  mensagem: string;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  contatoId: string | null;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  negocioId: string | null;
+
+  @ApiProperty({ type: [String] })
+  avisos: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'Plataformas de curso: o código do evento (`PURCHASE_APPROVED`, `order_approved`, `myeduzz.invoice_paid`…).',
+  })
+  evento?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'Chave de idempotência do evento (R32.15): o mesmo evento não se processa duas vezes.',
+  })
+  chave?: string | null;
+}
+
 /** O que a listagem mostra de cada recebimento (R8.6), sem o corpo. */
 export class RecebimentoDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
 
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'A integração que recebeu (o mesmo que `integracao.id`).',
+  })
   webhookId: string;
+
+  @ApiProperty({ enum: AplicativoIntegracao, enumName: 'AplicativoIntegracao' })
+  aplicativo: AplicativoIntegracao;
+
+  @ApiProperty({ example: 'Typeform' })
+  aplicativoNome: string;
+
+  @ApiProperty({ type: IntegracaoDoRecebimentoDto })
+  integracao: IntegracaoDoRecebimentoDto;
 
   @ApiProperty({ format: 'date-time' })
   recebidoEm: string;
@@ -102,6 +193,20 @@ export class RecebimentoDto {
     description: 'O que aconteceu (ou por que deu erro ou foi ignorado).',
   })
   mensagem: string | null;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Valores desconhecidos ou descartados que não derrubaram o recebimento (etapa que não existe, dono não encontrado…, R32.5).',
+  })
+  avisos: string[];
+
+  @ApiProperty({
+    type: [ItemDoRecebimentoDto],
+    description:
+      'Um resultado por item do corpo (o RD Station manda vários leads). Vazio nos recebimentos de antes da Onda H ou ainda na fila.',
+  })
+  itens: ItemDoRecebimentoDto[];
 
   @ApiProperty({
     example: 1,
@@ -158,8 +263,13 @@ export class RecebimentoAceitoDto {
   })
   id: string;
 
-  @ApiProperty({ enum: ['RECEBIDO'], example: 'RECEBIDO' })
-  status: 'RECEBIDO';
+  @ApiProperty({
+    enum: ['RECEBIDO', 'IGNORADO'],
+    example: 'RECEBIDO',
+    description:
+      '`IGNORADO` só no aviso de teste de uma plataforma (o `ping` da Eduzz): aceito com sucesso e sem processar.',
+  })
+  status: 'RECEBIDO' | 'IGNORADO';
 }
 
 export class PreviaDoWebhookDto {
@@ -185,6 +295,7 @@ export class PreviaDoWebhookDto {
 
 /** Recebimento como a listagem precisa (com o contato e o negócio já carregados). */
 export type RecebimentoComVinculos = WebhookRecebimento & {
+  webhook: { id: string; nome: string; aplicativo: AplicativoIntegracao };
   contato: { id: string; nome: string } | null;
   negocio: { id: string; titulo: string } | null;
 };

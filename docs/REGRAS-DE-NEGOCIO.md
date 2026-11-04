@@ -11,7 +11,7 @@ Esta versão cobre a **Fase 1 — núcleo do CRM** e a **primeira parte da Fase 
 A)**: arquivos, atendimento omnichannel, gateway de WhatsApp próprio, chat do site,
 e-mail, Instagram e Messenger, tempo real e chat interno da equipe; e a **segunda parte
 da Fase 2 (Onda B)**: importação de contatos (R16), disparos (R17), chatbot (R18) e
-automações (R19), nas seções 21 a 26. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
+automações (R19), nas seções 21 a 26, a **Onda G** (SDR com IA, R31) na seção 43 e a **Onda H** (integrações por aplicativo, R32) na seção 44. As fases seguintes estão em [ROADMAP.md](ROADMAP.md)
 e ganham seções aqui quando forem detalhadas.
 
 > Atualizado em 2026-10-30. Regras marcadas com **(proposta)** dependem de validação do
@@ -146,7 +146,9 @@ e ganham seções aqui quando forem detalhadas.
   canal, encerra as conversas abertas, troca o texto das mensagens por `[removido — LGPD]`,
   desvincula os arquivos (o conteúdo sai do bucket por job) e limpa visitantes do chat, envios
   da régua e linhas de importação do contato. `GET /contatos/:id/dados-pessoais` (só Admin,
-  auditado) entrega em JSON os dados do titular (direito de acesso e portabilidade).
+  auditado) entrega em JSON os dados do titular (direito de acesso e portabilidade), inclusive o que
+  o SDR com IA guarda dele: qualificação, valores descobertos, decisões e sugestões (R31.9), e os recebimentos
+  de webhook dele (`recebimentosDeWebhook`: corpo, cabeçalhos guardados, IP, integração e o lead do Facebook, R32).
 - **R4.7** Etiquetas livres, normalizadas (aparadas, sem duplicatas); campos personalizados
   em JSON.
 
@@ -2046,3 +2048,707 @@ Atendimento (R12): atendente, quem foi chamado, quem vê a conversa; Admin e C-l
 272. Corrida cancelar × atender: o `terminate` com duração depois do cancelamento não dá duração à
      `SEM_RESPOSTA` (R29.1a).
 273. Status `RINGING` antes de o `POST` gravar o id da Meta espera um instante e é aplicado (R29.1a).
+
+---
+
+## 43. SDR com IA (R31)
+
+Onda G (fatia G1, API; contrato `trabalho/contrato-onda-g.md`). Uma assistente virtual (SDR, pré-vendas) responde
+os leads novos nos canais de atendimento, descobre os **critérios de qualificação** que o Admin configurou, dá
+**nota** e **temperatura** e, quando o lead está qualificado, passa o negócio para o Comercial. Decisões do
+usuário em 03/11/2026: modo por canal (automático ou sugestão), a IA assume todo lead novo até qualificar,
+critérios configuráveis pelo Admin e passagem para o Comercial pelo rodízio, com o resumo. Código em
+`src/sdr/` (`MotorSdr`, `QualificacaoSdrService`, `EfeitosSdrService`, `ConfiguracaoSdrService`,
+`OrcamentoSdrService`, `ConversasSdrService`, `SimuladorSdrService`); a IA é o `@anthropic-ai/sdk` pelo mesmo
+cliente e a mesma chamada do assistente (R25). Nos testes e no ambiente dos agentes, só a Anthropic falsa.
+
+- **R31.1** **Quando a IA assume.** Na entrada de uma **conversa nova** (gancho do Atendimento, na transação da
+  entrada), a IA assume se **todas** as condições valem: o canal é de conversa (WhatsApp, WhatsApp oficial,
+  chat do site, Instagram ou Messenger; **e-mail fica de fora**) e está em `AUTOMATICO` ou `SUGESTAO`; a chave
+  da Anthropic está configurada; o contato **não** tem negócio aberto no Comercial ou no CS, **nem** negócio
+  ganho no Comercial (é cliente), **não** tem responsável humano e **não** tem opt-out (R4.6). Conversa que já
+  existia, ou de contato fora disso, segue o fluxo normal do Atendimento (R12). No **automático** a conversa
+  espera na fila **sem responsável** (a IA atende; o selo "IA atendendo" mostra isso) e **não** passa pela
+  distribuição; na **sugestão** ela é distribuída normalmente e a IA só propõe respostas. Cada conversa
+  atendida tem um estado do SDR (`ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`,
+  `ENCERRADA`); **só `ATIVA` deixa a IA agir**. A decisão "A IA assumiu" fica registrada. As mesmas
+  condições (opt-out, contato excluído, responsável humano, negócio aberto no Comercial ou no CS, negócio
+  ganho no Comercial) valem quando o **fluxo do chatbot** chama a IA (R31.13): fora delas o passo não tem
+  efeito, e o estado `QUALIFICADA` ou `DESQUALIFICADA` nunca é reaberto pelo fluxo (só "Devolver").
+- **R31.2** **Turno.** Cada mensagem do lead vira um job (`sdr.turno`) com a **espera de agrupamento** da
+  configuração (padrão 8 s): o job junta as mensagens do lead ainda não atendidas e, se o lead ainda está
+  escrevendo, espera a janela fechar (no máximo 6 adiamentos). **Uma execução por conversa por vez:** a trava
+  vive no estado da conversa e vence em 4 minutos (turno abandonado); com a trava ocupada o job se reagenda. Com a trava na mão, o job **relê** o estado e as mensagens
+  novas e sai se outro turno já respondeu a elas; ao aplicar o resultado (com o estado travado) o turno é
+  **descartado**, com os tokens contados, se outro turno já atendeu as mensagens ou se a IA foi parada e
+  retomada (Assumir e Devolver) durante a chamada. A trava só é solta por quem a pegou.
+  O turno monta o contexto (histórico recente de até 40 mensagens, primeiro nome do contato, qualificação
+  parcial, base de conhecimento), chama o Claude com **saída estruturada** e aplica o resultado. A saída é o
+  esquema `turno_sdr`: `resposta`, `criterios` (`[{chave, valor, confianca}]`), `acao` (`continuar`,
+  `qualificado`, `desqualificado`, `passar_humano`), `motivo` e `resumo`; a API confere tudo de novo (ação
+  conhecida, resposta preenchida, tamanhos). **Prompt:** instruções fixas + configuração, critérios (com a linha
+  `CRITERIOS: chave1, chave2, …`) e base de conhecimento num bloco de sistema **em cache** (um só ponto de
+  cache, no fim da configuração: o cache automático do pedido fica desligado, porque o estado do turno muda
+  a cada chamada e nunca daria leitura); o estado do turno num bloco de sistema fora do cache; o histórico como mensagens (lead = `user`; equipe, IA e bot = `assistant`)
+  e a **última mensagem do usuário é só a do lead**, delimitada. Modelo configurável (padrão
+  `claude-sonnet-5-5`; esforço `low`), com o recuo automático em caso de recusa por política nos modelos que o
+  aceitam.
+- **R31.3** **Modos.** `AUTOMATICO`: a resposta sai pelo adaptador do canal como autor `IA`, depois da pausa de
+  "digitando…" onde o canal tem (WhatsApp, chat do site); as mensagens do lead ficam marcadas como atendidas
+  (zera o "aguardando", conta como primeira resposta do SLA). `SUGESTAO`: cria uma **sugestão** pendente (texto,
+  ação proposta, motivo, resumo, critérios) e **nada é enviado nem aplicado**; o atendente **aprova** (envia
+  como ele mesmo, com o texto editado se quiser, e só então a API aplica a ação proposta e grava os campos),
+  **descarta** ou simplesmente responde por conta própria (a sugestão pendente vira obsoleta). Uma nova
+  mensagem do lead substitui a sugestão pendente. A nota, a temperatura e os valores descobertos são gravados
+  nos dois modos; **só no automático** os valores vão para os campos do contato e do negócio na hora.
+- **R31.4** **Critérios, nota e temperatura.** Cada critério tem rótulo, instrução para a IA, **tipo** (texto,
+  opção da lista, número, data, sim/não), **onde gravar** (campo do contato — `nome`, `cargo` ou um campo
+  personalizado `campos.<chave>` —, campo personalizado do negócio ou só a qualificação), **peso** (1 a 100) e se
+  é **obrigatório**. O valor que a IA devolve é interpretado pelo tipo (opção ignora caixa e acento; número
+  aceita formato brasileiro; data aceita `AAAA-MM-DD` e `dd/mm/aaaa`; sim/não vira booleano); valor fora do tipo,
+  chave desconhecida ou **confiança abaixo da mínima** (padrão 0,4; 0 a 1) é recusado e a decisão mostra o
+  motivo. Os valores aceitos são gravados com **origem `IA`** e a confiança, e escritos nos campos configurados
+  com a auditoria das ações humanas (ator `IA`); valor de negócio sem negócio ainda espera a passagem. **Nota**
+  (0 a 100) = soma dos pesos dos critérios com valor confiável sobre a soma dos pesos de todos os critérios
+  ativos. **Temperatura:** quente a partir da faixa quente (padrão 70), morno a partir da faixa morna (padrão
+  40), frio abaixo. **Qualificado** = todos os critérios obrigatórios descobertos e nota >= nota mínima (padrão
+  60): um `qualificado` pedido pela IA sem isso volta a `continuar`, com o motivo da troca na decisão.
+- **R31.5** **Qualificado passa para o Comercial.** No automático (ou na aprovação da sugestão): o negócio do
+  contato no Marketing (o aberto, senão um novo na etapa de gatilho, sob o líder do Marketing) vai para a etapa
+  de gatilho da passagem **Marketing → Comercial** (R5.7), que cria o negócio no Comercial com o **rodízio**
+  (R5.8). Sem a passagem ativa, o negócio nasce direto no funil-base do Comercial, também pelo rodízio. O
+  negócio recebe os valores dos critérios de negócio; o contato, os de contato; o vendedor recebe uma **nota**
+  no negócio (nota, temperatura, resumo, critérios, motivo), a **conversa é atribuída a ele** e ligada ao
+  negócio, com nota interna e aviso do sistema, e ele é **notificado** (`sdr.lead_qualificado` e a notificação
+  da conversa). Evento de domínio `sdr.lead_qualificado`. A IA para (`QUALIFICADA`).
+- **R31.6** **Passagem para humano**, sempre com o **resumo** para quem assume (nota interna na conversa + nota
+  de sistema). Motivos: o lead pede uma pessoa, assunto sensível ou fora do escopo, a IA sem confiança,
+  reclamação (cada um liga/desliga nas **regras de passagem** da configuração; a IA recebe só os ativos),
+  limite de mensagens sem avanço na qualificação (padrão 8) e os bloqueios da R31.8, R31.10 e R31.11. No
+  automático a conversa é **distribuída pela fila** (rodízio ou menor carga; o escolhido é notificado) e o
+  lead recebe a resposta da IA (ou a **mensagem de passagem** da configuração, quando a IA não foi chamada).
+  Estado `PASSADA_HUMANO`; evento `sdr.passou_para_humano`.
+- **R31.7** **Humano e IA.** No **automático**, quando uma pessoa **envia mensagem** na conversa, **assume**
+  (botão "Assumir" ou o "Assumir" do Atendimento) ou **transfere**, a IA para (`HUMANO`, com quem assumiu); o
+  turno que estava pensando é **descartado** (os tokens contam). Um fluxo de chatbot ou automação que passa a
+  conversa à equipe a põe em `PASSADA_HUMANO`. No modo sugestão, escrever só torna a sugestão obsoleta.
+  **"Devolver para a IA"** (de `HUMANO`, `PASSADA_HUMANO` ou `DESQUALIFICADA`; exige canal ligado e chave) põe a
+  conversa de volta em `ATIVA` (origem `devolvida`) e, no automático, a devolve à fila sem responsável; a IA
+  responde as mensagens do lead ainda sem resposta.
+- **R31.8** **Custo.** Cada turno grava, no **registro de decisões**, os tokens de entrada, saída e cache,
+  o modelo e a versão da base; o estado da conversa soma os tokens. Limites (configuráveis): tokens por conversa
+  (padrão 200 000), mensagens da IA por conversa (padrão 30) e **orçamento mensal de tokens** (padrão 5 000 000,
+  `null` = sem orçamento; mês de São Paulo; simulador incluído). **Corte:** esgotado o orçamento, ou chegando a
+  conversa a um limite, a IA **não é chamada**: a conversa passa para a equipe com a mensagem de passagem. O
+  **Admin é avisado** (notificação `sdr.orcamento`) a 80% e a 100%, uma vez por mês cada (duas transações
+  simultâneas não repetem o aviso).
+- **R31.9** **Segurança.** A mensagem do lead, a base de conhecimento e os valores do contexto são **dados**,
+  nunca instruções: vão delimitados (`<mensagem_do_lead>`, `<base_de_conhecimento>`, `<contexto_do_lead>`) e os
+  marcadores que poderiam fechar um delimitador são neutralizados. O **prompt de sistema não é revelado**: uma
+  resposta que repete trechos das instruções (8 palavras seguidas) ou da configuração sigilosa (critérios com
+  instrução e peso, nota mínima, faixas e regras de passagem; 10 palavras seguidas) é trocada por uma recusa e a
+  decisão registra o bloqueio. **Só dados do próprio contato** entram no contexto: o primeiro nome e o que a IA descobriu — nunca
+  telefone, e-mail nem dados de outro contato. A IA só afirma preço, prazo ou condição que esteja na base (sem
+  base, diz que vai confirmar com a equipe) e se apresenta como assistente virtual (a apresentação é da
+  configuração). Nada de dados sensíveis pedidos ao lead. **LGPD (R4.6):** anonimizar o contato apaga os valores descobertos,
+  as sugestões, o resumo e os textos das decisões (resposta, resumo, motivo e critérios); tokens, nota e
+  temperatura ficam. O motivo escrito pela IA vai só no campo próprio (o título da decisão e a auditoria, que é
+  imutável, não o repetem; a auditoria guarda só as chaves dos critérios). A **exportação** do titular
+  (`GET /contatos/:id/dados-pessoais`) traz o estado, os valores, as decisões e as sugestões do SDR.
+- **R31.10** **Janela de 24 h e opt-out.** (Vêm antes dos limites e do orçamento: fora da janela nem a mensagem
+  de passagem é enviada.) No automático, se o canal não aceita resposta agora (janela de 24 h
+  da Meta fechada), ou o contato ficou com opt-out ou foi excluído, a IA **não contata**: passa a conversa para a
+  equipe sem enviar nada. No modo sugestão a janela não impede a sugestão (a pessoa decide). Se o lead pede para parar de receber
+  mensagens, a IA (pela instrução do prompt) se despede e passa para a equipe; um opt-out aplicado por outro
+  caminho (R4.6, R17) faz a IA parar na mensagem seguinte.
+- **R31.11** **Falhas.** Falha passageira da IA (sobrecarga, tempo esgotado, formato inesperado) refaz a chamada
+  (2 vezes) e o job tenta de novo (até 3, espera crescente); esgotadas, a conversa passa para a equipe. Erro que
+  se repetiria igual (4xx da API, como pedido longo demais, ou resposta cortada por `max_tokens`) passa para a
+  equipe na hora e avisa o Admin. Erro ao **aplicar** a resposta (por exemplo, funil-base do Comercial inativo
+  ao qualificar) não refaz a chamada: os tokens ficam registrados, a conversa passa para a equipe e o Admin é
+  avisado. Chave
+  recusada, recusa por política ou chave ausente passam para a equipe na hora; a chave recusada avisa o Admin
+  (`sdr.falha`). Os tokens gastos em tentativas que falharam contam no registro.
+- **R31.12** **Desqualificado.** A IA encerra com gentileza, a conversa fica como está (sem negócio, sem
+  responsável, com o motivo, a nota e a temperatura numa nota interna) e a IA para (`DESQUALIFICADA`); dá para
+  devolver. Evento `sdr.lead_desqualificado`. Lead frio sem desqualificação continua com a IA até o limite.
+- **R31.13** **Chatbot (R18).** Se há um fluxo de chatbot **em andamento** na conversa, a IA **não** responde
+  (as mensagens que o fluxo tratou não são dela); ao fim do fluxo ela assume na mensagem seguinte. O passo
+  `acao.passar_para_ia` ("Passar para a IA (SDR)") encerra o fluxo e entrega a conversa à IA, que se apresenta e
+  segue a partir do que já foi dito; sem efeito (a conversa segue com a equipe) se o SDR está desligado no canal
+  ou sem chave.
+- **R31.14** **Qualificação no contato e no negócio.** `GET /sdr/contatos/:id/qualificacao` e
+  `GET /sdr/negocios/:id/qualificacao` devolvem o cartão: critérios, valores, origem, confiança, nota, temperatura
+  e resumo (`qualificacao: null` se a IA nunca atendeu o contato). O cartão do funil, a lista de negócios e o
+  detalhe do negócio levam `sdr` (`temperatura`, `nota`, `situacao` da qualificação mais recente do contato; nulo
+  sem atendimento da IA).
+- **R31.15** **Quem configura.** Só o **Admin** (`/sdr/configuracao`, canais, artigos, critérios, campos, uso,
+  decisões e simulador; os demais papéis recebem 403). A primeira leitura cria a configuração com o **modelo de
+  captação de alunos**: persona "Bia", critérios curso, modalidade, quando quer começar, cidade, forma de
+  pagamento e quem decide (com tipos, pesos e destinos) e artigos de exemplo **em rascunho** (inativos). Cada
+  alteração é auditada (antes/depois). Limites validados: modelo da lista (`claude-sonnet-5-5`,
+  `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-5-5`), esforço `low`/`medium`/`high`, espera 0–60 s, faixa
+  morna menor que a quente.
+- **R31.16** **Modo por canal.** `DESLIGADO` (padrão), `AUTOMATICO` ou `SUGESTAO` por canal de conversa; canal de
+  e-mail é 422. Mudar o modo vale para as conversas novas e, a cada turno, para as que já estão com a IA.
+- **R31.17** **Base de conhecimento versionada.** Artigos curtos em texto (cursos, valores, condições, FAQ,
+  endereços, o que não é oferecido), com título, ordem e ativo; **cada mudança de conteúdo é uma versão**
+  (histórico imutável, restaurar cria versão nova) e sobe a **versão da base**, gravada em cada decisão. Só os
+  artigos ativos vão no prompt, em cache.
+- **R31.18** **Critérios.** Chave estável (minúsculas, números e `_`, única entre os ativos), opções (2 a 20) para
+  o tipo opção, destino `contato`/`negocio`/nenhum conferido (`nome`, `cargo`, `campos.<chave>`); reordenar,
+  inativar, excluir; "aplicar o modelo de captação" só acrescenta o que falta. `GET /sdr/campos-disponiveis`
+  lista os campos fixos do contato e os personalizados que já existem em contatos e negócios.
+- **R31.19** **Campos personalizados existentes.** Um critério pode gravar num campo personalizado que já existe;
+  o valor vai com o tipo do critério (número como número, sim/não como booleano, data como `AAAA-MM-DD`).
+- **R31.20** **Simulador.** `POST /sdr/simulador/turno` conversa com o SDR usando a configuração **atual**, sem
+  canal e sem gravar nada no contato (não há contato, conversa nem mensagem): a tela manda a conversa até aqui e
+  os valores descobertos, e recebe resposta, critérios (aceitos ou recusados, com o motivo), nota, temperatura,
+  a ação conferida (e por que a pedida foi trocada) e os tokens. Os tokens entram no registro (marcados como
+  simulador) e no orçamento.
+- **R31.21** **Auditoria e linha do tempo.** **Toda decisão** da IA é auditada (`sdr.turno`, `sdr.assumiu`,
+  `sdr.lead-qualificado`, `sdr.lead-desqualificado`, `sdr.passou-humano`, `sdr.humano-assumiu`, `sdr.devolvida`,
+  `sdr.bloqueio`, `sdr.falha`, ator `IA`) e fica no registro de decisões com o **motivo** (título curto, motivo,
+  resumo, resposta, critérios com o que foi aceito, nota, temperatura, modelo, versão da base, tokens). A
+  conversa mostra essa linha do tempo; o Admin lê o registro todo em `GET /sdr/decisoes`.
+
+- **R31.22** **Eventos de saída.** `sdr.lead_qualificado` e `sdr.lead_desqualificado` são eventos de domínio e
+  podem ser assinados nos webhooks de saída (R9.2). A carga leva `conversaId`, `contatoId`, `contato`
+  (`id`, `nome`), `negocioId`/`negocio` (`id`, `titulo`, `funilId`; na desqualificação, o negócio aberto do
+  contato ou `null`), `vendedorId`/`vendedor` (só na qualificação), `canalId`, `canalTipo`, `canalNome`, `modo`,
+  `nota`, `temperatura`, `criterios` (`[{chave, rotulo, valor, confianca}]` com o que a IA descobriu), `motivo` e
+  `resumo`. **Nunca** o histórico da conversa, o telefone nem o e-mail. Anonimizar o contato (R4.6) apaga a
+  carga das entregas, como nos outros eventos. `sdr.passou_para_humano` continua só interno (aviso e linha do tempo).
+- **R31.23** **Gatilho de automação "Lead qualificado pela IA"** (`sdr.lead_qualificado`, entidade: o **negócio**
+  criado no Comercial). Filtros: `temperatura` (`QUENTE`, `MORNO`, `FRIO`; um ou lista), `canalTipo` e `canalId`.
+  Valores fora da lista são recusados ao salvar; filtros de outros gatilhos não valem neste.
+- **R31.24** **BI do SDR** (`GET /bi/sdr`, exportável como os outros painéis; filtros de período, comparação,
+  área, equipe, pessoa, canal e fila). Cartões: conversas atendidas pela IA (as que a IA assumiu no período),
+  qualificadas, desqualificadas, passadas para a equipe, primeira resposta da IA (média e mediana, só no modo
+  automático), qualificadas que viraram negócio ganho, **conversão para o Comercial** (ganhos sobre
+  qualificadas do período; sem qualificadas, sem valor), IA atendendo agora e **custo em tokens** (total e por
+  conversa em que a IA agiu; o simulador não conta). Tabelas: `porCanal`, `porDia` e `passagensPorMotivo`
+  (pedido do lead, assunto sensível, baixa confiança, reclamação, sem avanço, limite da conversa, orçamento,
+  janela de 24 h, opt-out, canal ou IA indisponível, fluxo, falha da IA, outro; a categoria é gravada na
+  decisão). Qualificadas, desqualificadas e passadas contam pelo dia da decisão; atendidas, pelo início da
+  atuação da IA; tokens, pelo dia de cada turno. **Quem vê:** a visibilidade das conversas (R12), como o
+  painel Atendimento — Admin e C-level tudo, líder e membro de Comercial e CS o que veem nas conversas,
+  **Marketing não vê** (403); o **custo em tokens** (cartões e colunas) só aparece para Admin e C-level.
+- **R31.25** **Lista de conversas.** `GET /atendimento/conversas` aceita `atendidasPelaIa` (`true` = a IA
+  atendeu ou atende, em qualquer situação; `false` = nunca atendeu), `sdrModo` (`AUTOMATICO`, `SUGESTAO`) e
+  `sdrSituacao` (`ATIVA`, `HUMANO`, `PASSADA_HUMANO`, `QUALIFICADA`, `DESQUALIFICADA`, `ENCERRADA`; lista
+  separada por vírgula), sempre dentro do que a pessoa vê (R12); o total da página respeita o filtro.
+
+### Matriz de acesso — SDR com IA
+
+| Recurso | Admin | C-level | Líder | Membro | Marketing |
+| --- | --- | --- | --- | --- | --- |
+| Configurar (geral, canais, base, critérios, orçamento), simulador, uso e registro de decisões (R31.15–R31.21) | ✓ | — | — | — | — |
+| Estado do SDR na conversa, linha do tempo, "Assumir" e "Devolver para a IA" (R31.7) | todas | todas | as que vê (R12) | as que vê | — (403) |
+| Aprovar ou descartar a sugestão (R31.3) | todas | todas | as que vê | as que vê | — |
+| Cartão de qualificação do contato e do negócio (R31.14) | ✓ | ✓ | como as telas | como as telas | como as telas |
+| Aviso de orçamento e de falha da IA (R31.8, R31.11) | ✓ | — | — | — | — |
+| Aviso de lead qualificado e de passagem para humano | — | — | o vendedor ou responsável | o vendedor ou responsável | — |
+| Painel SDR do BI (R31.24) | ✓ (com custo em tokens) | ✓ (com custo em tokens) | o que vê nas conversas, sem custo | o que vê nas conversas, sem custo | — (403) |
+| Webhook de saída `sdr.*` e gatilho de automação (R31.22, R31.23) | webhooks: só Admin | — | automação conforme R19 | — | — |
+| Filtro "atendidas pela IA" na lista de conversas (R31.25) | todas | todas | as que vê | as que vê | — (403) |
+
+Regras da matriz (testadas por papel no cenário 307): as rotas de **configuração** (`/sdr/configuracao`,
+`canais`, `artigos`, `criterios`, `campos-disponiveis`, `uso`, `decisoes`, `simulador`) respondem **403** a
+todo papel que não seja Admin. As rotas da **conversa** (`GET /sdr/conversas/:id`, `POST …/assumir`,
+`POST …/devolver`) e das **sugestões** (`aprovar`, `descartar`) seguem a visibilidade da conversa (R12): quem a vê
+pode; quem não a vê recebe **404** (a conversa de outra área não revela que existe) e o Marketing recebe
+**403** (não usa o Atendimento); sem sessão, 401. O cartão de qualificação do contato e do negócio segue a
+visibilidade das telas de contato e de negócio. **Assumir** e **aprovar** têm o mesmo alcance de responder
+a conversa.
+
+### Cenários de aceitação (Onda G, SDR com IA)
+
+Continuam a numeração da Onda E (até o 273); cada um tem teste automatizado ("cenário N" no nome, em
+`test/sdr.e2e-spec.ts`; os de 303 a 307, em `test/sdr-integracoes.e2e-spec.ts`) contra um Postgres real e a Anthropic falsa dos testes (`test/sdr-apoio.ts`); o
+esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o prompt têm testes de unidade em
+`src/sdr/*.spec.ts`.
+
+274. A IA assume lead novo no automático: conversa sem responsável, estado ativo, resposta pelo adaptador como
+     `IA` e selo no resumo da conversa (R31.1, R31.3).
+275. Não assume cliente com negócio no Comercial, contato com responsável, contato com opt-out nem canal
+     desligado; esses seguem o fluxo normal (R31.1).
+276. Agrupa mensagens seguidas do lead num só turno; as outras mensagens não repetem o turno (R31.2).
+277. No máximo uma execução por conversa por vez; a trava vencida libera (R31.2).
+278. Sugestão: conversa distribuída, nada enviado, aprovar com texto editado envia como a pessoa, descartar não
+     envia e uma sugestão resolvida não se resolve de novo (R31.3).
+279. Critérios gravados com origem IA e confiança, no campo do contato; nota, temperatura, decisão com tokens,
+     modelo e versão da base; auditoria como `IA`; estado e linha do tempo na conversa (R31.4, R31.21).
+280. Qualificado: negócio no Comercial pela passagem e pelo rodízio (o segundo lead vai para o outro vendedor),
+     nota com resumo e qualificação, campos do negócio, conversa atribuída, aviso ao vendedor, evento e decisão (R31.5).
+281. Pedido de humano: conversa distribuída, nota interna com o resumo, aviso ao responsável, a IA para e
+     "Devolver" a retoma (R31.6, R31.7).
+282. Humano que envia mensagem ou clica em "Assumir" para a IA; quem não vê a conversa recebe 403 (R31.7).
+283. Uma pessoa responde enquanto a IA pensa: a resposta da IA é descartada e os tokens contam (R31.7).
+284. Orçamento mensal: aviso a 80% e a 100% (uma vez), corte com passagem para a equipe e mensagem de passagem,
+     uso do mês e simulador bloqueado (R31.8).
+285. Limites por conversa: mensagens da IA, mensagens sem avanço e tokens (R31.6, R31.8).
+286. Injeção: lead e base como dados delimitados, prompt de sistema intacto, resposta que vaza é trocada, nenhum
+     dado de outro contato no pedido (R31.9).
+287. Janela de 24 h fechada e opt-out: a IA não contata e passa para a equipe; na sugestão a janela não impede
+     (R31.10).
+288. Falhas: refaz e responde uma vez; chave recusada e recusa por política passam para a equipe e a chave avisa o
+     Admin (R31.11).
+289. Desqualificado: sem negócio, com o motivo, e dá para devolver (R31.12).
+290. Convive com o chatbot: a IA espera o fluxo e assume quando o fluxo a chama (R31.13).
+291. Cartão de qualificação do contato e do negócio, com origem, confiança e `null` sem atendimento da IA (R31.14).
+292. Só o Admin configura (403 para os demais); a primeira leitura traz o modelo de captação de alunos (R31.15).
+293. Configuração geral com validação e auditoria; a persona e o modelo novos entram no prompt (R31.15).
+294. Modo por canal: só canais de conversa (e-mail é 422), auditado (R31.16).
+295. Base de conhecimento versionada: criar, alterar, restaurar, excluir; só os ativos vão no prompt; a versão da
+     base vai na decisão (R31.17).
+296. Critérios: validações, ordem, exclusão, modelo de captação reaplicado e campos disponíveis (R31.18).
+297. Critério de campo personalizado existente grava no contato com o tipo certo; valor fora do tipo é recusado
+     (R31.19).
+298. Simulador: usa a configuração atual, não grava nada no CRM, devolve critérios/nota/ação e conta tokens (R31.20).
+299. Simulador valida a entrada, mostra por que a ação foi trocada e trata a falha da IA (R31.20).
+300. O Admin lê o registro de decisões com filtros (R31.21).
+301. Tempo real: `sdr.atualizado` chega às salas da conversa a cada turno e a cada mudança de situação (R31.21).
+302. LGPD: anonimizar o contato apaga os valores descobertos, as sugestões e os textos das decisões; o registro
+     de tokens fica (R31.9, R4.6).
+303. Webhook de saída: `sdr.lead_qualificado` e `sdr.lead_desqualificado` aparecem entre os eventos
+     assináveis e chegam com contato, negócio, vendedor, canal, nota, temperatura, critérios, motivo e resumo,
+     sem o histórico da conversa (R31.22).
+304. Gatilho "Lead qualificado pela IA": entidade negócio, filtro de temperatura e de canal casam ou não,
+     temperatura inválida é recusada (R31.23).
+305. BI do SDR: atendidas, qualificadas, desqualificadas, passadas por motivo, primeira resposta, conversão
+     para o Comercial (negócio ganho) e tokens, por canal e por dia; filtro de canal; Marketing recebe 403;
+     membro não vê o custo em tokens (R31.24).
+306. Lista de conversas filtra por `atendidasPelaIa`, `sdrModo` e `sdrSituacao`, com valor inválido recusado (R31.25).
+307. Matriz de acesso por papel nas rotas do SDR: configuração só do Admin; conversa, Assumir e Devolver para quem a vê
+     (404 para outra área, 403 para o Marketing), 401 sem sessão (R31.15, R31.22).
+308. O fluxo do chatbot não passa para a IA contato com negócio no CS, com opt-out, conversa já desqualificada
+     ou com responsável humano (R31.1, R31.13).
+309. Dois jobs da mesma conversa: o que pega a trava depois do outro terminar não responde de novo (R31.2).
+310. Assumir e Devolver durante um turno: o turno antigo é descartado (tokens contados) e só o novo responde (R31.2, R31.7).
+311. Erro ao aplicar o turno: tokens registrados, conversa passa para a equipe, Admin avisado, sem nova chamada (R31.11).
+312. Erro 400 da API e `max_tokens` passam para a equipe na hora, sem refazer o job (R31.11).
+313. Janela fechada com orçamento esgotado: a mensagem de passagem não é enviada (R31.10).
+314. Transações simultâneas acima dos 80% notificam o Admin uma vez só (R31.8).
+315. LGPD: a exportação traz o que o SDR guarda; o motivo da IA não fica no título nem na auditoria (R31.9, R4.6).
+
+---
+
+## 44. Integrações: aplicativos (R32)
+
+> Onda H, fatia H1 (2026-11-04). A tela "Integrações — Webhooks e aplicativos" do Clint: um catálogo de
+> aplicativos, uma integração por aplicativo com ação (alvo × modo), mapeamento, histórico e saída. A R32
+> **estende** a R8 (entrada) e a R9 (saída): não há um segundo caminho de processamento. O Facebook Lead Ads
+> e as plataformas de curso (Hotmart, Kiwify, Eduzz) chegaram na fatia H2 (R32.11, R32.14 e R32.15).
+> Referência dos formatos: `trabalho/referencias/clint-integracoes.md`.
+
+- **R32.1 Aplicativos e catálogo.** Cada integração de entrada (`webhooks_entrada`) tem um **aplicativo**:
+  `WEBHOOK`, `ELEMENTOR`, `RD_STATION`, `ACTIVE_CAMPAIGN`, `GREAT_PAGES`, `LEAD_LOVERS`, `MANYCHAT`, `TYPEFORM` e,
+  na H2, `FACEBOOK_LEAD_ADS`, `HOTMART`, `KIWIFY`, `EDUZZ` (criar integração desses últimos dá 422). O aplicativo não
+  muda depois de criado. O catálogo (`GET /webhooks/aplicativos`, só Admin) vem em ordem alfabética e diz, por
+  aplicativo, o que ele pede: credencial (campos, com os segredos marcados), segredo de autenticidade, tipos de
+  conteúdo, o passo a passo do lado da ferramenta, o modelo de mapeamento pronto, se busca campos e se escolhe
+  formulário. Cada aplicativo é um **adaptador** (`src/webhooks/aplicativos/<app>.ts`) com: converter o corpo
+  em itens, verificar a autenticidade, o modelo, o passo a passo e, quando há credencial, testá-la e buscar
+  campos. As integrações vão a `/webhooks/entradas` (o mesmo recurso de sempre) e várias podem existir por
+  aplicativo e por funil. Os pontos de entrada que já existiam viraram o aplicativo `WEBHOOK`, alvo `NEGOCIO`,
+  modo `CRIAR_OU_ATUALIZAR`, com o **mesmo endereço e o mesmo comportamento** (R8.5, R5.6). O endereço público
+  continua `POST /webhooks/entrada/{token}` e aceita query string (a Kiwify assina por ela, H2).
+  **Endereço reaberto.** Para o assistente reabrir o passo "Endereço" e para o CRM registrar o webhook no
+  Typeform, as integrações criadas a partir da Onda H guardam também o token **cifrado** (AES-256-GCM, R10.3; o
+  hash da R8.2 continua sendo o que autentica). `GET /webhooks/entradas/{id}/endereco` devolve a URL completa
+  (só Admin); nos pontos antigos (sem o token cifrado) é 422 e a saída é regenerar o token.
+- **R32.2 Modelos, corpo e segredo.** `modeloMapeamento`: o Webhook usa `GENERICO`, `DISPAROS_BRL` (R8.1) ou
+  `PERSONALIZADO`; os demais aplicativos usam `DO_APLICATIVO` (o modelo pronto do adaptador, padrão) ou
+  `PERSONALIZADO`. O **formulário `application/x-www-form-urlencoded`** é lido pelo CRM com chaves aninhadas
+  (`fields[email][value]`, `form[name]`, `contact[fields][3]`, `tags[]`): índices numéricos viram chaves do
+  objeto, não posições de lista (o id 3 do ActiveCampaign não se perde); só `a[0]`, `a[1]`… consecutivos, `a[]` e
+  chaves repetidas viram lista. Os caminhos do mapeamento aceitam `contact.fields.3` e `contact[fields][3]`.
+  Por aplicativo, o adaptador entrega ao mapeamento: **Elementor**, o campo `<id>` com o valor (de
+  `fields[<id>][value]` com "Advanced Data", ou das chaves simples), `form_id`, `form_name` e `meta_page_url`; as
+  UTMs vêm de campos ocultos `utm_*`. **RD Station**, um item por lead de `{"leads":[…]}` (ou o lead único) com
+  `entity_type`; nome, e-mail, `mobile_phone`/`personal_phone`, empresa, cargo, etiquetas, `custom_fields.*` e
+  `cf_*` (campos personalizados) e UTMs de `last_conversion`/`first_conversion`. **ActiveCampaign**, `contact[…]` e
+  `deal[…]`, com `contact.full_name` (nome + sobrenome). **Great Pages** e **Lead Lovers**, as chaves digitadas pelo
+  usuário. **ManyChat**, o Full Contact Data (inclusive dentro de `data`), `custom_fields` como objeto ou lista
+  `{name,value}` e `tags` como lista de nomes. **Typeform**, uma chave por pergunta (o `ref`), `hidden.*`,
+  `variables.*`, `form_id`, `form_title`, os apelidos `nome`, `email` e `telefone` (a primeira pergunta do tipo) e o
+  `event_id`. O **segredo** (`segredoCifrado`) segue o aplicativo: o Webhook usa o HMAC `X-Assinatura` (R8.3) opcional;
+  o RD Station, uma **chave opcional num cabeçalho** (`X-RD-Chave`, ou o nome em `configuracao.cabecalhoDeAutenticacao`),
+  comparada em tempo constante e **não guardada** no histórico; o Typeform, um segredo **gerado pelo CRM** (R32.9); os
+  demais não usam segredo (o endereço secreto é a proteção; pedir segredo dá 400/422).
+- **R32.3 Ação: alvo × modo.** A integração escolhe o **alvo** (`NEGOCIO` ou `CONTATO`) e o **modo**: `CRIAR`
+  (todo recebimento cria um negócio novo, mesmo que o contato já tenha um aberto no funil; é a única exceção da R5.6),
+  `CRIAR_OU_ATUALIZAR` (se o contato tem negócio aberto no funil da integração, atualiza o **mais recente** e registra a
+  reconversão, R5.6; senão, cria) e `ATUALIZAR` (só atualiza: sem contato ou sem negócio aberto no funil, o
+  recebimento fica `IGNORADO`, com o motivo, e nada é criado). No alvo `CONTATO` o contato é achado por e-mail ou
+  telefone (R4.2): `CRIAR` deduplica e cria; `CRIAR_OU_ATUALIZAR` cria ou **sobrescreve** nome, cargo, etiquetas (somam) e
+  campos personalizados (mesclam) de quem já existe; `ATUALIZAR` só acha e sobrescreve. No alvo `NEGOCIO`, o contato
+  existente só ganha o que faltava (reconversão, R4.2), como sempre. Todos exigem e-mail ou telefone; só o modo
+  `ATUALIZAR` dispensa o nome (no mapeamento personalizado e na prévia). A ação padrão é `NEGOCIO` + `CRIAR_OU_ATUALIZAR`.
+- **R32.4 Atualizações pelo recebimento.** O mapeamento ganha os destinos `etapa`, `dono`, `status`, `motivoPerda` e
+  `negocio.camposPersonalizados.<chave>` (além de título, valor, valor recorrente, contato, UTMs, etiquetas e
+  `camposPersonalizados.<chave>`). **Etapa**: o nome (sem diferenciar maiúsculas e acentos) ou a posição de 1 a n no
+  funil; o nome vale antes da posição. **Dono**: o e-mail ou o **identificador nas integrações** de um usuário ativo da
+  área do funil (ou C-level/Admin); no negócio novo o dono mapeado vira o responsável (em vez do rodízio) e no existente
+  troca o responsável e o notifica. **Status**: `aberto`, `ganho` ou `perdido` (também `open`, `won`, `lost`); a perda
+  segue a **R5.5**: usa o motivo mapeado (`motivoPerda`); senão, o **motivo padrão** da integração; sem nenhum dos dois,
+  o negócio não é perdido (aviso). Etapa e status juntos: a etapa vence, com aviso. Mover roda as passagens (R5.7).
+  **Status inicial** do negócio criado: `ABERTO` (padrão), `GANHO` (vai à etapa de ganho) ou `PERDIDO` (vai à etapa de
+  perda com o motivo padrão, obrigatório com este status). **Identificador nas integrações**: campo opcional do usuário
+  (`identificadorIntegracao`, até 100 caracteres: letras, números e `. _ - @ + :`), **único sem diferenciar maiúsculas**
+  (409), editado pelo Admin em `POST/PATCH /usuarios`.
+- **R32.5 Avisos.** Valor desconhecido não derruba o recebimento: o resto é aplicado, o recebimento fica `PROCESSADO` e
+  cada valor descartado vira um **aviso** (`avisos` do recebimento e no fim da mensagem): `Etapa "X" não existe no funil
+Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`, valores monetários, e-mail ou telefone
+  inválidos. Erros de dados (sem nome, sem e-mail nem telefone, configuração) continuam `ERRO`. Contato do ManyChat sem
+  e-mail e telefone (como o do Instagram) dá a mensagem "colete e-mail ou telefone no fluxo".
+- **R32.6 Itens por recebimento.** Um recebimento pode ter vários itens (cada lead do RD Station). Cada item roda em
+  transação própria e o resultado fica em `resultados` (`itens` na API: índice, rótulo `lead 2 de 3`, status, mensagem,
+  contato, negócio, avisos). O status do recebimento: `ERRO` se algum item falhou, `PROCESSADO` se algum foi
+  processado, `IGNORADO` se todos foram ignorados; a mensagem conta e explica. **Limite de 100 itens por recebimento**: os
+  leads além dos 100 primeiros não são processados e viram um único resultado `IGNORADO` (rótulo `excedentes`) com o
+  aviso. **Reprocessar** refaz só os itens não
+  processados (os processados não se repetem nem somam reconversão).
+- **R32.7 Campos recebidos e histórico.** `GET /webhooks/entradas/{id}/campos-recebidos` lista os caminhos de campo
+  dos últimos recebimentos aceitos (padrão 20; o corpo passa pelo adaptador), com tipo, ocorrências e um **valor de
+  exemplo mascarado** (`ma•••@empresa.com.br`, `•••••••4321`, `Mar•••`; segredos por nome do campo viram `••••`); os
+  recusados na chegada não entram. O **histórico** de todas as integrações (`GET /webhooks/recebimentos`) filtra por data
+  (`de`, `ate`), `status`, `aplicativo` e `integracaoId` (vários valores por vírgula), traz o aplicativo, a integração, os
+  avisos e os itens, e tem detalhe (`/{id}`, com cabeçalhos e corpo, para copiar o JSON) e `POST /{id}/reprocessar`.
+  Retenção de 90 dias (R8.6). As rotas por integração (`/webhooks/entradas/{id}/recebimentos`) continuam.
+- **R32.8 Credencial e busca de campos.** Os aplicativos com credencial pedem os campos que o catálogo informa:
+  ActiveCampaign (`urlConta`, `chaveApi`), ManyChat (`chaveApi`) e Typeform (`token`, o Personal Token). A credencial é
+  **guardada cifrada (R10.3) e devolvida só mascarada** (os campos não secretos aparecem; os secretos mostram só o final);
+  na edição, só os campos enviados mudam, **mas trocar um campo não secreto (a URL da conta) exige a chave no mesmo
+  envio** (400 senão: o segredo guardado nunca é reaproveitado para outro destino); nunca vai para log, auditoria (só os nomes) nem aviso. **A URL da conta do
+  ActiveCampaign** precisa ser pública: passa pela proteção SSRF da R9.1 ao salvar, ao testar e a cada chamada.
+  **Testar antes de criar**: `POST /webhooks/entradas/testar-credencial {aplicativo, credencial}` chama o aplicativo e
+  responde `{valida, mensagem}` sem gravar. **Testar a guardada**: `POST /webhooks/entradas/{id}/testar-credencial`.
+  **"Buscar campos da integração"**: `POST /webhooks/entradas/{id}/buscar-campos` — ActiveCampaign:
+  `GET {conta}/api/3/fields` (cabeçalho `Api-Token`; `contact.fields.<id>` com o título); ManyChat:
+  `GET {MANYCHAT_API_URL}/fb/page/getCustomFields` (`Authorization: Bearer`; `custom_fields.<nome>`); Typeform: as
+  perguntas do formulário escolhido (`<ref>`), `hidden.*` e `variables.*`. O resultado também fica em `camposBuscados`.
+  Os endereços-base vêm de `TYPEFORM_API_URL` (padrão `https://api.typeform.com`) e `MANYCHAT_API_URL` (padrão
+  `https://api.manychat.com`); nenhum teste nem ambiente de desenvolvimento chama API real.
+- **R32.9 Autenticidade, Typeform e "precisa de atenção".** **Typeform**: o CRM gera um segredo, **registra o webhook no
+  formulário escolhido** (`PUT /forms/{id}/webhooks/{tag}` com `url`, `enabled` e `secret`; a tag é `crmbrl-…`
+  estável por integração) e confere `Typeform-Signature: sha256=<base64 do HMAC-SHA256 do corpo bruto>` em tempo
+  constante; ausente ou inválida: 401 e recebimento com erro (sem reprocessamento). Escolher outro formulário remove o
+  webhook do antigo; desativar a integração o mantém **desabilitado** (`enabled=false`); regenerar o token ou o segredo o
+  registra de novo; excluir a integração o remove (falha só vai para o log técnico). `GET …/formularios`,
+  `…/formularios/{formularioId}/campos` e `POST …/sincronizar` ajudam o assistente. O resultado do registro fica em
+  `configuracao.webhookRegistrado` e `configuracao.webhookErro`. Uma **variável** do formulário (`variables.etapa`,
+  `variables.status`, `variables.dono`) serve para o modo atualizar (R32.4). **Credencial recusada** (401/403 do
+  aplicativo: token expirado, revogado, chave inválida): a integração passa a **"precisa de atenção"**
+  (`precisaAtencao`, `atencaoMotivo`, `situacao: PRECISA_ATENCAO`), é auditada e **os Admins são notificados**
+  (`integracao.precisa_atencao`, uma vez por ocorrência, reaproveitando as notificações); trocar a credencial (ou um teste
+  que passa) limpa a situação. Falha de rede ou 5xx do aplicativo não marca atenção.
+- **R32.10 Typeform: formulário.** O assistente lista os formulários (`GET /forms`, até 200, com busca) e as perguntas
+  (`GET /forms/{id}`, inclusive as de grupos); a escolha é `PATCH {configuracao: {formularioId}}`, que registra o
+  webhook (R32.9). Respostas repetidas (mesmo `event_id`) são tratadas como quaisquer recebimentos nesta fatia; a
+  idempotência por evento é a da H2 (`ItemRecebido.chaveDoEvento` já existe para ela).
+- **R32.11 Aplicativos da H2 e interface do adaptador.** O Facebook Lead Ads (R32.14) e as plataformas de curso
+  (R32.15) entraram na H2: todos os aplicativos do enum têm adaptador e `disponivel: true`. A interface do adaptador
+  recebe a query string (autenticidade da Kiwify) e devolve a chave de idempotência do evento.
+- **R32.12 Saída no estilo do Clint.** O destino de saída ganha o **formato** `CLINT` (o `ENVELOPE_CRM` da R9.3 segue
+  como padrão), que estende a R9 sem mudar a fila, as tentativas, o histórico de entregas, a proteção SSRF nem a
+  desativação automática (a R9.4: 20 falhas seguidas; o Clint desativa com 3, diferença registrada). Campos do destino:
+  `formato`, `metodo`, `gatilhos` e `campos`; `eventos` fica vazio. **Gatilhos**: `NEGOCIO_CRIADO`, `ENTRA_NA_ETAPA`
+  (exige `etapaId`; vale na criação nela e ao ser movido para ela), `MUDA_DE_ETAPA` e `MUDA_DE_STATUS` (ganho, perdido ou
+  reaberto; com `status` opcional), cada um com **filtro de funil** (`funilId`, o da etapa em `ENTRA_NA_ETAPA`). Uma
+  entrega por destino e evento. **Envio**: `POST` com `Content-Type: application/json` (só os campos escolhidos, na forma
+  `{ identificador: valor }`) ou `GET` (os campos viram parâmetros da URL, lista separada por vírgula, vazio para
+  ausente, sem corpo nem `Content-Type`). **Campos**: `GET /webhooks/saidas/formato-clint` lista os gatilhos, os campos
+  (contato: id, nome, e-mail, telefone, empresa, cargo, etiquetas; negócio: id, título, valor, valor recorrente, status,
+  motivo da perda, origem, detalhe, criado em; funil e etapa, com a etapa anterior; dono: id, nome, e-mail e
+  identificador nas integrações; UTMs; gatilho e quando), cada um com o **identificador sugerido e editável**, mais
+  `contato.camposPersonalizados.<chave>` e `negocio.camposPersonalizados.<chave>`. Os valores de negócio, funil, etapa,
+  dono, UTMs e contato são os **do momento do evento**; empresa, cargo, etiquetas e campos personalizados são lidos na
+  entrega. Os cabeçalhos `X-CRM-*` seguem e a assinatura cobre `timestamp + "." + corpo` (no GET, o corpo é a query
+  string acrescentada). O teste do destino envia `evento=webhook.teste` e `mensagem`. Validações (400): sem gatilho ou sem
+  campo, etapa inexistente ou de outro funil, origem desconhecida, identificador repetido ou inválido, `eventos` no
+  formato Clint, `gatilhos`, `campos` ou `GET` no envelope.
+- **R32.13 Acesso e auditoria.** Tudo da R32 é **só do Admin** (como o módulo `/integracoes`): catálogo, integrações,
+  credenciais, histórico e saída; os demais papéis recebem 403. Ator da auditoria: `WEBHOOK` (o nome da integração, como
+  na R8). A auditoria registra a criação, a edição (com o formulário e se a credencial foi trocada, nunca o valor),
+  quando a integração passa a precisar de atenção e quando volta a funcionar. Sem dependências novas: as APIs de
+  terceiros são chamadas por `fetch`, com o endereço-base em variável de ambiente.
+
+- **R32.14 Facebook Lead Ads.** Aplicativo `FACEBOOK_LEAD_ADS` (entrega por **API**: a Meta avisa o CRM e o CRM busca o
+  lead; o endereço público `POST /webhooks/entrada/{token}` da integração existe como nas outras, mas **recusa** (401)
+  qualquer envio direto). Não tem credencial por integração: o acesso vem de uma **conexão** (`conexoes_facebook`,
+  Admin) com o **app da Meta** (ID e segredo, cifrados, R10.3) e as **páginas**. A integração guarda só a escolha em
+  `configuracao`: `conexaoId`, `paginaId` e `formularioId` (obrigatórios ao criar), mais `paginaNome`,
+  `formularioNome`, `assinatura`, `assinaturaErro`, `reconciliarDesde` e `reconciliadoAte`, que o CRM mantém. Várias
+  integrações por funil, por página e por formulário (o mesmo formulário pode alimentar funis diferentes: cada integração
+  recebe o seu lead).
+  **Conexão.** (a) *"Entrar com o Facebook"*: `POST /webhooks/facebook/oauth/iniciar` (corpo `{appId, appSecret}` ou
+  `{canalId}`, ou `{conexaoId}` para reconectar) cria a conexão e devolve a URL do diálogo (`META_DIALOGO_URL`, padrão
+  `https://www.facebook.com`) com os escopos `leads_retrieval`, `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_metadata`, `pages_manage_ads`, `ads_management` e `business_management` e um `state` **assinado** (HMAC
+  com a chave de criptografia, levando o Admin que iniciou o login: é o ator da auditoria do retorno; Admin desligado
+  depois disso torna o retorno `state_invalido`), **de uso único** (o hash fica na conexão e é consumido de forma atômica) e **válido por 10
+  minutos**. A Meta devolve o navegador a `GET /publico/facebook/oauth/retorno` (público; o `state` é a prova): o CRM
+  troca o `code` e o token curto por um de **longa duração** (~60 dias), lê as páginas com o **token de cada uma** (que não
+  expira junto) e redireciona (302) para a tela de Integrações: `URL_PUBLICA/integracoes?facebook=conectado|cancelado|erro
+  &conexao=<id>[&motivo=<código>&mensagem=<texto>]`, com `motivo` `state_invalido`, `state_vencido`, `state_usado`,
+  `sem_codigo`, `meta_recusou` ou o `error` da Meta (`access_denied` = cancelado). State inválido, vencido ou repetido não
+  troca nada. (b) *Token de página colado* (sem OAuth, para ambiente sem domínio público): `POST
+  /webhooks/facebook/conexoes/token-de-pagina` confere o token na Meta (`/me` ou a página informada). O ID e o segredo do
+  app continuam obrigatórios (o segredo confere a assinatura do webhook) e podem ser **reaproveitados de um canal
+  Messenger ou Instagram** (`canalId`; o segredo é copiado e nunca devolvido; `GET /webhooks/facebook/canais`). Tokens,
+  segredo e páginas nunca saem da API (a resposta só traz o segredo mascarado), nem vão para log, auditoria ou
+  recebimento. `GET /webhooks/facebook/configuracao` traz o endereço de retorno que o Admin cadastra no app da Meta.
+  Excluir a conexão (409 enquanto há integração) apaga os tokens. Conexões cujo login nunca terminou somem em 1 dia.
+  **Token de verificação do webhook de páginas.** Cada conexão tem o seu, aleatório, gerado na criação (e, uma vez, na
+  primeira leitura das conexões anteriores, com auditoria `conexao_facebook.token_verificacao_gerado`), guardado
+  **cifrado** (`token_verificacao_cifrado`, R10.3). A conexão devolve ao Admin `webhook: {url, tokenVerificacao,
+  campos: ['leadgen']}` (como o WhatsApp oficial, R28): `url` é `URL_PUBLICA/api/v1/publico/meta/webhook` e o token é
+  mostrado inteiro, para colar em Webhooks > Page no app da Meta. O desafio `GET /publico/meta/webhook` (R14) passa
+  também com o token de **qualquer conexão do Facebook ativa** (comparação em tempo constante), sem precisar de canal
+  Messenger, Instagram ou WhatsApp oficial; token errado ou de conexão excluída continua 403.
+  **Escolhas.** `GET /webhooks/facebook/conexoes/{id}/paginas` (`?atualizar=true` pergunta de novo à Meta),
+  `…/paginas/{pagina}/formularios` (`?busca`) e `…/formularios/{formulario}/perguntas` (cada pergunta como `{caminho: chave,
+  rotulo, tipo}`, mais os metadados `leadgen_id`, `created_time`, `page_id`, `form_id`, `ad_id`, `ad_name`, `adset_id`,
+  `adset_name`, `campaign_id`, `campaign_name`, `platform` e `is_organic` com `tipo: "metadado"`); a integração criada
+  também responde `buscar-campos`, `formularios` e `formularios/{id}/campos`. Criar confere que a conexão terminou o
+  login e que o formulário existe na página.
+  **Assinatura da página.** Com a integração ativa, o CRM assina o campo `leadgen` da página (`POST
+  /{página}/subscribed_apps`) **preservando os campos que o app já assina** (ex.: mensagens do Messenger) e só assina se
+  ainda não está assinado. Desativar, trocar de página ou excluir solta o `leadgen` **somente se nenhuma outra integração
+  ativa usa a mesma página**, inclusive por outra conexão do mesmo app, pois a assinatura da Meta é por app e página
+  (os outros campos ficam; sem nenhum, o app sai da página). Falha da Meta não derruba a
+  edição: fica em `configuracao.assinaturaErro`.
+  **Recebimento.** O roteador Meta (`POST /publico/meta/webhook`) trata `object: page` com `changes[].field = leadgen`: confere
+  `X-Hub-Signature-256` com o segredo do app **da conexão da integração** (sem a assinatura certa, 401; sem integração
+  ativa para a página e o formulário, 200 sem fazer nada) e enfileira um job por integração. O job busca o lead
+  (`GET /{leadgen_id}` com o token da página, no cabeçalho `Authorization`) e entrega ao **processamento comum** (R8.4,
+  R32.3): um recebimento `RECEBIDO` com o corpo normalizado (uma chave por pergunta, `full_name`, `email`, `phone_number`
+  e as personalizadas; várias opções viram texto com vírgula; `p:` do telefone sai; sem `full_name`, junta `first_name` e
+  `last_name`; mais `leadgen_id`, `page_id`, `form_id`, `ad_id`, `ad_name`, `adset_*`, `campaign_*`, `platform`,
+  `is_organic`, `created_time` quando existem) e a fila `webhooks-entrada.processar`, **com a mesma ação, modo,
+  mapeamento e distribuição das demais integrações**. O modelo pronto mapeia `full_name`, `email`, `phone_number`,
+  `company_name`, `job_title` e a campanha, o anúncio e a plataforma como UTM `campaign`, `content` e `source`.
+  **Sem repetir:** a chave `(integração, leadgen_id)` (`leads_facebook`) é gravada na mesma transação do recebimento: o
+  mesmo `leadgen_id` (webhook duplicado, webhook mais reconciliação) nunca cria um segundo recebimento.
+  **Reconciliação.** A cada 15 minutos (pg-boss, fila `facebook.reconciliar`) cada integração ativa lista os leads do
+  formulário criados desde a última conferência (menos 30 minutos de folga; a primeira vez começa na ativação, e nunca
+  olha mais de 14 dias para trás) e entrega os que o webhook não trouxe, como origem `RECONCILIACAO`. Integração inativa
+  não é conferida. A listagem lê até 20 páginas de 100 leads: se parar no limite, o marco só avança até o último lead
+  lido quando a Meta devolve em ordem crescente (senão não avança), com aviso nos logs, para nenhum lead ficar de fora.
+  **Roteador:** no mesmo POST, a assinatura dos `leadgen` que não confere não derruba as entradas de Messenger e
+  Instagram assinadas pelo app do canal; o 401 só sai se nenhum ramo do corpo for autêntico.
+  **Atenção.** Token recusado (código 190 etc.) ou permissão negada pela Meta (códigos 10, 200–299 e 100/33:
+  `leads_retrieval`, "Leads Access" na Central de Leads, função na página) deixam a integração (e, no caso do token, a
+  conexão) em **precisa de atenção**, com a orientação, auditoria e **aviso aos Admins** (uma vez por ocorrência, R32.9).
+  Um novo login na conexão, ou uma conferência que passa, limpa a situação; o lead que ficou para trás entra pela
+  reconciliação. Falha passageira (rede, 5xx, limite da Meta) repete o job (até 4 retentativas) e não marca atenção.
+  **Ajuda e Meta real.** O assistente orienta a liberar o CRM em "Leads Access" na Central de Leads; o app precisa de
+  `leads_retrieval` aprovado (App Review) para ler leads de verdade. Nesta onda o fluxo é testado só com a Meta falsa.
+
+- **R32.15 Plataformas de curso: Hotmart, Kiwify e Eduzz.** Aplicativos `HOTMART`, `KIWIFY` e `EDUZZ` (entrega por
+  **webhook**, JSON, sem credencial). Cada um é um adaptador (`src/webhooks/aplicativos/{hotmart,kiwify,eduzz}.ts`, mais
+  `cursos.ts` com a tabela de eventos) e entra no **mesmo processamento** das demais integrações (R8.4, R32.3, R32.6).
+  **Autenticidade** (o segredo da integração é **opcional** nas três; sem segredo, o endereço secreto é a única proteção;
+  com segredo, ausente ou diferente dá 401 e o recebimento fica `ERRO` sem reprocessamento, como R32.9; todas as comparações
+  em tempo constante): **Hotmart**, o cabeçalho `X-HOTMART-HOTTOK` igual ao hottok informado (sem HMAC); **Kiwify**, o
+  parâmetro `signature` da **query string** (o endereço aceita query) igual ao HMAC-SHA1 em hexadecimal do **corpo bruto**
+  com o token do webhook como chave (maiúsculas valem); **Eduzz**, o cabeçalho `x-signature` igual ao HMAC-SHA256 do
+  corpo bruto com a chave de acesso, em **hexadecimal ou base64** (o prefixo `sha256=` é tolerado). O **`ping`** da
+  Eduzz (`event: ping` ou `data.message: ping`), depois de conferida a assinatura, responde 202 `{status: "IGNORADO"}` e
+  fica no histórico como ignorado, **sem ir para a fila e sem criar nada**.
+  **Evento, produto e chave.** O adaptador entrega ao mapeamento o corpo mais um bloco `calculado` (Hotmart: `telefone`
+  com o DDI e `transacao`; Kiwify: `valor` em reais e `transacao`; Eduzz: `valor` pago ou da fatura e `transacao`) e
+  devolve por item o **código do evento**, os **produtos** e a **chave de idempotência**. Códigos: Hotmart, o `event`
+  (`PURCHASE_APPROVED`, `PURCHASE_BILLET_PRINTED`, `PURCHASE_OUT_OF_SHOPPING_CART`, `SUBSCRIPTION_CANCELLATION`…); Kiwify, o
+  `webhook_event_type` (`order_approved`, `billet_created`, `pix_created`, `order_rejected`, `order_refunded`, `chargeback`,
+  `subscription_canceled|late|renewed`), deduzido do `order_status` quando falta e `abandoned_cart` para o corpo sem
+  pedido nem status (o carrinho); Eduzz, o `event` (`myeduzz.invoice_*`, `sun.cart_abandonment`, `myeduzz.contract_*`),
+  com `myeduzz.contract_updated` virando `myeduzz.contract_canceled` (`contract.status = canceled`) ou
+  `myeduzz.contract_late` (`late`, `defaulter`, `suspended`). **Valores:** Hotmart e Eduzz em reais; os da Kiwify chegam em
+  centavos [INFERIDO] e o modelo divide por 100. **Chaves** (R32.15, idempotência): Hotmart, o `id` do evento, ou a
+  transação mais o evento quando não há `id`; Kiwify, `order_id` mais o tipo do evento (no carrinho, o `id`); Eduzz, o `id`
+  do evento, ou `data.id` mais o evento.
+  **Modelo de mapeamento** (`DO_APLICATIVO`): nome, e-mail e telefone do comprador (Hotmart `data.buyer` ou
+  `data.subscriber`; Kiwify `Customer` ou `customer` e, no carrinho, a raiz; Eduzz `data.buyer` ou `data.customer`),
+  **título** = nome do produto, **valor**, UTMs (Hotmart: `origin.src` e `origin.sck` como fonte e campanha; Kiwify:
+  `TrackingParameters`/`tracking`; Eduzz: `data.utm` e, no carrinho, `data.tracker`) e os campos do **negócio**
+  `produto`, `oferta`, `transacao`, `forma_de_pagamento` e `plano`. Onde a referência marca [INFERIDO] (chaves
+  `Customer`/`Product`/`Commissions`/`TrackingParameters` da Kiwify, o carrinho dela, o contrato da Eduzz sem comprador,
+  o cancelamento deduzido do `contract_updated`), o adaptador aceita as variações do enviador de exemplos do apoio
+  (`test/fixtures/cursos-apoio.json`) e o corpo fica no histórico para o Admin ajustar o mapeamento.
+  **Tabela de eventos** (`configuracao.eventos`, editada por `PATCH` e gravada com os padrões na criação): para cada
+  código, `{ acao, etapaId?, motivoPerda?, etiquetas }`. `IGNORAR`: nada (`IGNORADO` com o motivo). `ABRIR`: cria ou
+  atualiza o negócio aberto do comprador na `etapaId` (sem ela, a etapa de entrada da integração; é preciso uma etapa
+  **aberta do funil da integração**, 400 senão); com negócio aberto no funil, o move e atualiza valor e produto (R5.6, sem
+  duplicar). `GANHO`: marca o negócio aberto como ganho com valor e produto (sem negócio aberto, cria e ganha; as passagens
+  da R5.7 rodam). `PERDIDO`: perde com o `motivoPerda` da regra (ou o motivo padrão da integração, R5.5) o negócio **da
+  mesma transação** (aberto ou ganho, pelo campo `transacao`) e, sem ele, o **aberto mais recente** do comprador; nunca cria
+  contato nem negócio (sem alvo, `IGNORADO`) e não reescreve título nem valor. `ETIQUETAR`: só soma as etiquetas ao
+  contato (que precisa existir), sem tocar no negócio. Em todas as ações (menos `IGNORAR`) as `etiquetas` da regra somam ao
+  contato (sem repetir). Evento fora da tabela e sem padrão: `IGNORADO` ("não está na tabela de eventos"). Carrinho e
+  assinatura **sem e-mail nem telefone** do comprador ficam `IGNORADO` (não são erro). O alvo `CONTATO` só etiqueta; os modos
+  `CRIAR` (cada compra cria negócio) e `ATUALIZAR` (sem contato, ignora) valem como em R32.3. O Admin pode acrescentar
+  códigos novos à tabela. A resposta do catálogo (`eventos` do aplicativo) traz os eventos com nome amigável, grupo
+  (`COMPRA`, `PAGAMENTO_PENDENTE`, `CARRINHO`, `POS_VENDA`, `ASSINATURA`), a ação padrão e os **modelos prontos**:
+  `VENDAS` (compra aprovada → ganho com valor; carrinho abandonado e boleto ou Pix gerado → aberto na etapa inicial;
+  reembolso e chargeback → etiqueta e perda com motivo; assinatura cancelada, atrasada, renovada e troca de plano → só
+  etiqueta; o resto ignorado), `SO_COMPRAS` e `RECUPERACAO` (aprovada, carrinho, boleto, Pix e recusada). Mudar o funil da
+  integração limpa as etapas escolhidas da tabela.
+  **Filtro por produto** (`configuracao.produtos`, lista de ids ou nomes sem diferenciar maiúsculas; vazia = todos):
+  o item cujo produto não consta é `IGNORADO` ("Produto fora do filtro desta integração"); o carrinho da Eduzz só traz ids.
+  **Idempotência por evento.** Cada item com chave é conferido antes de aplicar: se outro recebimento **da mesma
+  integração** já tem um item `PROCESSADO` com a mesma chave (`resultados[].chave`, sem coluna nova), o item é `IGNORADO`
+  ("Evento repetido: já foi processado (recebimento …)") e nada é criado nem alterado. Uma trava consultiva por integração
+  e chave faz envios simultâneos do mesmo evento processarem um só; um evento que deu `ERRO` pode ser reenviado e
+  processar. Vale também para o **Typeform** (chave = `event_id`, R32.10): a resposta repetida não cria outro negócio.
+  O histórico mostra o `evento` e a `chave` de cada item.
+- **R32.16 Saída no estilo do Clint: negócio criado direto na etapa.** O gatilho `ENTRA_NA_ETAPA` (R32.12) dispara
+  também quando o negócio é **criado** na etapa escolhida (pela API, por integração, importação ou automação), além de
+  quando é movido para ela, e **uma vez só** por negócio e destino: um destino com `NEGOCIO_CRIADO` e `ENTRA_NA_ETAPA` da
+  mesma etapa recebe uma entrega pela criação; negócio criado em outra etapa não dispara.
+
+- **R32.17 Histórico e integração excluída.** Excluir uma integração (R8.1) tira os recebimentos dela do histórico
+  (`GET /webhooks/recebimentos`, inclusive com filtro por aplicativo), do detalhe e do reprocessar: a lista e o
+  detalhe sempre concordam (404 para o recebimento e para `integracaoId` da excluída). Os registros não são apagados
+  na hora: o corpo e os resultados ficam no banco até a retenção de 90 dias (R8.6) e a anonimização do contato
+  (R4.6) continua alcançando-os. Integração **desativada** não é excluída: o histórico dela segue visível.
+
+### Matriz de acesso — Integrações: aplicativos
+
+| Recurso                                                                                               | Admin                                                        | C-level | Líder   | Membro  | Marketing |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------- | ------- | ------- | --------- |
+| Catálogo, integrações, credencial, busca de campos, campos recebidos e endereço (R32.1, R32.7–R32.10) | ✓                                                            | — (403) | — (403) | — (403) | — (403)   |
+| Histórico de recebimentos, detalhe e reprocessar (R32.7)                                              | ✓                                                            | —       | —       | —       | —         |
+| Conexões, páginas, formulários e login do Facebook Lead Ads (R32.14)                                  | ✓                                                            | —       | —       | —       | —         |
+| Destinos de saída no formato Clint (R32.12)                                                           | ✓                                                            | —       | —       | —       | —         |
+| Identificador nas integrações do usuário (R32.4)                                                      | ✓ (edita)                                                    | —       | —       | —       | —         |
+| Endereço público de recebimento (`POST /webhooks/entrada/{token}`)                                    | sem login: token, mais a autenticidade do aplicativo (R32.9) |         |         |         |           |
+| Retorno do login do Facebook (`GET /publico/facebook/oauth/retorno`) e webhook `leadgen` (roteador Meta) | sem login: `state` assinado de uso único · `X-Hub-Signature-256` do app (R32.14) |         |         |         |           |
+
+### Cenários de aceitação (Onda H, H1: integrações e aplicativos)
+
+316. O catálogo traz os 12 aplicativos em ordem alfabética, só o Admin o vê, e os da H2 não se criam (R32.1).
+317. O webhook sem aplicativo continua igual: Webhook, negócio, criar ou atualizar, reconversão no mesmo endereço, e o
+     endereço reabre para o assistente (R32.1, R8.5).
+318. Elementor com Advanced Data (formulário aninhado), sem ele e em JSON criam o negócio, com UTMs dos campos ocultos (R32.2).
+319. RD Station com `leads[]`: cada lead é processado, o resultado fica por lead e reprocessar refaz só o que falhou (R32.6).
+320. RD Station com chave no cabeçalho: sem a chave 401, com a chave 202, e a chave não fica guardada (R32.9).
+321. ActiveCampaign: `contact[…]` em formulário cria o negócio; "Buscar campos" dá nome aos campos; a credencial nunca
+     volta inteira; os campos recebidos vêm mascarados (R32.2, R32.7, R32.8).
+322. Credencial inválida: "precisa de atenção", aviso ao Admin uma vez, filtro da lista, e trocar a credencial resolve (R32.9).
+323. Testar a credencial antes de criar não grava nada (R32.8).
+324. Great Pages e Lead Lovers com mapeamento digitado, em formulário e em JSON (R32.2).
+325. ManyChat: Full Contact Data com `custom_fields` e `tags`; contato do Instagram sem e-mail e telefone dá o erro
+     claro; "Buscar campos" lista os campos personalizados (R32.2, R32.5, R32.8).
+326. Typeform: o CRM registra o webhook com segredo; resposta assinada cria o negócio; assinatura inválida, adulterada ou
+     ausente é recusada com 401 e erro registrado (R32.9).
+327. Typeform: formulários e perguntas, trocar de formulário remove o webhook do antigo, desativar o desabilita, regenerar
+     o token o registra de novo, excluir o remove (R32.9, R32.10).
+328. Typeform com token expirado: "precisa de atenção", aviso ao Admin, sem segredo em auditoria, e o token novo recupera (R32.9).
+329. Modo `CRIAR`: dois recebimentos criam dois negócios do mesmo contato (R32.3).
+330. Criar ou atualizar: atualiza o aberto (etapa e valor mapeados) com reconversão; com o negócio ganho, cria outro (R32.3, R5.6).
+331. Modo `ATUALIZAR`: sem contato ou sem negócio aberto fica `IGNORADO`; com negócio, atualiza etapa por posição, dono por
+     identificador e por e-mail e status perdido com motivo (R32.3, R32.4, R5.5).
+332. Alvo contato: cria só o contato; o segundo envio sobrescreve nome, cargo e campos; `ATUALIZAR` só acha (R32.3).
+333. Etapa por nome sem acento, dono de outra área, status `won` e motivo padrão; valores desconhecidos viram avisos (R32.4, R32.5).
+334. Perdido sem motivo não perde o negócio (aviso); status inicial `GANHO` e `PERDIDO` (este exige o motivo padrão) (R32.4, R5.5).
+335. Identificador nas integrações: opcional, único sem diferenciar maiúsculas (409), editável pelo Admin (R32.4).
+336. Histórico com filtros por aplicativo, integração, status e data; detalhe, reprocessar e acesso só do Admin (R32.7).
+337. Saída do Clint em POST: "entra na etapa X" com filtro de funil envia só os campos escolhidos, com os identificadores
+     editados, assinada, e o destino com outro funil não recebe (R32.12).
+338. Saída do Clint em GET: campos na URL, sem corpo; "muda de status" cobre perdido e reaberto, não o movimento comum;
+     teste do destino e validações (R32.12).
+339. O destino do Clint mantém a fila, as tentativas e o reenvio da R9; negócio criado por integração dispara "negócio criado" (R32.12, R9.4).
+340. A URL da conta do ActiveCampaign em rede interna é recusada ao criar e ao testar, sem chamada nenhuma (R32.8, R9.1).
+341. Anonimizar o contato de qualquer lead de um recebimento de vários itens apaga o corpo, a mensagem, os avisos e os itens
+     dele (R4.6, R32.6).
+342. Typeform, como no Clint: a variável com o nome de uma etapa (valor diferente de 0) leva o negócio a essa etapa
+     (R32.4, R32.10).
+
+### Cenários de aceitação (Onda H, H2: Facebook Lead Ads)
+
+343. O catálogo traz o Facebook Lead Ads disponível (entrega por API, sem credencial por integração, com passo a passo e
+     modelo); o endereço de retorno e os escopos vêm de `/webhooks/facebook/configuracao`; só o Admin acessa (R32.14).
+344. O app da Meta pode ser reaproveitado de um canal Messenger: o canal aparece só com o ID do app, o segredo é copiado e
+     nunca devolvido, e `canalId` não combina com `appId` (R32.14).
+345. "Entrar com o Facebook": URL do diálogo em `META_DIALOGO_URL` com `state` assinado e escopos, troca do `code` por token
+     de longa duração, páginas guardadas, retorno 302 à tela de Integrações e nenhum segredo ou token em resposta, auditoria
+     ou banco legível (R32.14, R10.3).
+346. `state` repetido, vencido (mais de 10 minutos), com a validade do banco vencida, adulterado ou de outra conexão não troca
+     nada; login cancelado e `code` recusado voltam à tela com o motivo (R32.14).
+347. Token de página colado: conferido na Meta, guardado cifrado e nunca devolvido; token recusado dá 422; conexão por token
+     não se reconecta por OAuth (R32.14).
+348. Páginas, formulários (com busca) e perguntas (chaves e metadados do lead); página fora da conexão dá 422, ids
+     malformados 400, e token recusado marca a conexão como "precisa de atenção" (R32.14).
+349. Criar a integração exige conexão, página e formulário válidos, assina o campo `leadgen` da página com o token dela e
+     guarda os nomes; buscar campos e formulários funcionam pela integração (R32.14).
+350. A assinatura acompanha a integração: preserva os campos já assinados, só sai quando nenhuma outra integração ativa
+     usa a página, e acompanha ativar, desativar, trocar de página e excluir (R32.14).
+351. `leadgen` assinado: o CRM busca o lead na Graph com o token da página (no cabeçalho) e cria contato e negócio pelo caminho
+     comum, com campos personalizados, UTMs e a campanha; aparece no histórico (R32.14, R8.4).
+352. `leadgen` sem assinatura ou com assinatura errada é 401 e nada é buscado; página ou formulário sem integração, ou
+     integração inativa, dá 200 sem fazer nada (R32.14).
+353. O mesmo `leadgen_id` não se repete (webhook duplicado, webhook mais reconciliação); duas integrações no mesmo formulário
+     recebem um lead cada e formulários diferentes não se misturam (R32.14).
+354. A reconciliação traz o lead que o webhook perdeu, não olha para antes da integração, não repete e ignora a integração
+     inativa (R32.14).
+355. Token recusado no webhook ou na reconciliação: "precisa de atenção", um aviso ao Admin, e depois do novo login a
+     reconciliação traz o lead que ficou para trás (R32.14, R32.9).
+356. Permissão negada pela Meta (`leads_retrieval` / Leads Access): atenção com a orientação, que some sozinha quando a
+     Meta libera (R32.14).
+357. O endereço público da integração do Facebook recusa lead direto (401); só o roteador da Meta, com a assinatura do app,
+     entrega leads (R32.14, R32.9).
+358. O roteador continua tratando o Messenger e o desafio de verificação como antes (R14, R32.14).
+359. Excluir a conexão: 409 enquanto há integração; depois, 204 com os tokens apagados e fora da lista (R32.14).
+382. O desafio do webhook de páginas passa com o token da conexão do Facebook, sem nenhum canal Meta; token errado, vazio ou de conexão
+     excluída é 403; o token fica cifrado e a conexão antiga ganha um na primeira leitura, uma vez, com auditoria (R32.14, R14, R10.3).
+
+### Cenários de aceitação (Onda H, H2: Hotmart, Kiwify e Eduzz)
+
+360. O catálogo traz Hotmart, Kiwify e Eduzz disponíveis, com autenticidade, passo a passo, modelo, eventos com nome
+     amigável, modelos prontos e filtro por produto; a criação grava a tabela de eventos padrão (R32.15).
+361. A configuração valida a ação, a etapa (do funil da integração e aberta), o motivo e os produtos, e só vale nas
+     plataformas de curso; mudar o funil da integração limpa as etapas escolhidas na tabela de eventos (R32.15).
+362. Hotmart: compra aprovada vira ganho com valor, produto, origem e etiqueta; o histórico traz o evento (R32.15).
+363. Hotmart: carrinho abandonado e boleto abrem o negócio na etapa inicial (ou na escolhida) e a compra aprovada o ganha,
+     sem duplicar (R32.15).
+364. Hotmart: carrinho sem e-mail nem telefone é ignorado; a compra sem contato é erro (R32.15).
+365. Hotmart: reembolso e chargeback etiquetam e perdem o negócio da mesma transação, com motivo e sem mexer no valor;
+     sem comprador ou negócio conhecido, nada é criado (R32.15, R5.5).
+366. Hotmart: a tabela personalizada manda (ignorar, só etiquetar, evento fora da tabela, evento acrescentado); assinatura
+     cancelada etiqueta (R32.15).
+367. Hotmart: o hottok confere (igual, diferente, ausente); o recusado fica no histórico como erro e nada é processado
+     (R32.15, R32.9).
+368. Kiwify: `signature` na query (HMAC-SHA1 hex do corpo bruto); a do enviador confere; inválida, ausente, de outro token
+     e com corpo alterado dão 401 (R32.15).
+369. Kiwify: aprovada ganha com o valor em reais; Pix, boleto, recusada e carrinho abrem; reembolso perde; chargeback depois
+     disso é ignorado; assinatura cancelada, atrasada e renovada etiquetam (R32.15).
+370. Kiwify: as chaves minúsculas do objeto de venda da API também são lidas (R32.15).
+371. Eduzz: `x-signature` em hexadecimal ou base64; inválida e ausente dão 401; o `originSecret` do corpo não vai ao
+     histórico (R32.15).
+372. Eduzz: o `ping` responde 2xx sem processar e fica no histórico como ignorado; com assinatura inválida é recusado
+     (R32.15).
+373. Eduzz: fatura aguardando abre, paga ganha, expirada e chargeback perdem; carrinho abre; contrato cancelado etiqueta;
+     contrato sem comprador é ignorado (R32.15).
+374. Filtro por produto, por id ou nome, nas três plataformas; fora do filtro é ignorado com o motivo; lista vazia deixa
+     passar tudo (R32.15).
+375. Idempotência: o mesmo evento de cada plataforma, reenviado, não cria outro negócio e aponta o recebimento original;
+     sem `id`, vale a transação (ou `data.id`) mais o evento (R32.15).
+376. Idempotência: um envio com erro pode ser reenviado e processar; três envios simultâneos do mesmo evento processam só
+     um (R32.15).
+377. Modo Criar cria um negócio por compra; modo Atualizar ignora o comprador desconhecido (R32.15, R32.3).
+378. Typeform: o mesmo `event_id` reenviado não cria outro negócio; outro `event_id` segue o fluxo normal (R32.15, R32.10).
+379. Saída do Clint: "entra na etapa X" dispara também quando o negócio é criado direto na etapa, uma vez só, pela API e por
+     uma integração (R32.16).
+
+### Cenários de aceitação (Onda H, H3: fechamento)
+
+380. Integração excluída: o histórico (com e sem filtro por aplicativo), o detalhe, o reprocessar e o filtro por integração
+     concordam em não mostrá-la, os recebimentos das outras seguem, e o corpo da excluída continua guardado até a retenção
+     (R32.17, R8.6).
+381. Matriz de acesso: as 49 rotas de Admin da Onda H (aplicativos, integrações, histórico, Facebook Lead Ads, saída e o
+     identificador do usuário) dão 401 sem login e 403 a C-level, líderes e membros de qualquer área; o Admin passa da
+     barreira; o endereço de recebimento, o retorno do login do Facebook e o webhook da Meta não pedem sessão (R32.13,
+     R32.9, R32.14).
