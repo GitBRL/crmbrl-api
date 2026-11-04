@@ -1,8 +1,12 @@
 /** Registro dos aplicativos (R32.1): o adaptador de cada um e o catálogo, inclusive os que chegam na fatia H2. */
 import type { AplicativoIntegracao } from '../../generated/prisma/client';
 import { adaptadorActiveCampaign } from './active-campaign';
+import { adaptadorEduzz } from './eduzz';
 import { adaptadorElementor } from './elementor';
+import { adaptadorFacebookLeadAds } from './facebook-lead-ads';
 import { adaptadorGreatPages } from './great-pages';
+import { adaptadorHotmart } from './hotmart';
+import { adaptadorKiwify } from './kiwify';
 import { adaptadorLeadLovers } from './lead-lovers';
 import { adaptadorManyChat } from './manychat';
 import { adaptadorRdStation } from './rd-station';
@@ -21,6 +25,10 @@ const ADAPTADORES: Readonly<
   LEAD_LOVERS: adaptadorLeadLovers,
   MANYCHAT: adaptadorManyChat,
   TYPEFORM: adaptadorTypeform,
+  FACEBOOK_LEAD_ADS: adaptadorFacebookLeadAds,
+  HOTMART: adaptadorHotmart,
+  KIWIFY: adaptadorKiwify,
+  EDUZZ: adaptadorEduzz,
 };
 
 function emBreve(
@@ -54,30 +62,6 @@ function emBreve(
 
 /** Aplicativos já no enum e ainda sem adaptador (fatia H2). */
 const EM_BREVE: readonly DefinicaoDoAplicativo[] = [
-  emBreve(
-    'FACEBOOK_LEAD_ADS',
-    'Facebook Lead Ads',
-    'Receba os leads dos formulários de anúncios do Facebook e do Instagram.',
-    'API',
-  ),
-  emBreve(
-    'HOTMART',
-    'Hotmart',
-    'Receba compras, carrinhos abandonados e assinaturas da Hotmart.',
-    'WEBHOOK',
-  ),
-  emBreve(
-    'KIWIFY',
-    'Kiwify',
-    'Receba compras, carrinhos abandonados e assinaturas da Kiwify.',
-    'WEBHOOK',
-  ),
-  emBreve(
-    'EDUZZ',
-    'Eduzz',
-    'Receba faturas, carrinhos abandonados e contratos da Eduzz.',
-    'WEBHOOK',
-  ),
 ];
 
 /** O adaptador do aplicativo, ou `undefined` se ele ainda não está disponível. */

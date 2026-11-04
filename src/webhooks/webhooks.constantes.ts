@@ -39,6 +39,9 @@ export const TRAVA_RECEBIMENTO = 'webhook-entrada-recebimento';
 export const TRAVA_NOME_ENTRADA = 'webhook-entrada-nome';
 export const TRAVA_NOME_SAIDA = 'webhook-saida-nome';
 
+/** Trava consultiva de um evento de entrada (integração + chave de idempotência, R32.20): o mesmo evento não se processa em paralelo. */
+export const TRAVA_EVENTO_DE_ENTRADA = 'webhook-entrada-evento';
+
 /** Segredo HMAC informado pelo Admin (R8.3): tamanho aceito. */
 export const TAMANHO_MINIMO_SEGREDO = 16;
 export const TAMANHO_MAXIMO_SEGREDO = 200;

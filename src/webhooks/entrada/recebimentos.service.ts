@@ -39,6 +39,7 @@ import {
 import { LogsTecnicosService } from '../../logs/logs-tecnicos.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { travarChave } from '../../prisma/travas';
+import { CABECALHO_DO_HOTMART } from '../aplicativos/hotmart';
 import { adaptadorDe } from '../aplicativos/registro';
 import { lerFormularioAninhado } from '../aplicativos/formulario';
 import { nomeDoCabecalho } from '../aplicativos/rd-station';
@@ -99,6 +100,8 @@ interface Chegada {
   readonly mensagem: string | null;
   /** O erro HTTP da recusa, já com o id do recebimento gravado. */
   readonly recusa: ((recebimentoId: string) => ErroApi) | null;
+  /** Aviso de teste do aplicativo (o `ping` da Eduzz): aceito com 2xx, gravado como ignorado e sem processamento (R32.20). */
+  readonly semProcessar?: string | null;
 }
 
 /**
@@ -192,13 +195,20 @@ export class RecebimentosService implements OnModuleInit {
             // O cabeçalho da chave do RD Station leva a própria chave: não é guardado.
             webhook.aplicativo === 'RD_STATION'
               ? [nomeDoCabecalho(objetoDe(webhook.configuracao))]
-              : [],
+              : webhook.aplicativo === 'HOTMART'
+                ? // O hottok da Hotmart também é a própria chave.
+                  [CABECALHO_DO_HOTMART]
+                : [],
           ),
           tipoConteudo: truncar(req.get('content-type'), 200) ?? null,
           corpo: chegada.corpo === null ? Prisma.DbNull : chegada.corpo,
-          status: chegada.aceita ? 'RECEBIDO' : 'ERRO',
-          mensagem: chegada.mensagem,
-          processadoEm: chegada.aceita ? null : agora,
+          status: chegada.semProcessar
+            ? 'IGNORADO'
+            : chegada.aceita
+              ? 'RECEBIDO'
+              : 'ERRO',
+          mensagem: chegada.semProcessar ?? chegada.mensagem,
+          processadoEm: chegada.aceita && !chegada.semProcessar ? null : agora,
         },
         select: { id: true },
       });
@@ -207,7 +217,7 @@ export class RecebimentosService implements OnModuleInit {
       await tx.$executeRaw`
         UPDATE webhooks_entrada SET ultimo_recebimento_em = ${agora}
          WHERE id = ${webhook.id}::uuid`;
-      if (chegada.aceita) {
+      if (chegada.aceita && !chegada.semProcessar) {
         await this.fila.enviar(
           FILA_PROCESSAR_RECEBIMENTO,
           { recebimentoId: recebimento.id },
@@ -228,7 +238,10 @@ export class RecebimentosService implements OnModuleInit {
     if (chegada.recusa) {
       throw chegada.recusa(resultado.recebimentoId);
     }
-    return { id: resultado.recebimentoId, status: 'RECEBIDO' };
+    return {
+      id: resultado.recebimentoId,
+      status: chegada.semProcessar ? 'IGNORADO' : 'RECEBIDO',
+    };
   }
 
   /**
@@ -270,17 +283,19 @@ export class RecebimentosService implements OnModuleInit {
           }),
       };
     }
+    const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
     // Formulário aninhado (`fields[email][value]`, `contact[fields][3]`): lido pelo
     // CRM, que mantém os índices numéricos como chaves (o `qs` os compactaria).
-    const corpo = (
+    const corpoLido = (
       bruto && bruto.length > 0
         ? ehFormulario(req)
           ? lerFormularioAninhado(bruto.toString('utf8'))
           : (req.body ?? {})
         : {}
     ) as Prisma.InputJsonValue;
-
-    const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
+    // O que o aplicativo manda como segredo no corpo (o `originSecret` da Eduzz) não vai ao histórico.
+    const corpo = (adaptador.ocultarSegredosDoCorpo?.(corpoLido) ??
+      corpoLido) as Prisma.InputJsonValue;
     let segredo: string | null = null;
     if (webhook.segredoCifrado) {
       try {
@@ -328,7 +343,13 @@ export class RecebimentosService implements OnModuleInit {
           }),
       };
     }
-    return { aceita: true, corpo, mensagem: null, recusa: null };
+    return {
+      aceita: true,
+      corpo,
+      mensagem: null,
+      recusa: null,
+      semProcessar: adaptador.respostaSemProcessar?.(corpo) ?? null,
+    };
   }
 
   private async avisarLimite(webhook: WebhookEntrada): Promise<void> {

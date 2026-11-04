@@ -48,6 +48,22 @@ export class RecebimentoInvalidoError extends Error {
   }
 }
 
+/**
+ * O que a tabela de eventos decidiu para o item (plataformas de curso, R32.20):
+ * a aplicação a segue no lugar do mapeamento de etapa e status.
+ */
+export interface AcaoDoEventoAplicada {
+  readonly tipo: 'ABRIR' | 'GANHO' | 'PERDIDO' | 'ETIQUETAR';
+  /** `ABRIR`: a etapa escolhida na tabela (sem ela, a etapa de entrada da integração). */
+  readonly etapaId: string | null;
+  /** `PERDIDO`: o motivo da tabela (sem ele, o motivo padrão da integração). */
+  readonly motivoPerda: string | null;
+  /** Etiquetas somadas ao contato. */
+  readonly etiquetas: readonly string[];
+  /** O nome amigável do evento, para as mensagens. */
+  readonly evento: string;
+}
+
 /** O que a aplicação de um item do recebimento fez (R32.3). */
 export interface ResultadoDoItem {
   readonly status: 'PROCESSADO' | 'IGNORADO';
@@ -90,27 +106,35 @@ export class AplicacaoDoRecebimento {
     webhook: WebhookEntrada,
     lead: LeadMapeado,
     variaveis: Record<string, unknown> | null = null,
+    acao: AcaoDoEventoAplicada | null = null,
   ): Promise<ResultadoDoItem> {
     const avisos: string[] = [...lead.avisos];
     const atualizando = webhook.modo === 'ATUALIZAR';
+    // Reembolso, chargeback e etiqueta só agem sobre quem já é contato: não criam.
+    const soAchar =
+      atualizando || acao?.tipo === 'PERDIDO' || acao?.tipo === 'ETIQUETAR';
 
     // -- Contato ------------------------------------------------------------
     let contato: Contato;
     let contatoCriado = false;
     let contatoAtualizado = false;
-    if (atualizando) {
+    if (soAchar) {
       const achado = await this.acharContato(tx, lead);
       if (!achado) {
         return {
           status: 'IGNORADO',
-          mensagem: `Contato não encontrado (${descreverMeio(lead)}): o modo Atualizar não cria contato. Nada foi criado.`,
+          mensagem:
+            acao && !atualizando
+              ? `Contato não encontrado (${descreverMeio(lead)}): o evento "${acao.evento}" só age sobre um comprador que já é contato. Nada foi criado.`
+              : `Contato não encontrado (${descreverMeio(lead)}): o modo Atualizar não cria contato. Nada foi criado.`,
           contatoId: null,
           negocioId: null,
           avisos,
         };
       }
       contato = achado;
-      contatoAtualizado = true;
+      contatoAtualizado =
+        acao?.tipo !== 'PERDIDO' && acao?.tipo !== 'ETIQUETAR';
     } else {
       const resultado = await this.contatos.encontrarOuCriar(tx, {
         nome: lead.contato.nome ?? '',
@@ -134,10 +158,33 @@ export class AplicacaoDoRecebimento {
     if (contatoAtualizado) {
       contato = await this.sobrescreverContato(tx, contato, lead);
     }
+    if (acao) {
+      contato = await this.somarEtiquetas(tx, contato, [
+        ...acao.etiquetas,
+        ...(acao.tipo === 'ETIQUETAR' ? lead.etiquetas : []),
+      ]);
+    }
 
     const funil = await tx.funil.findUniqueOrThrow({
       where: { id: webhook.funilId },
     });
+
+    // -- Só etiquetar (assinatura cancelada, pagamento atrasado…) ------------
+    if (acao?.tipo === 'ETIQUETAR') {
+      return {
+        status: 'PROCESSADO',
+        mensagem: montarMensagem(
+          [
+            `Evento "${acao.evento}"`,
+            `Contato "${contato.nome}" etiquetado${acao.etiquetas.length > 0 ? ` (${acao.etiquetas.join(', ')})` : ''}`,
+          ],
+          avisos,
+        ),
+        contatoId: contato.id,
+        negocioId: null,
+        avisos,
+      };
+    }
 
     // -- Alvo contato -------------------------------------------------------
     if (webhook.alvo === 'CONTATO') {
@@ -185,18 +232,60 @@ export class AplicacaoDoRecebimento {
       !lead.atualizacoes.etapa && variaveis
         ? etapaPelaVariavel(etapas, variaveis)
         : null;
-    const etapaPedida = lead.atualizacoes.etapa
-      ? this.resolverEtapa(etapas, lead.atualizacoes.etapa, funil, avisos)
-      : etapaDaVariavel;
-    const statusPedido = lead.atualizacoes.status
-      ? this.resolverStatus(lead.atualizacoes.status, avisos)
-      : null;
+    const etapaDoEvento =
+      acao?.tipo === 'ABRIR' && acao.etapaId
+        ? (etapas.find(({ id }) => id === acao.etapaId) ?? null)
+        : null;
+    if (acao?.tipo === 'ABRIR' && acao.etapaId && !etapaDoEvento) {
+      avisos.push(
+        'A etapa escolhida para este evento não existe mais no funil: usei a etapa inicial da integração.',
+      );
+    }
+    const etapaPedida = acao
+      ? etapaDoEvento?.tipo === 'ABERTA'
+        ? etapaDoEvento
+        : null
+      : lead.atualizacoes.etapa
+        ? this.resolverEtapa(etapas, lead.atualizacoes.etapa, funil, avisos)
+        : etapaDaVariavel;
+    const statusPedido: StatusNegocio | null = acao
+      ? acao.tipo === 'GANHO'
+        ? 'GANHO'
+        : acao.tipo === 'PERDIDO'
+          ? 'PERDIDO'
+          : null
+      : lead.atualizacoes.status
+        ? this.resolverStatus(lead.atualizacoes.status, avisos)
+        : null;
 
     let negocio: NegocioCompleto;
     let criado = false;
     let reconversao = false;
     const ajustes: string[] = [];
-    if (atualizando) {
+    if (acao?.tipo === 'PERDIDO') {
+      const alvo = await this.negocioParaPerder(
+        tx,
+        contato.id,
+        funil.id,
+        textoDoCampo(lead.camposDoNegocio.transacao),
+      );
+      if (!alvo) {
+        return {
+          status: 'IGNORADO',
+          mensagem: montarMensagem(
+            [
+              `Evento "${acao.evento}"`,
+              `Contato "${contato.nome}" encontrado; nenhum negócio dele para marcar como perdido em ${funil.nome}. Nada foi criado`,
+            ],
+            avisos,
+          ),
+          contatoId: contato.id,
+          negocioId: null,
+          avisos,
+        };
+      }
+      negocio = alvo;
+    } else if (atualizando) {
       const aberto = await this.negocioAbertoMaisRecente(
         tx,
         contato.id,
@@ -254,7 +343,21 @@ export class AplicacaoDoRecebimento {
     // Dados do negócio (valor, título, dono e campos personalizados) de um negócio que já existia.
     if (!criado) {
       const antes = negocio;
-      negocio = await this.atualizarDados(tx, negocio, lead, dono, ajustes);
+      // Perder um negócio ganho não reescreve o título nem o valor da venda.
+      const leadDoNegocio: LeadMapeado =
+        acao?.tipo === 'PERDIDO'
+          ? {
+              ...lead,
+              negocio: { titulo: null, valor: null, valorRecorrente: null },
+            }
+          : lead;
+      negocio = await this.atualizarDados(
+        tx,
+        negocio,
+        leadDoNegocio,
+        dono,
+        ajustes,
+      );
       if (
         negocio.responsavelId !== antes.responsavelId &&
         negocio.responsavelId
@@ -280,13 +383,16 @@ export class AplicacaoDoRecebimento {
       etapaDeEntrada,
       etapaPedida,
       statusPedido,
-      statusInicial: criado ? webhook.statusInicial : 'ABERTO',
+      statusInicial: criado && !acao ? webhook.statusInicial : 'ABERTO',
       negocio,
       avisos,
     });
     if (destino) {
       const motivo =
-        lead.atualizacoes.motivoPerda ?? webhook.motivoPerdaPadrao ?? null;
+        (acao?.tipo === 'PERDIDO' ? acao.motivoPerda : null) ??
+        lead.atualizacoes.motivoPerda ??
+        webhook.motivoPerdaPadrao ??
+        null;
       if (destino.tipo === 'PERDIDO' && !motivo) {
         avisos.push(
           'O negócio não foi marcado como perdido: a perda exige motivo (R5.5). Mapeie o motivo da perda ou defina o motivo padrão da integração.',
@@ -307,6 +413,7 @@ export class AplicacaoDoRecebimento {
     }
 
     const partes = [
+      ...(acao ? [`Evento "${acao.evento}"`] : []),
       contatoCriado
         ? `Contato "${contato.nome}" criado`
         : atualizando
@@ -437,6 +544,83 @@ export class AplicacaoDoRecebimento {
           include: INCLUIR_NEGOCIO,
         })
       : null;
+  }
+
+  /**
+   * O negócio que um reembolso, chargeback, cancelamento ou expiração perde: o
+   * da mesma transação (aberto ou ganho, o campo `transacao` do negócio) e,
+   * sem ele, o aberto mais recente do contato no funil. Nunca cria.
+   */
+  private async negocioParaPerder(
+    tx: Tx,
+    contatoId: string,
+    funilId: string,
+    transacao: string | null,
+  ): Promise<NegocioCompleto | null> {
+    if (transacao) {
+      const [linha] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM negocios
+         WHERE contato_id = ${contatoId}::uuid
+           AND funil_id = ${funilId}::uuid
+           AND status IN ('ABERTO'::status_negocio, 'GANHO'::status_negocio)
+           AND excluido_em IS NULL
+           AND campos_personalizados ->> 'transacao' = ${transacao}
+         ORDER BY criado_em DESC, id DESC
+         LIMIT 1
+           FOR UPDATE`;
+      if (linha) {
+        return tx.negocio.findUniqueOrThrow({
+          where: { id: linha.id },
+          include: INCLUIR_NEGOCIO,
+        });
+      }
+    }
+    return this.negocioAbertoMaisRecente(tx, contatoId, funilId);
+  }
+
+  /** Soma as etiquetas ao contato (sem repetir as que ele já tem); grava e audita só se algo mudou. */
+  private async somarEtiquetas(
+    tx: Tx,
+    antes: Contato,
+    etiquetas: readonly string[],
+  ): Promise<Contato> {
+    const todas = normalizarEtiquetas([...antes.etiquetas, ...etiquetas]);
+    const novas = todas.filter(
+      (etiqueta) =>
+        !antes.etiquetas.some(
+          (atual) =>
+            atual.toLocaleLowerCase('pt-BR') ===
+            etiqueta.toLocaleLowerCase('pt-BR'),
+        ),
+    );
+    if (novas.length === 0) {
+      return antes;
+    }
+    const depois = await tx.contato.update({
+      where: { id: antes.id },
+      data: { etiquetas: todas },
+    });
+    await this.auditoria.registrar(tx, {
+      acao: 'contato.atualizado',
+      entidade: 'contato',
+      entidadeId: depois.id,
+      resumo: `Contato "${depois.nome}" etiquetado por uma integração (${novas.join(', ')})`,
+      dados: {
+        alteracoes: calcularAlteracoes(
+          antes,
+          depois,
+          CAMPOS_AUDITADOS_DO_CONTATO,
+        ),
+        regra: 'R32.20',
+      },
+      relacionados: { empresa: depois.empresaId },
+    });
+    await this.eventos.publicar(tx, 'contato.atualizado', {
+      ...instantaneoDoContato(depois),
+      camposAlterados: ['etiquetas'],
+      motivo: 'integracao',
+    });
+    return depois;
   }
 
   /** Título, valores, dono e campos personalizados do negócio (auditado e publicado como `negocio.atualizado`). */
@@ -642,6 +826,15 @@ export class AplicacaoDoRecebimento {
     }
     return { id: usuario.id, nome: usuario.nome };
   }
+}
+
+function textoDoCampo(valor: unknown): string | null {
+  if (typeof valor === 'string') {
+    return valor.trim() || null;
+  }
+  return typeof valor === 'number' && Number.isFinite(valor)
+    ? String(valor)
+    : null;
 }
 
 function descreverMeio(lead: LeadMapeado): string {

@@ -19,6 +19,15 @@ export interface ItemRecebido {
   readonly rotulo: string | null;
   /** Chave de idempotência do evento (H2: plataformas de curso), quando o aplicativo define uma. */
   readonly chaveDoEvento?: string | null;
+  /** Plataformas de curso (R32.20): o código do evento (`PURCHASE_APPROVED`, `order_approved`, `myeduzz.invoice_paid`…). */
+  readonly evento?: string | null;
+  /** Plataformas de curso: os produtos do evento (para o filtro por produto). */
+  readonly produtos?: readonly ProdutoDoItem[];
+}
+
+export interface ProdutoDoItem {
+  readonly id: string | null;
+  readonly nome: string | null;
 }
 
 export interface EntradaDeAutenticidade {
@@ -37,6 +46,50 @@ export type ResultadoDeAutenticidade =
 /** Como o aplicativo trata o segredo da integração (`segredoCifrado`). */
 export type ModoDoSegredo =
   'NAO_USA' | 'OPCIONAL' | 'GERADO_PELO_CRM' | 'OBRIGATORIO';
+
+/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.20). */
+export type AcaoDoEvento =
+  'IGNORAR' | 'ABRIR' | 'GANHO' | 'PERDIDO' | 'ETIQUETAR';
+
+export interface RegraDoEvento {
+  readonly acao: AcaoDoEvento;
+  /** `ABRIR`: etapa aberta do funil da integração (sem ela, a etapa inicial). */
+  readonly etapaId?: string | null;
+  /** `PERDIDO`: o motivo da perda (R5.5); sem ele, vale o motivo padrão da integração. */
+  readonly motivoPerda?: string | null;
+  /** Etiquetas somadas ao contato (qualquer ação, menos `IGNORAR`). */
+  readonly etiquetas: readonly string[];
+}
+
+export type GrupoDeEvento =
+  'COMPRA' | 'PAGAMENTO_PENDENTE' | 'CARRINHO' | 'POS_VENDA' | 'ASSINATURA';
+
+export interface DefinicaoDeEvento {
+  /** O código que a plataforma envia (chave da tabela). */
+  readonly codigo: string;
+  /** Nome amigável para a tela. */
+  readonly nome: string;
+  readonly descricao: string;
+  readonly grupo: GrupoDeEvento;
+  /** O que a integração faz com ele sem configuração (o modelo `VENDAS`). */
+  readonly padrao: RegraDoEvento;
+}
+
+export interface ModeloDeEventos {
+  readonly codigo: string;
+  readonly nome: string;
+  readonly descricao: string;
+  /** Uma regra por evento (os que faltam valem `IGNORAR`). */
+  readonly regras: Readonly<Record<string, RegraDoEvento>>;
+}
+
+/** A tabela de eventos de uma plataforma de curso: eventos conhecidos, modelos prontos e filtro por produto. */
+export interface EventosDoAplicativo {
+  readonly eventos: readonly DefinicaoDeEvento[];
+  readonly modelos: readonly ModeloDeEventos[];
+  /** O assistente oferece o filtro por produto (`configuracao.produtos`). */
+  readonly filtroPorProduto: boolean;
+}
 
 export type TipoDeAutenticidade =
   | 'NENHUMA'
@@ -99,6 +152,8 @@ export interface DefinicaoDoAplicativo {
   readonly modelo: ModeloDoAplicativo | null;
   /** Dicas dos destinos do mapeamento que o aplicativo usa (`etapa`, `dono`, `status`). */
   readonly dicas: readonly string[];
+  /** Plataformas de curso: a tabela de eventos (R32.20). `undefined` nos demais. */
+  readonly eventos?: EventosDoAplicativo;
 }
 
 export interface CampoBuscado {
@@ -149,6 +204,13 @@ export interface AdaptadorDeAplicativo {
   verificarAutenticidade(
     entrada: EntradaDeAutenticidade,
   ): ResultadoDeAutenticidade;
+  /**
+   * Um aviso de teste do aplicativo (o `ping` da Eduzz) que deve receber 2xx **sem
+   * processar**: devolve o motivo (fica no histórico como `IGNORADO`) ou `null`.
+   */
+  respostaSemProcessar?(corpo: unknown): string | null;
+  /** O corpo sem o que for segredo do aplicativo (o `originSecret` da Eduzz), para o que vai ao histórico. */
+  ocultarSegredosDoCorpo?(corpo: unknown): unknown;
   /** Mensagem específica para o item sem e-mail nem telefone (ex.: contato do Instagram no ManyChat). */
   explicarFaltaDeContato?(
     item: Readonly<Record<string, unknown>>,

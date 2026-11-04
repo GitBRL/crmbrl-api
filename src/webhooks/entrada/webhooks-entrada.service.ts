@@ -35,11 +35,20 @@ import type {
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import { travarChave } from '../../prisma/travas';
 import {
+  completarConfiguracaoDeCurso,
+  etapasDosEventos,
+  semEtapasDosEventos,
+} from '../aplicativos/cursos';
+import {
   adaptadorDe,
   catalogoDeAplicativos,
   definicaoDe,
 } from '../aplicativos/registro';
-import type { CampoBuscado, Credencial } from '../aplicativos/tipos';
+import type {
+  CampoBuscado,
+  Credencial,
+  RegraDoEvento,
+} from '../aplicativos/tipos';
 import {
   EtapaDoWebhookDto,
   FunilDoWebhookDto,
@@ -71,6 +80,7 @@ import type {
   AplicativoDto,
   CatalogoDeAplicativosDto,
   EnderecoDaIntegracaoDto,
+  RegraDoEventoDto,
 } from './dto/integracao.dto';
 import type { CredencialDaIntegracaoDto } from './dto/webhook-entrada.dto';
 import { AplicativosService, objetoDe } from './aplicativos.service';
@@ -275,11 +285,15 @@ export class WebhooksEntradaService {
       null,
       true,
     );
-    const configuracao = this.aplicativos.validarConfiguracao(
-      aplicativo,
-      dto.configuracao ?? {},
-      {},
+    const configuracao = completarConfiguracaoDeCurso(
+      definicao,
+      this.aplicativos.validarConfiguracao(
+        aplicativo,
+        dto.configuracao ?? {},
+        {},
+      ),
     );
+    await this.aplicativos.conferirConfiguracaoNova(aplicativo, configuracao);
     const estrategia = dto.estrategia ?? 'RODIZIO';
     const ativo = dto.ativo ?? true;
 
@@ -293,6 +307,7 @@ export class WebhooksEntradaService {
       if (ativo) {
         garantirFunilAtivo(funil);
       }
+      await this.conferirEtapasDosEventos(tx, funil.id, configuracao);
       const responsavelFixoId = await this.resolverResponsavelFixo(
         tx,
         estrategia,
@@ -340,8 +355,8 @@ export class WebhooksEntradaService {
       return webhook.id;
     });
 
-    if (aplicativo === 'TYPEFORM') {
-      await this.aplicativos.sincronizarWebhookDoTypeform(id);
+    if (this.aplicativos.registraNaFerramenta(aplicativo)) {
+      await this.aplicativos.sincronizarComAFerramenta(id);
     }
     return {
       webhook: await this.detalhar(id),
@@ -370,6 +385,20 @@ export class WebhooksEntradaService {
             true,
           )
         : undefined;
+    if (
+      dto.configuracao !== undefined &&
+      atual.aplicativo === 'FACEBOOK_LEAD_ADS'
+    ) {
+      // A escolha nova (conexão, página, formulário) precisa existir na Meta; falha antes de gravar.
+      await this.aplicativos.conferirConfiguracaoNova(
+        atual.aplicativo,
+        this.aplicativos.validarConfiguracao(
+          atual.aplicativo,
+          dto.configuracao,
+          objetoDe(atual.configuracao),
+        ),
+      );
+    }
     let sincronizarTypeform = false;
 
     await this.prisma.$transaction(async (tx) => {
@@ -475,6 +504,19 @@ export class WebhooksEntradaService {
           objetoDe(antes.configuracao),
         ) as Prisma.InputJsonObject;
       }
+      // Plataformas de curso: as etapas escolhidas na tabela de eventos são do funil da integração.
+      if (
+        adaptadorDe(antes.aplicativo)?.definicao.eventos &&
+        (dto.configuracao?.eventos !== undefined || funil.id !== antes.funilId)
+      ) {
+        const vigente = objetoDe(dados.configuracao ?? antes.configuracao);
+        const configuracaoDoFunil =
+          dto.configuracao?.eventos === undefined && funil.id !== antes.funilId
+            ? semEtapasDosEventos(vigente)
+            : vigente;
+        dados.configuracao = configuracaoDoFunil as Prisma.InputJsonObject;
+        await this.conferirEtapasDosEventos(tx, funil.id, configuracaoDoFunil);
+      }
       const ativo = dto.ativo ?? antes.ativo;
       if (ativo && (dto.ativo === true || mudouEntrada)) {
         garantirFunilAtivo(funil);
@@ -486,11 +528,18 @@ export class WebhooksEntradaService {
         data: dados,
       });
       sincronizarTypeform =
-        antes.aplicativo === 'TYPEFORM' &&
-        (depois.ativo !== antes.ativo ||
-          credencial !== undefined ||
-          JSON.stringify(objetoDe(depois.configuracao).formularioId) !==
-            JSON.stringify(objetoDe(antes.configuracao).formularioId));
+        (antes.aplicativo === 'TYPEFORM' &&
+          (depois.ativo !== antes.ativo ||
+            credencial !== undefined ||
+            JSON.stringify(objetoDe(depois.configuracao).formularioId) !==
+              JSON.stringify(objetoDe(antes.configuracao).formularioId))) ||
+        (antes.aplicativo === 'FACEBOOK_LEAD_ADS' &&
+          (depois.ativo !== antes.ativo ||
+            ['conexaoId', 'paginaId', 'formularioId'].some(
+              (chave) =>
+                JSON.stringify(objetoDe(depois.configuracao)[chave]) !==
+                JSON.stringify(objetoDe(antes.configuracao)[chave]),
+            )));
       const alteracoes = calcularAlteracoes(antes, depois, CAMPOS_AUDITADOS);
       if (credencial !== undefined) {
         // Só os nomes dos campos: nunca o valor da credencial.
@@ -521,7 +570,7 @@ export class WebhooksEntradaService {
       }
     });
     if (sincronizarTypeform) {
-      await this.aplicativos.sincronizarWebhookDoTypeform(id);
+      await this.aplicativos.sincronizarComAFerramenta(id);
     }
     return this.detalhar(id);
   }
@@ -544,7 +593,7 @@ export class WebhooksEntradaService {
       });
       return antes;
     });
-    await this.aplicativos.removerWebhookDoTypeform(webhook);
+    await this.aplicativos.removerDaFerramenta(webhook);
   }
 
   /** Token novo (R8.2): o endereço antigo para de funcionar na hora (e o webhook do Typeform é registrado de novo). */
@@ -866,6 +915,24 @@ export class WebhooksEntradaService {
             }
           : null,
         dicas: [...definicao.dicas],
+        eventos: definicao.eventos
+          ? {
+              eventos: definicao.eventos.eventos.map((e) => ({
+                ...e,
+                padrao: copiarRegra(e.padrao),
+              })),
+              modelos: definicao.eventos.modelos.map((m) => ({
+                ...m,
+                regras: Object.fromEntries(
+                  Object.entries(m.regras).map(([codigo, regra]) => [
+                    codigo,
+                    copiarRegra(regra),
+                  ]),
+                ),
+              })),
+              filtroPorProduto: definicao.eventos.filtroPorProduto,
+            }
+          : null,
         tiposDeConteudo: [...definicao.tiposDeConteudo],
         autenticidade: { ...definicao.autenticidade },
       })),
@@ -1017,6 +1084,37 @@ export class WebhooksEntradaService {
    * escolhido sem etapa, a primeira etapa aberta. A etapa precisa ser do
    * funil (R5.4) e não pode ser a de perda (R5.5, que exige motivo).
    */
+  /** Plataformas de curso: a etapa de um evento `ABRIR` existe no funil da integração e é aberta. */
+  private async conferirEtapasDosEventos(
+    tx: Tx,
+    funilId: string,
+    configuracao: Record<string, unknown>,
+  ): Promise<void> {
+    const ids = etapasDosEventos(configuracao);
+    if (ids.length === 0) {
+      return;
+    }
+    const etapas = await tx.etapa.findMany({
+      where: { id: { in: ids }, funilId },
+      select: { id: true, tipo: true },
+    });
+    for (const id of ids) {
+      const etapa = etapas.find((candidata) => candidata.id === id);
+      if (!etapa) {
+        throw erroDeCampo(
+          'configuracao.eventos',
+          `a etapa ${id} não pertence ao funil da integração`,
+        );
+      }
+      if (etapa.tipo !== 'ABERTA') {
+        throw erroDeCampo(
+          'configuracao.eventos',
+          'a etapa de um evento "abrir negócio" deve ser uma etapa aberta (não a de ganho nem a de perda)',
+        );
+      }
+    }
+  }
+
   private async resolverEntrada(
     tx: Tx,
     funilId: string | undefined,
@@ -1217,6 +1315,15 @@ function montarPrevia(
     atualizacoes: { ...lead.atualizacoes },
     camposDoNegocio: lead.camposDoNegocio,
     itens: itens.length,
+  };
+}
+
+function copiarRegra(regra: RegraDoEvento): RegraDoEventoDto {
+  return {
+    acao: regra.acao,
+    etapaId: regra.etapaId ?? null,
+    motivoPerda: regra.motivoPerda ?? null,
+    etiquetas: [...regra.etiquetas],
   };
 }
 

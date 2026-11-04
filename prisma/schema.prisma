@@ -964,7 +964,8 @@ model WebhookEntrada {
   atualizadoEm        DateTime               @updatedAt @map("atualizado_em") @db.Timestamptz(3)
   excluidoEm          DateTime?              @map("excluido_em") @db.Timestamptz(3)
 
-  recebimentos WebhookRecebimento[]
+  recebimentos   WebhookRecebimento[]
+  leadsFacebook  LeadFacebook[]
 
   @@index([aplicativo])
   @@map("webhooks_entrada")
@@ -998,6 +999,74 @@ model WebhookRecebimento {
   @@index([recebidoEm])
   @@index([status])
   @@map("webhook_recebimentos")
+}
+
+/// Como a conexão com o Facebook foi feita: "Entrar com o Facebook" (token de usuário de longa duração) ou token de página colado (R32.14).
+enum TipoConexaoFacebook {
+  USUARIO
+  PAGINA
+
+  @@map("tipo_conexao_facebook")
+}
+
+/// De onde veio o lead do Facebook: o webhook `leadgen` ou a reconciliação periódica (R32.14).
+enum OrigemLeadFacebook {
+  WEBHOOK
+  RECONCILIACAO
+
+  @@map("origem_lead_facebook")
+}
+
+/// Conexão com o Facebook Lead Ads (R32.14): o app da Meta (id e segredo) e o acesso às páginas. Várias integrações
+/// (uma por formulário) usam a mesma conexão. Tudo que é segredo fica cifrado (R10.3) e nunca sai da API.
+model ConexaoFacebook {
+  id                  String              @id @default(uuid()) @db.Uuid
+  nome                String
+  tipo                TipoConexaoFacebook
+  appId               String              @map("app_id")
+  appSecretCifrado    String              @map("app_secret_cifrado")
+  /// Token de usuário de longa duração (USUARIO) ou o token da página (PAGINA), cifrado. Nulo enquanto o login não terminou.
+  tokenCifrado        String?             @map("token_cifrado")
+  /// JSON cifrado `[{id, nome, categoria, token}]` com as páginas e seus tokens (que não expiram com o do usuário).
+  paginasCifradas     String?             @map("paginas_cifradas")
+  usuarioFacebookId   String?             @map("usuario_facebook_id")
+  usuarioFacebookNome String?             @map("usuario_facebook_nome")
+  /// Quando o token do usuário expira (a Meta informa ~60 dias); as páginas seguem valendo.
+  expiraEm            DateTime?           @map("expira_em") @db.Timestamptz(3)
+  /// Canal Messenger/Instagram de onde o app foi reaproveitado (só informativo).
+  canalOrigemId       String?             @map("canal_origem_id") @db.Uuid
+  /// SHA-256 do `state` do login em andamento (uso único) e a validade dele.
+  estadoHash          String?             @map("estado_hash")
+  estadoExpiraEm      DateTime?           @map("estado_expira_em") @db.Timestamptz(3)
+  conectadaEm         DateTime?           @map("conectada_em") @db.Timestamptz(3)
+  precisaAtencao      Boolean             @default(false) @map("precisa_atencao")
+  atencaoMotivo       String?             @map("atencao_motivo")
+  atencaoEm           DateTime?           @map("atencao_em") @db.Timestamptz(3)
+  criadoPorId         String?             @map("criado_por_id") @db.Uuid
+  criadoEm            DateTime            @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm        DateTime            @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm          DateTime?           @map("excluido_em") @db.Timestamptz(3)
+
+  @@index([excluidoEm])
+  @@map("conexoes_facebook")
+}
+
+/// Lead do Facebook já recebido por uma integração (R32.14): a chave `(integração, leadgen_id)` impede repetir o mesmo lead
+/// (o webhook pode chegar duas vezes e a reconciliação encontra o que o webhook já trouxe). Sem dados pessoais.
+model LeadFacebook {
+  id             String             @id @default(uuid()) @db.Uuid
+  webhookId      String             @map("webhook_id") @db.Uuid
+  webhook        WebhookEntrada     @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  leadgenId      String             @map("leadgen_id")
+  formularioId   String             @map("formulario_id")
+  criadoNaMetaEm DateTime?          @map("criado_na_meta_em") @db.Timestamptz(3)
+  origem         OrigemLeadFacebook
+  recebimentoId  String?            @map("recebimento_id") @db.Uuid
+  recebidoEm     DateTime           @default(now()) @map("recebido_em") @db.Timestamptz(3)
+
+  @@unique([webhookId, leadgenId])
+  @@index([webhookId, criadoNaMetaEm])
+  @@map("leads_facebook")
 }
 
 /// Destino de eventos (R9.1). Segredo e cabeçalhos extras ficam cifrados (R10.3).

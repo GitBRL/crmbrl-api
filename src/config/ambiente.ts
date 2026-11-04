@@ -42,6 +42,8 @@ export const TAMANHO_MINIMO_TOKEN_INTERNO = 32;
 /** Endereço e versão padrão da Graph API da Meta (Instagram e Messenger). */
 export const META_GRAPH_URL_PADRAO = 'https://graph.facebook.com';
 export const META_GRAPH_VERSAO_PADRAO = 'v24.0';
+/** Endereço padrão do diálogo "Entrar com o Facebook" (aberto no navegador, R32.14). */
+export const META_DIALOGO_URL_PADRAO = 'https://www.facebook.com';
 export const TYPEFORM_API_URL_PADRAO = 'https://api.typeform.com';
 export const MANYCHAT_API_URL_PADRAO = 'https://api.manychat.com';
 
@@ -102,6 +104,8 @@ export interface ConfiguracaoMeta {
   readonly graphUrl: string;
   /** Versão da Graph API (`META_GRAPH_VERSAO`, ex.: `v24.0`). */
   readonly graphVersao: string;
+  /** Base do diálogo de login do Facebook, sem barra no fim (`META_DIALOGO_URL`; é aberta no NAVEGADOR do Admin, R32.14). */
+  readonly dialogoUrl: string;
 }
 
 /** Ligações pelo WhatsApp oficial (Onda E, R29). */
@@ -285,6 +289,7 @@ export interface VariaveisDeAmbiente {
   WHATSAPP_PORTA?: string;
   META_GRAPH_URL?: string;
   META_GRAPH_VERSAO?: string;
+  META_DIALOGO_URL?: string;
   TYPEFORM_API_URL?: string;
   MANYCHAT_API_URL?: string;
   LIGACOES_STUN_URLS?: string;
@@ -345,6 +350,7 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'WHATSAPP_PORTA',
   'META_GRAPH_URL',
   'META_GRAPH_VERSAO',
+  'META_DIALOGO_URL',
   'TYPEFORM_API_URL',
   'MANYCHAT_API_URL',
   'LIGACOES_STUN_URLS',
@@ -1290,7 +1296,14 @@ function lerMeta(
       `META_GRAPH_VERSAO precisa ter o formato vNN.N, como ${META_GRAPH_VERSAO_PADRAO} (recebido: "${versao}").`,
     );
   }
-  return { graphUrl, graphVersao: versao };
+  const dialogoUrl =
+    lerEnderecoHttp(
+      'META_DIALOGO_URL',
+      variaveis.META_DIALOGO_URL,
+      META_DIALOGO_URL_PADRAO,
+      problemas,
+    ) ?? META_DIALOGO_URL_PADRAO;
+  return { graphUrl, graphVersao: versao, dialogoUrl };
 }
 
 /**

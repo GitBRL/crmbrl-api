@@ -79,7 +79,7 @@ function http(respostas: Record<string, { status: number; json?: unknown }>): {
 }
 
 describe('Catálogo de aplicativos (R32.1)', () => {
-  it('R32.1 — lista os 12 aplicativos em ordem alfabética; os da H2 aparecem como indisponíveis', () => {
+  it('R32.1 — lista os 12 aplicativos em ordem alfabética, todos disponíveis (a H2 entregou o Facebook e as plataformas de curso)', () => {
     const catalogo = catalogoDeAplicativos();
     expect(catalogo.map(({ nome }) => nome)).toEqual([
       'ActiveCampaign',
@@ -99,7 +99,7 @@ describe('Catálogo de aplicativos (R32.1)', () => {
       catalogo
         .filter(({ disponivel }) => !disponivel)
         .map(({ aplicativo }) => aplicativo),
-    ).toEqual(['EDUZZ', 'FACEBOOK_LEAD_ADS', 'HOTMART', 'KIWIFY']);
+    ).toEqual([]);
     // Cada aplicativo disponível explica o lado da ferramenta e traz um modelo.
     for (const definicao of catalogo.filter(({ disponivel }) => disponivel)) {
       expect(definicao.passoAPasso.passos.length).toBeGreaterThan(0);

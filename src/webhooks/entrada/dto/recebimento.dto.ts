@@ -135,6 +135,22 @@ export class ItemDoRecebimentoDto {
 
   @ApiProperty({ type: [String] })
   avisos: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'Plataformas de curso: o código do evento (`PURCHASE_APPROVED`, `order_approved`, `myeduzz.invoice_paid`…).',
+  })
+  evento?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'Chave de idempotência do evento (R32.20): o mesmo evento não se processa duas vezes.',
+  })
+  chave?: string | null;
 }
 
 /** O que a listagem mostra de cada recebimento (R8.6), sem o corpo. */
@@ -247,8 +263,13 @@ export class RecebimentoAceitoDto {
   })
   id: string;
 
-  @ApiProperty({ enum: ['RECEBIDO'], example: 'RECEBIDO' })
-  status: 'RECEBIDO';
+  @ApiProperty({
+    enum: ['RECEBIDO', 'IGNORADO'],
+    example: 'RECEBIDO',
+    description:
+      '`IGNORADO` só no aviso de teste de uma plataforma (o `ping` da Eduzz): aceito com sucesso e sem processar.',
+  })
+  status: 'RECEBIDO' | 'IGNORADO';
 }
 
 export class PreviaDoWebhookDto {

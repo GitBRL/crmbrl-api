@@ -346,18 +346,12 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
     )
       .get('/api/v1/webhooks/aplicativos')
       .expect(403);
-    for (const aplicativo of [
-      'FACEBOOK_LEAD_ADS',
-      'HOTMART',
-      'KIWIFY',
-      'EDUZZ',
-    ]) {
-      const resposta = await admin
-        .post('/api/v1/webhooks/entradas', { nome: aplicativo, aplicativo })
-        .expect(422);
-      expect((resposta.body as { mensagem: string }).mensagem).toMatch(
-        /ainda não está disponível/,
-      );
+    // Hotmart, Kiwify e Eduzz chegaram na H2 (R32.20, cenários 360 a 379 em integracoes-cursos).
+    for (const aplicativo of ['HOTMART', 'KIWIFY', 'EDUZZ']) {
+      expect(
+        catalogo.aplicativos.find((a) => a.aplicativo === aplicativo)
+          ?.disponivel,
+      ).toBe(true);
     }
   });
 

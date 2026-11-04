@@ -27,3 +27,13 @@ export function cabecalho(
   }
   return valor ?? null;
 }
+
+/** HMAC do corpo bruto com a chave, na codificação pedida (Kiwify: SHA-1 em hexadecimal; Eduzz: SHA-256 em hexadecimal ou base64). */
+export function assinaturaHmac(
+  algoritmo: 'sha1' | 'sha256',
+  segredo: string,
+  corpoBruto: Buffer | string,
+  codificacao: 'hex' | 'base64',
+): string {
+  return createHmac(algoritmo, segredo).update(corpoBruto).digest(codificacao);
+}

@@ -10,22 +10,37 @@ import {
   ErroApi,
 } from '../../comum/erros/excecoes';
 import type { ProblemaDeCampo } from '../../comum/validacao/validacao';
+import { normalizarEtiquetas } from '../../comum/dominio/etiquetas';
 import { FilaService } from '../../fila/fila.service';
-import type { Prisma, StatusRecebimento } from '../../generated/prisma/client';
+import type {
+  Prisma,
+  StatusRecebimento,
+  WebhookEntrada,
+} from '../../generated/prisma/client';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
+import { travarChave } from '../../prisma/travas';
+import {
+  descreverProdutos,
+  produtoPassaNoFiltro,
+  produtosDoFiltro,
+  regraDoEvento,
+} from '../aplicativos/cursos';
 import { adaptadorDe } from '../aplicativos/registro';
-import type { ItemRecebido } from '../aplicativos/tipos';
+import type { AdaptadorDeAplicativo, ItemRecebido } from '../aplicativos/tipos';
 import { adaptadorWebhook } from '../aplicativos/webhook';
 import {
   ESPERA_ENTRE_PROCESSAMENTOS_SEGUNDOS,
   FILA_PROCESSAR_RECEBIMENTO,
   TENTATIVAS_DE_PROCESSAMENTO,
+  TRAVA_EVENTO_DE_ENTRADA,
 } from '../webhooks.constantes';
 import {
+  type AcaoDoEventoAplicada,
   AplicacaoDoRecebimento,
   RecebimentoInvalidoError,
   type ResultadoDoItem,
 } from './aplicacao-do-recebimento';
+import { objetoDe } from './aplicativos.service';
 import { aplicarMapeamento } from './mapeamento';
 import { mapeamentoDaIntegracao } from './mapeamento-da-integracao';
 
@@ -42,6 +57,10 @@ export interface ResultadoGravado {
   readonly contatoId: string | null;
   readonly negocioId: string | null;
   readonly avisos: readonly string[];
+  /** Plataformas de curso: o código do evento. */
+  readonly evento?: string | null;
+  /** Chave de idempotência do evento (só nos itens processados: é ela que barra o reenvio, R32.20). */
+  readonly chave?: string | null;
 }
 
 /**
@@ -187,6 +206,30 @@ export class ProcessamentoEntradaService implements OnModuleInit {
       where: { id: recebimento.webhookId },
     });
     const adaptador = adaptadorDe(webhook.aplicativo) ?? adaptadorWebhook;
+    // Plataformas de curso: filtro por produto e tabela de eventos; todos os
+    // aplicativos com chave de evento (Typeform, plataformas): sem repetir.
+    const decisao = await this.decidirEvento(
+      tx,
+      webhook,
+      adaptador,
+      recebimentoId,
+      item,
+    );
+    const encerrar = (status: 'IGNORADO', mensagem: string) =>
+      this.gravarResultado(tx, recebimentoId, {
+        indice,
+        rotulo: item.rotulo,
+        status,
+        mensagem: limitar(mensagem),
+        contatoId: null,
+        negocioId: null,
+        avisos: [],
+        evento: item.evento ?? null,
+      });
+    if (decisao.ignorar) {
+      await encerrar('IGNORADO', decisao.ignorar);
+      return;
+    }
     const lead = aplicarMapeamento(
       mapeamentoDaIntegracao(webhook),
       item.corpo,
@@ -194,15 +237,7 @@ export class ProcessamentoEntradaService implements OnModuleInit {
       { exigirNome: webhook.modo !== 'ATUALIZAR' },
     );
     if (lead.ignorado) {
-      await this.gravarResultado(tx, recebimentoId, {
-        indice,
-        rotulo: item.rotulo,
-        status: 'IGNORADO',
-        mensagem: limitar(lead.ignorado),
-        contatoId: null,
-        negocioId: null,
-        avisos: [],
-      });
+      await encerrar('IGNORADO', lead.ignorado);
       return;
     }
     if (lead.problemas.length > 0) {
@@ -212,6 +247,14 @@ export class ProcessamentoEntradaService implements OnModuleInit {
         lead.problemas.some((problema) =>
           problema.startsWith('Sem e-mail nem telefone'),
         );
+      // Carrinho e assinatura sem comprador identificado não são erro: não há quem criar.
+      if (semContato && decisao.semContatoIgnora) {
+        await encerrar(
+          'IGNORADO',
+          `O evento "${decisao.acao?.evento ?? item.evento}" veio sem e-mail nem telefone do comprador: nada a criar.`,
+        );
+        return;
+      }
       const explicacao = semContato
         ? adaptador.explicarFaltaDeContato?.(
             typeof item.corpo === 'object' && item.corpo !== null
@@ -223,11 +266,21 @@ export class ProcessamentoEntradaService implements OnModuleInit {
         explicacao ?? lead.problemas.join(' '),
       );
     }
+    const leadDoEvento = decisao.acao
+      ? {
+          ...lead,
+          etiquetas: normalizarEtiquetas([
+            ...lead.etiquetas,
+            ...decisao.acao.etiquetas,
+          ]),
+        }
+      : lead;
     const resultado: ResultadoDoItem = await this.aplicacao.aplicar(
       tx,
       webhook,
-      lead,
+      leadDoEvento,
       webhook.aplicativo === 'TYPEFORM' ? variaveisDoItem(item.corpo) : null,
+      decisao.acao,
     );
     await this.gravarResultado(tx, recebimentoId, {
       indice,
@@ -237,7 +290,101 @@ export class ProcessamentoEntradaService implements OnModuleInit {
       contatoId: resultado.contatoId,
       negocioId: resultado.negocioId,
       avisos: [...resultado.avisos],
+      evento: item.evento ?? null,
+      chave:
+        resultado.status === 'PROCESSADO' ? (item.chaveDoEvento ?? null) : null,
     });
+  }
+
+  /**
+   * O que fazer com o item antes de aplicar o mapeamento (R32.20):
+   *
+   * 1. **Produto**: com o filtro da integração, só os produtos listados passam.
+   * 2. **Tabela de eventos** (plataformas de curso): o evento sem regra é
+   *    ignorado com o motivo; `IGNORAR` também; as demais viram a ação.
+   * 3. **Idempotência**: um evento com a mesma chave que já foi processado
+   *    nesta integração (outro recebimento) é ignorado. Uma trava por
+   *    integração e chave faz dois envios simultâneos do mesmo evento
+   *    esperarem um ao outro.
+   */
+  private async decidirEvento(
+    tx: Tx,
+    webhook: WebhookEntrada,
+    adaptador: AdaptadorDeAplicativo,
+    recebimentoId: string,
+    item: ItemRecebido,
+  ): Promise<{
+    ignorar: string | null;
+    acao: AcaoDoEventoAplicada | null;
+    semContatoIgnora: boolean;
+  }> {
+    const ignorar = (motivo: string) => ({
+      ignorar: motivo,
+      acao: null,
+      semContatoIgnora: false,
+    });
+    let acao: AcaoDoEventoAplicada | null = null;
+    let semContatoIgnora = false;
+    const definicao = adaptador.definicao.eventos;
+    if (definicao) {
+      const configuracao = objetoDe(webhook.configuracao);
+      const filtro = produtosDoFiltro(configuracao);
+      const produtos = item.produtos ?? [];
+      if (!produtoPassaNoFiltro(filtro, produtos)) {
+        return ignorar(
+          `Produto fora do filtro desta integração (${descreverProdutos(produtos)}): evento ignorado.`,
+        );
+      }
+      const codigo = item.evento ?? null;
+      const decidida = codigo
+        ? regraDoEvento(definicao.eventos, configuracao, codigo)
+        : null;
+      if (!decidida) {
+        return ignorar(
+          codigo
+            ? `Evento "${codigo}" não está na tabela de eventos desta integração: ignorado. Acrescente-o à tabela para tratá-lo.`
+            : 'O corpo não traz o tipo do evento: ignorado.',
+        );
+      }
+      const nome = decidida.definicao?.nome ?? codigo ?? '';
+      if (decidida.regra.acao === 'IGNORAR') {
+        return ignorar(
+          `Evento "${nome}" configurado para ser ignorado na tabela de eventos.`,
+        );
+      }
+      acao = {
+        tipo: decidida.regra.acao,
+        etapaId: decidida.regra.etapaId ?? null,
+        motivoPerda: decidida.regra.motivoPerda ?? null,
+        etiquetas: decidida.regra.etiquetas,
+        evento: nome,
+      };
+      semContatoIgnora =
+        decidida.definicao?.grupo === 'CARRINHO' ||
+        decidida.definicao?.grupo === 'ASSINATURA';
+    }
+    if (item.chaveDoEvento) {
+      await travarChave(
+        tx,
+        TRAVA_EVENTO_DE_ENTRADA,
+        webhook.id,
+        item.chaveDoEvento,
+      );
+      const [repetido] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM webhook_recebimentos
+         WHERE webhook_id = ${webhook.id}::uuid
+           AND id <> ${recebimentoId}::uuid
+           AND resultados @> ${JSON.stringify([
+             { chave: item.chaveDoEvento, status: 'PROCESSADO' },
+           ])}::jsonb
+         LIMIT 1`;
+      if (repetido) {
+        return ignorar(
+          `Evento repetido: já foi processado (recebimento ${repetido.id}). Nada foi criado nem alterado.`,
+        );
+      }
+    }
+    return { ignorar: null, acao, semContatoIgnora };
   }
 
   /** Acrescenta (ou troca) o resultado do item em `resultados`. A linha do recebimento já está presa. */
@@ -368,6 +515,8 @@ export function lerResultados(
               (aviso): aviso is string => typeof aviso === 'string',
             )
           : [],
+        evento: typeof r.evento === 'string' ? r.evento : null,
+        chave: typeof r.chave === 'string' ? r.chave : null,
       },
     ];
   });

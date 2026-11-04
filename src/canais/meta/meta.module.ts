@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AtendimentoModule } from '../../atendimento/atendimento.module';
 import { CanaisComumModule } from '../comum/canais-comum.module';
+import { WebhooksModule } from '../../webhooks/webhooks.module';
 import { WhatsappOficialModule } from '../whatsapp-oficial/whatsapp-oficial.module';
 import { AdaptadorInstagram, AdaptadorMessenger } from './adaptadores-meta';
 import { GraphApi } from './graph-api';
@@ -18,10 +19,16 @@ import { WebhookMetaService } from './webhook-meta.service';
  *   e a janela de 24 h;
  * - configuração pelo Admin em `/api/v1/meta/canais` (credenciais cifradas);
  * - o que vem com `object: whatsapp_business_account` é do WhatsApp oficial
- *   (`WhatsappOficialModule`, R28).
+ *   (`WhatsappOficialModule`, R28);
+ * - os `leadgen` do objeto `page` são do Facebook Lead Ads (`WebhooksModule`, R32.14).
  */
 @Module({
-  imports: [AtendimentoModule, CanaisComumModule, WhatsappOficialModule],
+  imports: [
+    AtendimentoModule,
+    CanaisComumModule,
+    WhatsappOficialModule,
+    WebhooksModule,
+  ],
   controllers: [WebhookMetaController, MetaCanaisController],
   providers: [
     GraphApi,

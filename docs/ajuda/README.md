@@ -80,6 +80,6 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 ## administracao
 - [Consultar a auditoria e os logs técnicos](administracao-auditoria-e-logs.md)
 - [Histórico de dúvidas à IA (Admin)](administracao-duvidas-ia.md)
-- [Webhooks de entrada (captar leads) e de saída (avisar outros sistemas)](administracao-integracoes-webhooks.md)
+- [Integrações: aplicativos, histórico e webhooks de saída](administracao-integracoes-webhooks.md)
 
 Ao manter: atualize o artigo quando a tela mudar e confira com `FRONT/docs/TELAS-*.md` e `REGRAS-DE-NEGOCIO.md`.

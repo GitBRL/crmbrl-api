@@ -12,6 +12,12 @@ import {
   WebhooksEntradaController,
 } from './entrada/webhooks-entrada.controller';
 import { WebhooksEntradaService } from './entrada/webhooks-entrada.service';
+import { ConexoesFacebookService } from './facebook/conexoes-facebook.service';
+import {
+  FacebookController,
+  FacebookPublicoController,
+} from './facebook/facebook.controller';
+import { FacebookLeadAdsService } from './facebook/facebook-lead-ads.service';
 import { EntregasService } from './saida/entregas.service';
 import { WebhooksSaidaController } from './saida/webhooks-saida.controller';
 import { WebhooksSaidaService } from './saida/webhooks-saida.service';
@@ -35,6 +41,8 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
     AplicativosController,
     HistoricoDeRecebimentosController,
     WebhooksSaidaController,
+    FacebookController,
+    FacebookPublicoController,
   ],
   providers: [
     WebhooksEntradaService,
@@ -44,8 +52,11 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
     ProcessamentoEntradaService,
     WebhooksSaidaService,
     EntregasService,
+    ConexoesFacebookService,
+    FacebookLeadAdsService,
   ],
   // Automações (Onda B): a ação "chamar webhook de saída" cria entregas.
-  exports: [EntregasService],
+  // Meta (R14, R32.14): o roteador do webhook entrega os `leadgen` ao Facebook Lead Ads.
+  exports: [EntregasService, FacebookLeadAdsService],
 })
 export class WebhooksModule {}

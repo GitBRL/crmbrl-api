@@ -17,6 +17,7 @@ import { LogsTecnicosService } from '../../logs/logs-tecnicos.service';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service';
 import { TIPOS_NOTIFICACAO } from '../../notificacoes/tipos-notificacao';
 import { PrismaService } from '../../prisma/prisma.service';
+import { validarProdutos, validarTabelaDeEventos } from '../aplicativos/cursos';
 import { adaptadorDe, definicaoDe } from '../aplicativos/registro';
 import {
   type AdaptadorDeAplicativo,
@@ -40,9 +41,18 @@ import { montarEndereco } from './endereco';
 export const CHAVES_EDITAVEIS_DA_CONFIGURACAO = [
   'formularioId',
   'cabecalhoDeAutenticacao',
+  // Facebook Lead Ads (R32.14): a conexão, a página e o formulário (`formularioId`, acima).
+  'conexaoId',
+  'paginaId',
+  // Plataformas de curso (R32.20): a tabela de eventos e o filtro por produto.
+  'eventos',
+  'produtos',
 ] as const;
 
 const FORMATO_DO_ID_DO_FORMULARIO = /^[A-Za-z0-9_-]{1,100}$/;
+const FORMATO_DO_ID_DO_FACEBOOK = /^[0-9]{1,40}$/;
+const FORMATO_DO_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FORMATO_DO_CABECALHO = /^[A-Za-z0-9-]{1,100}$/;
 
 export interface ResultadoDoTeste {
@@ -56,6 +66,34 @@ interface WebhookRegistrado {
   readonly tag: string;
   readonly ativo: boolean;
   readonly em: string;
+}
+
+/**
+ * O que o aplicativo faz por conta própria quando não é só "receber um corpo"
+ * (Facebook Lead Ads, R32.14): buscar campos e formulários, validar a escolha
+ * e manter a assinatura na ferramenta. Registrado no início da aplicação pelo
+ * serviço do aplicativo (sem dependência circular com este).
+ */
+export interface DelegadoDeAplicativo {
+  /** Confere a configuração de uma integração nova (conexão, página e formulário escolhidos). */
+  conferirConfiguracaoNova(
+    configuracao: Record<string, unknown>,
+  ): Promise<void>;
+  buscarCampos(integracao: WebhookEntrada): Promise<CampoBuscado[]>;
+  listarFormularios(
+    integracao: WebhookEntrada,
+    busca?: string,
+  ): Promise<FormularioDoAplicativo[]>;
+  camposDoFormulario(
+    integracao: WebhookEntrada,
+    formularioId: string,
+  ): Promise<CampoBuscado[]>;
+  /** Põe a assinatura da ferramenta em dia com a integração (ativa, formulário, exclusão…). Não lança. */
+  sincronizar(
+    id: string,
+  ): Promise<{ registrado: boolean; erro: string | null }>;
+  /** Remove o que o CRM registrou na ferramenta (a integração foi excluída). Não lança. */
+  remover(integracao: WebhookEntrada): Promise<void>;
 }
 
 export function objetoDe(valor: unknown): Record<string, unknown> {
@@ -72,6 +110,11 @@ export function objetoDe(valor: unknown): Record<string, unknown> {
  */
 @Injectable()
 export class AplicativosService {
+  private readonly delegados = new Map<
+    AplicativoIntegracao,
+    DelegadoDeAplicativo
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cripto: CriptografiaService,
@@ -80,6 +123,13 @@ export class AplicativosService {
     private readonly logs: LogsTecnicosService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
+
+  registrarDelegado(
+    aplicativo: AplicativoIntegracao,
+    delegado: DelegadoDeAplicativo,
+  ): void {
+    this.delegados.set(aplicativo, delegado);
+  }
 
   adaptador(aplicativo: AplicativoIntegracao): AdaptadorDeAplicativo {
     const adaptador = adaptadorDe(aplicativo);
@@ -234,16 +284,38 @@ export class AplicativosService {
         delete resultado[chave];
         continue;
       }
+      if (chave === 'conexaoId' || chave === 'paginaId') {
+        if (aplicativo !== 'FACEBOOK_LEAD_ADS') {
+          throw erroDeCampo(
+            `configuracao.${chave}`,
+            'só vale para o Facebook Lead Ads',
+          );
+        }
+        const formato =
+          chave === 'conexaoId' ? FORMATO_DO_UUID : FORMATO_DO_ID_DO_FACEBOOK;
+        if (typeof valor !== 'string' || !formato.test(valor)) {
+          throw erroDeCampo(
+            `configuracao.${chave}`,
+            chave === 'conexaoId'
+              ? 'deve ser o identificador da conexão com o Facebook'
+              : 'deve ser o identificador (numérico) da página do Facebook',
+          );
+        }
+      }
       if (chave === 'formularioId') {
-        if (aplicativo !== 'TYPEFORM') {
+        if (aplicativo !== 'TYPEFORM' && aplicativo !== 'FACEBOOK_LEAD_ADS') {
           throw erroDeCampo(
             'configuracao.formularioId',
-            'só vale para o Typeform',
+            'só vale para o Typeform e o Facebook Lead Ads',
           );
         }
         if (
           typeof valor !== 'string' ||
-          !FORMATO_DO_ID_DO_FORMULARIO.test(valor)
+          !(
+            aplicativo === 'FACEBOOK_LEAD_ADS'
+              ? FORMATO_DO_ID_DO_FACEBOOK
+              : FORMATO_DO_ID_DO_FORMULARIO
+          ).test(valor)
         ) {
           throw erroDeCampo(
             'configuracao.formularioId',
@@ -264,6 +336,24 @@ export class AplicativosService {
             'deve ser um nome de cabeçalho HTTP (letras, números e hífen)',
           );
         }
+      }
+      if (chave === 'eventos' || chave === 'produtos') {
+        const adaptador = adaptadorDe(aplicativo);
+        if (!adaptador?.definicao.eventos) {
+          throw erroDeCampo(
+            `configuracao.${chave}`,
+            'só vale nas plataformas de curso (Hotmart, Kiwify e Eduzz)',
+          );
+        }
+        const conferido =
+          chave === 'eventos'
+            ? validarTabelaDeEventos(valor)
+            : validarProdutos(valor);
+        if ('problema' in conferido) {
+          throw erroDeCampo(`configuracao.${chave}`, conferido.problema);
+        }
+        resultado[chave] = conferido.valor;
+        continue;
       }
       resultado[chave] = valor;
     }
@@ -306,20 +396,22 @@ export class AplicativosService {
   ): Promise<{ campos: CampoBuscado[]; buscadosEm: string }> {
     const integracao = await this.carregar(id);
     const adaptador = this.adaptador(integracao.aplicativo);
-    if (!adaptador.buscarCampos) {
+    const delegado = this.delegados.get(integracao.aplicativo);
+    if (!adaptador.buscarCampos && !delegado) {
       throw new RegraVioladaException(
         'R32.8',
         `O aplicativo ${adaptador.definicao.nome} não busca campos: os campos vêm dos recebimentos.`,
       );
     }
-    const credencial = this.credencialObrigatoria(integracao, adaptador);
     let campos: CampoBuscado[];
     try {
-      campos = await adaptador.buscarCampos(
-        credencial,
-        objetoDe(integracao.configuracao),
-        this.contextoHttp(),
-      );
+      campos = delegado
+        ? await delegado.buscarCampos(integracao)
+        : await adaptador.buscarCampos!(
+            this.credencialObrigatoria(integracao, adaptador),
+            objetoDe(integracao.configuracao),
+            this.contextoHttp(),
+          );
     } catch (erro) {
       throw await this.traduzirFalha(erro, integracao);
     }
@@ -350,13 +442,15 @@ export class AplicativosService {
         `O aplicativo ${adaptador.definicao.nome} não tem formulários para escolher.`,
       );
     }
-    const credencial = this.credencialObrigatoria(integracao, adaptador);
+    const delegado = this.delegados.get(integracao.aplicativo);
     try {
-      const formularios = await listarFormulariosDoTypeform(
-        credencial,
-        this.contextoHttp(),
-        busca,
-      );
+      const formularios = delegado
+        ? await delegado.listarFormularios(integracao, busca)
+        : await listarFormulariosDoTypeform(
+            this.credencialObrigatoria(integracao, adaptador),
+            this.contextoHttp(),
+            busca,
+          );
       await this.limparAtencao(integracao);
       return formularios;
     } catch (erro) {
@@ -379,13 +473,15 @@ export class AplicativosService {
     if (!FORMATO_DO_ID_DO_FORMULARIO.test(formularioId)) {
       throw erroDeCampo('formularioId', 'identificador de formulário inválido');
     }
-    const credencial = this.credencialObrigatoria(integracao, adaptador);
+    const delegado = this.delegados.get(integracao.aplicativo);
     try {
-      return await buscarCamposDoFormulario(
-        credencial,
-        this.contextoHttp(),
-        formularioId,
-      );
+      return delegado
+        ? await delegado.camposDoFormulario(integracao, formularioId)
+        : await buscarCamposDoFormulario(
+            this.credencialObrigatoria(integracao, adaptador),
+            this.contextoHttp(),
+            formularioId,
+          );
     } catch (erro) {
       throw await this.traduzirFalha(erro, integracao);
     }
@@ -394,6 +490,47 @@ export class AplicativosService {
   // -------------------------------------------------------------------------
   // Webhook do Typeform
   // -------------------------------------------------------------------------
+
+  /** O aplicativo registra algo na ferramenta (Typeform: webhook; Facebook: assinatura da página)? */
+  registraNaFerramenta(aplicativo: AplicativoIntegracao): boolean {
+    return aplicativo === 'TYPEFORM' || this.delegados.has(aplicativo);
+  }
+
+  /** Põe o que o CRM registrou na ferramenta em dia com a integração (Typeform ou Facebook). */
+  async sincronizarComAFerramenta(
+    id: string,
+  ): Promise<{ registrado: boolean; erro: string | null }> {
+    const integracao = await this.prisma.webhookEntrada.findUnique({
+      where: { id },
+      select: { aplicativo: true },
+    });
+    const delegado = integracao
+      ? this.delegados.get(integracao.aplicativo)
+      : undefined;
+    return delegado
+      ? delegado.sincronizar(id)
+      : this.sincronizarWebhookDoTypeform(id);
+  }
+
+  /** Remove da ferramenta o que o CRM registrou (a integração foi excluída). */
+  async removerDaFerramenta(integracao: WebhookEntrada): Promise<void> {
+    const delegado = this.delegados.get(integracao.aplicativo);
+    if (delegado) {
+      await delegado.remover(integracao);
+      return;
+    }
+    await this.removerWebhookDoTypeform(integracao);
+  }
+
+  /** Confere a configuração de uma integração nova (aplicativos com escolhas próprias). */
+  async conferirConfiguracaoNova(
+    aplicativo: AplicativoIntegracao,
+    configuracao: Record<string, unknown>,
+  ): Promise<void> {
+    await this.delegados
+      .get(aplicativo)
+      ?.conferirConfiguracaoNova(configuracao);
+  }
 
   /**
    * Põe o webhook do formulário em dia com a integração (R32.9): registra no

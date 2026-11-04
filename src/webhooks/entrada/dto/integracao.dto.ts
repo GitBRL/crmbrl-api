@@ -105,6 +105,98 @@ export class ModeloDoAplicativoDto {
   exemplo: Record<string, unknown>;
 }
 
+/** O que a tabela de eventos faz com um evento (plataformas de curso, R32.20). */
+export class RegraDoEventoDto {
+  @ApiProperty({
+    enum: ['IGNORAR', 'ABRIR', 'GANHO', 'PERDIDO', 'ETIQUETAR'],
+    description:
+      '`IGNORAR`: nada. `ABRIR`: cria ou atualiza o negócio aberto do comprador na etapa (sem `etapaId`, a etapa inicial da integração). `GANHO`: marca o negócio como ganho, com valor e produto. `PERDIDO`: marca como perdido com motivo (age sobre o negócio da mesma transação ou o aberto do comprador; nunca cria). `ETIQUETAR`: só soma as etiquetas ao contato.',
+  })
+  acao: string;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  etapaId: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Motivo da perda (R5.5); sem ele vale o motivo padrão da integração.',
+  })
+  motivoPerda: string | null;
+
+  @ApiProperty({ type: [String] })
+  etiquetas: string[];
+}
+
+export class DefinicaoDeEventoDto {
+  @ApiProperty({
+    example: 'PURCHASE_APPROVED',
+    description:
+      'O código que a plataforma envia; é a chave da tabela `configuracao.eventos`.',
+  })
+  codigo: string;
+
+  @ApiProperty({ example: 'Compra aprovada' })
+  nome: string;
+
+  @ApiProperty()
+  descricao: string;
+
+  @ApiProperty({
+    enum: [
+      'COMPRA',
+      'PAGAMENTO_PENDENTE',
+      'CARRINHO',
+      'POS_VENDA',
+      'ASSINATURA',
+    ],
+  })
+  grupo: string;
+
+  @ApiProperty({
+    type: RegraDoEventoDto,
+    description: 'O que o evento faz sem configuração (o modelo `VENDAS`).',
+  })
+  padrao: RegraDoEventoDto;
+}
+
+export class ModeloDeEventosDto {
+  @ApiProperty({
+    example: 'VENDAS',
+    enum: ['VENDAS', 'SO_COMPRAS', 'RECUPERACAO'],
+  })
+  codigo: string;
+
+  @ApiProperty()
+  nome: string;
+
+  @ApiProperty()
+  descricao: string;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'object' },
+    description:
+      'Uma regra por evento, no formato de `configuracao.eventos`. Aplicar o modelo é gravar este objeto (a tela escolhe a etapa dos eventos `ABRIR`).',
+  })
+  regras: Record<string, RegraDoEventoDto>;
+}
+
+export class EventosDoAplicativoDto {
+  @ApiProperty({ type: [DefinicaoDeEventoDto] })
+  eventos: DefinicaoDeEventoDto[];
+
+  @ApiProperty({ type: [ModeloDeEventosDto] })
+  modelos: ModeloDeEventosDto[];
+
+  @ApiProperty({
+    description:
+      'Mostrar o filtro por produto (`configuracao.produtos`: ids ou nomes; vazio = todos).',
+  })
+  filtroPorProduto: boolean;
+}
+
 export class AplicativoDto {
   @ApiProperty({ enum: AplicativoIntegracao, enumName: 'AplicativoIntegracao' })
   aplicativo: AplicativoIntegracao;
@@ -173,6 +265,13 @@ export class AplicativoDto {
     description: 'Dicas para o passo de mapeamento.',
   })
   dicas: string[];
+  @ApiProperty({
+    type: EventosDoAplicativoDto,
+    nullable: true,
+    description:
+      'Plataformas de curso (Hotmart, Kiwify, Eduzz): os eventos conhecidos (com nome amigável e a ação padrão), os modelos prontos e o filtro por produto. Nulo nos demais aplicativos.',
+  })
+  eventos: EventosDoAplicativoDto | null;
 }
 
 export class CatalogoDeAplicativosDto {

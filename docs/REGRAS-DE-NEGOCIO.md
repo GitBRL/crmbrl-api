@@ -2338,7 +2338,7 @@ esquema, a qualificação (tipos, nota, temperatura, ação conferida) e o promp
 > Onda H, fatia H1 (2026-11-04). A tela "Integrações — Webhooks e aplicativos" do Clint: um catálogo de
 > aplicativos, uma integração por aplicativo com ação (alvo × modo), mapeamento, histórico e saída. A R32
 > **estende** a R8 (entrada) e a R9 (saída): não há um segundo caminho de processamento. O Facebook Lead Ads
-> e as plataformas de curso (Hotmart, Kiwify, Eduzz) já estão no catálogo, mas só chegam na fatia H2 (R32.11).
+> e as plataformas de curso (Hotmart, Kiwify, Eduzz) chegaram na fatia H2 (R32.11, R32.14 e R32.20).
 > Referência dos formatos: `trabalho/referencias/clint-integracoes.md`.
 
 - **R32.1 Aplicativos e catálogo.** Cada integração de entrada (`webhooks_entrada`) tem um **aplicativo**:
@@ -2445,7 +2445,7 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
   webhook (R32.9). Respostas repetidas (mesmo `event_id`) são tratadas como quaisquer recebimentos nesta fatia; a
   idempotência por evento é a da H2 (`ItemRecebido.chaveDoEvento` já existe para ela).
 - **R32.11 H2 (já preparado).** O enum de aplicativos e o catálogo já trazem `FACEBOOK_LEAD_ADS`, `HOTMART`,
-  `KIWIFY` e `EDUZZ` como `disponivel: false`. A interface do adaptador já recebe a query string (autenticidade da
+  `KIWIFY` e `EDUZZ` como `disponivel: false`. O Facebook Lead Ads passou a `disponivel: true` na H2 (R32.14). A interface do adaptador já recebe a query string (autenticidade da
   Kiwify) e a chave de idempotência do evento.
 - **R32.12 Saída no estilo do Clint.** O destino de saída ganha o **formato** `CLINT` (o `ENVELOPE_CRM` da R9.3 segue
   como padrão), que estende a R9 sem mudar a fila, as tentativas, o histórico de entregas, a proteção SSRF nem a
@@ -2471,15 +2471,139 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
   quando a integração passa a precisar de atenção e quando volta a funcionar. Sem dependências novas: as APIs de
   terceiros são chamadas por `fetch`, com o endereço-base em variável de ambiente.
 
+- **R32.14 Facebook Lead Ads.** Aplicativo `FACEBOOK_LEAD_ADS` (entrega por **API**: a Meta avisa o CRM e o CRM busca o
+  lead; o endereço público `POST /webhooks/entrada/{token}` da integração existe como nas outras, mas **recusa** (401)
+  qualquer envio direto). Não tem credencial por integração: o acesso vem de uma **conexão** (`conexoes_facebook`,
+  Admin) com o **app da Meta** (ID e segredo, cifrados, R10.3) e as **páginas**. A integração guarda só a escolha em
+  `configuracao`: `conexaoId`, `paginaId` e `formularioId` (obrigatórios ao criar), mais `paginaNome`,
+  `formularioNome`, `assinatura`, `assinaturaErro`, `reconciliarDesde` e `reconciliadoAte`, que o CRM mantém. Várias
+  integrações por funil, por página e por formulário (o mesmo formulário pode alimentar funis diferentes: cada integração
+  recebe o seu lead).
+  **Conexão.** (a) *"Entrar com o Facebook"*: `POST /webhooks/facebook/oauth/iniciar` (corpo `{appId, appSecret}` ou
+  `{canalId}`, ou `{conexaoId}` para reconectar) cria a conexão e devolve a URL do diálogo (`META_DIALOGO_URL`, padrão
+  `https://www.facebook.com`) com os escopos `leads_retrieval`, `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_metadata`, `pages_manage_ads`, `ads_management` e `business_management` e um `state` **assinado** (HMAC
+  com a chave de criptografia), **de uso único** (o hash fica na conexão e é consumido de forma atômica) e **válido por 10
+  minutos**. A Meta devolve o navegador a `GET /publico/facebook/oauth/retorno` (público; o `state` é a prova): o CRM
+  troca o `code` e o token curto por um de **longa duração** (~60 dias), lê as páginas com o **token de cada uma** (que não
+  expira junto) e redireciona (302) para a tela de Integrações: `URL_PUBLICA/integracoes?facebook=conectado|cancelado|erro
+  &conexao=<id>[&motivo=<código>&mensagem=<texto>]`, com `motivo` `state_invalido`, `state_vencido`, `state_usado`,
+  `sem_codigo`, `meta_recusou` ou o `error` da Meta (`access_denied` = cancelado). State inválido, vencido ou repetido não
+  troca nada. (b) *Token de página colado* (sem OAuth, para ambiente sem domínio público): `POST
+  /webhooks/facebook/conexoes/token-de-pagina` confere o token na Meta (`/me` ou a página informada). O ID e o segredo do
+  app continuam obrigatórios (o segredo confere a assinatura do webhook) e podem ser **reaproveitados de um canal
+  Messenger ou Instagram** (`canalId`; o segredo é copiado e nunca devolvido; `GET /webhooks/facebook/canais`). Tokens,
+  segredo e páginas nunca saem da API (a resposta só traz o segredo mascarado), nem vão para log, auditoria ou
+  recebimento. `GET /webhooks/facebook/configuracao` traz o endereço de retorno que o Admin cadastra no app da Meta.
+  Excluir a conexão (409 enquanto há integração) apaga os tokens. Conexões cujo login nunca terminou somem em 1 dia.
+  **Escolhas.** `GET /webhooks/facebook/conexoes/{id}/paginas` (`?atualizar=true` pergunta de novo à Meta),
+  `…/paginas/{pagina}/formularios` (`?busca`) e `…/formularios/{formulario}/perguntas` (cada pergunta como `{caminho: chave,
+  rotulo, tipo}`, mais os metadados `leadgen_id`, `created_time`, `page_id`, `form_id`, `ad_id`, `ad_name`, `adset_id`,
+  `adset_name`, `campaign_id`, `campaign_name`, `platform` e `is_organic` com `tipo: "metadado"`); a integração criada
+  também responde `buscar-campos`, `formularios` e `formularios/{id}/campos`. Criar confere que a conexão terminou o
+  login e que o formulário existe na página.
+  **Assinatura da página.** Com a integração ativa, o CRM assina o campo `leadgen` da página (`POST
+  /{página}/subscribed_apps`) **preservando os campos que o app já assina** (ex.: mensagens do Messenger) e só assina se
+  ainda não está assinado. Desativar, trocar de página ou excluir solta o `leadgen` **somente se nenhuma outra integração
+  ativa usa a mesma página** (os outros campos ficam; sem nenhum, o app sai da página). Falha da Meta não derruba a
+  edição: fica em `configuracao.assinaturaErro`.
+  **Recebimento.** O roteador Meta (`POST /publico/meta/webhook`) trata `object: page` com `changes[].field = leadgen`: confere
+  `X-Hub-Signature-256` com o segredo do app **da conexão da integração** (sem a assinatura certa, 401; sem integração
+  ativa para a página e o formulário, 200 sem fazer nada) e enfileira um job por integração. O job busca o lead
+  (`GET /{leadgen_id}` com o token da página, no cabeçalho `Authorization`) e entrega ao **processamento comum** (R8.4,
+  R32.3): um recebimento `RECEBIDO` com o corpo normalizado (uma chave por pergunta, `full_name`, `email`, `phone_number`
+  e as personalizadas; várias opções viram texto com vírgula; `p:` do telefone sai; sem `full_name`, junta `first_name` e
+  `last_name`; mais `leadgen_id`, `page_id`, `form_id`, `ad_id`, `ad_name`, `adset_*`, `campaign_*`, `platform`,
+  `is_organic`, `created_time` quando existem) e a fila `webhooks-entrada.processar`, **com a mesma ação, modo,
+  mapeamento e distribuição das demais integrações**. O modelo pronto mapeia `full_name`, `email`, `phone_number`,
+  `company_name`, `job_title` e a campanha, o anúncio e a plataforma como UTM `campaign`, `content` e `source`.
+  **Sem repetir:** a chave `(integração, leadgen_id)` (`leads_facebook`) é gravada na mesma transação do recebimento: o
+  mesmo `leadgen_id` (webhook duplicado, webhook mais reconciliação) nunca cria um segundo recebimento.
+  **Reconciliação.** A cada 15 minutos (pg-boss, fila `facebook.reconciliar`) cada integração ativa lista os leads do
+  formulário criados desde a última conferência (menos 30 minutos de folga; a primeira vez começa na ativação, e nunca
+  olha mais de 14 dias para trás) e entrega os que o webhook não trouxe, como origem `RECONCILIACAO`. Integração inativa
+  não é conferida.
+  **Atenção.** Token recusado (código 190 etc.) ou permissão negada pela Meta (códigos 10, 200–299 e 100/33:
+  `leads_retrieval`, "Leads Access" na Central de Leads, função na página) deixam a integração (e, no caso do token, a
+  conexão) em **precisa de atenção**, com a orientação, auditoria e **aviso aos Admins** (uma vez por ocorrência, R32.9).
+  Um novo login na conexão, ou uma conferência que passa, limpa a situação; o lead que ficou para trás entra pela
+  reconciliação. Falha passageira (rede, 5xx, limite da Meta) repete o job (até 4 retentativas) e não marca atenção.
+  **Ajuda e Meta real.** O assistente orienta a liberar o CRM em "Leads Access" na Central de Leads; o app precisa de
+  `leads_retrieval` aprovado (App Review) para ler leads de verdade. Nesta onda o fluxo é testado só com a Meta falsa.
+
+- **R32.20 Plataformas de curso: Hotmart, Kiwify e Eduzz.** Aplicativos `HOTMART`, `KIWIFY` e `EDUZZ` (entrega por
+  **webhook**, JSON, sem credencial). Cada um é um adaptador (`src/webhooks/aplicativos/{hotmart,kiwify,eduzz}.ts`, mais
+  `cursos.ts` com a tabela de eventos) e entra no **mesmo processamento** das demais integrações (R8.4, R32.3, R32.6).
+  **Autenticidade** (o segredo da integração é **opcional** nas três; sem segredo, o endereço secreto é a única proteção;
+  com segredo, ausente ou diferente dá 401 e o recebimento fica `ERRO` sem reprocessamento, como R32.9; todas as comparações
+  em tempo constante): **Hotmart**, o cabeçalho `X-HOTMART-HOTTOK` igual ao hottok informado (sem HMAC); **Kiwify**, o
+  parâmetro `signature` da **query string** (o endereço aceita query) igual ao HMAC-SHA1 em hexadecimal do **corpo bruto**
+  com o token do webhook como chave (maiúsculas valem); **Eduzz**, o cabeçalho `x-signature` igual ao HMAC-SHA256 do
+  corpo bruto com a chave de acesso, em **hexadecimal ou base64** (o prefixo `sha256=` é tolerado). O **`ping`** da
+  Eduzz (`event: ping` ou `data.message: ping`), depois de conferida a assinatura, responde 202 `{status: "IGNORADO"}` e
+  fica no histórico como ignorado, **sem ir para a fila e sem criar nada**.
+  **Evento, produto e chave.** O adaptador entrega ao mapeamento o corpo mais um bloco `calculado` (Hotmart: `telefone`
+  com o DDI e `transacao`; Kiwify: `valor` em reais e `transacao`; Eduzz: `valor` pago ou da fatura e `transacao`) e
+  devolve por item o **código do evento**, os **produtos** e a **chave de idempotência**. Códigos: Hotmart, o `event`
+  (`PURCHASE_APPROVED`, `PURCHASE_BILLET_PRINTED`, `PURCHASE_OUT_OF_SHOPPING_CART`, `SUBSCRIPTION_CANCELLATION`…); Kiwify, o
+  `webhook_event_type` (`order_approved`, `billet_created`, `pix_created`, `order_rejected`, `order_refunded`, `chargeback`,
+  `subscription_canceled|late|renewed`), deduzido do `order_status` quando falta e `abandoned_cart` para o corpo sem
+  pedido nem status (o carrinho); Eduzz, o `event` (`myeduzz.invoice_*`, `sun.cart_abandonment`, `myeduzz.contract_*`),
+  com `myeduzz.contract_updated` virando `myeduzz.contract_canceled` (`contract.status = canceled`) ou
+  `myeduzz.contract_late` (`late`, `defaulter`, `suspended`). **Valores:** Hotmart e Eduzz em reais; os da Kiwify chegam em
+  centavos [INFERIDO] e o modelo divide por 100. **Chaves** (R32.20, idempotência): Hotmart, o `id` do evento, ou a
+  transação mais o evento quando não há `id`; Kiwify, `order_id` mais o tipo do evento (no carrinho, o `id`); Eduzz, o `id`
+  do evento, ou `data.id` mais o evento.
+  **Modelo de mapeamento** (`DO_APLICATIVO`): nome, e-mail e telefone do comprador (Hotmart `data.buyer` ou
+  `data.subscriber`; Kiwify `Customer` ou `customer` e, no carrinho, a raiz; Eduzz `data.buyer` ou `data.customer`),
+  **título** = nome do produto, **valor**, UTMs (Hotmart: `origin.src` e `origin.sck` como fonte e campanha; Kiwify:
+  `TrackingParameters`/`tracking`; Eduzz: `data.utm` e, no carrinho, `data.tracker`) e os campos do **negócio**
+  `produto`, `oferta`, `transacao`, `forma_de_pagamento` e `plano`. Onde a referência marca [INFERIDO] (chaves
+  `Customer`/`Product`/`Commissions`/`TrackingParameters` da Kiwify, o carrinho dela, o contrato da Eduzz sem comprador,
+  o cancelamento deduzido do `contract_updated`), o adaptador aceita as variações do enviador de exemplos do apoio
+  (`test/fixtures/cursos-apoio.json`) e o corpo fica no histórico para o Admin ajustar o mapeamento.
+  **Tabela de eventos** (`configuracao.eventos`, editada por `PATCH` e gravada com os padrões na criação): para cada
+  código, `{ acao, etapaId?, motivoPerda?, etiquetas }`. `IGNORAR`: nada (`IGNORADO` com o motivo). `ABRIR`: cria ou
+  atualiza o negócio aberto do comprador na `etapaId` (sem ela, a etapa de entrada da integração; é preciso uma etapa
+  **aberta do funil da integração**, 400 senão); com negócio aberto no funil, o move e atualiza valor e produto (R5.6, sem
+  duplicar). `GANHO`: marca o negócio aberto como ganho com valor e produto (sem negócio aberto, cria e ganha; as passagens
+  da R5.7 rodam). `PERDIDO`: perde com o `motivoPerda` da regra (ou o motivo padrão da integração, R5.5) o negócio **da
+  mesma transação** (aberto ou ganho, pelo campo `transacao`) e, sem ele, o **aberto mais recente** do comprador; nunca cria
+  contato nem negócio (sem alvo, `IGNORADO`) e não reescreve título nem valor. `ETIQUETAR`: só soma as etiquetas ao
+  contato (que precisa existir), sem tocar no negócio. Em todas as ações (menos `IGNORAR`) as `etiquetas` da regra somam ao
+  contato (sem repetir). Evento fora da tabela e sem padrão: `IGNORADO` ("não está na tabela de eventos"). Carrinho e
+  assinatura **sem e-mail nem telefone** do comprador ficam `IGNORADO` (não são erro). O alvo `CONTATO` só etiqueta; os modos
+  `CRIAR` (cada compra cria negócio) e `ATUALIZAR` (sem contato, ignora) valem como em R32.3. O Admin pode acrescentar
+  códigos novos à tabela. A resposta do catálogo (`eventos` do aplicativo) traz os eventos com nome amigável, grupo
+  (`COMPRA`, `PAGAMENTO_PENDENTE`, `CARRINHO`, `POS_VENDA`, `ASSINATURA`), a ação padrão e os **modelos prontos**:
+  `VENDAS` (compra aprovada → ganho com valor; carrinho abandonado e boleto ou Pix gerado → aberto na etapa inicial;
+  reembolso e chargeback → etiqueta e perda com motivo; assinatura cancelada, atrasada, renovada e troca de plano → só
+  etiqueta; o resto ignorado), `SO_COMPRAS` e `RECUPERACAO` (aprovada, carrinho, boleto, Pix e recusada). Mudar o funil da
+  integração limpa as etapas escolhidas da tabela.
+  **Filtro por produto** (`configuracao.produtos`, lista de ids ou nomes sem diferenciar maiúsculas; vazia = todos):
+  o item cujo produto não consta é `IGNORADO` ("Produto fora do filtro desta integração"); o carrinho da Eduzz só traz ids.
+  **Idempotência por evento.** Cada item com chave é conferido antes de aplicar: se outro recebimento **da mesma
+  integração** já tem um item `PROCESSADO` com a mesma chave (`resultados[].chave`, sem coluna nova), o item é `IGNORADO`
+  ("Evento repetido: já foi processado (recebimento …)") e nada é criado nem alterado. Uma trava consultiva por integração
+  e chave faz envios simultâneos do mesmo evento processarem um só; um evento que deu `ERRO` pode ser reenviado e
+  processar. Vale também para o **Typeform** (chave = `event_id`, R32.10): a resposta repetida não cria outro negócio.
+  O histórico mostra o `evento` e a `chave` de cada item.
+- **R32.21 Saída no estilo do Clint: negócio criado direto na etapa.** O gatilho `ENTRA_NA_ETAPA` (R32.12) dispara
+  também quando o negócio é **criado** na etapa escolhida (pela API, por integração, importação ou automação), além de
+  quando é movido para ela, e **uma vez só** por negócio e destino: um destino com `NEGOCIO_CRIADO` e `ENTRA_NA_ETAPA` da
+  mesma etapa recebe uma entrega pela criação; negócio criado em outra etapa não dispara.
+
 ### Matriz de acesso — Integrações: aplicativos
 
 | Recurso                                                                                               | Admin                                                        | C-level | Líder   | Membro  | Marketing |
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------- | ------- | ------- | --------- |
 | Catálogo, integrações, credencial, busca de campos, campos recebidos e endereço (R32.1, R32.7–R32.10) | ✓                                                            | — (403) | — (403) | — (403) | — (403)   |
 | Histórico de recebimentos, detalhe e reprocessar (R32.7)                                              | ✓                                                            | —       | —       | —       | —         |
+| Conexões, páginas, formulários e login do Facebook Lead Ads (R32.14)                                  | ✓                                                            | —       | —       | —       | —         |
 | Destinos de saída no formato Clint (R32.12)                                                           | ✓                                                            | —       | —       | —       | —         |
 | Identificador nas integrações do usuário (R32.4)                                                      | ✓ (edita)                                                    | —       | —       | —       | —         |
 | Endereço público de recebimento (`POST /webhooks/entrada/{token}`)                                    | sem login: token, mais a autenticidade do aplicativo (R32.9) |         |         |         |           |
+| Retorno do login do Facebook (`GET /publico/facebook/oauth/retorno`) e webhook `leadgen` (roteador Meta) | sem login: `state` assinado de uso único · `X-Hub-Signature-256` do app (R32.14) |         |         |         |           |
 
 ### Cenários de aceitação (Onda H, H1: integrações e aplicativos)
 
@@ -2518,3 +2642,77 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
 340. A URL da conta do ActiveCampaign em rede interna é recusada ao criar e ao testar, sem chamada nenhuma (R32.8, R9.1).
 341. Anonimizar o contato de qualquer lead de um recebimento de vários itens apaga o corpo, a mensagem, os avisos e os itens
      dele (R4.6, R32.6).
+
+### Cenários de aceitação (Onda H, H2: Facebook Lead Ads)
+
+343. O catálogo traz o Facebook Lead Ads disponível (entrega por API, sem credencial por integração, com passo a passo e
+     modelo); o endereço de retorno e os escopos vêm de `/webhooks/facebook/configuracao`; só o Admin acessa (R32.14).
+344. O app da Meta pode ser reaproveitado de um canal Messenger: o canal aparece só com o ID do app, o segredo é copiado e
+     nunca devolvido, e `canalId` não combina com `appId` (R32.14).
+345. "Entrar com o Facebook": URL do diálogo em `META_DIALOGO_URL` com `state` assinado e escopos, troca do `code` por token
+     de longa duração, páginas guardadas, retorno 302 à tela de Integrações e nenhum segredo ou token em resposta, auditoria
+     ou banco legível (R32.14, R10.3).
+346. `state` repetido, vencido (mais de 10 minutos), com a validade do banco vencida, adulterado ou de outra conexão não troca
+     nada; login cancelado e `code` recusado voltam à tela com o motivo (R32.14).
+347. Token de página colado: conferido na Meta, guardado cifrado e nunca devolvido; token recusado dá 422; conexão por token
+     não se reconecta por OAuth (R32.14).
+348. Páginas, formulários (com busca) e perguntas (chaves e metadados do lead); página fora da conexão dá 422, ids
+     malformados 400, e token recusado marca a conexão como "precisa de atenção" (R32.14).
+349. Criar a integração exige conexão, página e formulário válidos, assina o campo `leadgen` da página com o token dela e
+     guarda os nomes; buscar campos e formulários funcionam pela integração (R32.14).
+350. A assinatura acompanha a integração: preserva os campos já assinados, só sai quando nenhuma outra integração ativa
+     usa a página, e acompanha ativar, desativar, trocar de página e excluir (R32.14).
+351. `leadgen` assinado: o CRM busca o lead na Graph com o token da página (no cabeçalho) e cria contato e negócio pelo caminho
+     comum, com campos personalizados, UTMs e a campanha; aparece no histórico (R32.14, R8.4).
+352. `leadgen` sem assinatura ou com assinatura errada é 401 e nada é buscado; página ou formulário sem integração, ou
+     integração inativa, dá 200 sem fazer nada (R32.14).
+353. O mesmo `leadgen_id` não se repete (webhook duplicado, webhook mais reconciliação); duas integrações no mesmo formulário
+     recebem um lead cada e formulários diferentes não se misturam (R32.14).
+354. A reconciliação traz o lead que o webhook perdeu, não olha para antes da integração, não repete e ignora a integração
+     inativa (R32.14).
+355. Token recusado no webhook ou na reconciliação: "precisa de atenção", um aviso ao Admin, e depois do novo login a
+     reconciliação traz o lead que ficou para trás (R32.14, R32.9).
+356. Permissão negada pela Meta (`leads_retrieval` / Leads Access): atenção com a orientação, que some sozinha quando a
+     Meta libera (R32.14).
+357. O endereço público da integração do Facebook recusa lead direto (401); só o roteador da Meta, com a assinatura do app,
+     entrega leads (R32.14, R32.9).
+358. O roteador continua tratando o Messenger e o desafio de verificação como antes (R14, R32.14).
+359. Excluir a conexão: 409 enquanto há integração; depois, 204 com os tokens apagados e fora da lista (R32.14).
+
+### Cenários de aceitação (Onda H, H2: Hotmart, Kiwify e Eduzz)
+
+360. O catálogo traz Hotmart, Kiwify e Eduzz disponíveis, com autenticidade, passo a passo, modelo, eventos com nome
+     amigável, modelos prontos e filtro por produto; a criação grava a tabela de eventos padrão (R32.20).
+361. A configuração valida a ação, a etapa (do funil da integração e aberta), o motivo e os produtos, e só vale nas
+     plataformas de curso; mudar o funil da integração limpa as etapas escolhidas na tabela de eventos (R32.20).
+362. Hotmart: compra aprovada vira ganho com valor, produto, origem e etiqueta; o histórico traz o evento (R32.20).
+363. Hotmart: carrinho abandonado e boleto abrem o negócio na etapa inicial (ou na escolhida) e a compra aprovada o ganha,
+     sem duplicar (R32.20).
+364. Hotmart: carrinho sem e-mail nem telefone é ignorado; a compra sem contato é erro (R32.20).
+365. Hotmart: reembolso e chargeback etiquetam e perdem o negócio da mesma transação, com motivo e sem mexer no valor;
+     sem comprador ou negócio conhecido, nada é criado (R32.20, R5.5).
+366. Hotmart: a tabela personalizada manda (ignorar, só etiquetar, evento fora da tabela, evento acrescentado); assinatura
+     cancelada etiqueta (R32.20).
+367. Hotmart: o hottok confere (igual, diferente, ausente); o recusado fica no histórico como erro e nada é processado
+     (R32.20, R32.9).
+368. Kiwify: `signature` na query (HMAC-SHA1 hex do corpo bruto); a do enviador confere; inválida, ausente, de outro token
+     e com corpo alterado dão 401 (R32.20).
+369. Kiwify: aprovada ganha com o valor em reais; Pix, boleto, recusada e carrinho abrem; reembolso perde; chargeback depois
+     disso é ignorado; assinatura cancelada, atrasada e renovada etiquetam (R32.20).
+370. Kiwify: as chaves minúsculas do objeto de venda da API também são lidas (R32.20).
+371. Eduzz: `x-signature` em hexadecimal ou base64; inválida e ausente dão 401; o `originSecret` do corpo não vai ao
+     histórico (R32.20).
+372. Eduzz: o `ping` responde 2xx sem processar e fica no histórico como ignorado; com assinatura inválida é recusado
+     (R32.20).
+373. Eduzz: fatura aguardando abre, paga ganha, expirada e chargeback perdem; carrinho abre; contrato cancelado etiqueta;
+     contrato sem comprador é ignorado (R32.20).
+374. Filtro por produto, por id ou nome, nas três plataformas; fora do filtro é ignorado com o motivo; lista vazia deixa
+     passar tudo (R32.20).
+375. Idempotência: o mesmo evento de cada plataforma, reenviado, não cria outro negócio e aponta o recebimento original;
+     sem `id`, vale a transação (ou `data.id`) mais o evento (R32.20).
+376. Idempotência: um envio com erro pode ser reenviado e processar; três envios simultâneos do mesmo evento processam só
+     um (R32.20).
+377. Modo Criar cria um negócio por compra; modo Atualizar ignora o comprador desconhecido (R32.20, R32.3).
+378. Typeform: o mesmo `event_id` reenviado não cria outro negócio; outro `event_id` segue o fluxo normal (R32.20, R32.10).
+379. Saída do Clint: "entra na etapa X" dispara também quando o negócio é criado direto na etapa, uma vez só, pela API e por
+     uma integração (R32.21).

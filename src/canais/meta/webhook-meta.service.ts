@@ -29,6 +29,8 @@ import {
 import { WebhookWhatsappOficialService } from '../whatsapp-oficial/webhook-whatsapp-oficial.service';
 import { OBJETO_DO_WEBHOOK_WHATSAPP } from '../whatsapp-oficial/eventos-oficial';
 import { GraphApi } from './graph-api';
+import { extrairLeadgens } from '../../webhooks/facebook/lead-facebook';
+import { FacebookLeadAdsService } from '../../webhooks/facebook/facebook-lead-ads.service';
 
 /** Fila (pg-boss) das entradas do webhook, processadas fora da requisição. */
 export const FILA_WEBHOOK_META = 'meta.webhook';
@@ -77,6 +79,7 @@ export class WebhookMetaService implements OnModuleInit {
     private readonly graph: GraphApi,
     private readonly logs: LogsTecnicosService,
     private readonly whatsappOficial: WebhookWhatsappOficialService,
+    private readonly facebookLeadAds: FacebookLeadAdsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -144,9 +147,21 @@ export class WebhookMetaService implements OnModuleInit {
     ) {
       return this.whatsappOficial.receber(corpo, bruto, assinatura);
     }
-    const entradas = entradasDoWebhook(corpo);
+    // `object: page` com `changes[].field = leadgen` é do Facebook Lead Ads (R32.14).
+    const leadgens = extrairLeadgens(corpo);
+    const recebidasDeLeads =
+      leadgens.length > 0
+        ? await this.facebookLeadAds.receberLeadgens(
+            leadgens,
+            bruto,
+            assinatura,
+          )
+        : 0;
+    const entradas = entradasDoWebhook(corpo).filter(
+      ({ bruta }) => leadgens.length === 0 || Array.isArray(bruta.messaging),
+    );
     if (entradas.length === 0) {
-      return { recebidas: 0 };
+      return { recebidas: recebidasDeLeads };
     }
     const canais = await this.prisma.canal.findMany({
       where: {
@@ -161,7 +176,7 @@ export class WebhookMetaService implements OnModuleInit {
       this.logger.debug?.(
         `Webhook da Meta para ${entradas.map(({ idDoCanal }) => idDoCanal).join(', ')}: nenhum canal.`,
       );
-      return { recebidas: 0 };
+      return { recebidas: recebidasDeLeads };
     }
     const assinadoPor = canais.find((canal) => {
       const { appSecret } =
@@ -186,7 +201,7 @@ export class WebhookMetaService implements OnModuleInit {
           : 'Assinatura ausente: envie X-Hub-Signature-256.',
       );
     }
-    let recebidas = 0;
+    let recebidas = recebidasDeLeads;
     for (const entrada of entradas) {
       const canal = canais.find(
         (item) =>
