@@ -27,3 +27,4 @@ export * from './fabricas';
 export * from './gateway-whatsapp';
 export * from './tempo-real';
 export * from './onda-b';
+export * from './servicos-de-login';

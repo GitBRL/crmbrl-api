@@ -67,7 +67,7 @@ export class FacebookController {
       'A tela mostra o `enderecoDeRetorno` para o Admin cadastrá-lo no app da Meta (URIs de redirecionamento OAuth válidos).',
   })
   @ApiOkResponse({ type: ConfiguracaoDoLoginDto })
-  configuracao(): ConfiguracaoDoLoginDto {
+  configuracao(): Promise<ConfiguracaoDoLoginDto> {
     return this.conexoes.configuracaoDoLogin();
   }
 
@@ -88,7 +88,7 @@ export class FacebookController {
   @ApiOperation({
     summary: '"Entrar com o Facebook": monta a URL do diálogo',
     description:
-      'Cria a conexão (ou reaproveita `conexaoId`, para reconectar) e devolve `urlDialogo` (em `META_DIALOGO_URL`) com `state` assinado, de uso único e válido por 10 minutos. A tela navega até ela. Depois do diálogo, a Meta chama `GET /publico/facebook/oauth/retorno`, que troca o `code` e volta para `/integracoes?facebook=conectado|cancelado|erro&conexao=<id>[&motivo=<código>&mensagem=<texto>]`.',
+      'Cria a conexão (ou reaproveita `conexaoId`, para reconectar) e devolve `urlDialogo` (em `META_DIALOGO_URL`) com `state` assinado, de uso único, válido por 10 minutos e vinculado ao Admin. Sem `appId`/`appSecret`/`canalId`, usa o app das Configurações (422 se não houver). Com `modo: "janela"`, o diálogo leva `display=popup`. Depois do diálogo, a Meta chama `GET /publico/facebook/oauth/retorno`, que troca o `code` e volta para `/integracoes?facebook=conectado|cancelado|erro&conexao=<id>[&motivo=<código>&mensagem=<texto>]` (modo `pagina`) ou `/retorno-login?app=facebook&resultado=…&conexao=<id>[&motivo&mensagem]` (modo `janela`).',
   })
   @ApiCreatedResponse({ type: InicioDoLoginDto })
   @ApiRespostasDeErro(400, 404, 422)
@@ -103,7 +103,7 @@ export class FacebookController {
   @ApiOperation({
     summary: 'Conexão por token de página colado (sem OAuth)',
     description:
-      'Para ambiente sem domínio público. O token é conferido na Meta (`paginaId` ou `/me`), guardado cifrado e nunca devolvido. O ID e o segredo do app continuam obrigatórios (o segredo confere a assinatura do webhook).',
+      'Para ambiente sem domínio público. O token é conferido na Meta (`paginaId` ou `/me`), guardado cifrado e nunca devolvido. Sem `appId`/`appSecret`/`canalId`, usa o app das Configurações (o segredo dele confere a assinatura do webhook); 422 se ainda não foi cadastrado.',
   })
   @ApiCreatedResponse({ type: ConexaoFacebookDto })
   @ApiRespostasDeErro(400, 404, 422)
@@ -220,7 +220,7 @@ export class FacebookPublicoController {
   @ApiOperation({
     summary: 'Retorno do "Entrar com o Facebook"',
     description:
-      'Confere o `state` (assinado, de uso único, até 10 minutos), troca o `code` por um token de longa duração, guarda as páginas e redireciona (302) para `/integracoes?facebook=conectado|cancelado|erro&conexao=<id>`. Em erro, `motivo` é `state_invalido`, `state_vencido`, `state_usado`, `sem_codigo`, `meta_recusou` (com `mensagem`) ou o `error` da Meta (ex.: `access_denied`, com `facebook=cancelado`).',
+      'Confere o `state` (assinado, de uso único, até 10 minutos), troca o `code` por um token de longa duração, guarda as páginas e redireciona (302) para `/integracoes?facebook=conectado|cancelado|erro&conexao=<id>` (modo `pagina`) ou `/retorno-login?app=facebook&resultado=…&conexao=<id>` (modo `janela`). Em erro, `motivo` é `state_invalido`, `state_vencido`, `state_usado`, `sem_codigo`, `meta_recusou` (com `mensagem`) ou o `error` da Meta (ex.: `access_denied`, com `facebook=cancelado`).',
   })
   @ApiQuery({ name: 'code', required: false })
   @ApiQuery({ name: 'state', required: false })

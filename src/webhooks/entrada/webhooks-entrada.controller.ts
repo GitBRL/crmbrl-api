@@ -268,14 +268,15 @@ export class WebhooksEntradaController {
   @Post(':id/sincronizar')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Registra de novo o webhook no formulário do Typeform',
+    summary:
+      'Registra de novo o webhook na ferramenta (Typeform, RD Station com conexão e Facebook)',
     description:
-      'Repete o registro (`PUT /forms/{id}/webhooks/{tag}`) com o segredo e o endereço atuais. `registrado: false` traz o motivo em `erro`.',
+      'Typeform: repete o registro (`PUT /forms/{id}/webhooks/{tag}`) com o segredo e o endereço atuais. RD Station com conexão (R32.26): cria (ou recria) o webhook no RD. `registrado: false` traz o motivo em `erro`.',
   })
   @ApiOkResponse({ type: SincronizacaoDto })
   @ApiRespostasDeErro(400, 404)
   sincronizar(@Param('id', ParseIdPipe) id: string): Promise<SincronizacaoDto> {
-    return this.aplicativos.sincronizarWebhookDoTypeform(id);
+    return this.aplicativos.sincronizarComAFerramenta(id);
   }
 
   @Patch(':id')

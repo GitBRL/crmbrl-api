@@ -86,19 +86,35 @@ LIGACOES_RESUMO_MODELO=claude-sonnet-5-5              # (claude-sonnet-5-5) mode
 LIGACOES_STUN_URLS=                                   # (vazio) STUN do navegador nas ligações: stun:host:porta,… (sem TURN)
 LIGACOES_ESPERA_PRE_ACEITE_MS=800                     # (800) espera entre pre_accept e accept da ligação recebida
 TYPEFORM_API_URL=                                     # (https://api.typeform.com) só mude para uma API de teste
+TYPEFORM_DIALOGO_URL=                                 # (https://api.typeform.com) diálogo de login do Typeform, aberto no navegador; só mude para teste
+RD_STATION_API_URL=                                   # (https://api.rd.services) API do RD Station (token e webhooks); só mude para teste
+RD_STATION_DIALOGO_URL=                               # (https://api.rd.services) diálogo de login do RD Station; só mude para teste
 MANYCHAT_API_URL=                                     # (https://api.manychat.com) só mude para uma API de teste
 META_DIALOGO_URL=                                     # (https://www.facebook.com) diálogo de login do Facebook Lead Ads; só mude para teste
 TICKETHUB_URL= / TICKETHUB_EMAIL= / TICKETHUB_SENHA=  # chamados do assistente (ou pela tela do Admin)
 VAPID_CHAVE_PUBLICA= / VAPID_CHAVE_PRIVADA= / VAPID_ASSUNTO=mailto:voce@suaempresa.com.br
 ```
 
-**Facebook Lead Ads e Typeform (Onda H, R32):** o Facebook (o retorno do login e o aviso `leadgen` da Meta) e o Typeform
-(que chama o CRM a cada resposta) precisam alcançar o CRM: `URL_PUBLICA` tem de ser pública e com **https**, como no WhatsApp
-oficial. Não há variável nova para as credenciais (ID e segredo do app da Meta e o token do Typeform são cadastrados na
-tela Integrações e guardados cifrados). No app da Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` como
-URI de redirecionamento do login e o webhook de páginas (campo `leadgen`) no mesmo endereço do webhook da Meta
-(`URL_PUBLICA/api/v1/publico/meta/webhook`); o endereço exato aparece no assistente do Facebook. As três variáveis `*_URL` acima
-só existem para apontar para APIs de teste: em produção deixe-as vazias.
+**Login facilitado: Facebook Lead Ads, Typeform e RD Station (Onda H, R32):** os três serviços devolvem o login ao CRM e
+chamam o CRM (aviso `leadgen` da Meta, respostas do Typeform, conversões do RD), então `URL_PUBLICA` tem de ser pública e com
+**https**, como no WhatsApp oficial. Não há variável para as credenciais: o ID e o segredo do app de cada serviço são
+cadastrados pelo Admin em **Configurações > Apps de login** e guardados cifrados com a `CHAVE_CRIPTOGRAFIA`. As variáveis
+`META_DIALOGO_URL`, `TYPEFORM_API_URL`, `TYPEFORM_DIALOGO_URL`, `RD_STATION_API_URL`, `RD_STATION_DIALOGO_URL` e
+`MANYCHAT_API_URL` só existem para apontar para APIs de teste: em produção deixe-as vazias (valem os padrões indicados).
+
+Endereços a cadastrar em cada serviço (troque `URL_PUBLICA` pelo domínio público; a tela Apps de login mostra cada endereço
+pronto, com botão de copiar):
+
+| Serviço | Onde cadastrar | Endereço |
+|---|---|---|
+| Meta | Login do Facebook > Configurações > URIs de redirecionamento OAuth válidos | `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` |
+| Meta | Webhooks > Page > URL de callback (com o token de verificação mostrado na tela; campo `leadgen`) | `URL_PUBLICA/api/v1/publico/meta/webhook` |
+| Typeform | Organization > Developer Apps > Redirect URI(s) | `URL_PUBLICA/api/v1/publico/conexoes/oauth/retorno` |
+| RD Station | App Publisher > URL de callback (a mudança leva até 1 hora) | `URL_PUBLICA/api/v1/publico/conexoes/oauth/retorno` |
+
+Ao trocar o domínio, atualize os endereços de retorno nos três apps e reconecte as conexões. Passo a passo de criar os apps:
+`docs/ajuda/integracoes-apps-de-login.md`. A criação do webhook do RD pela API exige que o CRM responda ao teste do RD por
+https público; em ambiente local use o modo manual.
 
 `COOKIE_SEGURO=true`, `DOCS_PUBLICAS=false` e `WHATSAPP_SIMULADO=false` já vêm fixados no
 `docker-compose.producao.yml`. A lista completa de variáveis está no `README.md` ("Variáveis de ambiente").

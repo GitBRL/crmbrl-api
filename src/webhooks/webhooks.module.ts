@@ -18,6 +18,15 @@ import {
   FacebookPublicoController,
 } from './facebook/facebook.controller';
 import { FacebookLeadAdsService } from './facebook/facebook-lead-ads.service';
+import { AppsDeLoginController } from './login/apps-de-login.controller';
+import { AppsDeLoginService } from './login/apps-de-login.service';
+import {
+  ConexoesAplicativoController,
+  ConexoesAplicativoPublicoController,
+} from './login/conexoes-aplicativo.controller';
+import { ConexoesAplicativoService } from './login/conexoes-aplicativo.service';
+import { ParseAplicativoDeLoginPipe } from './login/parse-aplicativo.pipe';
+import { RdStationService } from './login/rd-station.service';
 import { EntregasService } from './saida/entregas.service';
 import { WebhooksSaidaController } from './saida/webhooks-saida.controller';
 import { WebhooksSaidaService } from './saida/webhooks-saida.service';
@@ -43,6 +52,9 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
     WebhooksSaidaController,
     FacebookController,
     FacebookPublicoController,
+    AppsDeLoginController,
+    ConexoesAplicativoController,
+    ConexoesAplicativoPublicoController,
   ],
   providers: [
     WebhooksEntradaService,
@@ -54,9 +66,14 @@ import { WebhooksSaidaService } from './saida/webhooks-saida.service';
     EntregasService,
     ConexoesFacebookService,
     FacebookLeadAdsService,
+    ParseAplicativoDeLoginPipe,
+    AppsDeLoginService,
+    ConexoesAplicativoService,
+    RdStationService,
   ],
   // Automações (Onda B): a ação "chamar webhook de saída" cria entregas.
   // Meta (R14, R32.14): o roteador do webhook entrega os `leadgen` ao Facebook Lead Ads.
-  exports: [EntregasService, FacebookLeadAdsService],
+  // Canais Messenger/Instagram (H4): criam sem digitar o app, usando o das Configurações.
+  exports: [EntregasService, FacebookLeadAdsService, AppsDeLoginService],
 })
 export class WebhooksModule {}

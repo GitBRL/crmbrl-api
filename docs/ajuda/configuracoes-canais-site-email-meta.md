@@ -18,4 +18,4 @@ Todos começam em **Configurações > Canais**: clique em **Novo canal** e escol
 Escolha o provedor (Gmail, Outlook, outro) para preencher os servidores, informe IMAP e SMTP e faça o teste de conexão: o resultado vem por etapa, com dicas de erro.
 
 ## Instagram e Messenger
-Informe as credenciais da Meta seguindo as instruções da tela e copie para a Meta o endereço e o token de verificação do webhook. O Messenger e o Instagram só deixam responder dentro da janela de 24 horas.
+Com o app da Meta cadastrado em **Configurações > Apps de login** (o Admin faz isso uma vez; veja [Apps de login](integracoes-apps-de-login.md)), o formulário do canal **usa esse app** e não pede ID nem segredo. Só em **Usar outro app** você informa o ID e o segredo de um app diferente. Copie para a Meta o endereço e o token de verificação do webhook, como a tela indica. O Messenger e o Instagram só deixam responder dentro da janela de 24 horas.

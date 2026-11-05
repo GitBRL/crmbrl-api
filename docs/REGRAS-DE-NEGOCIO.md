@@ -2615,6 +2615,104 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
   na hora: o corpo e os resultados ficam no banco até a retenção de 90 dias (R8.6) e a anonimização do contato
   (R4.6) continua alcançando-os. Integração **desativada** não é excluída: o histórico dela segue visível.
 
+- **R32.22 Apps de login (Configurações, só Admin).** O app de cada serviço com "Entrar com…" (Meta, Typeform e RD
+  Station) é cadastrado **uma vez**, em Configurações > Apps de login, e não em variável de ambiente: tabela
+  `apps_de_login` (uma linha por serviço, enum `META` | `TYPEFORM` | `RD_STATION`) com `clientId` visível e segredo
+  **cifrado** (R10.3), nunca devolvido (só mascarado). Rotas (`GET|PUT|DELETE /configuracoes/apps-de-login[/{aplicativo}]`,
+  só Admin): `GET` devolve sempre os três, com `configurado`, `clientId`, `segredoMascarado`, `enderecoDeRetorno` (a
+  cadastrar no app do serviço: `…/publico/facebook/oauth/retorno` na Meta e `…/publico/conexoes/oauth/retorno` nos
+  outros), `emUso` (conexões, canais e integrações), `escopos`, `atualizadoEm`/`atualizadoPor` e, na Meta, o `webhook`
+  de páginas (`url`, `tokenVerificacao` e o campo `leadgen`). `PUT {clientId, segredo?, confirmarTroca?}`: o segredo é
+  obrigatório na primeira gravação e ao trocar o `clientId` (o guardado é do app anterior); nas demais, ausente mantém o
+  atual; sem mudança nada é regravado nem auditado. **Meta:** o `clientId` é numérico e o par é conferido na Graph
+  (`GET /{app-id}?fields=id,name&access_token={id}|{segredo}`): a Meta recusar dá **422** ("A Meta não reconheceu este
+  par") e nada é gravado. **Trocar o `clientId` de um app em uso** sem `confirmarTroca: true` dá **409** com
+  `detalhes.emUso`; com a confirmação, as conexões do Facebook e os canais Messenger/Instagram marcados com o app (e as
+  conexões de Typeform e RD Station, que perdem os tokens do app antigo) ficam "precisa de atenção — o app mudou,
+  conecte de novo" e as integrações delas também (aviso aos Admins, uma vez). **Trocar só o segredo** leva o novo às
+  cópias marcadas, na mesma transação. `DELETE` dá **409** enquanto houver conexão ou canal usando o app (e 404 se não
+  está cadastrado). **Cópias:** as conexões do Facebook e os canais criados com o app das Configurações **copiam** ID e
+  segredo, como já faziam, e ganham a marca `appDasConfiguracoes` (coluna na conexão, chave em `canais.configuracao`);
+  conexões e canais antigos, com app próprio, ficam como estão. **Auditoria:** `app_de_login.configurado`, `.atualizado`
+  (a lista dos campos alterados e as contagens) e `.removido`; nunca o ID, o segredo nem o token. **Webhook de páginas:** o
+  desafio GET (`hub.verify_token`) aceita também o token de verificação do app da Meta (gerado na primeira gravação,
+  cifrado, estável nas demais), além dos de cada canal e conexão; a assinatura `X-Hub-Signature-256` continua conferida
+  com o segredo da conexão ou do canal (a cópia).
+- **R32.23 Login em outra janela (Facebook, Typeform e RD Station).** Todo `oauth/iniciar` recebe `modo`: `janela` ou
+  `pagina` (padrão, para não quebrar quem usa a API). Em `janela`, o diálogo da Meta leva `display=popup` e os retornos
+  públicos redirecionam (302) para a página do front `/retorno-login?app=<facebook|typeform|rd-station>&resultado=<conectado|cancelado|erro>&conexao=<id>[&motivo=…&mensagem=…]`
+  (a mesma base `URL_PUBLICA` que os retornos já usavam); em `pagina`, como antes (`/integracoes?facebook=…`, e
+  `?typeform=…` ou `?rd-station=…` para os outros). O modo, o Admin e o serviço vão **dentro do `state`** assinado; um
+  `state` inválido ou vencido ainda escolhe o destino certo pelo que está escrito nele (sem conferir a assinatura, só
+  para escolher entre dois destinos fixos), então **não há redirecionamento aberto**: nenhum parâmetro do retorno vira
+  endereço. O `state` continua assinado (HMAC com a chave de criptografia, um domínio por tipo de conexão), de uso
+  único (o hash fica na conexão, consumido de forma atômica), válido por 10 minutos e vinculado ao Admin que iniciou
+  (desligado ou rebaixado antes do retorno: `state_invalido`; reconectar a mesma conexão invalida o `state` anterior:
+  `state_usado`). Cancelar no diálogo volta como `resultado=cancelado` e `motivo` igual ao `error` do serviço
+  (`access_denied`). Motivos de erro: `state_invalido`, `state_vencido`, `state_usado`, `sem_codigo`, `meta_recusou` (Facebook),
+  `servico_recusou` e `servico_indisponivel` (Typeform e RD, com `mensagem`) e `app_nao_cadastrado`. A tela do front avisa o
+  assistente pela janela e consulta `GET /conexoes-aplicativo/{id}` (ou a conexão do Facebook) como reserva.
+- **R32.24 Facebook Lead Ads com o app das Configurações.** `POST /webhooks/facebook/oauth/iniciar` e
+  `POST /webhooks/facebook/conexoes/token-de-pagina` aceitam ficar **sem** `appId`, `appSecret` e `canalId`: usam o app
+  `META` das Configurações (cópia do ID e do segredo + a marca `appDasConfiguracoes`, R32.22). Sem o app cadastrado,
+  **422** com "O app da Meta ainda não foi cadastrado. Cadastre-o em Configurações > Apps de login."
+  (`detalhes.appNaoCadastrado`). Os campos antigos seguem aceitos por compatibilidade (e não ganham a marca); só o ID, ou
+  só o segredo, continua sendo erro 400. `GET /webhooks/facebook/configuracao` traz `appCadastrado`; a conexão traz
+  `appDasConfiguracoes`. **Canais Messenger e Instagram** (`POST /meta/canais`) também são criados sem `appId` e
+  `appSecret` quando o app está cadastrado (cópia + marca; 422 sem o app); informar o par é "usar outro app" (sem
+  marca); informar só um dos dois é 400. Editar o canal sem tocar no app mantém a marca; informar o app a tira.
+- **R32.25 Typeform por login.** Tabela `conexoes_aplicativo` (`TYPEFORM` ou `RD_STATION`): nome, conta (e-mail ou
+  apelido devolvido pelo serviço), tokens cifrados `{access, refresh}`, `expiraEm`, o `state` em andamento (hash e
+  validade), `precisaAtencao` com o motivo, criador, datas e exclusão lógica. Rotas só do Admin: `GET /conexoes-aplicativo[?aplicativo=]`,
+  `GET /conexoes-aplicativo/{id}`, `POST /conexoes-aplicativo/oauth/iniciar {aplicativo, nome?, conexaoId?, modo?}` (devolve
+  `{conexaoId, urlDialogo, expiraEm, enderecoDeRetorno}`; 422 se o app do serviço não foi cadastrado; `conexaoId`
+  reconecta uma conexão do mesmo aplicativo) e `DELETE /conexoes-aplicativo/{id}` (**409** se uma integração a usa; apaga
+  os tokens). O retorno é **público** (`GET /publico/conexoes/oauth/retorno`, sem sessão nem `Origin`; o `state` é a
+  prova; resposta 302, `Cache-Control: no-store`). O diálogo é `{TYPEFORM_DIALOGO_URL}/oauth/authorize` com os escopos
+  `accounts:read forms:read webhooks:read webhooks:write offline`; a troca do `code` e a renovação são
+  `POST {TYPEFORM_API_URL}/oauth/token` em `application/x-www-form-urlencoded`, por `fetch` com tempo limite, **sem seguir
+  redirecionamentos** e com leitura de resposta limitada a 1 MB (as mesmas chamadas das integrações). **Renovação:** o
+  token vencido (folga de 60 s) é renovado antes do uso e, depois de um 401, renova-se e repete-se **uma vez**; o Typeform
+  troca o refresh a cada renovação (o anterior morre), então a renovação é serializada por conexão (trava no banco) e o
+  refresh novo é gravado junto. Renovação recusada (4xx do serviço), conexão sem token ou app descadastrado: a conexão e as
+  integrações dela ficam "precisa de atenção" ("conecte o Typeform de novo"), com um aviso aos Admins; falha passageira
+  (rede, 5xx) não marca nada. Entrar de novo na conexão limpa a atenção das integrações e registra o webhook outra vez. **Integração Typeform:** a
+  credencial é o **token pessoal** (`credencial.token`, como antes) **ou** `configuracao.conexaoId`, nunca os dois (400);
+  escolher a conexão apaga o token e voltar ao token exige informá-lo. Com a conexão, listar formulários, buscar campos,
+  testar, registrar e remover o webhook usam o token dela. A conexão escolhida precisa existir (404), ser do aplicativo e ter
+  terminado o login (422). Tokens e segredos nunca vão a resposta, auditoria nem log (`conexao_aplicativo.criada`,
+  `.conectada`, `.precisa_atencao` e `.excluida`, só com o serviço e a conta).
+- **R32.26 RD Station por login.** Conexão `RD_STATION` em `conexoes_aplicativo` (R32.25), com o OAuth do RD Station Marketing:
+  diálogo `{RD_STATION_DIALOGO_URL}/auth/dialog?client_id&redirect_uri&state`; troca `POST {RD_STATION_API_URL}/auth/token?token_by=code`
+  (JSON `{client_id, client_secret, code}`) e renovação `POST /auth/token` (JSON com `refresh_token`); nome da conta por
+  `GET /marketing/account_info` (se falhar, a conexão fica com o nome padrão); excluir a conexão pede `POST /auth/revoke`
+  (melhor esforço). **Integração com conexão:** ao **ativar**, o CRM **cria o webhook no RD pela API**
+  (`POST /integrations/webhooks`: `event_type` `WEBHOOK.CONVERTED` ou `WEBHOOK.MARKED_OPPORTUNITY` conforme
+  `configuracao.gatilho` = `CONVERSAO` (padrão) | `OPORTUNIDADE`, `entity_type: CONTACT`, `event_identifiers` com as
+  `configuracao.conversoes` (só na conversão; vazio = todas), `url` da integração, `http_method: POST`, `include_relations:
+  [COMPANY, CONTACT_FUNNEL]` e, se a integração tem chave, `auth_header` (o cabeçalho configurado, `X-RD-Chave` por
+  padrão) e `auth_key`), guarda o `uuid` em `configuracao.webhookRegistrado` (com uma assinatura em hash do que enviou: nunca o
+  endereço nem a chave) e **remove** (`DELETE /integrations/webhooks/{uuid}`, 404 vale como removido) ao desativar ou excluir
+  a integração. Mudar o gatilho, as conversões, a conexão, o cabeçalho, a chave (definir ou remover) ou o endereço (regenerar
+  token) recria o webhook; mudar o nome não. O resultado fica em `webhookRegistrado` e `webhookErro`; `POST /webhooks/entradas/{id}/sincronizar`
+  tenta de novo. O RD valida o endereço antes de criar (responde **401** e não cria se o endereço não responder 2xx):
+  esse 401 **depois** de renovar o token vira `webhookErro` explicando (endereço público com HTTPS, permissão de
+  webhooks), sem marcar a conexão. Sem conexão a integração segue **manual** (o Admin cola o endereço no RD, como antes).
+  **Uma sincronização por vez e sem webhook em dobro:** `sincronizar` trava por integração (trava do banco, solta no fim) e,
+  antes de criar, **lista** os webhooks do RD (`GET /integrations/webhooks`) e apaga os que já apontam para o endereço da
+  integração (resposta de criação perdida, duas abas, retentativa), para o RD não enviar cada conversão duas vezes.
+  **Remoção que falha** (RD fora do ar, conexão recusada) ao excluir a integração: ela, já excluída, guarda o `uuid` e
+  `webhookRemocaoPendente`; o CRM tenta de novo a cada 15 minutos e ao excluir a conexão. Enquanto houver remoção pendente
+  a conexão **não** é excluída (409 com `detalhes.pendencias`: integração e id do webhook), a não ser com
+  `?descartarPendencias=true` (o webhook fica no serviço). O mesmo vale para o Typeform. A renovação do token só grava se
+  a conexão continua como foi lida (um login novo ou a troca do app durante a chamada prevalecem).
+  **Campos:** "buscar campos" (`POST /webhooks/entradas/{id}/buscar-campos`) lê `GET /platform/contacts/fields` e devolve
+  `{caminho, rotulo, tipo}` (o `company_name` vira o caminho `company`; sem conexão, 422). **Formato do recebimento:** o
+  webhook criado pela API envia um objeto único `{event_type, entity_type, event_identifier, timestamp, event_timestamp,
+  contact: {uuid, email, name, cf_*, tags, company: {name}, funnel: {…}}}`; o normalizador põe o `contact` na raiz do item
+  (`name`, `email`, `cf_*`…), reduz `company` ao nome, mantém `funnel` e os dados do evento, e os formatos anteriores
+  (`leads[]`, `payload`, lead único) seguem valendo.
+
 ### Matriz de acesso — Integrações: aplicativos
 
 | Recurso                                                                                               | Admin                                                        | C-level | Líder   | Membro  | Marketing |
@@ -2622,6 +2720,8 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
 | Catálogo, integrações, credencial, busca de campos, campos recebidos e endereço (R32.1, R32.7–R32.10) | ✓                                                            | — (403) | — (403) | — (403) | — (403)   |
 | Histórico de recebimentos, detalhe e reprocessar (R32.7)                                              | ✓                                                            | —       | —       | —       | —         |
 | Conexões, páginas, formulários e login do Facebook Lead Ads (R32.14)                                  | ✓                                                            | —       | —       | —       | —         |
+| Apps de login, conexões de aplicativo por login e o login do Facebook sem app digitado (R32.22–R32.26)  | ✓                                                            | —       | —       | —       | —         |
+| Retorno do login do Typeform e do RD Station (`GET /publico/conexoes/oauth/retorno`)                  | sem login: `state` assinado de uso único, de 10 minutos, do Admin que iniciou (R32.23, R32.25) |         |         |         |           |
 | Destinos de saída no formato Clint (R32.12)                                                           | ✓                                                            | —       | —       | —       | —         |
 | Identificador nas integrações do usuário (R32.4)                                                      | ✓ (edita)                                                    | —       | —       | —       | —         |
 | Endereço público de recebimento (`POST /webhooks/entrada/{token}`)                                    | sem login: token, mais a autenticidade do aplicativo (R32.9) |         |         |         |           |
@@ -2752,3 +2852,45 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
      identificador do usuário) dão 401 sem login e 403 a C-level, líderes e membros de qualquer área; o Admin passa da
      barreira; o endereço de recebimento, o retorno do login do Facebook e o webhook da Meta não pedem sessão (R32.13,
      R32.9, R32.14).
+
+### Cenários de aceitação (Onda H, H4: login facilitado)
+
+383. Configurações traz os três apps sempre; o Admin cadastra com o par conferido na Graph (par errado dá 422 e não grava); o
+     segredo nunca volta e a auditoria só leva os campos (R32.22, R10.3).
+384. Trocar só o segredo do app leva o novo às conexões do Facebook e aos canais marcados, na mesma gravação; o que tem
+     app próprio fica como está (R32.22, R32.24).
+385. Trocar o ID de um app em uso: 409 com o que está em uso; com `confirmarTroca`, conexões, canais e integrações ficam
+     "precisa de atenção", com um aviso aos Admins (R32.22).
+386. Remover o app: 409 enquanto há conexão ou canal usando; sem uso, 204 e some; remover de novo é 404 (R32.22).
+387. O desafio GET do webhook de páginas passa com o token de verificação do app da Meta e dá 403 com outro ou depois de
+     removê-lo (R32.22, R14).
+388. O login do Facebook e o token de página sem `appId` usam o app das Configurações (cópia + marca); sem o app, 422
+     claro; os campos antigos seguem aceitos (R32.24).
+389. Os canais Messenger e Instagram são criados sem `appId` e `appSecret` com o app cadastrado; "outro app" exige o par
+     e tira a marca; sem o app, 422 (R32.24).
+390. Facebook em janela: `display=popup` e retorno em `/retorno-login`; em página, como antes; cancelamento, `state`
+     usado e adulterado voltam pelo mesmo caminho, sem redirecionamento aberto (R32.23, R32.14).
+391. "Entrar com o Typeform": 422 sem o app; diálogo com os escopos e o `state`; retorno em janela e em página com a conta;
+     tokens cifrados e fora das respostas e da auditoria (R32.25, R32.23).
+392. O `state` é de uso único, vence em 10 minutos, vale só para o Admin que iniciou e não passa adulterado nem de outro
+     domínio; cancelar volta como cancelado e `code` recusado volta com a mensagem (R32.25, R32.23).
+393. O token vencido é renovado antes do uso e o refresh novo substitui o antigo; um 401 renova e tenta uma vez; renovação
+     recusada deixa conexão e integração "precisa de atenção" (um aviso) e entrar de novo resolve (R32.25).
+394. Integração Typeform com conexão: lista formulários e campos, registra e remove o webhook com o token da conexão; token
+     e conexão juntos são erro; excluir a conexão usada é 409 (R32.25).
+395. "Entrar com o RD Station": diálogo em `/auth/dialog`, troca em JSON, conta devolvida, retorno em janela e em página;
+     excluir revoga no RD (R32.26, R32.23).
+396. Integração do RD com conexão: cria o webhook no RD ao ativar e guarda só o id; recria ao mudar gatilho, chave ou
+     endereço; remove ao desativar e ao excluir (404 vale) (R32.26).
+397. "Buscar campos" lê os campos de contato do RD; o corpo do webhook criado pela API (`contact`, `cf_*`, `company`) vira
+     contato e negócio (R32.26).
+398. O RD recusa criar o webhook (testa o endereço antes): o erro explica e fica em `webhookErro`, sem marcar a conexão;
+     sincronizar de novo cria; renovação recusada marca conexão e integração (R32.26).
+399. Matriz de acesso: as rotas novas dão 401 sem login e 403 a todo papel que não é Admin; o retorno público de conexões
+     não pede sessão nem `Origin` (R32.22–R32.26, R2.9).
+400. Sincronizar o RD é uma de cada vez e adota o que o RD já tem: duas sincronizações juntas e uma criação de resposta
+     perdida deixam um só webhook no RD; o de outro endereço não é tocado (R32.26).
+401. Excluir a integração com o RD ou o Typeform fora do ar deixa a remoção pendente: a conexão não sai (409) até o CRM
+     remover o webhook (nova tentativa) ou o Admin descartar a pendência (R32.25, R32.26).
+402. A renovação do token que termina depois de a conexão mudar (troca do ID do app) não a sobrescreve (R32.22, R32.25).
+403. Duas chamadas ao mesmo tempo com o token vencido renovam uma só vez e as duas dão certo (R32.25).

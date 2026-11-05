@@ -399,6 +399,7 @@ export const adaptadorTypeform: AdaptadorDeAplicativo = {
           'No Typeform: Account > Your Settings > Personal tokens > "Generate a new token" (precisa dos escopos Forms: read e Webhooks: read/write).',
       },
     ],
+    login: 'TYPEFORM',
     buscaCampos: true,
     escolheFormulario: true,
     passoAPasso: {

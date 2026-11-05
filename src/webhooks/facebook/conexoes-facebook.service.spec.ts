@@ -17,6 +17,7 @@ const servico = (linhas: { tokenVerificacaoCifrado: string | null }[]) =>
     {} as never,
     {} as never,
     {} as never,
+    { tokenDeVerificacaoValido: () => Promise.resolve(false) } as never,
     ambiente,
   );
 
