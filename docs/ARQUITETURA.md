@@ -826,6 +826,8 @@ proximoCursor }` (`?cursor&limite`). Valores em reais são strings decimais
 | `POST /webhooks/entradas/testar-credencial` · `POST /webhooks/entradas/:id/testar-credencial`                                         | Admin                                                                      | `{ aplicativo, credencial }` → `{ valida, mensagem }`; a da integração marca/limpa "precisa de atenção" (R32.9)                                                                                                                                                                                                                                                              |
 | `POST /webhooks/entradas/:id/buscar-campos` · `GET …/:id/campos-recebidos?limite` · `GET …/:id/endereco`                              | Admin                                                                      | campos do aplicativo pela credencial (R32.8) · caminhos dos últimos recebimentos com exemplo mascarado (R32.7) · URL completa (R32.1)                                                                                                                                                                                                                                        |
 | `GET …/:id/formularios?busca` · `GET …/:id/formularios/:formularioId/campos` · `POST …/:id/sincronizar`                               | Admin                                                                      | formulários e perguntas do Typeform · registra de novo o webhook no formulário (R32.9, R32.10)                                                                                                                                                                                                                                                                               |
+| `GET /configuracoes/apps-de-login` · `PUT|DELETE /configuracoes/apps-de-login/:aplicativo` | Admin | apps de login Meta, Typeform e RD Station (R32.22): ID, segredo mascarado, endereço de retorno, uso, webhook da Meta; `PUT {clientId, segredo?, confirmarTroca?}` (par da Meta conferido; troca de ID em uso: 409 sem confirmação); `DELETE` 409 em uso |
+| `GET /conexoes-aplicativo[?aplicativo]` · `GET …/:id` · `POST …/oauth/iniciar` · `DELETE …/:id` | Admin | conexões por login do Typeform e do RD Station (R32.25, R32.26): `{aplicativo, nome?, conexaoId?, modo?}` → `{conexaoId, urlDialogo, expiraEm, enderecoDeRetorno}`; excluir dá 409 se uma integração a usa |
 | `GET /webhooks/facebook/configuracao` · `GET /webhooks/facebook/canais` · `POST /webhooks/facebook/oauth/iniciar` · `POST /webhooks/facebook/conexoes/token-de-pagina` | Admin | Facebook Lead Ads (R32.14): endereço de retorno e escopos · canais Meta com app reaproveitável · URL do diálogo com `state` assinado, de uso único e 10 min · conexão por token de página |
 | `GET /webhooks/facebook/conexoes` · `GET`/`DELETE …/conexoes/:id` · `POST …/conexoes/:id/atualizar-paginas` · `GET …/conexoes/:id/paginas` · `…/paginas/:paginaId/formularios` · `…/formularios/:formularioId/perguntas` | Admin | conexões (sem segredos) · 409 ao excluir com integração · páginas, formulários e perguntas (`{caminho, rotulo, tipo}`) para o assistente |
 | `GET /webhooks/recebimentos` · `/:id` · `POST /:id/reprocessar`                                                                       | Admin                                                                      | histórico de todas as integrações com `de`, `ate`, `status`, `aplicativo`, `integracaoId`; detalhe com corpo e cabeçalhos (R32.7)                                                                                                                                                                                                                                            |
@@ -864,6 +866,20 @@ em `webhooks_saida` (`formato`, `metodo`, `gatilhos`, `campos`). Os pontos antig
   jobs `facebook.lead` e `facebook.reconciliar`, um registro por `(integração, leadgen_id)` em `leads_facebook`). O roteador
   Meta (`src/canais/meta`) só confere `X-Hub-Signature-256` e entrega `leadgen` a esse serviço. Os leads entram pelo
   mesmo recebimento e processamento das demais integrações.
+- `src/webhooks/login/` (H4, R32.22 a R32.26) — o login facilitado. `AppsDeLoginService` guarda o app de cada serviço
+  (`apps_de_login`: ID visível, segredo cifrado), confere o par da Meta na Graph, propaga a troca do segredo às cópias
+  marcadas (`conexoes_facebook.app_das_configuracoes` e `canais.configuracao.appDasConfiguracoes`) e deixa "precisa de
+  atenção" o que usava o app antigo; o desafio GET do webhook de páginas aceita o token de verificação do app da Meta.
+  `ConexoesAplicativoService` faz o login do Typeform e do RD Station (`conexoes_aplicativo`: tokens cifrados, `state` de
+  uso único) e **renova** o token (trava `pg_advisory_xact_lock` por conexão, porque o Typeform troca o refresh a cada
+  renovação; 401 → renova e repete uma vez; recusa → "precisa de atenção"); registra-se em `AplicativosService`
+  (`ProvedorDeConexoes`, sem dependência circular), que passa a executar as chamadas da integração do Typeform com o token da
+  conexão. `RdStationService` (delegado de aplicativo, como o Facebook) cria, recria e remove o webhook no RD pela API
+  (`rd-station-api.ts`) e busca os campos de contato. `estado-do-login.ts` (state assinado com o modo `janela`/`pagina`, o
+  Admin e o serviço) e `retorno-de-login.ts` (destino do retorno: `/retorno-login` em janela, `/integracoes` em página) são
+  funções puras, usadas também pelo Facebook; as chamadas OAuth (`clientes-oauth.ts`) reaproveitam `chamarAplicativo` (tempo
+  limite, sem redirecionamento, leitura limitada). Os canais Messenger/Instagram (`MetaCanaisService`) usam o
+  `AppsDeLoginService` (exportado por `WebhooksModule`) para serem criados sem digitar o app.
 - `src/webhooks/aplicativos/cursos.ts` (R32.15) — tabela de eventos (ignorar, abrir, ganho, perdido ou etiquetar), modelos
   prontos, filtro por produto e a chave de idempotência do evento (gravada nos resultados do recebimento; reenvio →
   `IGNORADO` apontando o original). Hotmart (`X-HOTMART-HOTTOK`), Kiwify (`signature` na query, HMAC-SHA1) e Eduzz
@@ -871,14 +887,15 @@ em `webhooks_saida` (`formato`, `metodo`, `gatilhos`, `campos`). Os pontos antig
 - O histórico (`GET /webhooks/recebimentos`) só lista recebimentos de integrações não excluídas, como o detalhe e o
   reprocessar (R32.17); os registros ficam no banco até a retenção de 90 dias.
 - Acesso (R32.13): todas as rotas acima são `@Papeis('ADMIN')`; as públicas são `POST /webhooks/entrada/:token` (token e
-  autenticidade do aplicativo), `GET /publico/facebook/oauth/retorno` (`state`) e `POST /publico/meta/webhook`
-  (`X-Hub-Signature-256`). O teste `test/integracoes-acesso.e2e-spec.ts` (cenário 381) percorre as 49 rotas por papel.
+  autenticidade do aplicativo), `GET /publico/facebook/oauth/retorno` e `GET /publico/conexoes/oauth/retorno` (`state`) e
+  `POST /publico/meta/webhook` (`X-Hub-Signature-256`). O teste `test/integracoes-acesso.e2e-spec.ts` (cenário 381) percorre as 49 rotas por papel.
 - `src/webhooks/saida/formato-clint.ts` — gatilhos, catálogo de campos, corpo e parâmetros do formato Clint;
   `EntregasService` cria a entrega do destino `CLINT` com o corpo já montado (`payload.dados`) e envia POST ou GET
   pelo mesmo caminho da R9 (fila, tentativas, SSRF, assinatura). Para `negocio.reaberto`, que não é assinável pelo
   envelope, o `EntregasService` registra um manipulador próprio.
-- Configuração: `TYPEFORM_API_URL`, `MANYCHAT_API_URL`, `META_GRAPH_URL` e `META_DIALOGO_URL` (padrões das APIs reais; o ambiente dos agentes aponta para as
-  falsas do apoio). A URL da conta do ActiveCampaign vem da credencial e passa pela proteção SSRF da R9.1.
+- Configuração: `TYPEFORM_API_URL`, `TYPEFORM_DIALOGO_URL`, `RD_STATION_API_URL`, `RD_STATION_DIALOGO_URL`, `MANYCHAT_API_URL`,
+  `META_GRAPH_URL` e `META_DIALOGO_URL` (padrões das APIs reais; o ambiente dos agentes aponta para as falsas do apoio; as
+  variáveis `*_DIALOGO_URL` são abertas no navegador do Admin). A URL da conta do ActiveCampaign vem da credencial e passa pela proteção SSRF da R9.1.
 
 **Envelope dos webhooks de saída** (R9.3): corpo `{ id, evento, ocorridoEm, dados }`
 (o `id` é o do evento na outbox, igual em todas as tentativas — use-o para
@@ -1252,7 +1269,8 @@ real está no catálogo (`src/tempo-real/catalogo.ts`) e no resumo abaixo.
 | `GET /publico/webchat/widget.js` | o script do widget (cache 5 min, ETag) |
 | `GET /publico/webchat/:chave/configuracao` · `POST …/visitantes` · `…/sessao` · `…/historico` · `…/mensagens` · `…/anexos` · `…/sair` · `GET …/arquivos/:id` | o widget (CORS só dos domínios do canal; token do visitante no corpo; R14.1–R14.4) |
 | `GET`/`POST /publico/meta/webhook` · `GET /publico/meta/arquivos/:id` | desafio de verificação e eventos assinados (R14.7; o WhatsApp oficial usa o mesmo endereço, R28.2) · anexo enviado à Meta por link assinado |
-| `GET /publico/facebook/oauth/retorno` | retorno do "Entrar com o Facebook" (R32.14): confere o `state` assinado e de uso único, troca o `code` e redireciona (302) a `/integracoes?facebook=…`; o webhook `leadgen` (`object: page`) chega ao mesmo `POST /publico/meta/webhook` |
+| `GET /publico/conexoes/oauth/retorno` | retorno do "Entrar com o Typeform / RD Station" (R32.25, R32.26): confere o `state`, troca o `code`, guarda os tokens e redireciona (302) a `/retorno-login?app=…` (janela) ou `/integracoes?typeform|rd-station=…` (página) |
+| `GET /publico/facebook/oauth/retorno` | retorno do "Entrar com o Facebook" (R32.14, R32.23): confere o `state` assinado e de uso único, troca o `code` e redireciona (302) a `/integracoes?facebook=…` (página) ou `/retorno-login?app=facebook…` (janela); o webhook `leadgen` (`object: page`) chega ao mesmo `POST /publico/meta/webhook` |
 
 **Chat interno** (`ChatInternoController`, todos os papéis; só membros veem um canal — R15)
 

@@ -832,8 +832,18 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
     expect((recusado.body as { mensagem: string }).mensagem).toMatch(
       /recusou o token/,
     );
-    await admin
+    // Sem appId, appSecret nem canalId vale o app das Configurações (R32.24): sem ele cadastrado, 422 claro.
+    const semApp = await admin
       .post(`${API}/conexoes/token-de-pagina`, { tokenPagina: 'x' })
+      .expect(422);
+    expect((semApp.body as { mensagem: string }).mensagem).toMatch(
+      /app da Meta ainda não foi cadastrado/,
+    );
+    await admin
+      .post(`${API}/conexoes/token-de-pagina`, {
+        tokenPagina: 'x',
+        appSecret: APP_SECRET,
+      })
       .expect(400);
     // Reconectar uma conexão por token de página não faz sentido.
     await admin

@@ -1031,6 +1031,8 @@ model ConexaoFacebook {
   paginasCifradas         String?             @map("paginas_cifradas")
   /// Token de verificação do webhook de páginas no app da Meta (desafio GET), aleatório por conexão, cifrado. Gerado na criação (ou na primeira leitura, nas conexões antigas).
   tokenVerificacaoCifrado String?             @map("token_verificacao_cifrado")
+  /// Verdadeiro: o ID e o segredo do app são cópia do app META de Configurações > Apps de login (R32.22); o segredo acompanha as trocas dele.
+  appDasConfiguracoes     Boolean             @default(false) @map("app_das_configuracoes")
   usuarioFacebookId       String?             @map("usuario_facebook_id")
   usuarioFacebookNome     String?             @map("usuario_facebook_nome")
   /// Quando o token do usuário expira (a Meta informa ~60 dias); as páginas seguem valendo.
@@ -1051,6 +1053,57 @@ model ConexaoFacebook {
 
   @@index([excluidoEm])
   @@map("conexoes_facebook")
+}
+
+/// Serviços que oferecem "Entrar com…" (H4): o app de cada um é cadastrado uma vez em Configurações > Apps de login (R32.22).
+enum AplicativoDeLogin {
+  META
+  TYPEFORM
+  RD_STATION
+
+  @@map("aplicativo_de_login")
+}
+
+/// O app de login de um serviço (R32.22): ID visível e segredo cifrado (R10.3), nunca devolvido. Uma linha por serviço.
+model AppDeLogin {
+  id                      String            @id @default(uuid()) @db.Uuid
+  aplicativo              AplicativoDeLogin @unique
+  clientId                String            @map("client_id")
+  segredoCifrado          String            @map("segredo_cifrado")
+  /// META: token de verificação do webhook de páginas do app (desafio GET), gerado na primeira gravação, cifrado.
+  tokenVerificacaoCifrado String?           @map("token_verificacao_cifrado")
+  atualizadoPorId         String?           @map("atualizado_por_id") @db.Uuid
+  criadoEm                DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm            DateTime          @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("apps_de_login")
+}
+
+/// Conexão de um aplicativo por login (R32.25 Typeform, R32.26 RD Station): tokens cifrados e o `state` do login em andamento.
+model ConexaoAplicativo {
+  id             String            @id @default(uuid()) @db.Uuid
+  aplicativo     AplicativoDeLogin
+  nome           String
+  /// Nome ou e-mail da conta devolvido pelo serviço.
+  conta          String?
+  /// JSON cifrado `{access, refresh}`. Nulo enquanto o login não terminou.
+  tokensCifrados String?           @map("tokens_cifrados")
+  /// Quando o token de acesso vence.
+  expiraEm       DateTime?         @map("expira_em") @db.Timestamptz(3)
+  /// SHA-256 do `state` do login em andamento (uso único) e a validade dele.
+  estadoHash     String?           @map("estado_hash")
+  estadoExpiraEm DateTime?         @map("estado_expira_em") @db.Timestamptz(3)
+  conectadaEm    DateTime?         @map("conectada_em") @db.Timestamptz(3)
+  precisaAtencao Boolean           @default(false) @map("precisa_atencao")
+  atencaoMotivo  String?           @map("atencao_motivo")
+  atencaoEm      DateTime?         @map("atencao_em") @db.Timestamptz(3)
+  criadoPorId    String?           @map("criado_por_id") @db.Uuid
+  criadoEm       DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm   DateTime          @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm     DateTime?         @map("excluido_em") @db.Timestamptz(3)
+
+  @@index([aplicativo, excluidoEm])
+  @@map("conexoes_aplicativo")
 }
 
 /// Lead do Facebook já recebido por uma integração (R32.14): a chave `(integração, leadgen_id)` impede repetir o mesmo lead

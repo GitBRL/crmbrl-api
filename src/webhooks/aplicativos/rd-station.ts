@@ -13,10 +13,47 @@ import type {
 
 export const CABECALHO_PADRAO_DO_RD = 'X-RD-Chave';
 
-/** Corpo do RD Station: `{ "leads": [...] }` (cada lead é um item) ou um lead único (R32.2). */
+/**
+ * Corpo do webhook criado pela API (R32.26, RD Station Marketing 2.0): objeto único
+ * `{ event_type, entity_type: 'CONTACT', event_identifier, timestamp, event_timestamp, contact: {...} }`,
+ * com os campos personalizados em `cf_*`. O item é o `contact` na raiz (`name`, `email`, `cf_*`…), com
+ * `company` reduzido ao nome, `funnel` como veio e os dados do evento (`event_type`, `event_identifier`).
+ */
+function contatoDoWebhookDaApi(corpo: Record<string, unknown>): ItemRecebido {
+  const contato = ehObjeto(corpo.contact) ? corpo.contact : {};
+  const item: Record<string, unknown> = { ...contato };
+  if (ehObjeto(contato.company)) {
+    const nome = contato.company.name;
+    if (typeof nome === 'string' && nome.trim()) {
+      item.company = nome.trim();
+    } else {
+      delete item.company;
+    }
+  }
+  for (const chave of [
+    'event_type',
+    'entity_type',
+    'event_identifier',
+    'timestamp',
+    'event_timestamp',
+  ]) {
+    if (corpo[chave] !== undefined && !(chave in item)) {
+      item[chave] = corpo[chave];
+    }
+  }
+  return { corpo: item, rotulo: null };
+}
+
+/**
+ * Corpo do RD Station: o do webhook criado pela API (`{ ..., contact: {...} }`, R32.26), `{ "leads": [...] }`
+ * (cada lead é um item) ou um lead único (R32.2).
+ */
 export function normalizarRdStation(corpo: unknown): ItemRecebido[] {
   if (!ehObjeto(corpo)) {
     return [{ corpo, rotulo: null }];
+  }
+  if (ehObjeto(corpo.contact) && !Array.isArray(corpo.leads)) {
+    return [contatoDoWebhookDaApi(corpo)];
   }
   const leads = corpo.leads;
   if (Array.isArray(leads)) {
@@ -68,7 +105,7 @@ export const adaptadorRdStation: AdaptadorDeAplicativo = {
     aplicativo: 'RD_STATION',
     nome: 'RD Station',
     descricao:
-      'Receba as conversões e as oportunidades do RD Station Marketing por um webhook configurado no RD.',
+      'Receba as conversões e as oportunidades do RD Station Marketing: entrando com o RD Station, o CRM cria o webhook no RD sozinho; ou cole o endereço num webhook configurado por você.',
     disponivel: true,
     entrega: 'WEBHOOK',
     tiposDeConteudo: ['application/json'],
@@ -80,15 +117,17 @@ export const adaptadorRdStation: AdaptadorDeAplicativo = {
       cabecalho: CABECALHO_PADRAO_DO_RD,
     },
     credencial: null,
-    buscaCampos: false,
+    login: 'RD_STATION',
+    buscaCampos: true,
     escolheFormulario: false,
     passoAPasso: {
       titulo: 'No RD Station Marketing',
       passos: [
-        'No menu superior direito, abra Integrações > Webhook > "Configurar" e clique em "Criar webhook".',
+        'Automático: entre com o RD Station, escolha o gatilho (Conversão ou Oportunidade) e as conversões, e o CRM cria o webhook no RD ao ativar a integração (e o remove ao desativar ou excluir). O endereço do CRM precisa ser público, com HTTPS: o RD o testa antes de criar.',
+        'Manual: no menu superior direito, abra Integrações > Webhook > "Configurar" e clique em "Criar webhook".',
         'Dê um nome, cole o endereço da integração e escolha o gatilho: "Conversão" (escolha as conversões ou deixe vazio para todas) ou "Oportunidade".',
         'Se quiser autenticar, configure no RD um cabeçalho com a chave e informe a mesma chave aqui.',
-        'Converta um lead de teste e use "Atualizar campos recebidos". Campos personalizados chegam como custom_fields.<nome> (ou cf_<nome>).',
+        'Converta um lead de teste e use "Atualizar campos recebidos" (ou, entrando com o RD Station, "Buscar campos"). Campos personalizados chegam como cf_<nome> (ou custom_fields.<nome> nos webhooks manuais mais antigos).',
       ],
     },
     modelo: {

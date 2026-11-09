@@ -144,6 +144,11 @@ export interface DefinicaoDoAplicativo {
   };
   /** Campos da credencial do aplicativo, ou `null` se ele não pede. */
   readonly credencial: readonly CampoDaCredencial[] | null;
+  /**
+   * O aplicativo oferece "Entrar com…" (H4): o app do serviço é cadastrado em Configurações > Apps de login
+   * (`META` para o Facebook Lead Ads). Ausente nos aplicativos sem login.
+   */
+  readonly login?: 'META' | 'TYPEFORM' | 'RD_STATION';
   /** O assistente oferece "Buscar campos da integração". */
   readonly buscaCampos: boolean;
   /** O assistente escolhe um formulário do aplicativo (Typeform). */
@@ -178,9 +183,21 @@ export class CredencialRecusadaError extends Error {
   }
 }
 
+/** A conexão por login perdeu o acesso (renovação recusada ou conexão sem token): já foi marcada "precisa de atenção". */
+export class ConexaoRecusadaError extends CredencialRecusadaError {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = 'ConexaoRecusadaError';
+  }
+}
+
 /** Falha ao falar com o aplicativo que não é da credencial (rede, resposta inesperada, 5xx). */
 export class FalhaNoAplicativoError extends Error {
-  constructor(mensagem: string) {
+  constructor(
+    mensagem: string,
+    /** O HTTP da resposta, quando houve resposta (a falha de rede e o tempo esgotado não têm). */
+    readonly status: number | null = null,
+  ) {
     super(mensagem);
     this.name = 'FalhaNoAplicativoError';
   }

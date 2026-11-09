@@ -97,6 +97,37 @@ export class ImportacaoController {
     return this.modelos.campos(filtro.tipo);
   }
 
+  @Get('planilha-modelo')
+  @ApiOperation({
+    summary: 'Baixa a planilha modelo em XLSX (R16.10)',
+    description:
+      'Primeira aba só com o cabeçalho reconhecido pela importação; segunda aba com as instruções. Para PARCELAS, só Admin, C-level e Líder de CS.',
+  })
+  @ApiProduces(TIPO_XLSX)
+  @ApiOkResponse({ description: 'Arquivo XLSX.' })
+  @ApiRespostasDeErro(400)
+  async planilhaModelo(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Query() filtro: FiltroCamposDto,
+    @Res() resposta: Response,
+  ): Promise<void> {
+    const conteudo = await this.importacoes.planilhaModelo(
+      usuario,
+      filtro.tipo,
+    );
+    resposta.setHeader('Content-Type', TIPO_XLSX);
+    resposta.setHeader('Content-Length', String(conteudo.length));
+    resposta.setHeader(
+      'Content-Disposition',
+      cabecalhoContentDisposition(
+        `modelo-importacao-${filtro.tipo.toLowerCase()}.xlsx`,
+        'attachment',
+      ),
+    );
+    resposta.setHeader('Cache-Control', 'private, no-store');
+    resposta.end(conteudo);
+  }
+
   @Get('modelos')
   @ApiOperation({ summary: 'Modelos de mapeamento salvos' })
   @ApiOkResponse({ type: [ModeloDeImportacaoDto] })

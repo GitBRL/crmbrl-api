@@ -19,7 +19,12 @@ import {
 import { podeGerenciarARegua } from '../financeiro/permissoes-financeiro';
 import { PermissoesContatosService } from '../contatos/permissoes-contatos.service';
 import { FilaService } from '../fila/fila.service';
-import type { Importacao, Prisma } from '../generated/prisma/client';
+import type {
+  Importacao,
+  Prisma,
+  TipoImportacao,
+} from '../generated/prisma/client';
+import { gerarPlanilhaModelo } from './planilha-modelo';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR } from '../tempo-real/catalogo';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
@@ -233,6 +238,21 @@ export class ImportacaoService implements OnModuleInit {
   // =========================================================================
   // Fluxo
   // =========================================================================
+
+  /** R16.10: planilha modelo (mesma permissão de importar; parcelas, a mesma da criação). */
+  async planilhaModelo(
+    usuario: UsuarioAutenticado,
+    tipo: TipoImportacao,
+  ): Promise<Buffer> {
+    this.garantirPodeImportar(usuario);
+    if (tipo === 'PARCELAS' && !podeGerenciarARegua(usuario.papel)) {
+      throw new SemPermissaoException(
+        'Só Admin, C-level e Líder de CS importam parcelas.',
+        { regra: 'R22.1' },
+      );
+    }
+    return gerarPlanilhaModelo(tipo);
+  }
 
   /** R16.2: cria o rascunho a partir de um arquivo já enviado (contexto IMPORTACAO). */
   async criar(

@@ -31,6 +31,8 @@ export interface ConfiguracaoMeta {
   pageId: string;
   /** Id da conta profissional do Instagram (só no Instagram). */
   instagramId: string | null;
+  /** O ID e o segredo do app são cópia do app da Meta de Configurações > Apps de login (R32.22, R32.24). */
+  appDasConfiguracoes?: boolean;
 }
 
 /** Segredos (`canais.segredos_cifrados`). */
@@ -64,6 +66,9 @@ export function lerConfiguracaoMeta(valor: unknown): ConfiguracaoMeta {
     appId: texto(gravada.appId) ?? '',
     pageId: texto(gravada.pageId) ?? '',
     instagramId: texto(gravada.instagramId),
+    ...(gravada.appDasConfiguracoes === true
+      ? { appDasConfiguracoes: true }
+      : {}),
   };
 }
 

@@ -235,6 +235,15 @@ export class AplicativoDto {
   credencial: CampoDaCredencialDto[] | null;
 
   @ApiProperty({
+    type: String,
+    nullable: true,
+    enum: ['META', 'TYPEFORM', 'RD_STATION'],
+    description:
+      'Aplicativo que oferece "Entrar com…" (login em outra janela): o app dele é cadastrado em Configurações > Apps de login (`GET /configuracoes/apps-de-login`). Nulo nos aplicativos sem login.',
+  })
+  login: string | null;
+
+  @ApiProperty({
     description:
       'Mostrar "Buscar campos da integração" (`POST /webhooks/entradas/{id}/buscar-campos`).',
   })

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CriptografiaService } from '../../comum/criptografia/criptografia.service';
 import { DadosInvalidosException } from '../../comum/erros/excecoes';
+import { AppsDeLoginService } from '../../webhooks/login/apps-de-login.service';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -42,6 +43,7 @@ export class MetaCanaisService {
     private readonly configuracao: ConfiguracaoDeCanais,
     private readonly segredos: SegredosDoCanal,
     private readonly graph: GraphApi,
+    private readonly apps: AppsDeLoginService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
 
@@ -58,10 +60,12 @@ export class MetaCanaisService {
     dto: CriarCanalMetaDto,
     criadoPorId: string,
   ): Promise<CanalMetaDto> {
+    const app = await this.resolverApp(dto);
     const config = validar(dto.tipo, {
-      appId: dto.appId,
+      appId: app.appId,
       pageId: dto.pageId,
       instagramId: dto.instagramId ?? null,
+      ...(app.dasConfiguracoes ? { appDasConfiguracoes: true } : {}),
     });
     const canal = await this.prisma.$transaction(async (tx) => {
       const comuns = await this.configuracao.camposComuns(tx, dto);
@@ -72,7 +76,7 @@ export class MetaCanaisService {
         idExterno: idDoCanalNaMeta(dto.tipo, config),
         configuracao: config as unknown as Prisma.InputJsonObject,
         segredosCifrados: this.segredos.cifrar({
-          appSecret: dto.appSecret,
+          appSecret: app.appSecret,
           tokenPagina: dto.tokenPagina,
           tokenVerificacao: this.novoTokenDeVerificacao(),
         } satisfies SegredosMeta),
@@ -90,11 +94,16 @@ export class MetaCanaisService {
       const antes = await this.configuracao.travar(tx, id, TIPOS_META);
       const tipo = antes.tipo as TipoCanalMeta;
       const atual = lerConfiguracaoMeta(antes.configuracao);
+      // Informar o app aqui é escolher "outro app": o canal deixa de acompanhar o das Configurações.
+      const outroApp = dto.appId !== undefined || dto.appSecret !== undefined;
       const config = validar(tipo, {
         appId: dto.appId ?? atual.appId,
         pageId: dto.pageId ?? atual.pageId,
         instagramId:
           dto.instagramId === undefined ? atual.instagramId : dto.instagramId,
+        ...(atual.appDasConfiguracoes && !outroApp
+          ? { appDasConfiguracoes: true }
+          : {}),
       });
       const comuns = await this.configuracao.camposComuns(tx, dto);
       const dados: Prisma.CanalUncheckedUpdateInput = {
@@ -186,6 +195,47 @@ export class MetaCanaisService {
     return `${this.ambiente.urlPublica}/api/v1/publico/meta/webhook`;
   }
 
+  /**
+   * O app do canal (R32.24): o digitado ("Usar outro app": `appId` e `appSecret` juntos) ou, sem nenhum
+   * dos dois, o das Configurações (cópia do ID e do segredo + a marca `appDasConfiguracoes`; 422 sem app cadastrado).
+   */
+  private async resolverApp(dto: {
+    appId?: string;
+    appSecret?: string;
+  }): Promise<{
+    appId: string;
+    appSecret: string;
+    dasConfiguracoes: boolean;
+  }> {
+    if (dto.appId && dto.appSecret) {
+      return {
+        appId: dto.appId,
+        appSecret: dto.appSecret,
+        dasConfiguracoes: false,
+      };
+    }
+    if (dto.appId || dto.appSecret) {
+      const campo = dto.appId ? 'appSecret' : 'appId';
+      throw new DadosInvalidosException(
+        'Informe o ID e o segredo do app juntos, ou nenhum dos dois para usar o app das Configurações.',
+        {
+          campos: [
+            {
+              campo,
+              mensagens: ['é obrigatório junto com o outro campo do app'],
+            },
+          ],
+        },
+      );
+    }
+    const app = await this.apps.exigir('META');
+    return {
+      appId: app.clientId,
+      appSecret: app.segredo,
+      dasConfiguracoes: true,
+    };
+  }
+
   private novoTokenDeVerificacao(): string {
     return this.cripto.gerarToken(24);
   }
@@ -196,6 +246,7 @@ export class MetaCanaisService {
     return {
       ...camposBaseDoCanal(canal),
       appId: config.appId,
+      appDasConfiguracoes: config.appDasConfiguracoes === true,
       pageId: config.pageId,
       instagramId: config.instagramId,
       appSecret: segredos
@@ -231,5 +282,6 @@ function validar(
     appId: config.appId,
     pageId: config.pageId,
     instagramId: tipo === 'INSTAGRAM' ? config.instagramId : null,
+    ...(config.appDasConfiguracoes ? { appDasConfiguracoes: true } : {}),
   };
 }

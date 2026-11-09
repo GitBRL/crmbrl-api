@@ -51,7 +51,12 @@ export const CAMPOS_DE_PARCELA: readonly CampoDeImportacao[] = [
   {
     chave: 'contrato',
     rotulo: 'Contrato (C-000012)',
-    sinonimos: ['contrato', 'codigo do contrato', 'n contrato'],
+    sinonimos: [
+      'contrato',
+      'contrato c 000012',
+      'codigo do contrato',
+      'n contrato',
+    ],
   },
   {
     chave: 'vencimento',

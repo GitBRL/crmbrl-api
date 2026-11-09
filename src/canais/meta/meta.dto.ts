@@ -39,22 +39,26 @@ export class CriarCanalMetaDto extends CamposComunsDoCanalDto {
   })
   tipo: TipoCanalMeta;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '1234567890123456',
-    description: 'Id do app na Meta.',
+    description:
+      'Id do app na Meta ("Usar outro app"). Sem `appId` e `appSecret`, o canal usa o app cadastrado em Configurações > Apps de login (422 se ainda não foi cadastrado). Os dois vêm juntos.',
   })
+  @IsOptional()
   @Transform(aparar)
   @IsString(MENSAGEM_TEXTO)
   @Matches(/^\d{5,30}$/, ID_DA_META)
-  appId: string;
+  appId?: string;
 
-  @ApiProperty({
-    description: 'App secret (cifrado; confere a assinatura do webhook).',
+  @ApiPropertyOptional({
+    description:
+      'App secret de um app próprio (cifrado; confere a assinatura do webhook). Vem junto com `appId`.',
   })
+  @IsOptional()
   @IsString(MENSAGEM_TEXTO)
   @IsNotEmpty(MENSAGEM_OBRIGATORIO)
   @MaxLength(200, maximo(200))
-  appSecret: string;
+  appSecret?: string;
 
   @ApiProperty({
     example: '109876543210987',
@@ -111,6 +115,12 @@ export class WebhookDoCanalDto {
 export class CanalMetaDto extends CanalBaseDto {
   @ApiProperty({ example: '1234567890123456' })
   appId: string;
+
+  @ApiProperty({
+    description:
+      'Verdadeiro: o ID e o segredo são cópia do app das Configurações (acompanham as trocas dele). Falso: app próprio.',
+  })
+  appDasConfiguracoes: boolean;
 
   @ApiProperty({ example: '109876543210987' })
   pageId: string;
