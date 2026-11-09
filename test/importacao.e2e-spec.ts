@@ -756,4 +756,36 @@ describe('Importação de contatos e empresas (e2e)', () => {
       ).total,
     ).toBe(1);
   });
+
+  it('R16.10 — a planilha modelo sai em XLSX para líder (contatos e empresas); membro e tipo inválido são barrados; parcelas seguem a regra do Financeiro', async () => {
+    const { membros, cliente } = await lider();
+    const baixar = (c: ClienteHttp, tipo: string) =>
+      c
+        .get(`/api/v1/importacoes/planilha-modelo?tipo=${tipo}`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const partes: Buffer[] = [];
+          res.on('data', (p: Buffer) => partes.push(p));
+          res.on('end', () => cb(null, Buffer.concat(partes)));
+        });
+    for (const tipo of ['CONTATOS', 'EMPRESAS']) {
+      const ok = await baixar(cliente, tipo).expect(200);
+      expect(ok.headers['content-type']).toContain('spreadsheetml');
+      expect(ok.headers['content-disposition']).toContain(
+        `modelo-importacao-${tipo.toLowerCase()}.xlsx`,
+      );
+      expect(ok.headers['cache-control']).toContain('no-store');
+      expect(Number(ok.headers['content-length'])).toBe(
+        (ok.body as Buffer).length,
+      );
+      const livro = new ExcelJS.Workbook();
+      await livro.xlsx.load(ok.body as unknown as ArrayBuffer);
+      expect(livro.worksheets[1].name).toBe('Como preencher');
+    }
+    await baixar(await entrarComo(t, membros[0]), 'CONTATOS').expect(403);
+    await baixar(cliente, 'PARCELAS').expect(403);
+    await baixar(cliente, 'OUTRO').expect(400);
+    const cs = await criarEquipe(t, 'CS', { membros: 0 });
+    await baixar(await entrarComo(t, cs.lider), 'PARCELAS').expect(200);
+  });
 });

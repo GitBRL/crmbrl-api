@@ -771,6 +771,13 @@ real ("cenário N" no nome do teste).
   desligado antes de processar, a importação falha sem importar nada.
 - **R16.9** **Download:** a planilha enviada e o relatório só são baixados por quem
   importou, Admin e C-level.
+- **R16.10** **Planilha modelo:** `GET /importacoes/planilha-modelo?tipo=` devolve um XLSX
+  para cada tipo (contatos, empresas, parcelas). A 1ª aba (a que a importação lê) tem só o
+  cabeçalho, com o rótulo de cada campo — reconhecido sozinho pelo mapeamento sugerido —,
+  sem linhas de exemplo; colunas de telefone, CNPJ, número, contrato e Pix ficam em formato
+  texto e as de data e valor em formato de data e de número. A 2ª aba, "Como preencher",
+  explica cada coluna e as regras (etiquetas separadas por vírgula, campos personalizados,
+  limites). Mesma permissão de importar (R16.1); para parcelas, a mesma da criação (R22.1).
 
 ## 22. Disparos (R17)
 
