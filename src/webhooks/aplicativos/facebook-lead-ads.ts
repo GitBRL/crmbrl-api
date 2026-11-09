@@ -37,6 +37,7 @@ export const adaptadorFacebookLeadAds: AdaptadorDeAplicativo = {
       cabecalho: 'X-Hub-Signature-256',
     },
     credencial: null,
+    login: 'META',
     buscaCampos: true,
     escolheFormulario: true,
     passoAPasso: {

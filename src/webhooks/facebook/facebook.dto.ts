@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -14,6 +15,7 @@ import {
   MENSAGEM_TEXTO,
   MENSAGEM_UUID,
   maximo,
+  mensagemDeValores,
   OpcionalNaoNulo,
 } from '../dto-comum';
 
@@ -21,11 +23,14 @@ import {
 // Entrada
 // ---------------------------------------------------------------------------
 
-/** O app da Meta: ou o canal de onde reaproveitar, ou o id e o segredo. */
+/**
+ * O app da Meta. Sem nada, vale o app cadastrado em Configurações > Apps de login (R32.24; 422 se ainda não
+ * foi cadastrado). `canalId` e `appId`/`appSecret` seguem aceitos por compatibilidade.
+ */
 class AppDaMetaDto {
   @ApiPropertyOptional({
     description:
-      'ID do app da Meta (developers.facebook.com > Configurações do app > Básico). Sem `canalId` e sem `conexaoId`, é obrigatório.',
+      'Compatibilidade: ID de um app próprio (developers.facebook.com > Configurações do app > Básico). Sem `appId`, `appSecret` e `canalId`, vale o app das Configurações.',
     example: '1234567890123456',
   })
   @OpcionalNaoNulo()
@@ -36,7 +41,7 @@ class AppDaMetaDto {
 
   @ApiPropertyOptional({
     description:
-      'Segredo do app (guardado cifrado, nunca devolvido). Sem `canalId` e sem `conexaoId`, é obrigatório.',
+      'Compatibilidade: segredo de um app próprio (guardado cifrado, nunca devolvido); vem junto com `appId`.',
   })
   @OpcionalNaoNulo()
   @Transform(aparar)
@@ -47,7 +52,7 @@ class AppDaMetaDto {
   @ApiPropertyOptional({
     format: 'uuid',
     description:
-      'Reaproveita o ID e o segredo do app de um canal Messenger ou Instagram (veja `GET /webhooks/facebook/canais`). Os valores são copiados para a conexão.',
+      'Compatibilidade: reaproveita o ID e o segredo do app de um canal Messenger ou Instagram (veja `GET /webhooks/facebook/canais`). Os valores são copiados para a conexão.',
   })
   @OpcionalNaoNulo()
   @IsUUID('all', MENSAGEM_UUID)
@@ -65,6 +70,18 @@ class AppDaMetaDto {
 }
 
 export class IniciarLoginFacebookDto extends AppDaMetaDto {
+  @ApiPropertyOptional({
+    enum: ['janela', 'pagina'],
+    default: 'pagina',
+    description:
+      '`janela`: o login corre em outra janela (diálogo com `display=popup`) e o retorno vai para `/retorno-login` do front; `pagina` (padrão): a aba navega e o retorno vai para `/integracoes?facebook=…`.',
+  })
+  @OpcionalNaoNulo()
+  @IsIn(['janela', 'pagina'], {
+    message: mensagemDeValores(['janela', 'pagina']),
+  })
+  modo?: 'janela' | 'pagina';
+
   @ApiPropertyOptional({
     format: 'uuid',
     description:
@@ -128,6 +145,12 @@ export class FiltroFormulariosFacebookDto {
 // ---------------------------------------------------------------------------
 
 export class ConfiguracaoDoLoginDto {
+  @ApiProperty({
+    description:
+      'O app da Meta já foi cadastrado em Configurações > Apps de login? Sem ele, o login e o token de página sem `appId` dão 422.',
+  })
+  appCadastrado: boolean;
+
   @ApiProperty({
     example: 'https://crm.exemplo.com.br/api/v1/publico/facebook/oauth/retorno',
     description:
@@ -269,6 +292,12 @@ export class ConexaoFacebookDto {
 
   @ApiProperty({ example: '••••••••3f9a' })
   appSecretMascarado: string;
+
+  @ApiProperty({
+    description:
+      'Verdadeiro: o ID e o segredo são cópia do app das Configurações (acompanham as trocas dele). Falso: app próprio (conexão antiga).',
+  })
+  appDasConfiguracoes: boolean;
 
   @ApiProperty({
     description:

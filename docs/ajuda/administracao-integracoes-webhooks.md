@@ -32,6 +32,7 @@ Em **Histórico** estão todos os recebimentos dos últimos 90 dias, com filtros
 ## Um artigo por aplicativo
 Cada aplicativo tem um artigo com o que precisa ter antes (plano, credencial), o passo a passo no CRM e na ferramenta, como testar, o que aparece no histórico, erros comuns e os modos criar e atualizar:
 - [Webhook](integracoes-webhook.md) (receber e enviar)
+- [Apps de login (Meta, Typeform e RD Station)](integracoes-apps-de-login.md): o Admin cadastra o app de cada serviço uma vez em Configurações > Apps de login; depois Facebook Lead Ads, Typeform e RD Station conectam por login em outra janela
 - [ActiveCampaign](integracoes-activecampaign.md)
 - [Eduzz](integracoes-eduzz.md)
 - [Elementor](integracoes-elementor.md)

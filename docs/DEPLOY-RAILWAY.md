@@ -80,7 +80,9 @@ WHISPER_MODELO=small
 # opcionais: ANTHROPIC_API_KEY (assistente, BI, resumo das ligações e SDR com IA; sem ela o SDR fica indisponível), LIGACOES_RESUMO_MODELO, TICKETHUB_URL, TICKETHUB_EMAIL, TICKETHUB_SENHA,
 #            VAPID_CHAVE_PUBLICA, VAPID_CHAVE_PRIVADA, VAPID_ASSUNTO
 # integrações (Onda H, R32), opcionais e só para apontar para APIs de teste; em produção deixe sem definir:
-#            TYPEFORM_API_URL (padrão https://api.typeform.com), MANYCHAT_API_URL (padrão https://api.manychat.com),
+#            TYPEFORM_API_URL (padrão https://api.typeform.com), TYPEFORM_DIALOGO_URL (padrão https://api.typeform.com),
+#            RD_STATION_API_URL (padrão https://api.rd.services), RD_STATION_DIALOGO_URL (padrão https://api.rd.services),
+#            MANYCHAT_API_URL (padrão https://api.manychat.com),
 #            META_DIALOGO_URL (padrão https://www.facebook.com, diálogo de login do Facebook Lead Ads)
 
 # --- whatsapp ---
@@ -103,14 +105,23 @@ MINIO_SKIP_CLIENT=yes
 RAILWAY_RUN_UID=0                                     # a imagem roda sem root e o volume do Railway é do root
 ```
 
-**O que muda no Railway para o Facebook Lead Ads e o Typeform (Onda H):** nenhuma variável nova é obrigatória.
-Os dois dependem de `URL_PUBLICA` ser o domínio público do serviço do front, com **https** (o domínio do Railway ou o
-seu próprio): o Typeform chama o CRM a cada resposta e a Meta chama o retorno do login e o aviso de novos leads. No app da
-Meta cadastre `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` em "URIs de redirecionamento OAuth válidos" e o webhook
-de páginas (campo `leadgen`) em `URL_PUBLICA/api/v1/publico/meta/webhook`, com o token de verificação mostrado na conexão do
-Facebook (Integrações; cada conexão tem o seu). O ID e o segredo do app da Meta e o token do
-Typeform são cadastrados na tela Integrações (guardados cifrados com a `CHAVE_CRIPTOGRAFIA`), não em variáveis. Ao trocar o
-domínio, refaça esses cadastros e reconecte o Facebook.
+**O que muda no Railway para o login do Facebook, do Typeform e do RD Station (Onda H):** nenhuma variável é obrigatória.
+As cinco variáveis `*_URL` (`META_DIALOGO_URL`, `TYPEFORM_API_URL`, `TYPEFORM_DIALOGO_URL`, `RD_STATION_API_URL` e
+`RD_STATION_DIALOGO_URL`) só servem para apontar para APIs de teste; no Railway deixe-as sem definir. Os três serviços
+dependem de `URL_PUBLICA` ser o domínio público do serviço do front, com **https** (o domínio do Railway, como
+`https://seu-front.up.railway.app`, ou o seu próprio): eles devolvem o login ao CRM e chamam o CRM com os avisos. O ID e o
+segredo do app de cada serviço são cadastrados pelo Admin em **Configurações > Apps de login** (guardados cifrados com a
+`CHAVE_CRIPTOGRAFIA`), não em variáveis. Cadastre, em cada serviço, estes endereços com o domínio público:
+
+| Serviço | Onde cadastrar | Endereço |
+|---|---|---|
+| Meta | Login do Facebook > Configurações > URIs de redirecionamento OAuth válidos | `URL_PUBLICA/api/v1/publico/facebook/oauth/retorno` |
+| Meta | Webhooks > Page > URL de callback (campo `leadgen`; o token de verificação aparece na tela Apps de login) | `URL_PUBLICA/api/v1/publico/meta/webhook` |
+| Typeform | Organization > Developer Apps > Redirect URI(s) | `URL_PUBLICA/api/v1/publico/conexoes/oauth/retorno` |
+| RD Station | App Publisher > URL de callback (a mudança leva até 1 hora) | `URL_PUBLICA/api/v1/publico/conexoes/oauth/retorno` |
+
+Ao trocar o domínio (por exemplo, do endereço do Railway para o seu), refaça os três cadastros e reconecte as conexões. O
+passo a passo de criar os apps está em `docs/ajuda/integracoes-apps-de-login.md`.
 
 ## 4. Ajustes de cada serviço (Settings)
 

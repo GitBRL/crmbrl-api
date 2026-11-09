@@ -101,6 +101,9 @@ describe('lerAmbiente', () => {
       integracoes: {
         typeformUrl: 'https://api.typeform.com',
         manychatUrl: 'https://api.manychat.com',
+        typeformDialogoUrl: 'https://api.typeform.com',
+        rdStationUrl: 'https://api.rd.services',
+        rdStationDialogoUrl: 'https://api.rd.services',
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
       transcricao: {
@@ -500,6 +503,32 @@ describe('lerAmbiente', () => {
         problemasDe({ DATABASE_URL: URL_DO_BANCO, META_GRAPH_VERSAO: '24' }),
       ).toEqual([expect.stringContaining('META_GRAPH_VERSAO precisa ter')]);
     });
+  });
+
+  it('R32.25 e R32.26 — os diálogos e a API do login facilitado têm padrão real, aceitam as falsas dos testes e recusam endereço inválido', () => {
+    expect(ler({}).integracoes).toMatchObject({
+      typeformDialogoUrl: 'https://api.typeform.com',
+      rdStationUrl: 'https://api.rd.services',
+      rdStationDialogoUrl: 'https://api.rd.services',
+    });
+    expect(
+      ler({
+        TYPEFORM_DIALOGO_URL: 'http://127.0.0.1:3297/',
+        RD_STATION_API_URL: 'http://apoio:8091/',
+        RD_STATION_DIALOGO_URL: 'http://127.0.0.1:3298/',
+      }).integracoes,
+    ).toMatchObject({
+      typeformDialogoUrl: 'http://127.0.0.1:3297',
+      rdStationUrl: 'http://apoio:8091',
+      rdStationDialogoUrl: 'http://127.0.0.1:3298',
+    });
+    expect(
+      problemasDe({
+        DATABASE_URL: URL_DO_BANCO,
+        TYPEFORM_DIALOGO_URL: 'nao-e-url',
+        RD_STATION_API_URL: 'ftp://rd',
+      }).join(' '),
+    ).toMatch(/TYPEFORM_DIALOGO_URL[\s\S]*RD_STATION_API_URL/);
   });
 
   it('R30 — transcrição: URL vazia desliga; limites e modelos validados', () => {

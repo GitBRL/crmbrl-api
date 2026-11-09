@@ -162,6 +162,32 @@ export class ClienteDaGraphFacebook {
     };
   }
 
+  /**
+   * Confere o par ID + segredo do app (`GET /{app-id}?fields=id,name`, token de app `id|segredo`, o formato
+   * documentado da Meta, R32.22): devolve o nome do app ou lança `ErroDaGraph` (par errado: HTTP 400, código 190).
+   */
+  async validarApp(
+    appId: string,
+    appSecret: string,
+  ): Promise<{ id: string; nome: string }> {
+    const dados = objeto(
+      await this.pedir('GET', encodeURIComponent(appId), null, {
+        fields: 'id,name',
+        access_token: `${appId}|${appSecret}`,
+      }),
+    );
+    const id = texto(dados.id);
+    if (id !== appId) {
+      throw new ErroDaGraph(
+        'A Meta respondeu com outro app: confira o ID.',
+        400,
+        190,
+        null,
+      );
+    }
+    return { id, nome: texto(dados.name) ?? appId };
+  }
+
   // -------------------------------------------------------------------------
   // Contas, páginas, formulários e perguntas
   // -------------------------------------------------------------------------

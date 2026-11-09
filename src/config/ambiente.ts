@@ -45,6 +45,10 @@ export const META_GRAPH_VERSAO_PADRAO = 'v24.0';
 /** Endereço padrão do diálogo "Entrar com o Facebook" (aberto no navegador, R32.14). */
 export const META_DIALOGO_URL_PADRAO = 'https://www.facebook.com';
 export const TYPEFORM_API_URL_PADRAO = 'https://api.typeform.com';
+/** Diálogo "Entrar com o Typeform" (aberto no navegador, R32.25) e API do RD Station Marketing (R32.26). */
+export const TYPEFORM_DIALOGO_URL_PADRAO = 'https://api.typeform.com';
+export const RD_STATION_API_URL_PADRAO = 'https://api.rd.services';
+export const RD_STATION_DIALOGO_URL_PADRAO = 'https://api.rd.services';
 export const MANYCHAT_API_URL_PADRAO = 'https://api.manychat.com';
 
 /** Onde ficam os arquivos (R11): MinIO/S3 ou memória (testes). */
@@ -97,6 +101,12 @@ export interface ConfiguracaoIntegracoes {
   readonly typeformUrl: string;
   /** `MANYCHAT_API_URL`, sem barra no fim. */
   readonly manychatUrl: string;
+  /** `TYPEFORM_DIALOGO_URL`, sem barra no fim: o diálogo de login, aberto no NAVEGADOR do Admin (R32.25). */
+  readonly typeformDialogoUrl: string;
+  /** `RD_STATION_API_URL`, sem barra no fim: token, webhooks e campos do RD Station Marketing (R32.26). */
+  readonly rdStationUrl: string;
+  /** `RD_STATION_DIALOGO_URL`, sem barra no fim: o diálogo de login, aberto no NAVEGADOR do Admin (R32.26). */
+  readonly rdStationDialogoUrl: string;
 }
 
 export interface ConfiguracaoMeta {
@@ -292,6 +302,9 @@ export interface VariaveisDeAmbiente {
   META_DIALOGO_URL?: string;
   TYPEFORM_API_URL?: string;
   MANYCHAT_API_URL?: string;
+  TYPEFORM_DIALOGO_URL?: string;
+  RD_STATION_API_URL?: string;
+  RD_STATION_DIALOGO_URL?: string;
   LIGACOES_STUN_URLS?: string;
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
   TRANSCRICAO_URL?: string;
@@ -353,6 +366,9 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'META_DIALOGO_URL',
   'TYPEFORM_API_URL',
   'MANYCHAT_API_URL',
+  'TYPEFORM_DIALOGO_URL',
+  'RD_STATION_API_URL',
+  'RD_STATION_DIALOGO_URL',
   'LIGACOES_STUN_URLS',
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
   'TRANSCRICAO_URL',
@@ -1254,7 +1270,7 @@ function lerTranscricao(
   };
 }
 
-/** `TYPEFORM_API_URL` e `MANYCHAT_API_URL` (R32): onde ficam as APIs dos aplicativos (as falsas no ambiente dos agentes). */
+/** `TYPEFORM_*`, `RD_STATION_*` e `MANYCHAT_API_URL` (R32): onde ficam as APIs e os diálogos dos aplicativos (as falsas no ambiente dos agentes). */
 function lerIntegracoes(
   variaveis: VariaveisDeAmbiente,
   problemas: string[],
@@ -1274,6 +1290,27 @@ function lerIntegracoes(
         MANYCHAT_API_URL_PADRAO,
         problemas,
       ) ?? MANYCHAT_API_URL_PADRAO,
+    typeformDialogoUrl:
+      lerEnderecoHttp(
+        'TYPEFORM_DIALOGO_URL',
+        variaveis.TYPEFORM_DIALOGO_URL,
+        TYPEFORM_DIALOGO_URL_PADRAO,
+        problemas,
+      ) ?? TYPEFORM_DIALOGO_URL_PADRAO,
+    rdStationUrl:
+      lerEnderecoHttp(
+        'RD_STATION_API_URL',
+        variaveis.RD_STATION_API_URL,
+        RD_STATION_API_URL_PADRAO,
+        problemas,
+      ) ?? RD_STATION_API_URL_PADRAO,
+    rdStationDialogoUrl:
+      lerEnderecoHttp(
+        'RD_STATION_DIALOGO_URL',
+        variaveis.RD_STATION_DIALOGO_URL,
+        RD_STATION_DIALOGO_URL_PADRAO,
+        problemas,
+      ) ?? RD_STATION_DIALOGO_URL_PADRAO,
   };
 }
 

@@ -44,6 +44,9 @@ export const CHAVES_EDITAVEIS_DA_CONFIGURACAO = [
   // Facebook Lead Ads (R32.14): a conexão, a página e o formulário (`formularioId`, acima).
   'conexaoId',
   'paginaId',
+  // RD Station com conexão (R32.26): o gatilho do webhook criado no RD e as conversões (vazio = todas).
+  'gatilho',
+  'conversoes',
   // Plataformas de curso (R32.15): a tabela de eventos e o filtro por produto.
   'eventos',
   'produtos',
@@ -53,6 +56,7 @@ const FORMATO_DO_ID_DO_FORMULARIO = /^[A-Za-z0-9_-]{1,100}$/;
 const FORMATO_DO_ID_DO_FACEBOOK = /^[0-9]{1,40}$/;
 const FORMATO_DO_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const GATILHOS_DO_RD = ['CONVERSAO', 'OPORTUNIDADE'] as const;
 const FORMATO_DO_CABECALHO = /^[A-Za-z0-9-]{1,100}$/;
 
 export interface ResultadoDoTeste {
@@ -96,6 +100,41 @@ export interface DelegadoDeAplicativo {
   remover(integracao: WebhookEntrada): Promise<void>;
 }
 
+/**
+ * As conexões por login (R32.25 e R32.26), registradas no início da aplicação pelo serviço delas
+ * (sem dependência circular com este): confere a conexão escolhida e chama o serviço com o token
+ * dela (renovado quando vence e uma vez depois de um 401).
+ */
+export interface ProvedorDeConexoes {
+  /** A conexão existe, é do aplicativo e terminou o login; senão lança 404 ou 422. */
+  conferirConexao(
+    aplicativo: 'TYPEFORM' | 'RD_STATION',
+    conexaoId: string,
+  ): Promise<void>;
+  comToken<T>(
+    conexaoId: string,
+    chamada: (token: string) => Promise<T>,
+  ): Promise<T>;
+}
+
+/** Um webhook que o CRM criou na ferramenta e ainda não conseguiu remover (a integração já foi excluída). */
+export interface PendenciaDeRemocao {
+  readonly integracaoId: string;
+  readonly nome: string;
+  readonly aplicativo: AplicativoIntegracao;
+  /** O id do webhook na ferramenta (RD: uuid; Typeform: a etiqueta), para apagar à mão. */
+  readonly webhookId: string | null;
+}
+
+/** O id do webhook guardado na integração (RD: `uuid`; Typeform: `tag`). */
+function webhookIdGuardado(integracao: WebhookEntrada): string | null {
+  const registrado = objetoDe(
+    objetoDe(integracao.configuracao).webhookRegistrado,
+  );
+  const id = registrado.uuid ?? registrado.tag;
+  return typeof id === 'string' ? id : null;
+}
+
 export function objetoDe(valor: unknown): Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
     ? (valor as Record<string, unknown>)
@@ -114,6 +153,7 @@ export class AplicativosService {
     AplicativoIntegracao,
     DelegadoDeAplicativo
   >();
+  private provedorDeConexoes: ProvedorDeConexoes | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -129,6 +169,48 @@ export class AplicativosService {
     delegado: DelegadoDeAplicativo,
   ): void {
     this.delegados.set(aplicativo, delegado);
+  }
+
+  registrarProvedorDeConexoes(provedor: ProvedorDeConexoes): void {
+    this.provedorDeConexoes = provedor;
+  }
+
+  /** As conexões por login (sempre registradas pelo módulo; o erro é de montagem, não do usuário). */
+  provedor(): ProvedorDeConexoes {
+    if (!this.provedorDeConexoes) {
+      throw new RegraVioladaException(
+        'R32.25',
+        'As conexões por login não estão disponíveis.',
+      );
+    }
+    return this.provedorDeConexoes;
+  }
+
+  /** O `conexaoId` de uma integração do Typeform ou do RD Station que usa uma conexão por login; senão `null`. */
+  conexaoDaIntegracao(
+    integracao: Pick<WebhookEntrada, 'aplicativo' | 'configuracao'>,
+  ): string | null {
+    if (
+      integracao.aplicativo !== 'TYPEFORM' &&
+      integracao.aplicativo !== 'RD_STATION'
+    ) {
+      return null;
+    }
+    const conexaoId = objetoDe(integracao.configuracao).conexaoId;
+    return typeof conexaoId === 'string' && conexaoId !== '' ? conexaoId : null;
+  }
+
+  /** Executa com a credencial da integração: o token da conexão (com renovação) ou o token pessoal guardado. */
+  private async comCredencial<T>(
+    integracao: WebhookEntrada,
+    adaptador: AdaptadorDeAplicativo,
+    chamada: (credencial: Credencial) => Promise<T>,
+  ): Promise<T> {
+    const conexaoId = this.conexaoDaIntegracao(integracao);
+    if (conexaoId) {
+      return this.provedor().comToken(conexaoId, (token) => chamada({ token }));
+    }
+    return chamada(this.credencialObrigatoria(integracao, adaptador));
   }
 
   adaptador(aplicativo: AplicativoIntegracao): AdaptadorDeAplicativo {
@@ -303,10 +385,15 @@ export class AplicativosService {
         continue;
       }
       if (chave === 'conexaoId' || chave === 'paginaId') {
-        if (aplicativo !== 'FACEBOOK_LEAD_ADS') {
+        const conexaoPorLogin =
+          chave === 'conexaoId' &&
+          (aplicativo === 'TYPEFORM' || aplicativo === 'RD_STATION');
+        if (aplicativo !== 'FACEBOOK_LEAD_ADS' && !conexaoPorLogin) {
           throw erroDeCampo(
             `configuracao.${chave}`,
-            'só vale para o Facebook Lead Ads',
+            chave === 'conexaoId'
+              ? 'só vale para o Facebook Lead Ads, o Typeform e o RD Station'
+              : 'só vale para o Facebook Lead Ads',
           );
         }
         const formato =
@@ -315,9 +402,49 @@ export class AplicativosService {
           throw erroDeCampo(
             `configuracao.${chave}`,
             chave === 'conexaoId'
-              ? 'deve ser o identificador da conexão com o Facebook'
+              ? 'deve ser o identificador da conexão'
               : 'deve ser o identificador (numérico) da página do Facebook',
           );
+        }
+      }
+      if (chave === 'gatilho' || chave === 'conversoes') {
+        if (aplicativo !== 'RD_STATION') {
+          throw erroDeCampo(
+            `configuracao.${chave}`,
+            'só vale para o RD Station',
+          );
+        }
+        if (chave === 'gatilho') {
+          if (
+            typeof valor !== 'string' ||
+            !(GATILHOS_DO_RD as readonly string[]).includes(valor)
+          ) {
+            throw erroDeCampo(
+              'configuracao.gatilho',
+              `deve ser um destes valores: ${GATILHOS_DO_RD.join(', ')}`,
+            );
+          }
+        } else {
+          const lista = Array.isArray(valor) ? (valor as unknown[]) : null;
+          if (
+            !lista ||
+            lista.length > 50 ||
+            lista.some(
+              (item) =>
+                typeof item !== 'string' ||
+                item.trim() === '' ||
+                item.length > 100,
+            )
+          ) {
+            throw erroDeCampo(
+              'configuracao.conversoes',
+              'deve ser uma lista de até 50 identificadores de conversão (textos de até 100 caracteres)',
+            );
+          }
+          resultado.conversoes = [
+            ...new Set(lista.map((item) => (item as string).trim())),
+          ];
+          continue;
         }
       }
       if (chave === 'formularioId') {
@@ -400,8 +527,16 @@ export class AplicativosService {
   async testarDaIntegracao(id: string): Promise<ResultadoDoTeste> {
     const integracao = await this.carregar(id);
     const adaptador = this.adaptador(integracao.aplicativo);
-    const credencial = this.credencialObrigatoria(integracao, adaptador);
-    const resultado = await this.chamarTeste(adaptador, credencial, integracao);
+    const conexaoId = this.conexaoDaIntegracao(integracao);
+    const credencial = conexaoId
+      ? null
+      : this.credencialObrigatoria(integracao, adaptador);
+    const resultado = await this.chamarTeste(
+      adaptador,
+      credencial,
+      integracao,
+      conexaoId,
+    );
     if (resultado.valida) {
       await this.limparAtencao(integracao);
     }
@@ -425,10 +560,12 @@ export class AplicativosService {
     try {
       campos = delegado
         ? await delegado.buscarCampos(integracao)
-        : await adaptador.buscarCampos!(
-            this.credencialObrigatoria(integracao, adaptador),
-            objetoDe(integracao.configuracao),
-            this.contextoHttp(),
+        : await this.comCredencial(integracao, adaptador, (credencial) =>
+            adaptador.buscarCampos!(
+              credencial,
+              objetoDe(integracao.configuracao),
+              this.contextoHttp(),
+            ),
           );
     } catch (erro) {
       throw await this.traduzirFalha(erro, integracao);
@@ -464,10 +601,8 @@ export class AplicativosService {
     try {
       const formularios = delegado
         ? await delegado.listarFormularios(integracao, busca)
-        : await listarFormulariosDoTypeform(
-            this.credencialObrigatoria(integracao, adaptador),
-            this.contextoHttp(),
-            busca,
+        : await this.comCredencial(integracao, adaptador, (credencial) =>
+            listarFormulariosDoTypeform(credencial, this.contextoHttp(), busca),
           );
       await this.limparAtencao(integracao);
       return formularios;
@@ -495,10 +630,12 @@ export class AplicativosService {
     try {
       return delegado
         ? await delegado.camposDoFormulario(integracao, formularioId)
-        : await buscarCamposDoFormulario(
-            this.credencialObrigatoria(integracao, adaptador),
-            this.contextoHttp(),
-            formularioId,
+        : await this.comCredencial(integracao, adaptador, (credencial) =>
+            buscarCamposDoFormulario(
+              credencial,
+              this.contextoHttp(),
+              formularioId,
+            ),
           );
     } catch (erro) {
       throw await this.traduzirFalha(erro, integracao);
@@ -540,6 +677,90 @@ export class AplicativosService {
     await this.removerWebhookDoTypeform(integracao);
   }
 
+  /**
+   * A remoção na ferramenta falhou (fora do ar, conexão recusada…): a integração, já excluída, guarda o id do
+   * webhook e a marca `webhookRemocaoPendente`, para tentar de novo (job periódico e exclusão da conexão).
+   */
+  async marcarRemocaoPendente(id: string): Promise<void> {
+    await this.atualizarConfiguracao(id, (resto) => ({
+      ...resto,
+      webhookRemocaoPendente: true,
+    }));
+  }
+
+  /** O webhook foi removido da ferramenta: some o id guardado e a marca de pendência. */
+  async concluirRemocao(id: string): Promise<void> {
+    await this.atualizarConfiguracao(id, (resto) => {
+      const {
+        webhookRegistrado: _registrado,
+        webhookRemocaoPendente: _pendente,
+        ...limpo
+      } = resto;
+      return limpo;
+    });
+  }
+
+  /**
+   * Tenta de novo as remoções que falharam (de uma conexão, ou de todas) e devolve as que continuam
+   * pendentes, com o que o Admin precisa saber para apagar o webhook na ferramenta à mão.
+   */
+  async refazerRemocoesPendentes(
+    conexaoId?: string,
+  ): Promise<PendenciaDeRemocao[]> {
+    const integracoes = await this.prisma.webhookEntrada.findMany({
+      where: {
+        excluidoEm: { not: null },
+        aplicativo: { in: ['TYPEFORM', 'RD_STATION'] },
+        AND: [
+          { configuracao: { path: ['webhookRemocaoPendente'], equals: true } },
+          ...(conexaoId
+            ? [{ configuracao: { path: ['conexaoId'], equals: conexaoId } }]
+            : []),
+        ],
+      },
+      orderBy: { criadoEm: 'asc' },
+      take: 200,
+    });
+    const restantes: PendenciaDeRemocao[] = [];
+    for (const integracao of integracoes) {
+      await this.removerDaFerramenta(integracao);
+      const atual = await this.prisma.webhookEntrada.findUnique({
+        where: { id: integracao.id },
+        select: { configuracao: true },
+      });
+      if (objetoDe(atual?.configuracao).webhookRemocaoPendente === true) {
+        restantes.push({
+          integracaoId: integracao.id,
+          nome: integracao.nome,
+          aplicativo: integracao.aplicativo,
+          webhookId: webhookIdGuardado(integracao),
+        });
+      }
+    }
+    return restantes;
+  }
+
+  private async atualizarConfiguracao(
+    id: string,
+    alterar: (atual: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void> {
+    const linha = await this.prisma.webhookEntrada.findUnique({
+      where: { id },
+      select: { configuracao: true },
+    });
+    if (!linha) {
+      return;
+    }
+    await this.prisma.webhookEntrada.update({
+      where: { id },
+      data: {
+        configuracao: alterar(
+          objetoDe(linha.configuracao),
+        ) as unknown as Prisma.InputJsonObject,
+      },
+    });
+  }
+
   /** Confere a configuração de uma integração nova (aplicativos com escolhas próprias). */
   async conferirConfiguracaoNova(
     aplicativo: AplicativoIntegracao,
@@ -548,6 +769,14 @@ export class AplicativosService {
     await this.delegados
       .get(aplicativo)
       ?.conferirConfiguracaoNova(configuracao);
+    // Typeform e RD Station por login: a conexão escolhida existe, é do aplicativo e já conectou.
+    const conexaoId = configuracao.conexaoId;
+    if (
+      (aplicativo === 'TYPEFORM' || aplicativo === 'RD_STATION') &&
+      typeof conexaoId === 'string'
+    ) {
+      await this.provedor().conferirConexao(aplicativo, conexaoId);
+    }
   }
 
   /**
@@ -573,8 +802,18 @@ export class AplicativosService {
       typeof configuracao.formularioId === 'string'
         ? configuracao.formularioId
         : null;
-    const credencial = this.lerCredencialGuardada(integracao);
+    const conexaoId = this.conexaoDaIntegracao(integracao);
+    const credencial = conexaoId
+      ? null
+      : this.lerCredencialGuardada(integracao);
     const http = this.contextoHttp();
+    /** O token pessoal guardado, ou o da conexão (renovado quando vence e depois de um 401). */
+    const executar = <T>(
+      chamada: (cred: Credencial) => Promise<T>,
+    ): Promise<T> =>
+      conexaoId
+        ? this.provedor().comToken(conexaoId, (token) => chamada({ token }))
+        : chamada(credencial as Credencial);
     const gravar = async (
       novo: WebhookRegistrado | null,
       erro: string | null,
@@ -603,7 +842,7 @@ export class AplicativosService {
         },
       });
     };
-    if (!credencial) {
+    if (!credencial && !conexaoId) {
       const erro =
         'Sem credencial do Typeform legível: informe o token novamente.';
       if (desejado) {
@@ -613,11 +852,13 @@ export class AplicativosService {
     }
     try {
       if (registrado && registrado.formularioId !== desejado) {
-        await removerWebhookDoTypeform(
-          credencial,
-          http,
-          registrado.formularioId,
-          registrado.tag,
+        await executar((cred) =>
+          removerWebhookDoTypeform(
+            cred,
+            http,
+            registrado.formularioId,
+            registrado.tag,
+          ),
         );
       }
       if (!desejado) {
@@ -632,13 +873,16 @@ export class AplicativosService {
         return { registrado: false, erro };
       }
       const tag = registrado?.tag ?? tagDoWebhook(integracao.id);
-      await registrarWebhookDoTypeform(credencial, http, {
-        formularioId: desejado,
-        tag,
-        url: montarEndereco(this.ambiente.urlPublica, token),
-        segredo: this.cripto.decifrar(integracao.segredoCifrado),
-        ativo: integracao.ativo,
-      });
+      const segredoDoWebhook = this.cripto.decifrar(integracao.segredoCifrado);
+      await executar((cred) =>
+        registrarWebhookDoTypeform(cred, http, {
+          formularioId: desejado,
+          tag,
+          url: montarEndereco(this.ambiente.urlPublica, token),
+          segredo: segredoDoWebhook,
+          ativo: integracao.ativo,
+        }),
+      );
       await gravar(
         {
           formularioId: desejado,
@@ -666,21 +910,35 @@ export class AplicativosService {
     const registrado = lerRegistrado(
       objetoDe(integracao.configuracao).webhookRegistrado,
     );
-    const credencial = this.lerCredencialGuardada(integracao);
-    if (!registrado || !credencial) {
+    const conexaoId = this.conexaoDaIntegracao(integracao);
+    const credencial = conexaoId
+      ? null
+      : this.lerCredencialGuardada(integracao);
+    if (!registrado || (!credencial && !conexaoId)) {
       return;
     }
     try {
-      await removerWebhookDoTypeform(
-        credencial,
-        this.contextoHttp(),
-        registrado.formularioId,
-        registrado.tag,
-      );
+      const http = this.contextoHttp();
+      const remover = (cred: Credencial) =>
+        removerWebhookDoTypeform(
+          cred,
+          http,
+          registrado.formularioId,
+          registrado.tag,
+        );
+      if (conexaoId) {
+        await this.provedor().comToken(conexaoId, (token) =>
+          remover({ token }),
+        );
+      } else {
+        await remover(credencial as Credencial);
+      }
+      await this.concluirRemocao(integracao.id);
     } catch (erro) {
+      await this.marcarRemocaoPendente(integracao.id);
       await this.logs.aviso(
         'Webhooks',
-        `Não foi possível remover o webhook do formulário do Typeform da integração "${integracao.nome}": ${erro instanceof Error ? erro.message : 'erro desconhecido'}.`,
+        `Não foi possível remover o webhook do formulário do Typeform da integração "${integracao.nome}": ${erro instanceof Error ? erro.message : 'erro desconhecido'}. O CRM tenta de novo.`,
         { integracaoId: integracao.id },
       );
     }
@@ -809,15 +1067,23 @@ export class AplicativosService {
     adaptador: AdaptadorDeAplicativo,
     credencial: Credencial | null,
     integracao?: WebhookEntrada,
+    conexaoId: string | null = null,
   ): Promise<ResultadoDoTeste> {
-    if (!adaptador.testarCredencial || !credencial) {
+    if (!adaptador.testarCredencial || (!credencial && !conexaoId)) {
       throw new RegraVioladaException(
         'R32.8',
         `O aplicativo ${adaptador.definicao.nome} não usa credencial.`,
       );
     }
     try {
-      await adaptador.testarCredencial(credencial, this.contextoHttp());
+      const testar = adaptador.testarCredencial.bind(adaptador);
+      if (conexaoId) {
+        await this.provedor().comToken(conexaoId, (token) =>
+          testar({ token }, this.contextoHttp()),
+        );
+      } else {
+        await testar(credencial as Credencial, this.contextoHttp());
+      }
       return { valida: true, mensagem: 'Credencial aceita.' };
     } catch (erro) {
       if (erro instanceof CredencialRecusadaError) {
@@ -833,8 +1099,8 @@ export class AplicativosService {
     }
   }
 
-  /** Credencial recusada → marca a atenção e responde 422; outra falha → 503 com a mensagem. */
-  private async traduzirFalha(
+  /** Credencial recusada → marca a atenção e responde 422; outra falha → 422 com a mensagem. */
+  async traduzirFalha(
     erro: unknown,
     integracao: WebhookEntrada,
   ): Promise<RegraVioladaException> {

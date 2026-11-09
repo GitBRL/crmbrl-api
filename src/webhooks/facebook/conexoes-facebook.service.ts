@@ -1,4 +1,3 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { PREFIXO_DAS_ROTAS, VERSAO_PADRAO_DA_API } from '../../aplicacao';
@@ -22,6 +21,21 @@ import {
   FalhaNoAplicativoError,
   type CampoBuscado,
 } from '../aplicativos/tipos';
+import {
+  assinarState,
+  dicasDoState,
+  lerState,
+  type ModoDeLogin,
+  novoNonce,
+  VALIDADE_DO_STATE_MS,
+} from '../login/estado-do-login';
+import {
+  destinoDoRetorno,
+  CAMINHO_DA_TELA_DE_INTEGRACOES,
+  type ResultadoDoLogin,
+} from '../login/retorno-de-login';
+import { AppsDeLoginService } from '../login/apps-de-login.service';
+import { ESCOPOS_DO_FACEBOOK } from './escopos';
 import type {
   CanalDaMetaDto,
   ConexaoFacebookDto,
@@ -39,24 +53,14 @@ import {
 } from './graph-facebook';
 import { camposDasPerguntas } from './lead-facebook';
 
-/** Escopos pedidos no login (contrato da H2, §2.2). */
-export const ESCOPOS_DO_FACEBOOK = [
-  'leads_retrieval',
-  'pages_show_list',
-  'pages_read_engagement',
-  'pages_manage_metadata',
-  'pages_manage_ads',
-  'ads_management',
-  'business_management',
-] as const;
+export { ESCOPOS_DO_FACEBOOK, VALIDADE_DO_STATE_MS };
 
-/** O `state` do login vale por 10 minutos e uma vez só (R32.14). */
-export const VALIDADE_DO_STATE_MS = 10 * 60_000;
+/** O domínio do HMAC do `state` do Facebook (separado do das conexões de aplicativo). */
+const DOMINIO_DO_STATE = 'facebook-oauth-state';
 
 const FORMATO_DE_ID_DO_FACEBOOK = /^[0-9]{1,40}$/;
 
-/** Para onde o retorno do login leva o navegador (a tela de Integrações). */
-export const CAMINHO_DA_TELA_DE_INTEGRACOES = '/integracoes';
+export { CAMINHO_DA_TELA_DE_INTEGRACOES };
 
 /** Segredos de uma conexão, decifrados (só dentro da API). */
 export interface SegredosDaConexao {
@@ -103,6 +107,7 @@ export class ConexoesFacebookService {
     private readonly auditoria: AuditoriaService,
     private readonly aplicativos: AplicativosService,
     private readonly logs: LogsTecnicosService,
+    private readonly apps: AppsDeLoginService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
 
@@ -118,8 +123,9 @@ export class ConexoesFacebookService {
     return `${this.ambiente.urlPublica}/${PREFIXO_DAS_ROTAS}/v${VERSAO_PADRAO_DA_API}/publico/facebook/oauth/retorno`;
   }
 
-  configuracaoDoLogin(): ConfiguracaoDoLoginDto {
+  async configuracaoDoLogin(): Promise<ConfiguracaoDoLoginDto> {
     return {
+      appCadastrado: (await this.apps.obter('META')) !== null,
       enderecoDeRetorno: this.enderecoDeRetorno(),
       escopos: [...ESCOPOS_DO_FACEBOOK],
       versaoDaGraph: this.ambiente.meta.graphVersao,
@@ -170,12 +176,29 @@ export class ConexoesFacebookService {
     }
   }
 
-  /** O app: do canal escolhido ou digitado. */
+  /**
+   * O app: o das Configurações (R32.24, quando nada é informado), o do canal escolhido ou o digitado
+   * (os dois últimos seguem aceitos na API por compatibilidade).
+   */
   private async resolverApp(dto: {
     canalId?: string;
     appId?: string;
     appSecret?: string;
-  }): Promise<{ appId: string; appSecret: string; canalId: string | null }> {
+  }): Promise<{
+    appId: string;
+    appSecret: string;
+    canalId: string | null;
+    dasConfiguracoes: boolean;
+  }> {
+    if (!dto.canalId && !dto.appId && !dto.appSecret) {
+      const app = await this.apps.exigir('META');
+      return {
+        appId: app.clientId,
+        appSecret: app.segredo,
+        canalId: null,
+        dasConfiguracoes: true,
+      };
+    }
     if (dto.canalId) {
       if (dto.appId || dto.appSecret) {
         throw erroDeCampo(
@@ -201,7 +224,7 @@ export class ConexoesFacebookService {
           'Este canal não tem o ID e o segredo do app da Meta guardados: informe-os aqui.',
         );
       }
-      return { appId, appSecret, canalId: canal.id };
+      return { appId, appSecret, canalId: canal.id, dasConfiguracoes: false };
     }
     if (!dto.appId) {
       throw erroDeCampo(
@@ -218,7 +241,12 @@ export class ConexoesFacebookService {
     if (!FORMATO_DE_ID_DO_FACEBOOK.test(dto.appId)) {
       throw erroDeCampo('appId', 'deve ser o ID numérico do app da Meta');
     }
-    return { appId: dto.appId, appSecret: dto.appSecret, canalId: null };
+    return {
+      appId: dto.appId,
+      appSecret: dto.appSecret,
+      canalId: null,
+      dasConfiguracoes: false,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -257,6 +285,7 @@ export class ConexoesFacebookService {
               this.cripto.gerarToken(24),
             ),
             canalOrigemId: app.canalId,
+            appDasConfiguracoes: app.dasConfiguracoes,
             criadoPorId: usuario.id,
           },
         });
@@ -265,12 +294,17 @@ export class ConexoesFacebookService {
           entidade: 'conexao_facebook',
           entidadeId: criada.id,
           resumo: `Conexão com o Facebook "${criada.nome}" criada (login em andamento)`,
-          dados: { appId: app.appId, canal: app.canalId },
+          dados: {
+            appId: app.appId,
+            canal: app.canalId,
+            appDasConfiguracoes: app.dasConfiguracoes,
+          },
         });
         return criada;
       });
     }
-    const nonce = `${randomBytes(24).toString('base64url')}~${usuario.id}`;
+    const modo: ModoDeLogin = dto.modo ?? 'pagina';
+    const nonce = novoNonce(usuario.id, modo);
     const expiraEm = new Date(Date.now() + VALIDADE_DO_STATE_MS);
     await this.prisma.conexaoFacebook.update({
       where: { id: conexao.id },
@@ -281,7 +315,9 @@ export class ConexoesFacebookService {
         ...(dto.nome ? { nome: dto.nome } : {}),
       },
     });
-    const state = this.assinarState(
+    const state = assinarState(
+      this.ambiente.chaveCriptografia,
+      DOMINIO_DO_STATE,
       conexao.id,
       nonce,
       Math.floor(expiraEm.getTime() / 1000),
@@ -292,6 +328,8 @@ export class ConexoesFacebookService {
       state,
       scope: ESCOPOS_DO_FACEBOOK.join(','),
       response_type: 'code',
+      // Em janela, o diálogo compacto (R32.23).
+      ...(modo === 'janela' ? { display: 'popup' } : {}),
     });
     return {
       conexaoId: conexao.id,
@@ -312,15 +350,25 @@ export class ConexoesFacebookService {
     error?: unknown;
     error_description?: unknown;
   }): Promise<RetornoDoLogin> {
-    const state = this.lerState(consulta.state);
+    const state = lerState(
+      this.ambiente.chaveCriptografia,
+      DOMINIO_DO_STATE,
+      consulta.state,
+    );
     if (state === 'invalido' || state === 'vencido') {
-      return this.retorno('erro', null, `state_${state}`);
+      return this.retorno(
+        dicasDoState(consulta.state).modo,
+        'erro',
+        null,
+        `state_${state}`,
+      );
     }
+    const modo = state.modo;
     const conexao = await this.prisma.conexaoFacebook.findFirst({
       where: { id: state.conexaoId, excluidoEm: null },
     });
     if (!conexao) {
-      return this.retorno('erro', null, 'state_invalido');
+      return this.retorno(modo, 'erro', null, 'state_invalido');
     }
     // Uso único: consumir é atômico (dois retornos com o mesmo state: só um passa).
     const { count } = await this.prisma.conexaoFacebook.updateMany({
@@ -332,12 +380,12 @@ export class ConexoesFacebookService {
       data: { estadoHash: null, estadoExpiraEm: null },
     });
     if (count === 0) {
-      return this.retorno('erro', conexao.id, 'state_usado');
+      return this.retorno(modo, 'erro', conexao.id, 'state_usado');
     }
     // O ator é o Admin que iniciou o login (vai no state assinado), não o criador da conexão.
     const ator = await this.atorDoLogin(state.usuarioId);
     if (!ator) {
-      return this.retorno('erro', conexao.id, 'state_invalido');
+      return this.retorno(modo, 'erro', conexao.id, 'state_invalido');
     }
     return executarComoAtor(ator, async () => {
       if (typeof consulta.error === 'string' && consulta.error) {
@@ -347,6 +395,7 @@ export class ConexoesFacebookService {
           { conexaoId: conexao.id },
         );
         return this.retorno(
+          modo,
           'cancelado',
           conexao.id,
           consulta.error.slice(0, 60),
@@ -355,7 +404,7 @@ export class ConexoesFacebookService {
       const codigo =
         typeof consulta.code === 'string' ? consulta.code.trim() : '';
       if (!codigo) {
-        return this.retorno('erro', conexao.id, 'sem_codigo');
+        return this.retorno(modo, 'erro', conexao.id, 'sem_codigo');
       }
       try {
         const segredos = this.segredosDe(conexao);
@@ -381,7 +430,7 @@ export class ConexoesFacebookService {
           usuario: eu,
           paginas,
         });
-        return this.retorno('conectado', conexao.id, null);
+        return this.retorno(modo, 'conectado', conexao.id, null);
       } catch (erro) {
         if (erro instanceof ErroDaGraph) {
           await this.logs.aviso(
@@ -390,6 +439,7 @@ export class ConexoesFacebookService {
             { conexaoId: conexao.id },
           );
           return this.retorno(
+            modo,
             'erro',
             conexao.id,
             'meta_recusou',
@@ -402,23 +452,20 @@ export class ConexoesFacebookService {
   }
 
   private retorno(
-    resultado: 'conectado' | 'cancelado' | 'erro',
+    modo: ModoDeLogin,
+    resultado: ResultadoDoLogin,
     conexaoId: string | null,
     motivo: string | null,
     mensagem?: string,
   ): RetornoDoLogin {
-    const parametros = new URLSearchParams({ facebook: resultado });
-    if (conexaoId) {
-      parametros.set('conexao', conexaoId);
-    }
-    if (motivo) {
-      parametros.set('motivo', motivo);
-    }
-    if (mensagem) {
-      parametros.set('mensagem', mensagem);
-    }
     return {
-      destino: `${this.ambiente.urlPublica}${CAMINHO_DA_TELA_DE_INTEGRACOES}?${parametros.toString()}`,
+      destino: destinoDoRetorno(this.ambiente.urlPublica, modo, {
+        aplicativo: 'facebook',
+        resultado,
+        conexaoId,
+        motivo,
+        mensagem: mensagem ?? null,
+      }),
       conexaoId,
       ok: resultado === 'conectado',
     };
@@ -527,6 +574,7 @@ export class ConexoesFacebookService {
             { ...pagina, token: dto.tokenPagina },
           ]),
           canalOrigemId: app.canalId,
+          appDasConfiguracoes: app.dasConfiguracoes,
           conectadaEm: new Date(),
           criadoPorId: usuario.id,
         },
@@ -536,7 +584,12 @@ export class ConexoesFacebookService {
         entidade: 'conexao_facebook',
         entidadeId: conexao.id,
         resumo: `Conexão com o Facebook "${conexao.nome}" criada por token de página (${pagina.nome})`,
-        dados: { appId: app.appId, pagina: pagina.id, canal: app.canalId },
+        dados: {
+          appId: app.appId,
+          pagina: pagina.id,
+          canal: app.canalId,
+          appDasConfiguracoes: app.dasConfiguracoes,
+        },
       });
       return conexao;
     });
@@ -928,53 +981,6 @@ export class ConexoesFacebookService {
     }
   }
 
-  /** `<conexaoId>.<nonce>.<expiraEmSegundos>.<hmac>`: o HMAC usa a chave de criptografia (separada por domínio). */
-  private assinarState(conexaoId: string, nonce: string, exp: number): string {
-    // `nonce` já traz `~<id do Admin que iniciou o login>`: o ator do retorno é ele, não o criador da conexão.
-    const carga = `${conexaoId}.${nonce}.${exp}`;
-    return `${carga}.${this.macDoState(carga)}`;
-  }
-
-  private macDoState(carga: string): string {
-    return createHmac('sha256', this.ambiente.chaveCriptografia)
-      .update(`facebook-oauth-state:${carga}`)
-      .digest('base64url');
-  }
-
-  private lerState(
-    valor: unknown,
-  ):
-    | { conexaoId: string; nonce: string; usuarioId: string }
-    | 'invalido'
-    | 'vencido' {
-    if (typeof valor !== 'string' || valor.length > 300) {
-      return 'invalido';
-    }
-    const partes = valor.split('.');
-    if (partes.length !== 4) {
-      return 'invalido';
-    }
-    const [conexaoId, nonce, exp, mac] = partes;
-    const esperado = Buffer.from(
-      this.macDoState(`${conexaoId}.${nonce}.${exp}`),
-    );
-    const recebido = Buffer.from(mac);
-    if (
-      esperado.length !== recebido.length ||
-      !timingSafeEqual(esperado, recebido) ||
-      !/^[0-9a-f-]{36}$/i.test(conexaoId)
-    ) {
-      return 'invalido';
-    }
-    const usuarioId = nonce.split('~')[1] ?? '';
-    if (!/^[0-9a-f-]{36}$/i.test(usuarioId)) {
-      return 'invalido';
-    }
-    return Number(exp) * 1000 < Date.now()
-      ? 'vencido'
-      : { conexaoId, nonce, usuarioId };
-  }
-
   // -------------------------------------------------------------------------
   // DTO
   // -------------------------------------------------------------------------
@@ -1030,13 +1036,16 @@ export class ConexoesFacebookService {
     }
   }
 
-  /** O `hub.verify_token` do desafio GET vale se é o de alguma conexão do Facebook ativa (tempo constante). */
+  /**
+   * O `hub.verify_token` do desafio GET vale se é o do app da Meta das Configurações (R32.22) ou o de
+   * alguma conexão do Facebook ativa (tempo constante).
+   */
   async tokenDeVerificacaoValido(token: string): Promise<boolean> {
     const conexoes = await this.prisma.conexaoFacebook.findMany({
       where: { excluidoEm: null, tokenVerificacaoCifrado: { not: null } },
       select: { tokenVerificacaoCifrado: true },
     });
-    let valido = false;
+    let valido = await this.apps.tokenDeVerificacaoValido(token);
     for (const { tokenVerificacaoCifrado } of conexoes) {
       try {
         const guardado = this.cripto.decifrar(tokenVerificacaoCifrado ?? '');
@@ -1074,6 +1083,7 @@ export class ConexoesFacebookService {
       expiraEm: conexao.expiraEm?.toISOString() ?? null,
       conectadaEm: conexao.conectadaEm?.toISOString() ?? null,
       canalOrigemId: conexao.canalOrigemId,
+      appDasConfiguracoes: conexao.appDasConfiguracoes,
       paginas: segredos.paginas.map(({ id, nome, categoria }) => ({
         id,
         nome,

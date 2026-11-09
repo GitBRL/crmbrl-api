@@ -14,7 +14,7 @@ palavras-chave: [parcela, dar baixa, pagamento, boleto, pix, renegociar, vencime
 Situações: Em aberto, Atrasada, Paga, Cancelada e Renegociada. O botão **Nova parcela** cria uma parcela avulsa e **Exportar parcelas** baixa a lista. O painel também permite editar, renegociar e cancelar. Mudar o vencimento reinicia a régua de cobrança daquele título; dar baixa a encerra.
 
 ## Importar parcelas
-1. Na lista de parcelas, clique em **Importar planilha** (`/financeiro/parcelas/importar`). É o mesmo assistente da importação de contatos (Arquivo, Colunas, Opções, Importação).
+1. Na lista de parcelas, clique em **Importar planilha** (`/financeiro/parcelas/importar`). É o mesmo assistente da importação de contatos (Arquivo, Colunas, Opções, Importação). No primeiro passo, **Baixar planilha modelo** entrega uma planilha de parcelas com as colunas certas e uma aba de instruções.
 2. Em duplicados, escolha **Atualizar** ou **Ignorar**.
 3. Veja criados, atualizados, ignorados e erros, e baixe o relatório em Excel.
 

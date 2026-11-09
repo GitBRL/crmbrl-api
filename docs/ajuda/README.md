@@ -82,6 +82,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Histórico de dúvidas à IA (Admin)](administracao-duvidas-ia.md)
 - [Integrações: aplicativos, histórico e webhooks de saída](administracao-integracoes-webhooks.md)
 - [Integração ActiveCampaign: passo a passo, teste e erros comuns](integracoes-activecampaign.md)
+- [Apps de login (Meta, Typeform e RD Station): cadastrar uma vez e entrar com um clique](integracoes-apps-de-login.md)
 - [Integração Eduzz: passo a passo, teste e erros comuns](integracoes-eduzz.md)
 - [Integração Elementor: passo a passo, teste e erros comuns](integracoes-elementor.md)
 - [Integração Facebook Lead Ads: passo a passo, teste e erros comuns](integracoes-facebook-lead-ads.md)

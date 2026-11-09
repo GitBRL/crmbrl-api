@@ -279,12 +279,24 @@ export class WebhooksEntradaService {
       definicao.nome,
       dto,
     );
-    const credencial = await this.aplicativos.validarCredencial(
-      aplicativo,
-      dto.credencial,
-      null,
-      true,
-    );
+    // Typeform por login (R32.25): a credencial é o token pessoal OU a conexão, nunca os dois.
+    const usaConexao =
+      aplicativo === 'TYPEFORM' &&
+      typeof dto.configuracao?.conexaoId === 'string';
+    if (usaConexao && dto.credencial !== undefined) {
+      throw erroDeCampo(
+        'credencial',
+        'não combine com `configuracao.conexaoId`: use o token pessoal ou a conexão do Typeform',
+      );
+    }
+    const credencial = usaConexao
+      ? null
+      : await this.aplicativos.validarCredencial(
+          aplicativo,
+          dto.credencial,
+          null,
+          true,
+        );
     const configuracao = completarConfiguracaoDeCurso(
       definicao,
       this.aplicativos.validarConfiguracao(
@@ -376,6 +388,39 @@ export class WebhooksEntradaService {
     if (!atual) {
       throw new NaoEncontradoException('Webhook de entrada não encontrado.');
     }
+    // Typeform por login (R32.25): token pessoal OU conexão. Escolher a conexão apaga o token; voltar ao token exige informá-lo.
+    const conexaoDepois =
+      atual.aplicativo === 'TYPEFORM'
+        ? dto.configuracao?.conexaoId !== undefined
+          ? dto.configuracao.conexaoId
+          : objetoDe(atual.configuracao).conexaoId
+        : null;
+    if (
+      atual.aplicativo === 'TYPEFORM' &&
+      conexaoDepois !== null &&
+      conexaoDepois !== undefined &&
+      dto.credencial !== undefined
+    ) {
+      throw erroDeCampo(
+        'credencial',
+        'não combine com a conexão do Typeform: use o token pessoal ou a conexão',
+      );
+    }
+    const trocaParaConexao =
+      atual.aplicativo === 'TYPEFORM' &&
+      typeof conexaoDepois === 'string' &&
+      atual.credencialCifrada !== null;
+    if (
+      atual.aplicativo === 'TYPEFORM' &&
+      dto.configuracao?.conexaoId === null &&
+      dto.credencial === undefined &&
+      atual.credencialCifrada === null
+    ) {
+      throw erroDeCampo(
+        'credencial',
+        'sem a conexão, informe o token pessoal do Typeform',
+      );
+    }
     const credencial =
       dto.credencial !== undefined
         ? await this.aplicativos.validarCredencial(
@@ -384,10 +429,14 @@ export class WebhooksEntradaService {
             this.aplicativos.lerCredencialGuardada(atual),
             true,
           )
-        : undefined;
+        : trocaParaConexao
+          ? null
+          : undefined;
     if (
       dto.configuracao !== undefined &&
-      atual.aplicativo === 'FACEBOOK_LEAD_ADS'
+      (atual.aplicativo === 'FACEBOOK_LEAD_ADS' ||
+        atual.aplicativo === 'TYPEFORM' ||
+        atual.aplicativo === 'RD_STATION')
     ) {
       // A escolha nova (conexão, página, formulário) precisa existir na Meta; falha antes de gravar.
       await this.aplicativos.conferirConfiguracaoNova(
@@ -532,7 +581,21 @@ export class WebhooksEntradaService {
           (depois.ativo !== antes.ativo ||
             credencial !== undefined ||
             JSON.stringify(objetoDe(depois.configuracao).formularioId) !==
-              JSON.stringify(objetoDe(antes.configuracao).formularioId))) ||
+              JSON.stringify(objetoDe(antes.configuracao).formularioId) ||
+            JSON.stringify(objetoDe(depois.configuracao).conexaoId) !==
+              JSON.stringify(objetoDe(antes.configuracao).conexaoId))) ||
+        (antes.aplicativo === 'RD_STATION' &&
+          (depois.ativo !== antes.ativo ||
+            [
+              'conexaoId',
+              'gatilho',
+              'conversoes',
+              'cabecalhoDeAutenticacao',
+            ].some(
+              (chave) =>
+                JSON.stringify(objetoDe(depois.configuracao)[chave]) !==
+                JSON.stringify(objetoDe(antes.configuracao)[chave]),
+            ))) ||
         (antes.aplicativo === 'FACEBOOK_LEAD_ADS' &&
           (depois.ativo !== antes.ativo ||
             ['conexaoId', 'paginaId', 'formularioId'].some(
@@ -545,7 +608,7 @@ export class WebhooksEntradaService {
         // Só os nomes dos campos: nunca o valor da credencial.
         alteracoes.credencial = {
           antes: antes.credencialCifrada ? 'configurada' : 'sem',
-          depois: 'trocada',
+          depois: credencial === null ? 'removida' : 'trocada',
         };
       }
       if (
@@ -623,6 +686,9 @@ export class WebhooksEntradaService {
     });
     if (aplicativo === 'TYPEFORM') {
       await this.aplicativos.sincronizarWebhookDoTypeform(id);
+    } else if (aplicativo === 'RD_STATION') {
+      // O endereço novo precisa ir para o webhook que o CRM criou no RD (R32.26).
+      await this.aplicativos.sincronizarComAFerramenta(id);
     }
     return { webhook: await this.detalhar(id), url: this.endereco(token) };
   }
@@ -686,6 +752,9 @@ export class WebhooksEntradaService {
     if (aplicativo === 'TYPEFORM') {
       // O segredo novo precisa ir para o webhook do formulário.
       await this.aplicativos.sincronizarWebhookDoTypeform(id);
+    } else if (aplicativo === 'RD_STATION') {
+      // A chave nova vira o cabeçalho do webhook criado no RD (R32.26).
+      await this.aplicativos.sincronizarComAFerramenta(id);
     }
     return {
       webhook: await this.detalhar(id),
@@ -694,11 +763,13 @@ export class WebhooksEntradaService {
   }
 
   async removerSegredo(id: string): Promise<WebhookEntradaDto> {
+    let sincronizarRd = false;
     await this.prisma.$transaction(async (tx) => {
       const webhook = await this.travarAtivo(tx, id);
       if (!webhook.segredoCifrado) {
         return;
       }
+      sincronizarRd = webhook.aplicativo === 'RD_STATION';
       if (
         definicaoDe(webhook.aplicativo)?.autenticidade.segredo ===
         'GERADO_PELO_CRM'
@@ -720,6 +791,10 @@ export class WebhooksEntradaService {
         relacionados: { funil: webhook.funilId },
       });
     });
+    if (sincronizarRd) {
+      // O webhook criado no RD deixa de levar o cabeçalho de autenticação (R32.26).
+      await this.aplicativos.sincronizarComAFerramenta(id);
+    }
     return this.detalhar(id);
   }
 
@@ -899,6 +974,7 @@ export class WebhooksEntradaService {
     return {
       aplicativos: catalogoDeAplicativos().map((definicao): AplicativoDto => ({
         ...definicao,
+        login: definicao.login ?? null,
         credencial: definicao.credencial
           ? definicao.credencial.map((campo) => ({ ...campo }))
           : null,

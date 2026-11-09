@@ -14,6 +14,8 @@ export interface PedidoDoAplicativo {
   readonly metodo?: 'GET' | 'PUT' | 'DELETE' | 'POST';
   readonly cabecalhos: Record<string, string>;
   readonly corpo?: unknown;
+  /** Corpo `application/x-www-form-urlencoded` (os endpoints de token do OAuth), em vez de JSON. */
+  readonly corpoFormulario?: Readonly<Record<string, string>>;
   /** Nome do aplicativo, para as mensagens (`Typeform`). */
   readonly aplicativo: string;
   /** Status que também valem como sucesso além de 2xx (ex.: 404 ao remover). */
@@ -34,13 +36,19 @@ export async function chamarAplicativo(
       method: pedido.metodo ?? 'GET',
       headers: {
         Accept: 'application/json',
-        ...(pedido.corpo === undefined
-          ? {}
-          : { 'Content-Type': 'application/json' }),
+        ...(pedido.corpoFormulario !== undefined
+          ? { 'Content-Type': 'application/x-www-form-urlencoded' }
+          : pedido.corpo === undefined
+            ? {}
+            : { 'Content-Type': 'application/json' }),
         ...pedido.cabecalhos,
       },
       body:
-        pedido.corpo === undefined ? undefined : JSON.stringify(pedido.corpo),
+        pedido.corpoFormulario !== undefined
+          ? new URLSearchParams(pedido.corpoFormulario).toString()
+          : pedido.corpo === undefined
+            ? undefined
+            : JSON.stringify(pedido.corpo),
       redirect: 'manual',
       signal: AbortSignal.timeout(PRAZO_DAS_CHAMADAS_MS),
     });
@@ -71,6 +79,7 @@ export async function chamarAplicativo(
           ? ' (redirecionamento não é seguido)'
           : ''
       }.`,
+      resposta.status,
     );
   }
   let dados: unknown = null;
