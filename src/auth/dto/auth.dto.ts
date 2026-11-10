@@ -11,7 +11,8 @@ import {
   TAMANHO_MINIMO_SENHA,
 } from '../../comum/criptografia/criptografia.service';
 import type { Escopo } from '../../comum/dominio/permissoes';
-import { Area, Papel, TipoTokenSenha } from '../../generated/prisma/client';
+import { Papel, TipoTokenSenha } from '../../generated/prisma/client';
+import type { Area } from '../../comum/dominio/setores';
 
 const MENSAGEM_TAMANHO_SENHA = `deve ter de ${TAMANHO_MINIMO_SENHA} a ${TAMANHO_MAXIMO_SENHA} caracteres`;
 
@@ -117,6 +118,13 @@ export class LiderResumoDto {
 
   @ApiProperty({ enum: Papel, enumName: 'Papel' })
   papel: Papel;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Setor do líder (chave); nulo para C-level.',
+  })
+  area: Area | null;
 }
 
 export class UsuarioDoPerfilDto {
@@ -132,16 +140,28 @@ export class UsuarioDoPerfilDto {
   @ApiProperty({ enum: Papel, enumName: 'Papel' })
   papel: Papel;
 
-  @ApiProperty({ example: 'Líder Comercial' })
+  @ApiProperty({
+    example: 'Líder Comercial',
+    description:
+      'Admin, C-level, "Líder " + nome do setor, ou o nome do setor (membro).',
+  })
   rotuloPapel: string;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
     nullable: true,
-    description: 'Nula para Admin e C-level.',
+    example: 'COMERCIAL',
+    description: 'Setor (chave); nulo para Admin e C-level.',
   })
   area: Area | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Comercial',
+    description: 'Nome do setor; nulo para Admin e C-level.',
+  })
+  nomeSetor: string | null;
 
   @ApiProperty({ enum: ['ADMINISTRADOR', 'DIRETORIA', 'LIDER', 'MEMBRO'] })
   nivel: 'ADMINISTRADOR' | 'DIRETORIA' | 'LIDER' | 'MEMBRO';
@@ -183,7 +203,13 @@ export class PermissoesDto {
   @ApiProperty() verAuditoria: boolean;
   @ApiProperty() verLogsTecnicos: boolean;
   @ApiProperty() verDocumentacaoApi: boolean;
-  @ApiProperty({ enum: Area, enumName: 'Area', isArray: true })
+  @ApiProperty({
+    type: String,
+    isArray: true,
+    example: ['COMERCIAL'],
+    description:
+      'Setores (chaves) cujos funis a pessoa vê: Admin e C-level, todos os ativos; Líder e Membro, o seu (R5.9).',
+  })
   areasVisiveis: Area[];
 }
 

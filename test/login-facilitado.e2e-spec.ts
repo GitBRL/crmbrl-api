@@ -5,7 +5,7 @@
  */
 import request from 'supertest';
 import { CriptografiaService } from '../src/comum/criptografia/criptografia.service';
-import { Papel, type Usuario } from '../src/generated/prisma/client';
+import type { Usuario } from '../src/generated/prisma/client';
 import { AplicativosService } from '../src/webhooks/entrada/aplicativos.service';
 import { assinarState } from '../src/webhooks/login/estado-do-login';
 import {
@@ -22,6 +22,7 @@ import {
   entrarComo,
   funilBase,
   GraphFalsa,
+  PAPEIS_ANTIGOS,
   RdStationFalso,
   TypeformFalso,
 } from './utils';
@@ -1011,7 +1012,7 @@ describe('Login facilitado (e2e, R32.22 a R32.26)', () => {
     ).body as { urlDialogo: string; conexaoId: string };
     await t.prisma.usuario.update({
       where: { id: adminUsuario.id },
-      data: { papel: 'COMERCIAL' },
+      data: { papel: 'MEMBRO', area: 'COMERCIAL' },
     });
     const semAdmin = await request(t.servidor)
       .get(RETORNO_CONEXOES)
@@ -1028,7 +1029,7 @@ describe('Login facilitado (e2e, R32.22 a R32.26)', () => {
     expect((await conexaoDe(iniciado.conexaoId)).tokensCifrados).toBeNull();
     await t.prisma.usuario.update({
       where: { id: adminUsuario.id },
-      data: { papel: 'ADMIN' },
+      data: { papel: 'ADMIN', area: null },
     });
 
     // Cancelamento no diálogo do Typeform: cancelado, sem token; em página, /integracoes.
@@ -1827,7 +1828,7 @@ describe('Login facilitado (e2e, R32.22 a R32.26)', () => {
         metodo === 'get' || metodo === 'delete' ? undefined : {},
       ).expect(401);
     }
-    const papeis = Object.values(Papel).filter((p) => p !== 'ADMIN');
+    const papeis = PAPEIS_ANTIGOS.filter((p) => p !== 'ADMIN');
     expect(papeis.length).toBeGreaterThanOrEqual(7);
     for (const papel of papeis) {
       const cliente = await entrarComo(t, await criarUsuario(t, { papel }));

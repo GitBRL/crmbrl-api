@@ -1,3 +1,4 @@
+import { papelESetor as comPapel } from '../dominio/papeis-antigos.apoio-spec';
 import { idDaRequisicao } from '../../logs/requisicao.middleware';
 import {
   contextoAtual,
@@ -23,7 +24,7 @@ describe('contexto da requisição (AsyncLocalStorage)', () => {
       await (async () => {
         await new Promise((resolver) => setTimeout(resolver, 1));
         definirUsuarioDoContexto(
-          { id: 'u1', papel: 'CS', nome: 'Carla' },
+          { id: 'u1', ...comPapel('CS'), nome: 'Carla' },
           's1',
         );
       })();

@@ -7,7 +7,7 @@ import {
   juntarEtiquetas,
   normalizarEtiquetas,
 } from '../comum/dominio/etiquetas';
-import { areaDoPapel } from '../comum/dominio/papeis';
+import { setorDaPessoa } from '../comum/dominio/papeis';
 import { ErroApi, RegraVioladaException } from '../comum/erros/excecoes';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ArquivosService } from '../arquivos/arquivos.service';
@@ -150,7 +150,9 @@ export class ImportacaoProcessadorService {
   async processar(importacaoId: string): Promise<void> {
     const importacao = await this.prisma.importacao.findUnique({
       where: { id: importacaoId },
-      include: { criadoPor: true },
+      include: {
+        criadoPor: { include: { setor: { select: { nome: true } } } },
+      },
     });
     if (
       !importacao ||
@@ -171,7 +173,8 @@ export class ImportacaoProcessadorService {
       nome: criador.nome,
       email: criador.email,
       papel: criador.papel,
-      area: areaDoPapel(criador.papel),
+      area: setorDaPessoa(criador),
+      nomeSetor: criador.setor?.nome ?? null,
       liderId: criador.liderId,
       deveTrocarSenha: false,
       sessaoId: '',
@@ -590,7 +593,7 @@ export class ImportacaoProcessadorService {
     if (!contexto.usuarios) {
       contexto.usuarios = await this.prisma.usuario.findMany({
         where: { ativo: true },
-        select: { id: true, nome: true, email: true, papel: true },
+        select: { id: true, nome: true, email: true, papel: true, area: true },
       });
     }
     return contexto.usuarios;
@@ -605,13 +608,7 @@ export class ImportacaoProcessadorService {
     const pessoa = (await this.usuariosDoContexto(contexto)).find(
       (u) => u.id === usuarioId,
     );
-    return (
-      !!pessoa &&
-      podeSerResponsavelNaArea(
-        pessoa.papel as Parameters<typeof podeSerResponsavelNaArea>[0],
-        area as Parameters<typeof podeSerResponsavelNaArea>[1],
-      )
-    );
+    return !!pessoa && podeSerResponsavelNaArea(pessoa, area);
   }
 
   /** Responsável da coluna: usuário ativo, ao alcance de quem importa (R16.6); `aviso` quando não serve. */
@@ -724,12 +721,7 @@ export class ImportacaoProcessadorService {
     }
     if (
       responsavelDaColuna &&
-      podeSerResponsavelNaArea(
-        responsavelDaColuna.papel as Parameters<
-          typeof podeSerResponsavelNaArea
-        >[0],
-        plano.destino.funil.area,
-      )
+      podeSerResponsavelNaArea(responsavelDaColuna, plano.destino.funil.area)
     ) {
       plano.estrategia = 'RESPONSAVEL_FIXO';
       plano.responsavelFixoId = responsavelDaColuna.id;

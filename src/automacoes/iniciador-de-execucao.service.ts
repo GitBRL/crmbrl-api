@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { areaDoPapel } from '../comum/dominio/papeis';
+import { setorDaPessoa } from '../comum/dominio/papeis';
 import { permiteEncadear } from '../comum/gatilhos/catalogo';
 import {
   chaveDeLimite,
@@ -9,15 +9,11 @@ import type { CadeiaDeAutomacao } from '../comum/contexto/contexto-requisicao';
 import type { DefinicaoDePassos } from '../comum/passos/definicao';
 import { PassosService } from '../comum/passos/passos.service';
 import { SegmentosService } from '../comum/segmentos/segmentos.service';
-import type {
-  Area,
-  Automacao,
-  Execucao,
-  Papel,
-} from '../generated/prisma/client';
+import type { Automacao, Execucao } from '../generated/prisma/client';
 import { LogsTecnicosService } from '../logs/logs-tecnicos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { lerCondicoes } from './condicoes';
+import type { Area } from '../comum/dominio/setores';
 
 export type EntidadeDeAutomacao =
   'contato' | 'negocio' | 'atividade' | 'conversa';
@@ -126,7 +122,7 @@ export class IniciadorDeExecucao {
           select: {
             contatoId: true,
             negocioId: true,
-            responsavel: { select: { papel: true } },
+            responsavel: { select: { papel: true, area: true } },
             contato: { select: { optOutMarketing: true, excluidoEm: true } },
             negocio: { select: { contatoId: true } },
           },
@@ -148,7 +144,7 @@ export class IniciadorDeExecucao {
               contatoId,
               negocioId: atividade.negocioId,
               conversaId: null,
-              area: areaDoPapel(atividade.responsavel.papel as Papel),
+              area: setorDaPessoa(atividade.responsavel),
               optOut: optOutDe(contato),
             }
           : null;

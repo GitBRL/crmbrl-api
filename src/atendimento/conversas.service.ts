@@ -8,11 +8,7 @@ import {
 } from '../canais/registro-canais';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import { normalizarEtiquetas } from '../comum/dominio/etiquetas';
-import {
-  areaDoPapel,
-  papeisDaArea,
-  rotuloDoPapel,
-} from '../comum/dominio/papeis';
+import { rotuloDoPapel, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   ConflitoException,
   DadosInvalidosException,
@@ -25,7 +21,6 @@ import { EventosDominioService } from '../eventos/eventos-dominio.service';
 import type { NegocioDto } from '../funis/dto/negocios.dto';
 import { NegociosService } from '../funis/negocios.service';
 import type {
-  Area,
   Canal,
   Conversa,
   MotivoAtribuicao,
@@ -69,6 +64,11 @@ import {
   podeUsarAtendimento,
   podeVerConversa,
 } from './visibilidade';
+import {
+  type Area,
+  SETOR_COMERCIAL,
+  SETOR_MARKETING,
+} from '../comum/dominio/setores';
 
 /** Status "em aberto" (R12: no máximo uma por contato e canal). */
 const EM_ABERTO = ['ABERTA', 'PENDENTE'] as const;
@@ -81,7 +81,7 @@ export const SEM_ATENDIMENTO = 'O seu papel não usa o Atendimento.';
 
 /** 403 para quem não usa o Atendimento (o Marketing, R12). */
 export function exigirAtendimento(usuario: UsuarioAutenticado): void {
-  if (!podeUsarAtendimento(usuario.papel)) {
+  if (!podeUsarAtendimento(usuario)) {
     throw new SemPermissaoException(SEM_ATENDIMENTO, {
       regra: REGRA_ATENDIMENTO,
     });
@@ -304,23 +304,23 @@ export class ConversasService {
     const pessoas = await this.prisma.usuario.findMany({
       where: {
         ativo: true,
-        papel: {
-          in: filtro.area
-            ? [...papeisDaArea(filtro.area)]
-            : [
-                'ADMIN',
-                'C_LEVEL',
-                'LIDER_COMERCIAL',
-                'COMERCIAL',
-                'LIDER_CS',
-                'CS',
-              ],
-        },
+        // Só Líder e Membro têm setor; o Marketing não atende (R12).
+        ...(filtro.area
+          ? { area: filtro.area }
+          : {
+              OR: [{ area: null }, { area: { not: SETOR_MARKETING } }],
+            }),
         ...(filtro.busca
           ? { nome: { contains: filtro.busca, mode: 'insensitive' } }
           : {}),
       },
-      select: { id: true, nome: true, avatarUrl: true, papel: true },
+      select: {
+        id: true,
+        nome: true,
+        avatarUrl: true,
+        papel: true,
+        area: true,
+      },
       orderBy: [{ nome: 'asc' }, { id: 'asc' }],
     });
     const cargas = await this.prisma.conversa.groupBy({
@@ -340,8 +340,8 @@ export class ConversasService {
     return pessoas.map((pessoa) => ({
       ...PessoaDto.de(pessoa),
       papel: pessoa.papel,
-      rotuloPapel: rotuloDoPapel(pessoa.papel),
-      area: areaDoPapel(pessoa.papel),
+      rotuloPapel: rotuloDoPapel(pessoa.papel, pessoa.area),
+      area: setorDaPessoa(pessoa),
       emAberto: porPessoa.get(pessoa.id) ?? 0,
       conectado: conectados.has(pessoa.id),
     }));
@@ -500,13 +500,13 @@ export class ConversasService {
         : null;
       const areaFinal = filaDestino?.area ?? conversa.fila?.area ?? null;
       if (pessoa) {
-        const areaDaPessoa = areaDoPapel(pessoa.papel);
+        const areaDaPessoa = setorDaPessoa(pessoa);
         if (areaDaPessoa && areaFinal && areaDaPessoa !== areaFinal) {
           throw new RegraVioladaException(
             REGRA_ATENDIMENTO,
             filaDestino
-              ? `${pessoa.nome} não atende a fila ${filaDestino.nome}: escolha uma fila da área dela.`
-              : `Para transferir para alguém de outra área, escolha também uma fila da área de ${pessoa.nome}.`,
+              ? `${pessoa.nome} não atende a fila ${filaDestino.nome}: escolha uma fila do setor dela.`
+              : `Para transferir para alguém de outro setor, escolha também uma fila do setor de ${pessoa.nome}.`,
             { motivo: 'area_diferente' },
           );
         }
@@ -851,7 +851,7 @@ export class ConversasService {
     let funilId = dto.funilId;
     if (!funilId) {
       const area: Area =
-        conversa.fila?.area ?? areaDoPapel(usuario.papel) ?? 'COMERCIAL';
+        conversa.fila?.area ?? setorDaPessoa(usuario) ?? SETOR_COMERCIAL;
       const base = await this.prisma.funil.findFirst({
         where: { area, base: true, excluidoEm: null },
         select: { id: true },
@@ -925,7 +925,7 @@ export class ConversasService {
         }),
         this.prisma.usuario.findMany({
           where: { id: { in: conectados } },
-          select: { id: true, papel: true },
+          select: { id: true, papel: true, area: true },
         }),
       ]);
       for (const pessoa of pessoas) {
@@ -1130,7 +1130,7 @@ export class ConversasService {
   private async pessoaParaReceber(tx: Tx, usuarioId: string) {
     const pessoa = await tx.usuario.findUnique({
       where: { id: usuarioId },
-      select: { id: true, nome: true, papel: true, ativo: true },
+      select: { id: true, nome: true, papel: true, area: true, ativo: true },
     });
     if (!pessoa) {
       throw new NaoEncontradoException('Pessoa não encontrada.');
@@ -1142,7 +1142,7 @@ export class ConversasService {
         { motivo: 'usuario_inativo' },
       );
     }
-    if (!podeUsarAtendimento(pessoa.papel)) {
+    if (!podeUsarAtendimento(pessoa)) {
       throw new RegraVioladaException(
         REGRA_ATENDIMENTO,
         `${pessoa.nome} é do Marketing, que não usa o Atendimento.`,

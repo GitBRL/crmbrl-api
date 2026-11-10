@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ArquivoDto } from '../arquivos/arquivos.dto';
-import { areaDoPapel, rotuloDoPapel } from '../comum/dominio/papeis';
+import { rotuloDoPapel, setorDaPessoa } from '../comum/dominio/papeis';
 import { linkDoNegocio } from '../funis/motor-de-negocios.service';
-import { Prisma, type Papel } from '../generated/prisma/client';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
 import type {
@@ -46,6 +46,7 @@ const CAMPOS_DA_PESSOA = {
   nome: true,
   avatarUrl: true,
   papel: true,
+  area: true,
   ativo: true,
 } satisfies Prisma.UsuarioSelect;
 
@@ -93,8 +94,8 @@ export class MontagemChatService {
       nome: usuario.nome,
       avatarUrl: usuario.avatarUrl,
       papel: usuario.papel,
-      rotuloPapel: rotuloDoPapel(usuario.papel),
-      area: areaDoPapel(usuario.papel as Papel),
+      rotuloPapel: rotuloDoPapel(usuario.papel, usuario.area),
+      area: setorDaPessoa(usuario),
       ativo: usuario.ativo,
       online: usuario.ativo && presenca.has(usuario.id),
     };

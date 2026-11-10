@@ -49,27 +49,15 @@ datasource db {
 // Enums
 // ---------------------------------------------------------------------------
 
-/// Papel de quem usa o CRM. Define o que a pessoa vê e pode fazer (R1).
+/// Papel de quem usa o CRM: o nível. O setor da pessoa fica em `Usuario.area`
+/// (Líder e Membro têm setor; Admin e C-level não — um CHECK garante) (R1).
 enum Papel {
   ADMIN
   C_LEVEL
-  LIDER_COMERCIAL
-  COMERCIAL
-  LIDER_MARKETING
-  MARKETING
-  LIDER_CS
-  CS
+  LIDER
+  MEMBRO
 
   @@map("papel")
-}
-
-/// Área de negócio. Cada funil pertence a uma; cada papel de líder ou de membro também (R1).
-enum Area {
-  MARKETING
-  COMERCIAL
-  CS
-
-  @@map("area")
 }
 
 /// Tipo da etapa: o status do negócio deriva dele (R5.2, R5.3).
@@ -202,6 +190,46 @@ enum ModeloMapeamento {
 }
 
 // ---------------------------------------------------------------------------
+// Setores (R1.6–R1.11)
+// ---------------------------------------------------------------------------
+
+/// Setor (área) da empresa: dono de funis, rodízio, filas, equipe… Os três de base
+/// (`MARKETING`, `COMERCIAL`, `CS`) vêm da migration e não desativam; os demais são
+/// criados por Admin e C-level. A `chave` é imutável (gerada do nome na criação) e é
+/// o valor gravado em todas as colunas `area`. Setor não é apagado: inativo some das
+/// listas de escolha e continua nos registros antigos. O nome é único (sem diferenciar
+/// maiúsculas nem acentos) entre os ativos — conferido no serviço, sob trava.
+model Setor {
+  chave        String   @id
+  nome         String
+  descricao    String?
+  /// Token de cor de categoria do design system (ex.: `azul`).
+  cor          String?
+  base         Boolean  @default(false)
+  ativo        Boolean  @default(true)
+  ordem        Int      @default(0)
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  usuarios            Usuario[]
+  funis               Funil[]
+  regraDistribuicao   RegraDistribuicao?
+  filasAtendimento    FilaAtendimento[]
+  respostasRapidas    RespostaRapida[]
+  chatCanais          ChatCanal[]
+  importacoesRodizio  Importacao[]
+  modelosMensagem     ModeloMensagem[]
+  campanhas           Campanha[]
+  fluxosChatbot       FluxoChatbot[]
+  automacoes          Automacao[]
+  assistenteConversas AssistenteConversa[]
+  assistentePerguntas AssistentePergunta[]
+
+  @@index([ativo, ordem])
+  @@map("setores")
+}
+
+// ---------------------------------------------------------------------------
 // Usuários e autenticação (R1, R2)
 // ---------------------------------------------------------------------------
 
@@ -218,6 +246,9 @@ model Usuario {
   /// Identificador do usuário nas integrações (R32.4): opcional e único (sem diferenciar maiúsculas).
   identificadorIntegracao String?   @unique @map("identificador_integracao")
   papel                   Papel
+  /// Setor da pessoa (chave de `setores`): obrigatório para Líder e Membro, nulo para Admin e C-level.
+  area                    String?
+  setor                   Setor?    @relation(fields: [area], references: [chave], onDelete: Restrict)
   liderId                 String?   @map("lider_id") @db.Uuid
   lider                   Usuario?  @relation("Lideranca", fields: [liderId], references: [id], onDelete: SetNull)
   liderados               Usuario[] @relation("Lideranca")
@@ -298,6 +329,7 @@ model Usuario {
 
   @@index([liderId])
   @@index([papel, ativo])
+  @@index([area, papel, ativo])
   @@map("usuarios")
 }
 
@@ -476,7 +508,8 @@ model Contato {
 model Funil {
   id           String    @id @default(uuid()) @db.Uuid
   nome         String
-  area         Area
+  area         String
+  setor        Setor     @relation(fields: [area], references: [chave], onDelete: Restrict)
   base         Boolean   @default(false)
   ordem        Int       @default(0)
   ativo        Boolean   @default(true)
@@ -680,7 +713,8 @@ model PassagemExecucao {
 /// (`SELECT … FOR UPDATE`) antes de escolher o próximo.
 model RegraDistribuicao {
   id              String   @id @default(uuid()) @db.Uuid
-  area            Area     @unique
+  area            String   @unique
+  setor           Setor    @relation(fields: [area], references: [chave], onDelete: Restrict)
   /// O líder da área entra no rodízio.
   incluirLideres  Boolean  @default(false) @map("incluir_lideres")
   ultimoUsuarioId String?  @map("ultimo_usuario_id") @db.Uuid
@@ -1510,7 +1544,8 @@ model FilaAtendimento {
   /// Identifica filas criadas pelo sistema (ex.: `comercial`), estável mesmo se renomeadas.
   chave                      String?        @unique
   nome                       String
-  area                       Area
+  area                       String
+  setor                      Setor          @relation(fields: [area], references: [chave], onDelete: Restrict)
   descricao                  String?
   /// Prazo da primeira resposta, em minutos. Nulo = sem SLA.
   slaPrimeiraRespostaMinutos Int?           @map("sla_primeira_resposta_minutos")
@@ -1763,7 +1798,8 @@ model RespostaRapida {
   titulo       String
   texto        String
   /// Nula = vale para todas as áreas.
-  area         Area?
+  area         String?
+  setor        Setor?    @relation(fields: [area], references: [chave], onDelete: Restrict)
   /// Anexo opcional.
   arquivoId    String?   @map("arquivo_id") @db.Uuid
   arquivo      Arquivo?  @relation(fields: [arquivoId], references: [id], onDelete: SetNull)
@@ -1915,7 +1951,8 @@ model ChatCanal {
   nome             String?
   descricao        String?
   /// Canais `AREA`.
-  area             Area?
+  area             String?
+  setor            Setor?        @relation(fields: [area], references: [chave], onDelete: Restrict)
   criadoPorId      String?       @map("criado_por_id") @db.Uuid
   criadoPor        Usuario?      @relation("ChatCanalCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
   ultimaMensagemEm DateTime?     @map("ultima_mensagem_em") @db.Timestamptz(3)
@@ -2195,7 +2232,8 @@ model Importacao {
   estrategiaResponsavel EstrategiaDistribuicao? @map("estrategia_responsavel")
   responsavelId         String?                 @map("responsavel_id") @db.Uuid
   responsavel           Usuario?                @relation("ImportacaoResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
-  areaRodizio           Area?                   @map("area_rodizio")
+  areaRodizio           String?                 @map("area_rodizio")
+  setorRodizio          Setor?                  @relation(fields: [areaRodizio], references: [chave], onDelete: Restrict)
   /// Detalhe da origem gravado nos contatos (a origem é IMPORTACAO).
   origemDetalhe         String?                 @map("origem_detalhe")
   /// Outras opções do módulo.
@@ -2291,7 +2329,8 @@ model ModeloMensagem {
   arquivoId    String?    @map("arquivo_id") @db.Uuid
   arquivo      Arquivo?   @relation("ModeloMensagemArquivo", fields: [arquivoId], references: [id], onDelete: SetNull)
   /// Nula = de todas as áreas.
-  area         Area?
+  area         String?
+  setor        Setor?     @relation(fields: [area], references: [chave], onDelete: Restrict)
   criadoPorId  String?    @map("criado_por_id") @db.Uuid
   criadoPor    Usuario?   @relation("ModeloMensagemCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
   criadoEm     DateTime   @default(now()) @map("criado_em") @db.Timestamptz(3)
@@ -2315,7 +2354,8 @@ model Campanha {
   nome                    String
   descricao               String?
   /// Área dona (permissões: líderes veem as da área). Nula = da diretoria.
-  area                    Area?
+  area                    String?
+  setor                   Setor?          @relation(fields: [area], references: [chave], onDelete: Restrict)
   /// WHATSAPP ou EMAIL (CHECK).
   canal                   TipoCanal
   status                  StatusCampanha  @default(RASCUNHO)
@@ -2466,7 +2506,8 @@ model FluxoChatbot {
   nome               String
   descricao          String?
   /// Nula = de todas as áreas.
-  area               Area?
+  area               String?
+  setor              Setor?              @relation(fields: [area], references: [chave], onDelete: Restrict)
   /// Canais em que o fluxo vale (`canais.id`); vazio = todos.
   canalIds           String[]            @default([]) @map("canal_ids") @db.Uuid
   gatilho            GatilhoFluxo
@@ -2523,7 +2564,8 @@ model Automacao {
   nome              String
   descricao         String?
   /// Área/escopo. Nula = da diretoria (todas as áreas).
-  area              Area?
+  area              String?
+  setor             Setor?               @relation(fields: [area], references: [chave], onDelete: Restrict)
   ativa             Boolean              @default(false)
   tipoGatilho       TipoGatilhoAutomacao @map("tipo_gatilho")
   /// Tipo do evento de domínio, quando `tipoGatilho = EVENTO` (CHECK).
@@ -3105,7 +3147,8 @@ model AssistenteConversa {
   usuarioId    String   @map("usuario_id") @db.Uuid
   usuario      Usuario  @relation("AssistenteConversaDe", fields: [usuarioId], references: [id], onDelete: Restrict)
   papel        Papel
-  area         Area?
+  area         String?
+  setor        Setor?   @relation(fields: [area], references: [chave], onDelete: Restrict)
   /// A primeira pergunta, cortada (título da conversa nas listas).
   titulo       String
   criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
@@ -3128,7 +3171,8 @@ model AssistentePergunta {
   conversa           AssistenteConversa   @relation(fields: [conversaId], references: [id], onDelete: Cascade)
   /// Repetidos da conversa para os filtros e contagens do histórico.
   usuarioId          String               @map("usuario_id") @db.Uuid
-  area               Area?
+  area               String?
+  setor              Setor?               @relation(fields: [area], references: [chave], onDelete: Restrict)
   pergunta           String
   tela               String
   modulo             String

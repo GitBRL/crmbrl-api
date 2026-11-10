@@ -267,7 +267,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
       const [usuarios, ocupados] = await Promise.all([
         tx.usuario.findMany({
           where: { id: { in: unicos }, ativo: true },
-          select: { id: true, papel: true },
+          select: { id: true, papel: true, area: true },
         }),
         tx.ligacao.findMany({
           where: {
@@ -281,7 +281,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
       return usuarios
         .filter(
           (usuario) =>
-            podeUsarAtendimento(usuario.papel) && !ocupadosIds.has(usuario.id),
+            podeUsarAtendimento(usuario) && !ocupadosIds.has(usuario.id),
         )
         .map((usuario) => usuario.id);
     };

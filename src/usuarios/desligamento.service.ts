@@ -4,9 +4,10 @@ import { SessoesService } from '../auth/sessoes.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import {
-  areaDoPapel,
   liderEsperado,
   nivelDoPapel,
+  papelTemSetor,
+  rotuloDoLiderEsperado,
   rotuloDoPapel,
 } from '../comum/dominio/papeis';
 import {
@@ -43,6 +44,7 @@ import { INCLUIR_LIDER, UsuarioDto, UsuarioResumoDto } from './dto/usuario.dto';
 import {
   exigirLiderValido,
   exigirOutroAdminAtivo,
+  exigirSetorDoPapel,
   travarHierarquia,
 } from './hierarquia-no-banco';
 import { repetirEmConflito } from './repeticao';
@@ -188,23 +190,33 @@ export class DesligamentoService {
         });
       }
       const papel = dto.papel ?? antes.papel;
-      const esperado = liderEsperado(papel);
+      // Volta a um setor ativo (R1.9): o de antes ou o pedido.
+      const area = await exigirSetorDoPapel(
+        tx,
+        papel,
+        papelTemSetor(papel)
+          ? dto.area !== undefined
+            ? dto.area
+            : antes.area
+          : null,
+      );
+      const esperado = liderEsperado({ papel, area });
       if (esperado && !dto.liderId) {
         throw new RegraVioladaException(
           'R7.5',
-          `Para reativar ${antes.nome} como ${rotuloDoPapel(papel)}, defina um líder válido: um ${rotuloDoPapel(esperado)} ativo.`,
-          { papel, liderEsperado: esperado },
+          `Para reativar ${antes.nome} como ${rotuloDoPapel(papel, area)}, defina um líder válido: um ${rotuloDoLiderEsperado(esperado)} ativo.`,
+          { papel, area, liderEsperado: esperado },
         );
       }
       const liderId = await exigirLiderValido(
         tx,
-        papel,
+        { papel, area },
         dto.liderId ?? null,
         antes.id,
       );
       const depois = await tx.usuario.update({
         where: { id },
-        data: { ativo: true, desligadoEm: null, papel, liderId },
+        data: { ativo: true, desligadoEm: null, papel, area, liderId },
         include: INCLUIR_LIDER,
       });
       // De volta à regra padrão dos rodízios (o desligamento o tirou de todos).
@@ -217,13 +229,14 @@ export class DesligamentoService {
         entidade: 'usuario',
         entidadeId: id,
         resumo:
-          `Reativação de ${depois.nome} como ${rotuloDoPapel(depois.papel)}` +
+          `Reativação de ${depois.nome} como ${rotuloDoPapel(depois.papel, depois.area)}` +
           (depois.lider ? `, respondendo a ${depois.lider.nome}` : ''),
         dados: {
           alteracoes: calcularAlteracoes(antes, depois, [
             'ativo',
             'desligadoEm',
             'papel',
+            'area',
             'liderId',
           ]),
           desligadoDesde: antes.desligadoEm,
@@ -253,6 +266,7 @@ export class DesligamentoService {
         nome: true,
         email: true,
         papel: true,
+        area: true,
         ativo: true,
         liderId: true,
         desligadoEm: true,
@@ -576,7 +590,7 @@ export class DesligamentoService {
       });
     }
     // R7.3: líder desligado → os Admins recebem "equipe sem líder".
-    const area = areaDoPapel(usuario.papel);
+    const area = papelTemSetor(usuario.papel) ? usuario.area : null;
     if (nivelDoPapel(usuario.papel) === 'LIDER' && area) {
       const alerta = alertaDeEquipeSemLider(
         { nome: usuario.nome, papel: usuario.papel, area },
@@ -604,7 +618,7 @@ export class DesligamentoService {
       entidade: 'usuario',
       entidadeId: usuario.id,
       resumo:
-        `Desligamento de ${usuario.nome} (${rotuloDoPapel(usuario.papel)})` +
+        `Desligamento de ${usuario.nome} (${rotuloDoPapel(usuario.papel, usuario.area)})` +
         (itens ? ` — para ${destinatario.nome}: ${itens}` : '') +
         (liderados.length > 0
           ? `; ${quantidade(liderados.length, 'liderado passou', 'liderados passaram')} a responder a ${destinatario.nome}`
@@ -612,7 +626,11 @@ export class DesligamentoService {
       dados: {
         papel: usuario.papel,
         area,
-        destinatario: { ...para, papel: destinatario.papel },
+        destinatario: {
+          ...para,
+          papel: destinatario.papel,
+          area: destinatario.area,
+        },
         motivoDestinatario: motivo,
         lideresIgnorados: escolha.ignorados.map(({ id, nome }) => ({
           id,
@@ -642,6 +660,7 @@ export class DesligamentoService {
         nome: destinatario.nome,
         email: destinatario.email,
         papel: destinatario.papel,
+        area: destinatario.area,
       },
       motivoDestinatario: motivo,
       desligadoEm: agora,

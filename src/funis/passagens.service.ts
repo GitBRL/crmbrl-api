@@ -285,12 +285,12 @@ export class PassagensService {
       }
       const responsavel = await tx.usuario.findUnique({
         where: { id: definicao.responsavelFixoId },
-        select: { id: true, ativo: true, papel: true },
+        select: { id: true, ativo: true, papel: true, area: true },
       });
       if (
         !responsavel ||
         !responsavel.ativo ||
-        !podeSerResponsavelNaArea(responsavel.papel, destino.funil.area)
+        !podeSerResponsavelNaArea(responsavel, destino.funil.area)
       ) {
         throw new RegraVioladaException(
           'R5.8',

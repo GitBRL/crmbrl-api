@@ -3,42 +3,56 @@
  * da seção 12 das regras). Funções puras: os serviços chamam estas regras e a
  * matriz do papel (`permissoesDoPapel`) continua sendo a única fonte do alcance.
  */
-import { areaDoPapel, ehDiretoria } from '../comum/dominio/papeis';
+import {
+  type ComPapel,
+  ehDiretoria,
+  ehDoSetor,
+  setorDaPessoa,
+} from '../comum/dominio/papeis';
 import { type Escopo, permissoesDoPapel } from '../comum/dominio/permissoes';
-import type { Area, Papel, Prisma } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
+import type { Prisma } from '../generated/prisma/client';
 
 /** O mínimo do usuário que as regras de acesso precisam (cabe um `UsuarioAutenticado`). */
-export interface QuemAcessa {
+export interface QuemAcessa extends ComPapel {
   readonly id: string;
-  readonly papel: Papel;
 }
 
-/** Alcance `TODOS` ou `AREA` (da própria área) cobre a área pedida? */
-function alcanca(escopo: Escopo, papel: Papel, area: Area): boolean {
+/** Alcance `TODOS` ou `AREA` (do próprio setor) cobre o setor pedido? */
+function alcanca(escopo: Escopo, usuario: ComPapel, area: Area): boolean {
   if (escopo === 'TODOS') {
     return true;
   }
   if (escopo === 'NENHUM') {
     return false;
   }
-  return areaDoPapel(papel) === area;
+  return setorDaPessoa(usuario) === area;
 }
 
-/** Áreas cujos funis o usuário vê (Admin e C-level: todas; demais: a própria). */
-export function areasVisiveis(usuario: QuemAcessa): readonly Area[] {
-  return permissoesDoPapel(usuario.papel).areasVisiveis;
-}
-
-/** O usuário vê os funis desta área? (R5.9: o Marketing não vê o funil Comercial.) */
+/** O usuário vê os funis deste setor? (R5.9: o Marketing não vê o funil Comercial.) */
 export function podeVerArea(usuario: QuemAcessa, area: Area): boolean {
-  return areasVisiveis(usuario).includes(area);
+  return ehDiretoria(usuario.papel) || setorDaPessoa(usuario) === area;
+}
+
+/**
+ * Filtro Prisma dos funis que o usuário vê (R5.9): Admin e C-level, todos; Líder
+ * e Membro, os do seu setor.
+ */
+export function filtroDeFunisVisiveis(
+  usuario: QuemAcessa,
+): Prisma.FunilWhereInput {
+  if (ehDiretoria(usuario.papel)) {
+    return {};
+  }
+  const area = setorDaPessoa(usuario);
+  return area ? { area } : { id: { in: [] } };
 }
 
 /** R5.1: Admin e C-level configuram todos os funis; o líder, os da sua área. */
 export function podeConfigurarFunis(usuario: QuemAcessa, area: Area): boolean {
   return alcanca(
     permissoesDoPapel(usuario.papel).configurarFunis,
-    usuario.papel,
+    usuario,
     area,
   );
 }
@@ -47,7 +61,7 @@ export function podeConfigurarFunis(usuario: QuemAcessa, area: Area): boolean {
 export function podeReabrirNegocio(usuario: QuemAcessa, area: Area): boolean {
   return alcanca(
     permissoesDoPapel(usuario.papel).reabrirNegocios,
-    usuario.papel,
+    usuario,
     area,
   );
 }
@@ -67,7 +81,7 @@ export function podeConfigurarRodizio(
 ): boolean {
   return alcanca(
     permissoesDoPapel(usuario.papel).configurarRodizio,
-    usuario.papel,
+    usuario,
     area,
   );
 }
@@ -78,11 +92,14 @@ export function podeConfigurarPassagens(usuario: QuemAcessa): boolean {
 }
 
 /**
- * Pode ser responsável por um negócio de um funil da `area`: quem vê esse
- * funil — Admin, C-level e as pessoas da área (líder e membros).
+ * Pode ser responsável por um negócio de um funil do setor `area`: quem vê esse
+ * funil — Admin, C-level e as pessoas do setor (líder e membros).
  */
-export function podeSerResponsavelNaArea(papel: Papel, area: Area): boolean {
-  return ehDiretoria(papel) || areaDoPapel(papel) === area;
+export function podeSerResponsavelNaArea(
+  pessoa: ComPapel,
+  area: Area,
+): boolean {
+  return ehDiretoria(pessoa.papel) || ehDoSetor(pessoa, area);
 }
 
 /**
@@ -96,7 +113,7 @@ export function filtroDeNegociosVisiveis(
   usuario: QuemAcessa,
 ): Prisma.NegocioWhereInput {
   const escopo = permissoesDoPapel(usuario.papel).verNegocios;
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   if (escopo === 'TODOS') {
     return {};
   }
@@ -125,7 +142,7 @@ export function podeVerNegocio(
   if (escopo === 'TODOS') {
     return true;
   }
-  if (areaDoPapel(usuario.papel) !== negocio.funil.area) {
+  if (setorDaPessoa(usuario) !== negocio.funil.area) {
     return false;
   }
   if (escopo === 'AREA') {

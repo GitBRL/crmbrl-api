@@ -88,6 +88,7 @@ import {
   PlanilhaIlegivelError,
   type PlanilhaLida,
 } from './leitor-planilha';
+import { garantirSetorAtivo } from '../setores/setores-no-banco';
 
 const PADRAO_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -278,7 +279,7 @@ export class ImportacaoService implements OnModuleInit {
     tipo: TipoImportacao,
   ): Promise<Buffer> {
     this.garantirPodeImportar(usuario);
-    if (tipo === 'PARCELAS' && !podeGerenciarARegua(usuario.papel)) {
+    if (tipo === 'PARCELAS' && !podeGerenciarARegua(usuario)) {
       throw new SemPermissaoException(
         'Só Admin, C-level e Líder de CS importam parcelas.',
         { regra: 'R22.1' },
@@ -293,7 +294,7 @@ export class ImportacaoService implements OnModuleInit {
     dto: CriarImportacaoDto,
   ): Promise<CriadaImportacaoDto> {
     this.garantirPodeImportar(usuario);
-    if (dto.tipo === 'PARCELAS' && !podeGerenciarARegua(usuario.papel)) {
+    if (dto.tipo === 'PARCELAS' && !podeGerenciarARegua(usuario)) {
       throw new SemPermissaoException(
         'Só Admin, C-level e Líder de CS importam parcelas.',
         { regra: 'R22.1' },
@@ -1330,11 +1331,15 @@ export class ImportacaoService implements OnModuleInit {
       );
     }
     if (estrategia === 'RODIZIO' && !area) {
-      throw new DadosInvalidosException('Escolha a área do rodízio.', {
+      throw new DadosInvalidosException('Escolha o setor do rodízio.', {
         campos: [
           { campo: 'areaRodizio', mensagens: ['é obrigatória com rodízio'] },
         ],
       });
+    }
+    if (estrategia === 'RODIZIO' && area) {
+      // R1.9: o rodízio é de um setor ativo.
+      await garantirSetorAtivo(this.prisma, area, 'areaRodizio');
     }
   }
 }

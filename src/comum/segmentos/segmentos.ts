@@ -19,13 +19,13 @@
  * ```
  */
 import {
-  Area,
   OrigemContato,
   Prisma,
   StatusNegocio,
 } from '../../generated/prisma/client';
-import { papeisDaArea } from '../dominio/papeis';
+import { FORMATO_DA_CHAVE_DE_SETOR } from '../validacao/setor';
 import { DadosInvalidosException } from '../erros/excecoes';
+import type { Area } from '../dominio/setores';
 
 export type CombinacaoDeSegmento = 'todas' | 'qualquer';
 
@@ -389,7 +389,7 @@ function validarValor(
     case 'origens':
       return listaDoEnum(valor, Object.values(OrigemContato), 'origem');
     case 'areas':
-      return listaDoEnum(valor, Object.values(Area), 'área');
+      return listaDeSetores(valor);
     case 'data':
       return dataValida(valor)
         ? { valor }
@@ -464,12 +464,28 @@ function validarFiltroDeNegocio(valor: unknown): {
     filtro.status = status.valor as StatusNegocio[];
   }
   if (valor.area !== undefined) {
-    if (!(Object.values(Area) as unknown[]).includes(valor.area)) {
-      return { erro: 'Área inválida.' };
+    if (
+      typeof valor.area !== 'string' ||
+      !FORMATO_DA_CHAVE_DE_SETOR.test(valor.area)
+    ) {
+      return { erro: 'Setor inválido.' };
     }
-    filtro.area = valor.area as Area;
+    filtro.area = valor.area;
   }
   return { valor: filtro };
+}
+
+/** Chaves de setor (o formato; setor que não existe só não casa com ninguém). */
+function listaDeSetores(valor: unknown): { valor?: unknown; erro?: string } {
+  if (!Array.isArray(valor) || valor.length === 0) {
+    return { erro: 'Informe ao menos um setor.' };
+  }
+  const invalido = valor.find(
+    (v) => typeof v !== 'string' || !FORMATO_DA_CHAVE_DE_SETOR.test(v),
+  );
+  return invalido === undefined
+    ? { valor }
+    : { erro: `Valor inválido: "${String(invalido)}".` };
 }
 
 function listaDoEnum(
@@ -624,13 +640,8 @@ function whereDaCondicao(
           };
     }
     case 'area_responsavel':
-      return {
-        responsavel: {
-          papel: {
-            in: (valor as Area[]).flatMap((area) => papeisDaArea(area)),
-          },
-        },
-      };
+      // Só Líder e Membro têm setor.
+      return { responsavel: { area: { in: valor as Area[] } } };
     case 'email':
     case 'telefone':
       return operador === 'vazio'

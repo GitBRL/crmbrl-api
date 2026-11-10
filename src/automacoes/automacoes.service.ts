@@ -18,7 +18,6 @@ import { montarPagina, paraSkipTake } from '../comum/paginacao/paginacao';
 import type { DefinicaoDePassos } from '../comum/passos/definicao';
 import { PassosService } from '../comum/passos/passos.service';
 import type {
-  Area,
   Automacao,
   LimiteExecucao,
   Prisma,
@@ -51,6 +50,8 @@ import {
   podeGerenciarAutomacao,
   podeUsarAutomacoes,
 } from './permissoes-automacoes';
+import type { Area } from '../comum/dominio/setores';
+import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
 
 const CAMPOS_AUDITADOS = [
   'nome',
@@ -433,6 +434,7 @@ export class AutomacoesService {
     const entidade = avaliacao.entidade!;
     const area = areaDaNovaAutomacao(usuario, dto.area);
     const criada = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivoSeHouver(tx, area);
       const automacao = await tx.automacao.create({
         data: {
           nome: dto.nome,
@@ -514,6 +516,9 @@ export class AutomacoesService {
         ? areaDaNovaAutomacao(usuario, dto.area)
         : antes.area;
     const depois = await this.prisma.$transaction(async (tx) => {
+      if (area !== antes.area) {
+        await garantirSetorAtivoSeHouver(tx, area);
+      }
       const dados: Prisma.AutomacaoUncheckedUpdateInput = {
         ...(dto.nome !== undefined ? { nome: dto.nome } : {}),
         ...(dto.descricao !== undefined ? { descricao: dto.descricao } : {}),

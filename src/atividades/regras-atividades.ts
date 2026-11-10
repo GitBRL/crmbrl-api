@@ -14,13 +14,13 @@ import { ehDiretoria, ehLider } from '../comum/dominio/papeis';
 import type { ProblemaDeCampo } from '../comum/validacao/validacao';
 import { podeVerNegocio as podeVerNegocioDoFunil } from '../funis/acesso-funis';
 import type {
-  Area,
   Papel,
   Prisma,
   StatusAtividade,
   TipoAtividade,
 } from '../generated/prisma/client';
 import { type LimitesDoCalendario, limitesDoCalendario } from './fuso-horario';
+import type { Area } from '../comum/dominio/setores';
 
 // ---------------------------------------------------------------------------
 // Textos
@@ -267,6 +267,8 @@ export function ordemDoGrupo(
 export interface QuemConsulta {
   readonly id: string;
   readonly papel: Papel;
+  /** Setor (Líder e Membro); `null` para Admin e C-level. */
+  readonly area: Area | null;
 }
 
 /**

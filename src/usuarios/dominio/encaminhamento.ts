@@ -2,8 +2,9 @@
  * Textos do encaminhamento por desligamento (R7.3, R7.4) — funções puras.
  */
 import { rotuloDaArea, rotuloDoPapel } from '../../comum/dominio/papeis';
-import type { Area, Papel } from '../../generated/prisma/client';
+import type { Papel } from '../../generated/prisma/client';
 import { juntarNomes } from './hierarquia';
+import type { Area } from '../../comum/dominio/setores';
 
 /** O que vai (ou foi) para o destinatário. */
 export interface ContagensDeEncaminhamento {
@@ -103,7 +104,7 @@ export function alertaDeEquipeSemLider(
   lideradosAtivos: number,
 ): TextoDeNotificacao {
   const area = rotuloDaArea(lider.area);
-  const inicio = `Com o desligamento de ${lider.nome} (${rotuloDoPapel(lider.papel)}), a equipe de ${area} ficou sem líder`;
+  const inicio = `Com o desligamento de ${lider.nome} (${rotuloDoPapel(lider.papel, lider.area)}), a equipe de ${area} ficou sem líder`;
   return {
     titulo: `Equipe sem líder: ${area}`,
     texto:

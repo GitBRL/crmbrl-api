@@ -142,7 +142,7 @@ export async function semearOndaC({ bancoUrl, admin, passo, nota, email }) {
     const funis = {};
     for (const area of ['MARKETING', 'COMERCIAL', 'CS']) {
       const [f] = await consultar(
-        `SELECT id FROM funis WHERE area = $1::area AND excluido_em IS NULL ORDER BY criado_em LIMIT 1`,
+        `SELECT id FROM funis WHERE area = $1 AND excluido_em IS NULL ORDER BY criado_em LIMIT 1`,
         [area],
       );
       const etapas = {};

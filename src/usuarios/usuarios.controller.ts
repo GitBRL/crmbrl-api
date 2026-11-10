@@ -61,7 +61,7 @@ export class UsuariosController {
   }
 
   @Get('equipes')
-  @Papeis('ADMIN', 'C_LEVEL', 'LIDER_COMERCIAL', 'LIDER_MARKETING', 'LIDER_CS')
+  @Papeis('ADMIN', 'C_LEVEL', 'LIDER')
   @ApiOperation({
     summary:
       'Visão de equipe: cada líder com quem responde a ele e a carga de trabalho',

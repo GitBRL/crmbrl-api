@@ -2,6 +2,8 @@
  * Checagens de hierarquia que leem o banco, usadas dentro das transações dos
  * serviços de usuários (criar, editar, desligar, reativar).
  */
+import { type ComPapel, papelTemSetor } from '../comum/dominio/papeis';
+import type { Area } from '../comum/dominio/setores';
 import { normalizarTelefoneOpcional } from '../comum/dominio/telefone';
 import {
   ConflitoException,
@@ -11,6 +13,7 @@ import {
 import type { Papel } from '../generated/prisma/client';
 import type { Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
+import { garantirSetorAtivo } from '../setores/setores-no-banco';
 import {
   type Liderado,
   type ProblemaDeRegra,
@@ -38,19 +41,49 @@ export function excecaoDaRegra(
 }
 
 /**
- * Confere o líder pedido para quem tem `papel` (R1.2) e devolve o id a gravar
- * (`null` para Admin e C-level).
+ * Setor a gravar para quem tem `papel` (R1.2, R1.9): Líder e Membro precisam de
+ * um setor (ativo, quando `conferirAtivo`); Admin e C-level não têm setor (o
+ * pedido é ignorado e a área fica nula).
+ */
+export async function exigirSetorDoPapel(
+  tx: Tx,
+  papel: Papel,
+  area: Area | null | undefined,
+  conferirAtivo = true,
+): Promise<Area | null> {
+  if (!papelTemSetor(papel)) {
+    return null;
+  }
+  if (!area) {
+    throw new DadosInvalidosException(
+      'Dados inválidos — area: é obrigatória para Líder e Membro.',
+      {
+        campos: [
+          { campo: 'area', mensagens: ['é obrigatória para Líder e Membro'] },
+        ],
+      },
+    );
+  }
+  if (conferirAtivo) {
+    await garantirSetorAtivo(tx, area);
+  }
+  return area;
+}
+
+/**
+ * Confere o líder pedido para quem tem o papel e o setor de `pessoa` (R1.2) e
+ * devolve o id a gravar (`null` para Admin e C-level).
  */
 export async function exigirLiderValido(
   tx: Tx,
-  papel: Papel,
+  pessoa: ComPapel,
   liderId: string | null,
   usuarioId?: string,
 ): Promise<string | null> {
   const lider = liderId
     ? await tx.usuario.findUnique({
         where: { id: liderId },
-        select: { id: true, nome: true, papel: true, ativo: true },
+        select: { id: true, nome: true, papel: true, area: true, ativo: true },
       })
     : null;
   if (liderId && !lider) {
@@ -58,7 +91,7 @@ export async function exigirLiderValido(
       liderId,
     });
   }
-  const problema = problemaDeLideranca(papel, lider, usuarioId);
+  const problema = problemaDeLideranca(pessoa, lider, usuarioId);
   if (problema) {
     throw excecaoDaRegra(problema);
   }
@@ -90,7 +123,7 @@ export async function exigirOutroAdminAtivo(
 export function lideradosAtivos(tx: Tx, liderId: string): Promise<Liderado[]> {
   return tx.usuario.findMany({
     where: { liderId, ativo: true },
-    select: { id: true, nome: true, papel: true },
+    select: { id: true, nome: true, papel: true, area: true },
     orderBy: [{ nome: 'asc' }, { id: 'asc' }],
   });
 }

@@ -19,11 +19,12 @@ import {
 } from 'class-validator';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import {
-  Area,
   GatilhoFluxo,
   StatusExecucao,
   TipoCanal,
 } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
+import { ChaveDeSetor } from '../comum/validacao/setor';
 
 function aparar({ value }: { value: unknown }): unknown {
   return typeof value === 'string' ? value.trim() : value;
@@ -57,13 +58,13 @@ export class CriarFluxoChatbotDto {
   descricao?: string;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     description:
       'Líder: sempre a própria área. Diretoria: escolhe (vazio = todas).',
   })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({

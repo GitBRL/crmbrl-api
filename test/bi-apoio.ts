@@ -3,7 +3,6 @@
  * montadas à mão (para os números serem conhecidos) e leitura dos painéis.
  */
 import {
-  type Area,
   type Conversa,
   type Negocio,
   Prisma,
@@ -19,6 +18,7 @@ import {
   criarContato,
   funilBase,
 } from './utils';
+import type { Area } from '../src/comum/dominio/setores';
 
 export const MIN = 60_000;
 export const HORA = 3_600_000;

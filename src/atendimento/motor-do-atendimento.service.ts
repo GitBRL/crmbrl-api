@@ -4,7 +4,6 @@ import { contextoAtual } from '../comum/contexto/contexto-requisicao';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
 import { FilaService } from '../fila/fila.service';
 import type {
-  Area,
   Canal,
   Conversa,
   MotivoAtribuicao,
@@ -37,6 +36,7 @@ import {
   type MensagemCompleta,
   MensagemDaConversaDto,
 } from './dto/mensagem.dto';
+import type { Area } from '../comum/dominio/setores';
 
 /** Pedido de envio de uma mensagem de saída (job da fila `atendimento.enviar`). */
 export interface PedidoDeEnvioDoAtendimento {

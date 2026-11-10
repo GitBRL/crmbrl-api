@@ -18,7 +18,7 @@ import type {
 } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import {
-  areasVisiveis,
+  filtroDeFunisVisiveis,
   podeConfigurarFunis,
   podeVerArea,
 } from './acesso-funis';
@@ -33,6 +33,7 @@ import {
   FunilDto,
   type ReordenarEtapasDto,
 } from './dto/funis.dto';
+import { garantirSetorAtivo } from '../setores/setores-no-banco';
 
 type FunilComEtapas = Funil & { etapas: Etapa[] };
 
@@ -90,12 +91,10 @@ export class FunisService {
     usuario: UsuarioAutenticado,
     filtro: FiltroFunisDto,
   ): Promise<FunilDto[]> {
-    const areas = areasVisiveis(usuario).filter(
-      (area) => !filtro.area || area === filtro.area,
-    );
     const funis = await this.prisma.funil.findMany({
       where: {
-        area: { in: [...areas] },
+        ...filtroDeFunisVisiveis(usuario),
+        ...(filtro.area ? { AND: [{ area: filtro.area }] } : {}),
         excluidoEm: null,
         ...(filtro.incluirArquivados ? {} : { ativo: true }),
       },
@@ -130,6 +129,7 @@ export class FunisService {
     validarTiposDasEtapas(etapas.map((etapa) => etapa.tipo));
     this.exigirNomesUnicos(etapas.map((etapa) => etapa.nome));
     const funil = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivo(tx, dto.area);
       await this.exigirNomeLivre(tx, dto.area, dto.nome);
       const { _max } = await tx.funil.aggregate({ _max: { ordem: true } });
       const criado = await tx.funil.create({
@@ -152,7 +152,7 @@ export class FunisService {
         acao: 'funil.criado',
         entidade: 'funil',
         entidadeId: criado.id,
-        resumo: `Funil ${criado.nome} criado na área ${rotuloDaArea(criado.area)}`,
+        resumo: `Funil ${criado.nome} criado no setor ${rotuloDaArea(criado.area)}`,
         dados: {
           area: criado.area,
           etapas: criado.etapas.map((etapa) => ({
@@ -179,6 +179,10 @@ export class FunisService {
       }
       if (dto.ativo === false && antes.ativo) {
         await this.exigirSemDependenciasDeEntrada(tx, antes, 'arquivar');
+      }
+      if (dto.ativo === true && !antes.ativo) {
+        // R1.9: funil de setor desativado não volta a ficar ativo.
+        await garantirSetorAtivo(tx, antes.area);
       }
       const depois = await tx.funil.update({
         where: { id },

@@ -1,12 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  areaDoPapel,
-  type NivelPapel,
   nivelDoPapel,
+  type NivelPapel,
   rotuloDoPapel,
+  setorDaPessoa,
 } from '../../comum/dominio/papeis';
+import { type Area, nomeDoSetor } from '../../comum/dominio/setores';
 import {
-  Area,
   Papel,
   type Prisma,
   type Usuario,
@@ -18,6 +18,7 @@ export const SELECAO_RESUMO = {
   nome: true,
   email: true,
   papel: true,
+  area: true,
   ativo: true,
 } as const satisfies Prisma.UsuarioSelect;
 
@@ -36,13 +37,15 @@ const NIVEIS: NivelPapel[] = ['ADMINISTRADOR', 'DIRETORIA', 'LIDER', 'MEMBRO'];
 
 /** Os campos do resumo, como objeto simples (base do resumo e do completo). */
 function camposDoResumo(usuario: UsuarioResumido) {
+  const area = setorDaPessoa(usuario);
   return {
     id: usuario.id,
     nome: usuario.nome,
     email: usuario.email,
     papel: usuario.papel,
-    rotuloPapel: rotuloDoPapel(usuario.papel),
-    area: areaDoPapel(usuario.papel),
+    rotuloPapel: rotuloDoPapel(usuario.papel, area),
+    area,
+    nomeSetor: area ? nomeDoSetor(area) : null,
     ativo: usuario.ativo,
   };
 }
@@ -58,19 +61,35 @@ export class UsuarioResumoDto {
   @ApiProperty({ example: 'ana@brl.com.br' })
   email: string;
 
-  @ApiProperty({ enum: Papel, enumName: 'Papel' })
+  @ApiProperty({
+    enum: Papel,
+    enumName: 'Papel',
+    description: 'O nível (`ADMIN`, `C_LEVEL`, `LIDER`, `MEMBRO`).',
+  })
   papel: Papel;
 
-  @ApiProperty({ example: 'Líder Comercial' })
+  @ApiProperty({
+    example: 'Líder Comercial',
+    description:
+      'Admin, C-level, "Líder " + nome do setor, ou só o nome do setor (membro).',
+  })
   rotuloPapel: string;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
     nullable: true,
-    description: 'Nula para Admin e C-level.',
+    example: 'COMERCIAL',
+    description: 'Setor (chave); nulo para Admin e C-level.',
   })
   area: Area | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Comercial',
+    description: 'Nome do setor; nulo para Admin e C-level.',
+  })
+  nomeSetor: string | null;
 
   @ApiProperty({ description: 'Falso para quem foi desligado.' })
   ativo: boolean;
@@ -89,7 +108,7 @@ export class UsuarioDto extends UsuarioResumoDto {
     type: UsuarioResumoDto,
     nullable: true,
     description:
-      'Membro → líder da área; líder → C-level responsável; Admin e C-level: nulo (R1.2).',
+      'Membro → líder do setor; líder → C-level responsável; Admin e C-level: nulo (R1.2).',
   })
   lider: UsuarioResumoDto | null;
 

@@ -1539,7 +1539,8 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
       .post('/api/v1/usuarios', {
         nome: 'Nova',
         email: 'nova@brl.com.br',
-        papel: 'COMERCIAL',
+        papel: 'MEMBRO',
+        area: 'COMERCIAL',
         liderId: membros[0].liderId,
         senhaTemporaria: 'Senha@Temporaria1',
         identificadorIntegracao: 'nova-1',

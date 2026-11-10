@@ -3,7 +3,7 @@ import { ehAtrasada } from '../atividades/regras-atividades';
 import { referenciaDeAuditoria } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { semCodigoDeRegra } from '../comum/dados/textos';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   montarPagina,
   type Pagina,
@@ -199,7 +199,7 @@ export class LinhaDoTempoService {
 
   /** R5.9 (negócio `en`, funil `ef`): líder vê a área; membro, os seus e os sem responsável da área. */
   private negocioVisivel(usuario: UsuarioAutenticado): Prisma.Sql {
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     if (ehDiretoria(usuario.papel)) {
       return Prisma.sql`TRUE`;
     }
@@ -207,9 +207,9 @@ export class LinhaDoTempoService {
       return Prisma.sql`FALSE`;
     }
     if (ehLider(usuario.papel)) {
-      return Prisma.sql`ef.area = ${area}::area`;
+      return Prisma.sql`ef.area = ${area}`;
     }
-    return Prisma.sql`(ef.area = ${area}::area
+    return Prisma.sql`(ef.area = ${area}
       AND (en.responsavel_id = ${usuario.id}::uuid OR en.responsavel_id IS NULL))`;
   }
 

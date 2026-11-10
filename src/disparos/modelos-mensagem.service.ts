@@ -4,7 +4,7 @@ import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   DadosInvalidosException,
   NaoEncontradoException,
@@ -16,7 +16,7 @@ import {
   paraSkipTake,
   type Pagina,
 } from '../comum/paginacao/paginacao';
-import type { Area, Prisma, TipoCanal } from '../generated/prisma/client';
+import type { Prisma, TipoCanal } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { REGRA_DISPAROS } from './disparos.constantes';
 import type {
@@ -24,6 +24,8 @@ import type {
   CriarModeloMensagemDto,
   FiltroModelosMensagemDto,
 } from './disparos.dto';
+import type { Area } from '../comum/dominio/setores';
+import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
 
 export interface ModeloMensagemDto {
   id: string;
@@ -120,8 +122,9 @@ export class ModelosMensagemService {
     }
     const area = ehDiretoria(usuario.papel)
       ? (dto.area ?? null)
-      : areaDoPapel(usuario.papel);
+      : setorDaPessoa(usuario);
     const id = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivoSeHouver(tx, area);
       const criado = await tx.modeloMensagem.create({
         data: {
           nome: dto.nome,
@@ -162,13 +165,16 @@ export class ModelosMensagemService {
     if (
       dto.area !== undefined &&
       !ehDiretoria(usuario.papel) &&
-      dto.area !== areaDoPapel(usuario.papel)
+      dto.area !== setorDaPessoa(usuario)
     ) {
       throw new SemPermissaoException(
-        'Você só pode deixar o modelo na sua área.',
+        'Você só pode deixar o modelo no seu setor.',
       );
     }
     await this.prisma.$transaction(async (tx) => {
+      if (dto.area !== undefined && dto.area !== atual.area) {
+        await garantirSetorAtivoSeHouver(tx, dto.area);
+      }
       const depois = await tx.modeloMensagem.update({
         where: { id },
         data: {
@@ -220,7 +226,7 @@ export class ModelosMensagemService {
     if (ehDiretoria(usuario.papel)) {
       return {};
     }
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     return {
       OR: [
         { area: null },
@@ -254,7 +260,7 @@ export class ModelosMensagemService {
     return (
       ehLider(usuario.papel) &&
       modelo.area !== null &&
-      areaDoPapel(usuario.papel) === modelo.area
+      setorDaPessoa(usuario) === modelo.area
     );
   }
 

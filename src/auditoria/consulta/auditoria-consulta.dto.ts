@@ -238,6 +238,14 @@ export class UsuarioDoEventoDto {
   @ApiProperty({ enum: Papel, enumName: 'Papel' })
   papel: Papel;
 
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'COMERCIAL',
+    description: 'Setor (chave) de Líder e Membro; nulo para Admin e C-level.',
+  })
+  area: string | null;
+
   @ApiProperty({ description: 'Falso se a pessoa foi desligada depois.' })
   ativo: boolean;
 }

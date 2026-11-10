@@ -167,7 +167,7 @@ describe('Chat interno (e2e)', () => {
 
       await t.prisma.usuario.update({
         where: { id: ana.id },
-        data: { papel: 'CS' },
+        data: { papel: 'MEMBRO', area: 'CS' },
       });
       await t.prisma.usuario.update({
         where: { id: bia.id },
@@ -207,7 +207,7 @@ describe('Chat interno (e2e)', () => {
       const comercial = (await canais(cliente)).find((c) => c.tipo === 'AREA');
       await t.prisma.usuario.update({
         where: { id: ana.id },
-        data: { papel: 'CS' },
+        data: { papel: 'MEMBRO', area: 'CS' },
       });
       // Sem esperar o job: o próximo pedido ao chat já acerta.
       expect((await canais(cliente)).map((c) => c.nome)).toEqual([
@@ -586,7 +586,7 @@ describe('Chat interno (e2e)', () => {
       });
       expect(primeira.body).toMatchObject({
         texto: 'Bom dia\nequipe',
-        autor: { id: ana.id, nome: 'Ana', papel: 'COMERCIAL' },
+        autor: { id: ana.id, nome: 'Ana', papel: 'MEMBRO', area: 'COMERCIAL' },
         sistema: false,
         excluida: false,
         editadaEm: null,
@@ -1082,7 +1082,7 @@ describe('Chat interno (e2e)', () => {
         expect.objectContaining({
           id: ana.id,
           nome: 'Ana Júlia',
-          rotuloPapel: 'CS',
+          rotuloPapel: 'Customer Success',
           area: 'CS',
           ativo: true,
         }),

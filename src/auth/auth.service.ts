@@ -4,11 +4,11 @@ import type { Ator } from '../comum/contexto/contexto-requisicao';
 import { CriptografiaService } from '../comum/criptografia/criptografia.service';
 import { normalizarEmail } from '../comum/dominio/email';
 import {
-  areaDoPapel,
   nivelDoPapel,
-  rotuloDoPapel,
+  rotuloComNomeDoSetor,
+  setorDaPessoa,
 } from '../comum/dominio/papeis';
-import { permissoesDoPapel } from '../comum/dominio/permissoes';
+import { areasVisiveis, permissoesDoPapel } from '../comum/dominio/permissoes';
 import {
   DadosInvalidosException,
   MuitasTentativasException,
@@ -17,6 +17,7 @@ import {
 } from '../comum/erros/excecoes';
 import type { Sessao, Usuario } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { chavesDosSetoresAtivos } from '../setores/setores-no-banco';
 import type { EntrarDto, PerfilDto, TrocarSenhaDto } from './dto/auth.dto';
 import {
   type Bloqueio,
@@ -165,26 +166,33 @@ export class AuthService {
     });
   }
 
-  /** O perfil de `auth/eu`: usuário, papel, área, permissões derivadas e a sessão. */
+  /** O perfil de `auth/eu`: usuário, papel, setor, permissões derivadas e a sessão. */
   async perfil(usuarioId: string, sessao: Sessao | string): Promise<PerfilDto> {
-    const [usuario, dadosDaSessao] = await Promise.all([
+    const [usuario, dadosDaSessao, setoresAtivos] = await Promise.all([
       this.prisma.usuario.findUniqueOrThrow({
         where: { id: usuarioId },
-        include: { lider: { select: { id: true, nome: true, papel: true } } },
+        include: {
+          lider: { select: { id: true, nome: true, papel: true, area: true } },
+          setor: { select: { nome: true } },
+        },
       }),
       typeof sessao === 'string'
         ? this.prisma.sessao.findUniqueOrThrow({ where: { id: sessao } })
         : Promise.resolve(sessao),
+      chavesDosSetoresAtivos(this.prisma),
     ]);
     const permissoes = permissoesDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
+    const nomeSetor = area ? (usuario.setor?.nome ?? area) : null;
     return {
       usuario: {
         id: usuario.id,
         nome: usuario.nome,
         email: usuario.email,
         papel: usuario.papel,
-        rotuloPapel: rotuloDoPapel(usuario.papel),
-        area: areaDoPapel(usuario.papel),
+        rotuloPapel: rotuloComNomeDoSetor(usuario.papel, nomeSetor),
+        area,
+        nomeSetor,
         nivel: nivelDoPapel(usuario.papel),
         lider: usuario.lider,
         avatarUrl: usuario.avatarUrl,
@@ -194,7 +202,7 @@ export class AuthService {
       deveTrocarSenha: usuario.deveTrocarSenha,
       permissoes: {
         ...permissoes,
-        areasVisiveis: [...permissoes.areasVisiveis],
+        areasVisiveis: [...areasVisiveis(usuario, setoresAtivos)],
       },
       sessao: {
         criadaEm: dadosDaSessao.criadoEm.toISOString(),

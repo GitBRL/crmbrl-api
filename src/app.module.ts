@@ -36,6 +36,7 @@ import { SaudeModule } from './saude/saude.module';
 import { SdrModule } from './sdr/sdr.module';
 import { SeedsModule } from './seeds/seeds.module';
 import { TempoRealModule } from './tempo-real/tempo-real.module';
+import { SetoresModule } from './setores/setores.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 
@@ -79,6 +80,7 @@ export class AppModule {
         SaudeModule,
         MonitoramentoModule,
         // Módulos de negócio (Fase 1).
+        SetoresModule,
         UsuariosModule,
         ContatosModule,
         FunisModule,

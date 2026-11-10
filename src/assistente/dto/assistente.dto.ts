@@ -20,7 +20,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
-import { Area } from '../../generated/prisma/client';
 import {
   CATEGORIAS,
   type Categoria,
@@ -36,6 +35,8 @@ import {
   type PrioridadeTicketHub,
 } from '../assistente.constantes';
 import { DESTINOS, type DestinoConfigurado } from '../configuracao-assistente';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 
 const CATEGORIAS_LISTA = [...CATEGORIAS];
 const DIA = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -324,14 +325,15 @@ export class FiltroHistoricoAssistenteDto extends FiltroPeriodoAssistenteDto {
   categoria?: Categoria;
 
   @ApiPropertyOptional({
-    enum: [...Object.values(Area), 'SEM_AREA'],
-    description: 'Área da pessoa (SEM_AREA: Admin e C-level).',
+    type: String,
+    example: 'COMERCIAL',
+    description:
+      'Setor da pessoa (chave; `SEM_AREA`: Admin e C-level, sem setor).',
   })
   @IsOptional()
-  @IsIn([...Object.values(Area), 'SEM_AREA'], {
-    message: 'use MARKETING, COMERCIAL, CS ou SEM_AREA',
-  })
-  area?: Area | 'SEM_AREA';
+  @ChaveDeSetor('use a chave de um setor ou SEM_AREA')
+  /** Chave do setor, ou `SEM_AREA` (Admin e C-level). */
+  area?: Area;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Só desta pessoa.' })
   @IsOptional()

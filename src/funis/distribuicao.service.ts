@@ -2,18 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import {
-  liderDaArea,
-  membroDaArea,
-  papeisDaArea,
+  ehDoSetor,
+  ehLiderDoSetor,
+  ehMembroDoSetor,
   rotuloDaArea,
 } from '../comum/dominio/papeis';
+import { permissoesDoPapel } from '../comum/dominio/permissoes';
 import {
   NaoEncontradoException,
   RegraVioladaException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
 import type {
-  Area,
   EstrategiaDistribuicao,
   Papel,
   Prisma,
@@ -22,7 +22,6 @@ import type {
 import { LogsTecnicosService } from '../logs/logs-tecnicos.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import {
-  areasVisiveis,
   podeConfigurarRodizio,
   podeSerResponsavelNaArea,
 } from './acesso-funis';
@@ -41,6 +40,7 @@ import {
   ordenarParaRodizio,
   proximoDoRodizio,
 } from './rodizio';
+import type { Area } from '../comum/dominio/setores';
 
 /** Ordem estável dos usuários: quem entrou primeiro no CRM primeiro. */
 const ORDEM_ESTAVEL = [
@@ -53,6 +53,7 @@ const DADOS_DO_CANDIDATO = {
   nome: true,
   avatarUrl: true,
   papel: true,
+  area: true,
   criadoEm: true,
   // Para saber se já ativou o acesso e, se não, por quê (R5.8).
   acessoAtivadoEm: true,
@@ -110,16 +111,16 @@ export class DistribuicaoService {
       if (responsavelFixoId) {
         const fixo = await tx.usuario.findUnique({
           where: { id: responsavelFixoId },
-          select: { id: true, ativo: true, papel: true },
+          select: { id: true, ativo: true, papel: true, area: true },
         });
-        // Ativo e de quem vê o funil (a pessoa pode ter mudado de área).
-        if (fixo?.ativo && podeSerResponsavelNaArea(fixo.papel, area)) {
+        // Ativo e de quem vê o funil (a pessoa pode ter mudado de setor).
+        if (fixo?.ativo && podeSerResponsavelNaArea(fixo, area)) {
           return fixo.id;
         }
       }
       await this.logs.aviso(
         'Distribuicao',
-        `Responsável fixo ${responsavelFixoId ? 'inativo, de outra área ou inexistente' : 'não informado'}: o negócio vai para o líder da área ${rotuloDaArea(area)}.`,
+        `Responsável fixo ${responsavelFixoId ? 'inativo, de outro setor ou inexistente' : 'não informado'}: o negócio vai para o líder do setor ${rotuloDaArea(area)}.`,
         { area, responsavelFixoId: responsavelFixoId ?? null, regra: 'R5.8' },
       );
       return this.liderOuCLevel(tx, area);
@@ -165,19 +166,19 @@ export class DistribuicaoService {
     const [existente] = await tx.$queryRaw<LinhaDaRegra[]>`
       SELECT id, incluir_lideres, ultimo_usuario_id
         FROM regras_distribuicao
-       WHERE area = ${area}::area
+       WHERE area = ${area}
          FOR UPDATE`;
     if (existente) {
       return existente;
     }
     const criadas = await tx.$executeRaw`
       INSERT INTO regras_distribuicao (id, area, incluir_lideres, criado_em, atualizado_em)
-      VALUES (gen_random_uuid(), ${area}::area, false, now(), now())
+      VALUES (gen_random_uuid(), ${area}, false, now(), now())
       ON CONFLICT (area) DO NOTHING`;
     const [regra] = await tx.$queryRaw<LinhaDaRegra[]>`
       SELECT id, incluir_lideres, ultimo_usuario_id
         FROM regras_distribuicao
-       WHERE area = ${area}::area
+       WHERE area = ${area}
          FOR UPDATE`;
     if (criadas > 0) {
       await this.auditoria.registrar(tx, {
@@ -216,21 +217,14 @@ export class DistribuicaoService {
       ajustes.filter((ajuste) => !ajuste.participa).map((a) => a.usuarioId),
     );
     const papeisPadrao: Papel[] = regra.incluirLideres
-      ? [membroDaArea(area), liderDaArea(area)]
-      : [membroDaArea(area)];
+      ? ['MEMBRO', 'LIDER']
+      : ['MEMBRO'];
     const usuarios = await tx.usuario.findMany({
       where: {
         ativo: true,
         OR: [
-          { papel: { in: papeisPadrao } },
-          ...(incluidos.size > 0
-            ? [
-                {
-                  id: { in: [...incluidos] },
-                  papel: { in: [...papeisDaArea(area)] },
-                },
-              ]
-            : []),
+          { area, papel: { in: papeisPadrao } },
+          ...(incluidos.size > 0 ? [{ id: { in: [...incluidos] }, area }] : []),
         ],
         ...(excluidos.size > 0 ? { id: { notIn: [...excluidos] } } : {}),
       },
@@ -250,12 +244,11 @@ export class DistribuicaoService {
       }
       candidatos.push({
         usuario,
-        motivo:
-          usuario.papel === membroDaArea(area)
-            ? 'MEMBRO_DA_AREA'
-            : regra.incluirLideres && usuario.papel === liderDaArea(area)
-              ? 'LIDER_INCLUIDO_PELA_REGRA'
-              : 'INCLUIDO_MANUALMENTE',
+        motivo: ehMembroDoSetor(usuario, area)
+          ? 'MEMBRO_DA_AREA'
+          : regra.incluirLideres && ehLiderDoSetor(usuario, area)
+            ? 'LIDER_INCLUIDO_PELA_REGRA'
+            : 'INCLUIDO_MANUALMENTE',
       });
     }
     return { candidatos, aguardandoAcesso };
@@ -264,7 +257,7 @@ export class DistribuicaoService {
   /** Sem ninguém no rodízio: o líder ativo da área; sem líder, um C-level ativo. */
   private async liderOuCLevel(tx: Tx, area: Area): Promise<string | null> {
     const lider = await tx.usuario.findFirst({
-      where: { ativo: true, papel: liderDaArea(area) },
+      where: { ativo: true, papel: 'LIDER', area },
       orderBy: ORDEM_ESTAVEL,
       select: { id: true },
     });
@@ -284,17 +277,19 @@ export class DistribuicaoService {
   // -------------------------------------------------------------------------
 
   async listar(usuario: UsuarioAutenticado): Promise<RegraDistribuicaoDto[]> {
-    const areas = areasVisiveis(usuario).filter((area) =>
-      podeConfigurarRodizio(usuario, area),
-    );
-    if (areas.length === 0) {
+    const escopo = permissoesDoPapel(usuario.papel).configurarRodizio;
+    if (escopo === 'NENHUM' || (escopo === 'AREA' && !usuario.area)) {
       throw new SemPermissaoException(
         'Só o Admin, o C-level e os líderes configuram o rodízio.',
       );
     }
+    // Admin e C-level: os rodízios dos setores ativos; o líder, o do seu setor.
     const regras = await this.prisma.regraDistribuicao.findMany({
-      where: { area: { in: [...areas] } },
-      orderBy: { area: 'asc' },
+      where:
+        escopo === 'TODOS'
+          ? { setor: { ativo: true } }
+          : { area: usuario.area ?? undefined },
+      orderBy: { setor: { ordem: 'asc' } },
     });
     return Promise.all(regras.map((regra) => this.montar(this.prisma, regra)));
   }
@@ -354,10 +349,10 @@ export class DistribuicaoService {
       if (!pessoa) {
         throw new NaoEncontradoException('Usuário não encontrado.');
       }
-      if (!papeisDaArea(area).includes(pessoa.papel)) {
+      if (!ehDoSetor(pessoa, area)) {
         throw new RegraVioladaException(
           'R5.8',
-          `Só pessoas da área ${rotuloDaArea(area)} (líder ou membro) participam deste rodízio.`,
+          `Só pessoas do setor ${rotuloDaArea(area)} (líder ou membro) participam deste rodízio.`,
           { usuarioId, papel: pessoa.papel, area },
         );
       }

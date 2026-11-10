@@ -18,12 +18,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
-  Area,
   type Etapa,
   type Funil,
   TipoEtapa,
 } from '../../generated/prisma/client';
 import { aparar, lerBooleano, OpcionalNaoNulo } from './comum.dto';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 
 /** Limites das etapas (R5.2). */
 export const PRAZO_MAXIMO_DIAS = 3_650;
@@ -100,7 +101,7 @@ export class FunilDto {
   @ApiProperty({ example: 'Comercial' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 
   @ApiProperty({
@@ -148,9 +149,9 @@ export class FunilDto {
 }
 
 export class FiltroFunisDto {
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area' })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL' })
   @IsOptional()
-  @IsEnum(Area, { message: 'deve ser MARKETING, COMERCIAL ou CS' })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({
@@ -216,8 +217,8 @@ export class CriarFunilDto {
   @MaxLength(100, { message: 'deve ter no máximo 100 caracteres' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
-  @IsEnum(Area, { message: 'deve ser MARKETING, COMERCIAL ou CS' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
+  @ChaveDeSetor()
   area: Area;
 
   @ApiPropertyOptional({ nullable: true, type: String, maxLength: 500 })

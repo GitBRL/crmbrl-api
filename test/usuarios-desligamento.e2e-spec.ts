@@ -246,7 +246,7 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
     });
     expect(evento).toMatchObject({ tipoAtor: 'USUARIO', usuarioId: admin.id });
     expect(evento.dados).toMatchObject({
-      usuario: { id: pedro.id, papel: 'COMERCIAL', area: 'COMERCIAL' },
+      usuario: { id: pedro.id, papel: 'MEMBRO', area: 'COMERCIAL' },
       destinatario: { id: lider.id },
       motivoDestinatario: 'LIDER',
       contagens: { atividades: 3, negocios: 2, contatos: 1 },
@@ -321,7 +321,7 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
       expect(alertas).toEqual([
         expect.objectContaining({
           titulo: 'Equipe sem líder: Customer Success',
-          texto: `Com o desligamento de ${lider.nome} (Líder CS), a equipe de Customer Success ficou sem líder: 2 liderados passaram a responder a ${cLevel.nome} até você definir um novo líder.`,
+          texto: `Com o desligamento de ${lider.nome} (Líder Customer Success), a equipe de Customer Success ficou sem líder: 2 liderados passaram a responder a ${cLevel.nome} até você definir um novo líder.`,
         }),
       ]);
     }
@@ -588,7 +588,10 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
       .post(`/api/v1/usuarios/${membro.id}/reativar`, {})
       .expect(422);
     expect(semLider.body).toMatchObject({
-      detalhes: { regra: 'R7.5', liderEsperado: 'LIDER_COMERCIAL' },
+      detalhes: {
+        regra: 'R7.5',
+        liderEsperado: { papel: 'LIDER', area: 'COMERCIAL' },
+      },
       mensagem: `Para reativar ${membro.nome} como Comercial, defina um líder válido: um Líder Comercial ativo.`,
     });
     const liderInvalido = await comoAdmin
@@ -647,13 +650,15 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
     expect(comoCLevelSemLider.body.detalhes.regra).toBe('R1.2');
     const reativado = await comoAdmin
       .post(`/api/v1/usuarios/${membro.id}/reativar`, {
-        papel: 'LIDER_MARKETING',
+        papel: 'LIDER',
+        area: 'MARKETING',
         liderId: cLevel.id,
       })
       .expect(200);
     expect(reativado.body).toMatchObject({
-      papel: 'LIDER_MARKETING',
+      papel: 'LIDER',
       area: 'MARKETING',
+      rotuloPapel: 'Líder Marketing',
       lider: { id: cLevel.id },
     });
   });

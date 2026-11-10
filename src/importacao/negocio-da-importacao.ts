@@ -4,7 +4,6 @@
  * para todos" como padrão, e o responsável por e-mail ou nome. Funções puras
  * sobre dados já carregados (o processador guarda o cache por importação).
  */
-import type { Area } from '../generated/prisma/client';
 import { normalizarTextoDoFiltro } from './filtro-de-linhas';
 import type { StatusDoNegocioImportado } from './dados-do-negocio';
 import type {
@@ -12,6 +11,8 @@ import type {
   TraducaoDeEtapas,
   TraducaoDeFunis,
 } from './opcoes';
+import type { Area } from '../comum/dominio/setores';
+import type { Papel } from '../generated/prisma/client';
 
 export interface EtapaDoCache {
   id: string;
@@ -250,7 +251,8 @@ export interface UsuarioDoCache {
   id: string;
   nome: string;
   email: string;
-  papel: string;
+  papel: Papel;
+  area: Area | null;
 }
 
 export type ResolucaoDoResponsavel =

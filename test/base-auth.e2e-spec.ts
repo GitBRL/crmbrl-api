@@ -287,8 +287,9 @@ describe('Base — autenticação e sessões (e2e)', () => {
       expect(eu.body).toMatchObject({
         usuario: {
           id: usuario.id,
-          papel: 'MARKETING',
+          papel: 'MEMBRO',
           area: 'MARKETING',
+          nomeSetor: 'Marketing',
           nivel: 'MEMBRO',
           rotuloPapel: 'Marketing',
         },

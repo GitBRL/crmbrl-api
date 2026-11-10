@@ -5,19 +5,21 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import {
-  areaDoPapel,
   ehDiretoria,
   ehLider,
+  ehLiderDoSetor,
   rotuloDaArea,
+  setorDaPessoa,
 } from '../comum/dominio/papeis';
 import {
   DadosInvalidosException,
   NaoEncontradoException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
-import type { Area, Prisma } from '../generated/prisma/client';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { REGRA_ATENDIMENTO } from './atendimento.constantes';
+import { garantirSetorDoAtendimento } from './setor-do-atendimento';
 import { ConversasService, exigirAtendimento } from './conversas.service';
 import { PessoaDto } from './dto/comum.dto';
 import type {
@@ -38,6 +40,7 @@ import {
   variaveisDesconhecidas,
   variaveisDoTexto,
 } from './variaveis';
+import type { Area } from '../comum/dominio/setores';
 
 const INCLUIR_RESPOSTA = {
   arquivo: true,
@@ -57,19 +60,15 @@ const CAMPOS_AUDITADOS = [
   'ativa',
 ] as const;
 
-/** Quem gerencia as respostas rápidas de um escopo: diretoria todas; o líder, as da sua área. */
+/** Quem gerencia as respostas rápidas de um escopo: diretoria todas; o líder, as do seu setor. */
 export function podeGerenciarRespostas(
-  usuario: Pick<UsuarioAutenticado, 'papel'>,
+  usuario: Pick<UsuarioAutenticado, 'papel' | 'area'>,
   area: Area | null,
 ): boolean {
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  return (
-    area !== null &&
-    ehLider(usuario.papel) &&
-    areaDoPapel(usuario.papel) === area
-  );
+  return area !== null && ehLiderDoSetor(usuario, area);
 }
 
 /**
@@ -100,7 +99,7 @@ export class RespostasRapidasService {
     const condicoes: Prisma.RespostaRapidaWhereInput[] = [{ excluidoEm: null }];
     if (!ehDiretoria(usuario.papel)) {
       condicoes.push({
-        OR: [{ area: null }, { area: areaDoPapel(usuario.papel) }],
+        OR: [{ area: null }, { area: setorDaPessoa(usuario) }],
       });
     }
     if (filtro.area) {
@@ -122,7 +121,7 @@ export class RespostasRapidasService {
     const respostas = await this.prisma.respostaRapida.findMany({
       where: { AND: condicoes },
       include: INCLUIR_RESPOSTA,
-      orderBy: [{ atalho: 'asc' }, { area: 'asc' }, { id: 'asc' }],
+      orderBy: [{ atalho: 'asc' }, { setor: { ordem: 'asc' } }, { id: 'asc' }],
     });
     return respostas.map((resposta) => this.paraDto(usuario, resposta));
   }
@@ -145,6 +144,9 @@ export class RespostasRapidasService {
     const atalho = this.validarAtalho(dto.atalho);
     this.validarTexto(dto.texto);
     const resposta = await this.prisma.$transaction(async (tx) => {
+      if (area) {
+        await garantirSetorDoAtendimento(tx, area);
+      }
       if (dto.arquivoId) {
         await this.validarArquivo(usuario, dto.arquivoId);
       }
@@ -164,7 +166,7 @@ export class RespostasRapidasService {
         acao: 'resposta_rapida.criada',
         entidade: 'resposta_rapida',
         entidadeId: criada.id,
-        resumo: `Resposta rápida "/${criada.atalho}" criada (${area ? rotuloDaArea(area) : 'todas as áreas'})`,
+        resumo: `Resposta rápida "/${criada.atalho}" criada (${area ? rotuloDaArea(area) : 'todos os setores'})`,
         dados: { alteracoes: calcularAlteracoes({}, criada, CAMPOS_AUDITADOS) },
       });
       return criada;
@@ -184,6 +186,9 @@ export class RespostasRapidasService {
       const area = dto.area === undefined ? antes.area : dto.area;
       if (area !== antes.area) {
         this.exigirGerenciar(usuario, area);
+        if (area) {
+          await garantirSetorDoAtendimento(tx, area);
+        }
       }
       if (dto.texto !== undefined) {
         this.validarTexto(dto.texto);
@@ -302,7 +307,7 @@ export class RespostasRapidasService {
       where: { id, excluidoEm: null },
       include: INCLUIR_RESPOSTA,
     });
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     if (
       !resposta ||
       (!ehDiretoria(usuario.papel) &&
@@ -322,7 +327,7 @@ export class RespostasRapidasService {
       throw new SemPermissaoException(
         area
           ? `Só Admin, C-level e o líder de ${rotuloDaArea(area)} gerenciam as respostas rápidas dessa área.`
-          : 'Só Admin e C-level gerenciam as respostas rápidas de todas as áreas.',
+          : 'Só Admin e C-level gerenciam as respostas rápidas de todos os setores.',
         { regra: REGRA_ATENDIMENTO },
       );
     }

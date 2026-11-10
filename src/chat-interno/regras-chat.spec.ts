@@ -1,8 +1,8 @@
+import { papelESetor as comPapel } from '../comum/dominio/papeis-antigos.apoio-spec';
 import {
   areasDoChat,
-  CANAIS_DO_SISTEMA,
   CHAVE_DO_GERAL,
-  canaisAutomaticosPorPapel,
+  canaisDoSistema,
   chaveDaArea,
   chaveDaDireta,
   dividirTexto,
@@ -23,52 +23,51 @@ const NEGOCIO = '11111111-2222-4333-8444-555555555555';
 
 describe('regras do chat interno (R15)', () => {
   describe('canais do sistema', () => {
-    it('Geral e um canal por área, com chaves estáveis', () => {
-      expect(CANAIS_DO_SISTEMA.map((canal) => canal.chave)).toEqual([
+    const SETORES = [
+      { chave: 'MARKETING', nome: 'Marketing' },
+      { chave: 'COMERCIAL', nome: 'Comercial' },
+      { chave: 'CS', nome: 'Customer Success' },
+      { chave: 'POS_VENDA', nome: 'Pós-venda' },
+    ];
+    const ATIVOS = SETORES.map(({ chave }) => chave);
+
+    it('R15.1 — Geral e um canal por setor ativo, com chaves estáveis', () => {
+      const canais = canaisDoSistema(SETORES);
+      expect(canais.map((canal) => canal.chave)).toEqual([
         CHAVE_DO_GERAL,
         'area:MARKETING',
         'area:COMERCIAL',
         'area:CS',
+        'area:POS_VENDA',
       ]);
-      expect(CANAIS_DO_SISTEMA[0]).toMatchObject({
+      expect(canais[0]).toMatchObject({
         tipo: 'GERAL',
         nome: 'Geral',
         area: null,
       });
       expect(
-        CANAIS_DO_SISTEMA.filter((canal) => canal.tipo === 'AREA').map(
-          (canal) => [canal.area, canal.nome],
-        ),
+        canais
+          .filter((canal) => canal.tipo === 'AREA')
+          .map((canal) => [canal.area, canal.nome]),
       ).toEqual([
         ['MARKETING', 'Marketing'],
         ['COMERCIAL', 'Comercial'],
         ['CS', 'Customer Success'],
+        ['POS_VENDA', 'Pós-venda'],
       ]);
       expect(chaveDaArea('CS')).toBe('area:CS');
     });
 
-    it('áreas de cada papel: a própria; C-level todas; Admin nenhuma', () => {
-      expect(areasDoChat('COMERCIAL')).toEqual(['COMERCIAL']);
-      expect(areasDoChat('LIDER_CS')).toEqual(['CS']);
-      expect(areasDoChat('MARKETING')).toEqual(['MARKETING']);
-      expect(areasDoChat('C_LEVEL')).toEqual(['MARKETING', 'COMERCIAL', 'CS']);
-      expect(areasDoChat('ADMIN')).toEqual([]);
-    });
-
-    it('membros automáticos: todo papel no Geral e cada um nos canais das suas áreas', () => {
-      const pares = canaisAutomaticosPorPapel();
-      const doPapel = (papel: string) =>
-        pares.filter(([p]) => p === papel).map(([, chave]) => chave);
-      expect(doPapel('ADMIN')).toEqual(['geral']);
-      expect(doPapel('COMERCIAL')).toEqual(['geral', 'area:COMERCIAL']);
-      expect(doPapel('LIDER_MARKETING')).toEqual(['geral', 'area:MARKETING']);
-      expect(doPapel('C_LEVEL')).toEqual([
-        'geral',
-        'area:MARKETING',
-        'area:COMERCIAL',
-        'area:CS',
-      ]);
-      expect(pares).toHaveLength(8 + 6 + 3);
+    it('R15.1 — setores de cada pessoa: o próprio; C-level todos os ativos; Admin nenhum', () => {
+      expect(areasDoChat(comPapel('COMERCIAL'), ATIVOS)).toEqual(['COMERCIAL']);
+      expect(areasDoChat(comPapel('LIDER_CS'), ATIVOS)).toEqual(['CS']);
+      expect(areasDoChat(comPapel('MARKETING'), ATIVOS)).toEqual(['MARKETING']);
+      expect(areasDoChat(comPapel('C_LEVEL'), ATIVOS)).toEqual(ATIVOS);
+      expect(areasDoChat(comPapel('ADMIN'), ATIVOS)).toEqual([]);
+      // Setor inativo: sem canal automático.
+      expect(
+        areasDoChat({ papel: 'MEMBRO', area: 'POS_VENDA' }, ['COMERCIAL']),
+      ).toEqual([]);
     });
 
     it('a chave da direta não depende da ordem nem de maiúsculas', () => {

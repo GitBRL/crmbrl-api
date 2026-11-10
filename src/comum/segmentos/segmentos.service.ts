@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
-import type { Area, Prisma } from '../../generated/prisma/client';
-import { areaDoPapel, ehDiretoria } from '../dominio/papeis';
+import type { Prisma } from '../../generated/prisma/client';
+import { setorDaPessoa, ehDiretoria } from '../dominio/papeis';
 import { DadosInvalidosException } from '../erros/excecoes';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import {
@@ -12,6 +12,7 @@ import {
   validarSegmento,
   whereDoSegmento,
 } from './segmentos';
+import type { Area } from '../dominio/setores';
 
 /** Contato da amostra do segmento. */
 export interface ContatoDaAmostra {
@@ -50,13 +51,13 @@ export class SegmentosService {
    */
   async validarParaUsuario(
     entrada: unknown,
-    usuario: Pick<UsuarioAutenticado, 'papel'>,
+    usuario: Pick<UsuarioAutenticado, 'papel' | 'area'>,
   ): Promise<Segmento> {
     const segmento = validarSegmento(entrada);
     if (ehDiretoria(usuario.papel)) {
       return segmento;
     }
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     const filtros: FiltroDeNegocio[] = [];
     coletarFiltrosDeNegocio(segmento.condicoes, filtros);
     for (const filtro of filtros) {
@@ -96,10 +97,10 @@ export class SegmentosService {
   }
 
   /** Opções para contar/listar contatos de um segmento montado por uma pessoa. */
-  opcoesDoUsuario(usuario: Pick<UsuarioAutenticado, 'papel'>): {
+  opcoesDoUsuario(usuario: Pick<UsuarioAutenticado, 'papel' | 'area'>): {
     areaDosNegocios?: Area;
   } {
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     return ehDiretoria(usuario.papel) || !area ? {} : { areaDosNegocios: area };
   }
 

@@ -79,6 +79,7 @@ export class AuditoriaConsultaService {
             nome: true,
             email: true,
             papel: true,
+            area: true,
             ativo: true,
           },
         })

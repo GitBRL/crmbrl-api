@@ -14,7 +14,6 @@ import {
 } from '../comum/erros/excecoes';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
 import type {
-  Area,
   EstrategiaDistribuicao,
   Etapa,
   Funil,
@@ -56,6 +55,7 @@ import {
   lerDataSemHora,
   type NegocioCompleto,
 } from './negocio-completo';
+import type { Area } from '../comum/dominio/setores';
 
 /**
  * Entrada de `criarAutomatico` (contrato da Fase 1, §5) — usada pelos
@@ -469,7 +469,7 @@ export class NegociosService {
           { responsavelId: atual.responsavelId },
         );
       }
-      if (!podeSerResponsavelNaArea(usuario.papel, atual.funil.area)) {
+      if (!podeSerResponsavelNaArea(usuario, atual.funil.area)) {
         throw new RegraVioladaException(
           'R5.9',
           'Só quem é da área do funil (ou C-level/Admin) assume o negócio.',
@@ -982,7 +982,7 @@ export class NegociosService {
   ): Promise<void> {
     const responsavel = await tx.usuario.findUnique({
       where: { id: responsavelId },
-      select: { id: true, ativo: true, papel: true },
+      select: { id: true, ativo: true, papel: true, area: true },
     });
     if (!responsavel || !responsavel.ativo) {
       throw new RegraVioladaException(
@@ -991,7 +991,7 @@ export class NegociosService {
         { responsavelId },
       );
     }
-    if (!podeSerResponsavelNaArea(responsavel.papel, area)) {
+    if (!podeSerResponsavelNaArea(responsavel, area)) {
       throw new RegraVioladaException(
         'R5.9',
         'O responsável precisa ser da área do funil (ou C-level/Admin): quem é de outra área não vê o negócio.',

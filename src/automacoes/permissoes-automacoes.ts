@@ -3,10 +3,11 @@
  * (inclusive as sem área); líderes, as da própria área; membros não usam.
  */
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
-import type { Area, Prisma } from '../generated/prisma/client';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
+import type { Prisma } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 /** Quem entra no módulo: diretoria e líderes. */
 export function podeUsarAutomacoes(usuario: Usuario): boolean {
@@ -20,7 +21,7 @@ export function filtroDeAutomacoesVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return {};
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   return ehLider(usuario.papel) && area ? { area } : { id: { in: [] } };
 }
 
@@ -32,7 +33,7 @@ export function podeGerenciarAutomacao(
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   return ehLider(usuario.papel) && area !== null && automacao.area === area;
 }
 
@@ -41,9 +42,7 @@ export function areaDaNovaAutomacao(
   usuario: Usuario,
   pedida: Area | null | undefined,
 ): Area | null {
-  return ehDiretoria(usuario.papel)
-    ? (pedida ?? null)
-    : areaDoPapel(usuario.papel);
+  return ehDiretoria(usuario.papel) ? (pedida ?? null) : setorDaPessoa(usuario);
 }
 
 /** `marketing` da nova automação: o que veio no pedido; sem ele, verdadeiro numa área de Marketing (R4.6). */

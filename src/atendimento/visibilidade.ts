@@ -4,18 +4,24 @@
  *
  * - Admin e C-level: todas;
  * - Marketing (líder e membros): nenhuma — o Marketing não acessa o Atendimento;
- * - líder (Comercial, CS): as das filas da sua área e as que estão com ele;
- * - membro: as que estão com ele e as sem responsável das filas da sua área.
+ * - líder (Comercial, CS e setores criados): as das filas do seu setor e as que
+ *   estão com ele;
+ * - membro: as que estão com ele e as sem responsável das filas do seu setor.
  *
  * Conversa sem fila e sem responsável só aparece para Admin e C-level.
  */
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
-import type { Area, Papel, Prisma } from '../generated/prisma/client';
+import {
+  type ComPapel,
+  ehDiretoria,
+  ehLider,
+  setorDaPessoa,
+} from '../comum/dominio/papeis';
+import { type Area, SETOR_MARKETING } from '../comum/dominio/setores';
+import type { Prisma } from '../generated/prisma/client';
 
 /** O mínimo do usuário para decidir a visibilidade. */
-export interface UsuarioDoAtendimento {
+export interface UsuarioDoAtendimento extends ComPapel {
   readonly id: string;
-  readonly papel: Papel;
 }
 
 /** O mínimo da conversa para decidir a visibilidade. */
@@ -24,9 +30,14 @@ export interface ConversaParaVisibilidade {
   readonly fila: { readonly area: Area } | null;
 }
 
-/** O papel usa o Atendimento? (Marketing não.) */
-export function podeUsarAtendimento(papel: Papel): boolean {
-  return areaDoPapel(papel) !== 'MARKETING';
+/** A pessoa usa o Atendimento? (Marketing não; Admin, C-level e os demais setores, sim.) */
+export function podeUsarAtendimento(pessoa: ComPapel): boolean {
+  return setorDaPessoa(pessoa) !== SETOR_MARKETING;
+}
+
+/** O setor usa o Atendimento (filas, respostas rápidas)? Todos menos o Marketing (R12). */
+export function setorUsaAtendimento(area: Area): boolean {
+  return area !== SETOR_MARKETING;
 }
 
 /** O usuário vê esta conversa? */
@@ -37,13 +48,13 @@ export function podeVerConversa(
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  if (!podeUsarAtendimento(usuario.papel)) {
+  if (!podeUsarAtendimento(usuario)) {
     return false;
   }
   if (conversa.responsavelId === usuario.id) {
     return true;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   if (!area || conversa.fila?.area !== area) {
     return false;
   }
@@ -60,8 +71,8 @@ export function filtroDeConversasVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return {};
   }
-  const area = areaDoPapel(usuario.papel);
-  if (!area || !podeUsarAtendimento(usuario.papel)) {
+  const area = setorDaPessoa(usuario);
+  if (!area || !podeUsarAtendimento(usuario)) {
     return null;
   }
   return {

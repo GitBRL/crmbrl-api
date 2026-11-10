@@ -1291,7 +1291,7 @@ export class WebhooksEntradaService {
     }
     const usuario = await tx.usuario.findUnique({
       where: { id: responsavelFixoId },
-      select: { id: true, ativo: true, papel: true },
+      select: { id: true, ativo: true, papel: true, area: true },
     });
     if (!usuario?.ativo) {
       throw new RegraVioladaException(
@@ -1300,7 +1300,7 @@ export class WebhooksEntradaService {
         { responsavelFixoId },
       );
     }
-    if (!podeSerResponsavelNaArea(usuario.papel, funil.area)) {
+    if (!podeSerResponsavelNaArea(usuario, funil.area)) {
       throw new RegraVioladaException(
         'R8.1',
         `O responsável fixo precisa ser da área ${rotuloDaArea(funil.area)} (ou C-level/Admin), para ver os negócios do funil ${funil.nome}.`,

@@ -252,7 +252,7 @@ export class PainelAtendimentoService {
     filtro: FiltroResolvido,
   ): Prisma.Sql {
     return Prisma.sql`${sqlConversasVisiveis(usuario)}
-      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}::area` : VERDADEIRO}
+      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}` : VERDADEIRO}
       AND ${sqlPessoas(Prisma.sql`c.responsavel_id`, filtro.pessoas)}
       AND ${filtro.canalId ? Prisma.sql`c.canal_id = ${filtro.canalId}::uuid` : VERDADEIRO}
       AND ${filtro.filaId ? Prisma.sql`c.fila_id = ${filtro.filaId}::uuid` : VERDADEIRO}`;
@@ -268,7 +268,7 @@ export class PainelAtendimentoService {
   ): Prisma.Sql {
     return Prisma.sql`l.estado IN ('ENCERRADA'::estado_ligacao, 'PERDIDA'::estado_ligacao, 'RECUSADA'::estado_ligacao, 'SEM_RESPOSTA'::estado_ligacao, 'FALHOU'::estado_ligacao)
       AND ${sqlLigacoesVisiveis(usuario)}
-      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}::area` : VERDADEIRO}
+      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}` : VERDADEIRO}
       AND ${sqlPessoas(Prisma.sql`l.atendente_id`, filtro.pessoas)}
       AND ${filtro.canalId ? Prisma.sql`l.canal_id = ${filtro.canalId}::uuid` : VERDADEIRO}
       AND ${filtro.filaId ? Prisma.sql`c.fila_id = ${filtro.filaId}::uuid` : VERDADEIRO}`;

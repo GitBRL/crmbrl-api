@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   DadosInvalidosException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
-import { type Area, Prisma } from '../generated/prisma/client';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { REGRA_ATENDIMENTO } from './atendimento.constantes';
 import {
@@ -24,6 +24,8 @@ import type {
   SituacaoAtualDto,
   TemposDto,
 } from './dto/metricas.dto';
+import type { Area } from '../comum/dominio/setores';
+import { setorUsaAtendimento } from './visibilidade';
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 /** Período padrão: os últimos 30 dias. */
@@ -139,7 +141,7 @@ export class MetricasDoAtendimentoService {
     }
     const condicoes: Prisma.Sql[] = [];
     if (area) {
-      condicoes.push(Prisma.sql`f.area = ${area}::area`);
+      condicoes.push(Prisma.sql`f.area = ${area}`);
     }
     if (filtro.filaId) {
       condicoes.push(Prisma.sql`c.fila_id = ${filtro.filaId}::uuid`);
@@ -217,7 +219,7 @@ export class MetricasDoAtendimentoService {
     };
   }
 
-  /** Admin/C-level: a área pedida (ou todas); líder: a dele; os demais: 403. */
+  /** Admin/C-level: o setor pedido (ou todos); líder: o dele; os demais: 403. */
   private areaPermitida(
     usuario: UsuarioAutenticado,
     pedida: Area | null,
@@ -225,8 +227,8 @@ export class MetricasDoAtendimentoService {
     if (ehDiretoria(usuario.papel)) {
       return pedida;
     }
-    const area = areaDoPapel(usuario.papel);
-    if (ehLider(usuario.papel) && area && area !== 'MARKETING') {
+    const area = setorDaPessoa(usuario);
+    if (ehLider(usuario.papel) && area && setorUsaAtendimento(area)) {
       return area;
     }
     throw new SemPermissaoException(

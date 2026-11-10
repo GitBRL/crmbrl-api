@@ -10,12 +10,8 @@ import {
   ValidateIf,
   type ValidationOptions,
 } from 'class-validator';
-import {
-  Area,
-  TipoEtapa,
-  type Etapa,
-  type Funil,
-} from '../generated/prisma/client';
+import { TipoEtapa, type Etapa, type Funil } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
 export const MENSAGEM_TEXTO = 'deve ser um texto';
 export const MENSAGEM_UUID = {
@@ -125,7 +121,7 @@ export class FunilDoWebhookDto {
   @ApiProperty({ example: 'Marketing' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 
   static de(funil: Pick<Funil, 'id' | 'nome' | 'area'>): FunilDoWebhookDto {

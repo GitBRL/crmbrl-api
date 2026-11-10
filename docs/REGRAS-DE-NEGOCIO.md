@@ -23,30 +23,69 @@ e ganham seções aqui quando forem detalhadas.
 
 ---
 
-## 1. Papéis, áreas e hierarquia
+## 1. Papéis, setores e hierarquia
 
-| Papel | Área | Nível | Líder obrigatório |
+O **papel** é só o nível; o **setor** (a "área") da pessoa é um dado à parte, obrigatório
+para Líder e Membro e vazio para Admin e C-level (o banco garante). Rótulos: Admin,
+C-level, "Líder " + nome do setor (ex.: "Líder Comercial") e, para o membro, o nome do
+setor (ex.: "Comercial").
+
+| Papel | Setor | Nível | Líder obrigatório |
 | --- | --- | --- | --- |
-| `ADMIN` | Sistema | administrador | não tem |
-| `C_LEVEL` | Diretoria | diretoria | não tem |
-| `LIDER_COMERCIAL` | Comercial | líder | um `C_LEVEL` ativo |
-| `COMERCIAL` | Comercial | membro | um `LIDER_COMERCIAL` ativo |
-| `LIDER_MARKETING` | Marketing | líder | um `C_LEVEL` ativo |
-| `MARKETING` | Marketing | membro | um `LIDER_MARKETING` ativo |
-| `LIDER_CS` | Customer Success | líder | um `C_LEVEL` ativo |
-| `CS` | Customer Success | membro | um `LIDER_CS` ativo |
+| `ADMIN` | — (Sistema) | administrador | não tem |
+| `C_LEVEL` | — (Diretoria) | diretoria | não tem |
+| `LIDER` | obrigatório | líder | um `C_LEVEL` ativo |
+| `MEMBRO` | obrigatório | membro | um `LIDER` ativo **do mesmo setor** |
+
+Setores de base (chave → nome inicial): `MARKETING` → Marketing, `COMERCIAL` → Comercial,
+`CS` → Customer Success. Até 10/11/2026 o papel misturava nível e área (`LIDER_COMERCIAL`,
+`COMERCIAL`, `LIDER_MARKETING`, `MARKETING`, `LIDER_CS`, `CS`); a migration `setores`
+converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
 
 - **R1.1** E-mail único, comparado sem diferença de maiúsculas; gravado aparado e em
   minúsculas.
-- **R1.2** O líder de um membro é um líder **da mesma área** e ativo. O líder de um líder é
-  um C-level ativo (o "C-level responsável"). Admin e C-level não têm líder.
-- **R1.3** Mudar o papel revalida a hierarquia. Um líder com liderados não pode deixar de
-  ser líder (nem mudar de área) enquanto houver liderados: o erro lista quem precisa de novo
-  líder.
+- **R1.2** O líder de um membro é um líder **do mesmo setor** e ativo. O líder de um líder
+  é um C-level ativo (o "C-level responsável"). Admin e C-level não têm líder nem setor.
+- **R1.3** Mudar o papel ou o setor revalida a hierarquia. Um líder com liderados não pode
+  deixar de ser líder (nem mudar de setor) enquanto houver liderados: o erro lista quem
+  precisa de novo líder.
 - **R1.4** Sempre existe pelo menos um Admin ativo: o último não pode ser desligado nem
   rebaixado.
 - **R1.5** Só o Admin cria, edita, desliga, reativa e redefine senha de usuários. C-level
   vê todos; líder vê a própria equipe; membro vê a si mesmo.
+- **R1.6** **Setores:** os três de base e os criados por Admin e C-level. Cada setor tem
+  chave (imutável, gravada em todos os registros "de área": usuários, funis, rodízio,
+  filas, respostas rápidas, disparos, chatbot, automações, importação), nome, descrição,
+  cor (um tom do selo do design system: `ciano`, `menta`, `lima`, `coral`, `neutro`) e
+  ordem. Todo usuário autenticado lista os setores ativos (as opções dos seletores).
+  Comportamentos que nasceram presos a um setor de base continuam presos à chave dele
+  (Financeiro e régua: CS e Comercial; SDR e passagens padrão; painéis de Marketing,
+  Comercial, CS e Financeiro do BI). Um setor criado ganha o genérico: funis e negócios,
+  rodízio, equipe, filas de atendimento e respostas rápidas (o Marketing continua fora do
+  Atendimento), disparos, automações e chatbot por setor, importação, canal no chat
+  interno e, no BI, os painéis de Atendimento e SDR pelo seu setor.
+- **R1.7** **Criar setor** (só Admin e C-level): nome, descrição, cor, ordem, **líderes**
+  e **C-level responsável** (obrigatório quando há líderes). Numa transação só: o setor, o
+  **funil-base** dele (nome do setor; etapas Novo (2d) → Em andamento (7d), Ganho,
+  Perdido), a regra de rodízio e a promoção dos líderes escolhidos a `LIDER` do setor,
+  respondendo ao C-level responsável. Os líderes precisam ser pessoas ativas; quem tem
+  liderados não muda de setor (R1.3): a criação inteira é recusada (409) com a lista de
+  quem precisa de novo líder.
+- **R1.8** O **nome** é único entre os setores ativos, sem diferenciar maiúsculas nem
+  acentos (409). A **chave** é gerada do nome na criação — maiúsculas, sem acento, `_` no
+  lugar de espaços e símbolos, até 40 caracteres — e ganha `_2`, `_3`… se já existir (ou se
+  for um valor reservado dos filtros, como `GLOBAL` e `SEM_AREA`). Ex.: "Pós-venda" →
+  `POS_VENDA`.
+- **R1.9** Só um setor **ativo** vale para registros novos ou alterados (usuário, funil,
+  fila, resposta rápida, campanha, modelo, fluxo, automação, rodízio da importação) e para
+  reativar funil, fila ou usuário: setor inexistente ou inativo → 422.
+- **R1.10** **Desativar** (Admin e C-level): os setores de base nunca; um setor criado só
+  vazio — sem pessoas ativas, funis ativos nem filas de atendimento ativas (409 com as
+  listas). Inativo, ele some das listas de escolha e continua nos registros antigos.
+  Reativar devolve o setor às listas, se o nome continuar único entre os ativos.
+- **R1.11** **Editar** (Admin e C-level): nome, descrição, cor e ordem — também dos setores
+  de base. A chave não muda. O canal do setor no chat interno acompanha o nome. Toda
+  criação, edição, desativação e reativação é auditada (`setor.*`).
 
 ## 2. Autenticação e sessões
 
@@ -154,9 +193,11 @@ e ganham seções aqui quando forem detalhadas.
 
 ## 5. Funis, etapas e negócios
 
-- **R5.1** Existem três **funis-base**, um por área, que não podem ser excluídos:
-  Marketing, Comercial e Customer Success. Admin e C-level configuram todos os funis; o
-  líder configura os da sua área (criar, renomear e reordenar etapas, criar funis extras).
+- **R5.1** Cada setor tem um **funil-base**, que não pode ser excluído (só arquivado):
+  Marketing, Comercial e Customer Success vêm da configuração inicial; o de um setor criado
+  nasce com ele (R1.7). Admin e C-level configuram todos os funis; o líder configura os do
+  seu setor (criar, renomear e reordenar etapas, criar funis extras). Funil novo só num
+  setor ativo (R1.9).
 - **R5.2** Etapa tem nome, ordem, tipo (`ABERTA`, `GANHO` ou `PERDIDO`), prazo-alvo em dias
   (para sinalizar negócio parado) e probabilidade opcional. Todo funil tem ao menos uma etapa
   aberta, exatamente uma de ganho e exatamente uma de perda. Etapa com negócios não pode ser
@@ -179,7 +220,7 @@ e ganham seções aqui quando forem detalhadas.
   tempo ficou na etapa anterior), gera auditoria e evento. Não se move um negócio para etapa
   de outro funil: isso é papel das passagens (R5.7).
 - **R5.5** Entrar numa etapa de perda exige motivo. Ganhar registra a data de ganho.
-  Reabrir um negócio ganho ou perdido é permitido só a líder da área, C-level e Admin.
+  Reabrir um negócio ganho ou perdido é permitido só a líder do setor, C-level e Admin.
 - **R5.6** Um contato não tem dois negócios **abertos** no mesmo funil vindos de
   automação: se o webhook ou a passagem encontrar um aberto, registra a reconversão nele em
   vez de criar outro. A criação manual é livre.
@@ -200,9 +241,10 @@ e ganham seções aqui quando forem detalhadas.
   já é criado (à mão ou por webhook) direto na etapa-gatilho, ou reaberto nela; usa o
   mesmo contato do negócio de origem (sem contar nova reconversão) e roda como ator
   `AUTOMACAO`. Passagens encadeadas vão até 5 níveis, sem repetir a mesma passagem.
-- **R5.8** **Distribuição por rodízio:** por área, entre os membros ativos (o líder entra
-  só se a regra da área disser), em ordem estável e com ponteiro salvo, sob trava no banco
-  para não repetir em concorrência. Sem membros disponíveis, vai para o líder da área; sem
+- **R5.8** **Distribuição por rodízio:** por setor (uma regra por setor; a de um setor
+  criado nasce com ele, R1.7), entre os membros ativos do setor (o líder entra só se a
+  regra do setor disser), em ordem estável e com ponteiro salvo, sob trava no banco para
+  não repetir em concorrência. Sem membros disponíveis, vai para o líder do setor; sem
   líder, para um C-level.
   **Ajuste (2026-10-22):** o rodízio só inclui quem **já ativou o acesso** — concluiu o
   primeiro login (com a troca da senha temporária) ou definiu a senha do convite. Quem
@@ -213,7 +255,7 @@ e ganham seções aqui quando forem detalhadas.
   não a desfaz: uma senha temporária definida depois pelo Admin (R2.8) não tira ninguém do
   rodízio.
 - **R5.9** **Visibilidade (proposta):** Admin e C-level veem todos os negócios; o líder vê
-  todos os da sua área; o membro vê os da sua área em que é responsável e os ainda sem
+  todos os do seu setor; o membro vê os do seu setor em que é responsável e os ainda sem
   responsável (que ele pode assumir). Quem vê pode editar e mover, exceto reabrir (R5.5).
 - **R5.10** Métricas base, calculadas do histórico: conversão entre etapas, tempo médio
   por etapa, ciclo médio (criação → ganho) e negócios parados (tempo na etapa maior que o
@@ -368,19 +410,24 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
 
 ## 12. Matriz de acesso (Fase 1)
 
-| Recurso | Admin | C-level | Líder da área | Membro da área |
+O "setor" das colunas Líder e Membro é qualquer setor (de base ou criado, R1.6), salvo
+onde uma regra prende o recurso a um setor de base.
+
+| Recurso | Admin | C-level | Líder do setor | Membro do setor |
 | --- | --- | --- | --- | --- |
 | Gerenciar usuários | ✓ | — | — | — |
+| Ver setores (ativos) | ✓ | ✓ | ✓ | ✓ |
+| Criar, editar, desativar e reativar setores (R1.7–R1.11) | ✓ | ✓ | — | — |
 | Ver usuários | todos | todos | sua equipe | a si mesmo |
-| Configurar funis e etapas | todos | todos | da sua área | — |
-| Ver e mover negócios | todos | todos | da sua área | da sua área: os seus e os sem responsável |
-| Reabrir negócio | ✓ | ✓ | da sua área | — |
+| Configurar funis e etapas | todos | todos | do seu setor | — |
+| Ver e mover negócios | todos | todos | do seu setor | do seu setor: os seus e os sem responsável |
+| Reabrir negócio | ✓ | ✓ | do seu setor | — |
 | Ver contatos e empresas | ✓ | ✓ | ✓ | ✓ |
 | Editar contato/empresa | ✓ | ✓ | se o responsável é da sua equipe | se é o responsável |
 | Anonimizar contato | ✓ | — | — | — |
 | Ver atividades | todas | todas | da equipe | as suas (responsável ou criador) |
 | Configurar passagens | ✓ | ✓ | — | — |
-| Configurar rodízio | ✓ | ✓ | da sua área | — |
+| Configurar rodízio | ✓ | ✓ | do seu setor | — |
 | Webhooks de entrada e saída | ✓ | — | — | — |
 | Auditoria | ✓ | ✓ | — | — |
 | Logs técnicos | ✓ | — | — | — |
@@ -456,10 +503,11 @@ Cada cenário vira um teste automatizado contra um Postgres real.
 
 ## 15. Atendimento omnichannel (R12)
 
-- **R12.1** **Filas** organizam o atendimento: nome, área (**Comercial** ou **CS** — o
-  Marketing não usa o Atendimento), prazo de primeira resposta e de resolução (SLA, em
-  minutos, opcionais), estratégia de distribuição (`RODIZIO`, `MENOR_CARGA` ou `MANUAL`),
-  participantes e se está ativa. Admin e C-level configuram todas; o líder, as da sua área.
+- **R12.1** **Filas** organizam o atendimento: nome, setor (**Comercial**, **CS** ou um
+  setor criado, ativo — o Marketing não usa o Atendimento; R1.6, R1.9), prazo de primeira
+  resposta e de resolução (SLA, em minutos, opcionais), estratégia de distribuição
+  (`RODIZIO`, `MENOR_CARGA` ou `MANUAL`), participantes e se está ativa. Admin e C-level
+  configuram todas; o líder, as do seu setor.
   Uma fila com conversas em aberto não pode ser excluída nem mudar de área (422). Cada
   canal tem uma fila padrão, que recebe as conversas novas.
 - **R12.2** **Entrada:** cada mensagem que chega por um canal identifica o contato pelo
@@ -632,11 +680,13 @@ Cada cenário vira um teste automatizado contra um Postgres real.
 
 ## 18. Chat interno da equipe (R15)
 
-- **R15.1** **Canais padrão:** o "Geral" reúne todas as pessoas ativas; cada área
-  (Comercial, Marketing, CS) tem o seu canal, com as pessoas da área e o C-level (o Admin
-  fica só no Geral). Os membros acompanham o papel automaticamente (ao subir a API, a cada
-  minuto, no desligamento e sempre que a pessoa usa o chat). Não dá para sair, renomear
-  nem arquivar um canal padrão — só silenciar.
+- **R15.1** **Canais padrão:** o "Geral" reúne todas as pessoas ativas; cada setor ativo
+  (Marketing, Comercial, CS e os criados, R1.6) tem o seu canal, com as pessoas do setor e
+  o C-level (o Admin fica só no Geral). Os membros acompanham o papel e o setor
+  automaticamente (ao subir a API, a cada minuto, no desligamento e sempre que a pessoa usa
+  o chat); o canal de um setor criado aparece na sincronização seguinte e o nome acompanha
+  o do setor (R1.11). Setor desativado: o canal fica, sem membros automáticos. Não dá para
+  sair, renomear nem arquivar um canal padrão — só silenciar.
 - **R15.2** **Grupos:** qualquer pessoa cria e vira administradora. Quem administra
   renomeia, muda a descrição, adiciona pessoas ativas (até 200), tira pessoas, dá ou tira
   a administração (sempre fica alguém administrando) e arquiva ou desarquiva; grupo
@@ -667,15 +717,15 @@ Cada cenário vira um teste automatizado contra um Postgres real.
   desligamento ou sessão expirada derrubam os sockets da sessão na hora (R2.4). Entrar na
   sala de uma conversa ou de um canal do chat confere a permissão (R12.5, R15).
 
-| Recurso | Admin | C-level | Líder (Comercial, CS) | Membro (Comercial, CS) | Marketing |
+| Recurso | Admin | C-level | Líder (Comercial, CS e setores criados) | Membro (Comercial, CS e setores criados) | Marketing |
 | --- | --- | --- | --- | --- | --- |
-| Ver e atender conversas | todas | todas | filas da área + as suas | as suas + sem responsável da área | — |
+| Ver e atender conversas | todas | todas | filas do setor + as suas | as suas + sem responsável do setor | — |
 | Assumir, transferir, resolver, reabrir | ✓ | ✓ | nas que vê | nas que vê | — |
-| Configurar filas | todas | todas | da área | — | — |
-| Respostas rápidas (gerenciar) | todas | todas | da área | — | — |
+| Configurar filas | todas | todas | do setor | — | — |
+| Respostas rápidas (gerenciar) | todas | todas | do setor | — | — |
 | Horário, fila padrão e satisfação do canal | ✓ | ✓ | — | — | — |
 | Canais (WhatsApp, chat do site, e-mail, Meta) | ✓ | — | — | — | — |
-| Métricas do Atendimento | todas | todas | da área | — | — |
+| Métricas do Atendimento | todas | todas | do setor | — | — |
 | Chat interno | ✓ (sem ler diretas alheias) | ✓ | ✓ | ✓ | ✓ |
 
 ## 20. Cenários de aceitação (Fase 2 — Onda A)
@@ -1043,14 +1093,15 @@ o executor de passos compartilhado.
 | --- | --- | --- | --- | --- |
 | Importar contatos e empresas (R16) | ✓ | ✓ | ✓ | — |
 | Ver o histórico e baixar importações | todas | todas | as próprias | — |
-| Campanhas (R17) | todas | todas | as da área e as suas | as suas |
-| Aprovar campanha | ✓ | ✓ | da área | — |
+| Campanhas (R17) | todas | todas | as do setor e as suas | as suas |
+| Aprovar campanha | ✓ | ✓ | do setor | — |
 | Configuração dos disparos (aprovação, palavras de saída) | ✓ | ✓ | — | — |
-| Chatbot (R18) | todos | todos | os da área (lê os demais) | — |
-| Automações (R19) | todas | todas | as da área | — |
+| Chatbot (R18) | todos | todos | os do setor (lê os demais) | — |
+| Automações (R19) | todas | todas | as do setor | — |
 
 Marketing usa Disparos, mas não o Atendimento (R12); o líder de Marketing importa,
-cria campanhas e automações da própria área.
+cria campanhas e automações do próprio setor. Setores criados (R1.6) seguem as colunas
+Líder e Membro como qualquer setor.
 
 ## 26. Cenários de aceitação (Fase 2 — Onda B)
 
@@ -1278,7 +1329,7 @@ do teste) contra um Postgres real.
 
 | Recurso | Admin | C-level | Líder | Membro |
 | --- | --- | --- | --- | --- |
-| Painéis do BI (R20) | todos | todos | o da área e o Atendimento (Marketing: não) | o da área e o Atendimento (Marketing: não), só o que é dele |
+| Painéis do BI (R20) | todos | todos | o do setor de base e o Atendimento (Marketing: não); setor criado: só Atendimento e SDR | o do setor de base e o Atendimento (Marketing: não), só o que é dele; setor criado: só Atendimento e SDR |
 | Painel Financeiro do BI | ✓ | ✓ | só CS | só CS, a própria carteira |
 | Exportar painel do BI | ✓ | ✓ | do que vê | do que vê |
 | Análise por IA (R21) e histórico | ✓ | — | — | — |

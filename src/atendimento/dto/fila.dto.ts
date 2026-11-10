@@ -5,9 +5,9 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
-  IsIn,
   IsInt,
   IsNotEmpty,
+  IsNotIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -15,7 +15,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Area, EstrategiaFila, Papel } from '../../generated/prisma/client';
+import { EstrategiaFila, Papel } from '../../generated/prisma/client';
 import type { ModoDosParticipantes, MotivoNaFila } from '../distribuicao-fila';
 import {
   aparar,
@@ -27,10 +27,19 @@ import {
   PessoaDto,
   ResumoCanalDto,
 } from './comum.dto';
+import { type Area, SETOR_MARKETING } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 
-/** Áreas que atendem (o Marketing não usa o Atendimento, R12). */
-export const AREAS_DO_ATENDIMENTO = ['COMERCIAL', 'CS'] as const;
-export type AreaDoAtendimento = (typeof AREAS_DO_ATENDIMENTO)[number];
+/**
+ * Setor que atende (chave): qualquer setor ativo menos o Marketing, que não usa
+ * o Atendimento (R12). O serviço confere (`garantirSetorDoAtendimento`).
+ */
+/** O Marketing não usa o Atendimento (R12): recusado já na validação (400). */
+export const MENSAGEM_SETOR_SEM_ATENDIMENTO =
+  'deve ser um setor que atende (o Marketing não usa o Atendimento)';
+
+export const DESCRICAO_SETOR_DO_ATENDIMENTO =
+  'Setor (chave) que atende: `COMERCIAL`, `CS` ou um setor criado — o Marketing não usa o Atendimento (R12).';
 
 /** SLA: até 30 dias para a primeira resposta e 365 dias para a resolução. */
 export const SLA_PRIMEIRA_RESPOSTA_MAXIMO = 30 * 24 * 60;
@@ -79,7 +88,7 @@ export class FilaDto {
   @ApiProperty({ example: 'Comercial — WhatsApp' })
   nome: string;
 
-  @ApiProperty({ enum: AREAS_DO_ATENDIMENTO })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 
   @ApiPropertyOptional({ nullable: true, type: String })
@@ -155,11 +164,15 @@ export class FilaDto {
 
 /** `GET /atendimento/filas`. */
 export class FiltroFilasDto {
-  @ApiPropertyOptional({ enum: AREAS_DO_ATENDIMENTO })
+  @ApiPropertyOptional({
+    type: String,
+    example: 'COMERCIAL',
+    description: DESCRICAO_SETOR_DO_ATENDIMENTO,
+  })
   @IsOptional()
-  @Transform(emMaiusculas)
-  @IsIn(AREAS_DO_ATENDIMENTO, { message: 'deve ser COMERCIAL ou CS' })
-  area?: AreaDoAtendimento;
+  @ChaveDeSetor()
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  area?: Area;
 
   @ApiPropertyOptional({ description: 'Inclui as filas desativadas.' })
   @IsOptional()
@@ -177,12 +190,14 @@ export class CriarFilaDto {
   @MaxLength(100, { message: 'deve ter no máximo 100 caracteres' })
   nome: string;
 
-  @ApiProperty({ enum: AREAS_DO_ATENDIMENTO })
-  @Transform(emMaiusculas)
-  @IsIn(AREAS_DO_ATENDIMENTO, {
-    message: 'deve ser COMERCIAL ou CS (o Marketing não usa o Atendimento)',
+  @ApiProperty({
+    type: String,
+    example: 'COMERCIAL',
+    description: DESCRICAO_SETOR_DO_ATENDIMENTO,
   })
-  area: AreaDoAtendimento;
+  @ChaveDeSetor()
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  area: Area;
 
   @ApiPropertyOptional({ nullable: true, type: String, maxLength: 500 })
   @IsOptional()

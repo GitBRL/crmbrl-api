@@ -12,15 +12,17 @@
  * os itens ficam com o Admin que executa (`SEM_C_LEVEL_ATIVO`), para o
  * desligamento (que corta o acesso) nunca ficar impedido.
  */
-import { nivelDoPapel, rotuloDoPapel } from '../../comum/dominio/papeis';
-import type { Papel } from '../../generated/prisma/client';
+import {
+  type ComPapel,
+  nivelDoPapel,
+  rotuloDaPessoa,
+} from '../../comum/dominio/papeis';
 import { juntarNomes, type ProblemaDeRegra } from './hierarquia';
 
 /** O mínimo de cada usuário para percorrer a cadeia de liderança. */
-export interface UsuarioDaHierarquia {
+export interface UsuarioDaHierarquia extends ComPapel {
   readonly id: string;
   readonly nome: string;
-  readonly papel: Papel;
   readonly ativo: boolean;
   readonly liderId: string | null;
 }
@@ -196,10 +198,10 @@ export function escolherDestinatario<U extends UsuarioDaHierarquia>(
 
 /** Frase da prévia explicando por que o destinatário é aquele. */
 export function explicarDestinatario(
-  desligado: Pick<UsuarioDaHierarquia, 'nome' | 'papel'>,
+  desligado: Pick<UsuarioDaHierarquia, 'nome' | 'papel' | 'area'>,
   resultado: ResultadoDestinatario,
 ): string {
-  const quem = `${desligado.nome} (${rotuloDoPapel(desligado.papel)})`;
+  const quem = `${desligado.nome} (${rotuloDaPessoa(desligado)})`;
   if (resultado.tipo === 'invalido') {
     return resultado.mensagem;
   }

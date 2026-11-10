@@ -507,7 +507,7 @@ export class FinanceiroController {
     @UsuarioAtual() u: UsuarioAutenticado,
     @Body() dto: PreviaDaEtapaDto,
   ) {
-    if (!podeAtuarNoFinanceiro(u.papel)) {
+    if (!podeAtuarNoFinanceiro(u)) {
       throw new SemPermissaoException(
         'Você não tem acesso à régua de cobrança.',
         { regra: 'R22.1' },

@@ -9,7 +9,7 @@ import {
   RegraVioladaException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
-import { areaDoPapel, ehDiretoria } from '../comum/dominio/papeis';
+import { ehDiretoria, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   montarPagina,
   paraSkipTake,
@@ -36,6 +36,7 @@ import {
   podeGerenciarFluxo,
   podeUsarChatbot,
 } from './permissoes-chatbot';
+import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
 
 const INCLUIR_VERSAO = {
   versaoPublicada: {
@@ -331,6 +332,7 @@ export class FluxosChatbotService {
       ? this.estruturar(dto.definicao)
       : { passos: [] };
     const criado = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivoSeHouver(tx, area);
       await this.conferirCanais(tx, usuario, dto.canalIds ?? []);
       const fluxo = await tx.fluxoChatbot.create({
         data: {
@@ -720,7 +722,7 @@ export class FluxosChatbotService {
       });
     }
     if (restrito) {
-      const area = areaDoPapel(usuario.papel);
+      const area = setorDaPessoa(usuario);
       const fora = canais.filter((c) => c.filaPadrao?.area !== area);
       if (fora.length > 0) {
         throw new DadosInvalidosException(

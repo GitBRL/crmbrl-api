@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
-  IsEnum,
   IsIn,
   IsISO8601,
   IsOptional,
@@ -10,7 +9,8 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { Area } from '../../generated/prisma/client';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 
 const MENSAGEM_UUID = 'deve ser um identificador (UUID) válido';
 const MENSAGEM_DATA = 'deve ser uma data no formato ISO 8601';
@@ -56,13 +56,13 @@ export class FiltroBiDto {
   comparar?: boolean;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     description:
       'Marketing: área das campanhas; Atendimento: área da fila. Nos painéis Comercial e CS a área já é a do painel. Quem não é Admin nem C-level só pode pedir a própria.',
   })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({
@@ -194,7 +194,7 @@ export class PeriodoBiDto {
 }
 
 export class FiltrosAplicadosDto {
-  @ApiProperty({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiProperty({ type: String, example: 'COMERCIAL', nullable: true })
   area: Area | null;
   @ApiProperty({ type: String, nullable: true }) equipeId: string | null;
   @ApiProperty({ type: String, nullable: true }) pessoaId: string | null;

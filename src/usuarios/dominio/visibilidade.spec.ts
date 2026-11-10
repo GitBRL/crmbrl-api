@@ -1,8 +1,9 @@
+import { papelESetor as comPapel } from '../../comum/dominio/papeis-antigos.apoio-spec';
 import { filtroDeVisibilidade, podeVerUsuario } from './visibilidade';
 
 describe('visibilidade de usuários (R1.5)', () => {
-  const lider = { id: 'lider', papel: 'LIDER_COMERCIAL' as const };
-  const membro = { id: 'membro', papel: 'COMERCIAL' as const };
+  const lider = { id: 'lider', ...comPapel('LIDER_COMERCIAL') };
+  const membro = { id: 'membro', ...comPapel('COMERCIAL') };
   const liderado = { id: 'membro', liderId: 'lider' };
   const outro = { id: 'outro', liderId: 'outro-lider' };
 

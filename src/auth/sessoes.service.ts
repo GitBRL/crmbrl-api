@@ -16,8 +16,14 @@ export type MotivoRevogacao =
 
 export interface SessaoValidada {
   readonly sessao: Sessao;
-  readonly usuario: Usuario;
+  /** O usuário com o nome do setor (Líder e Membro; nulo para Admin e C-level). */
+  readonly usuario: Usuario & { readonly setor: { nome: string } | null };
 }
+
+/** O usuário da sessão vem com o nome do setor (R1.6). */
+const USUARIO_COM_SETOR = {
+  include: { setor: { select: { nome: true } } },
+} as const;
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -70,7 +76,7 @@ export class SessoesService {
     }
     const encontrada = await this.prisma.sessao.findUnique({
       where: { tokenHash: this.cripto.sha256(token) },
-      include: { usuario: true },
+      include: { usuario: USUARIO_COM_SETOR },
     });
     if (!encontrada || encontrada.revogadaEm) {
       return null;
@@ -104,6 +110,7 @@ export class SessoesService {
       this.prisma.usuario.update({
         where: { id: usuario.id },
         data: { ultimoAcessoEm: agora },
+        ...USUARIO_COM_SETOR,
       }),
     ]);
     return { sessao: renovada, usuario: usuarioAtualizado };

@@ -30,7 +30,6 @@ import { QUANTIDADE_MAXIMA_ETIQUETAS } from '../comum/dominio/etiquetas';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import {
   AcaoDuplicado,
-  Area,
   EstrategiaDistribuicao,
   type Importacao,
   type ImportacaoModelo,
@@ -38,6 +37,8 @@ import {
   StatusImportacao,
   TipoImportacao,
 } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
+import { ChaveDeSetor } from '../comum/validacao/setor';
 
 const MENSAGEM_TEXTO = 'deve ser um texto';
 const MENSAGEM_UUID = { message: 'deve ser um identificador (UUID) válido' };
@@ -291,10 +292,10 @@ export class AtualizarImportacaoDto {
   @IsUUID('all', MENSAGEM_UUID)
   responsavelId?: string | null;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL', nullable: true })
   @IsOptional()
   @emMaiusculas()
-  @IsEnum(Area, { message: 'deve ser MARKETING, COMERCIAL ou CS' })
+  @ChaveDeSetor()
   areaRodizio?: Area | null;
 
   @ApiPropertyOptional({ nullable: true, maxLength: 200 })
@@ -455,7 +456,7 @@ export class ImportacaoDto {
   estrategiaResponsavel: EstrategiaDistribuicao | null;
   @ApiProperty({ type: String, nullable: true, format: 'uuid' }) responsavelId:
     string | null;
-  @ApiProperty({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiProperty({ type: String, example: 'COMERCIAL', nullable: true })
   areaRodizio: Area | null;
   @ApiProperty({ type: String, nullable: true }) origemDetalhe: string | null;
   @ApiProperty() processadas: number;

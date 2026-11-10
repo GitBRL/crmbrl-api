@@ -9,7 +9,6 @@ import type {
   ResultadoDoPasso,
 } from '../../src/comum/passos/tipos';
 import type {
-  Area,
   Arquivo,
   Automacao,
   Campanha,
@@ -29,6 +28,7 @@ import type {
 } from '../../src/generated/prisma/client';
 import type { AppTeste } from './app-teste';
 import { criarArquivo, criarCanalWhatsapp } from './fabricas';
+import type { Area } from '../../src/comum/dominio/setores';
 
 /**
  * Utilitários da Onda B: fábricas (automação, fluxo do chatbot, campanha,

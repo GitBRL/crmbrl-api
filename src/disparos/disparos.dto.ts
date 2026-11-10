@@ -23,11 +23,12 @@ import {
 } from 'class-validator';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import {
-  Area,
   StatusCampanha,
   StatusDestinatario,
   TipoPublico,
 } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
+import { ChaveDeSetor } from '../comum/validacao/setor';
 
 const MENSAGEM_UUID = 'Informe um id válido.';
 
@@ -134,13 +135,13 @@ export class CriarCampanhaDto extends RitmoDto {
   descricao?: string | null;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     nullable: true,
     description: 'Só Admin e C-level escolhem; os demais usam a própria área.',
   })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area | null;
 
   @ApiProperty({ enum: CANAIS_DE_CAMPANHA })
@@ -375,9 +376,9 @@ export class FiltroCampanhasDto extends PaginacaoDto {
   @MaxLength(100)
   busca?: string;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area' })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL' })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({ description: 'Só as que eu criei.' })
@@ -634,13 +635,13 @@ export class CriarModeloMensagemDto {
   arquivoId?: string | null;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     nullable: true,
     description: 'Nula = de todas as áreas.',
   })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area | null;
 }
 
@@ -679,9 +680,9 @@ export class AtualizarModeloMensagemDto {
   @IsUUID('all', { message: MENSAGEM_UUID })
   arquivoId?: string | null;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL', nullable: true })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area | null;
 }
 

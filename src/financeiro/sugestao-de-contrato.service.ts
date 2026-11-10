@@ -1,4 +1,5 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { SETOR_CS } from '../comum/dominio/setores';
 import {
   type GatilhoDisparado,
   GatilhosService,
@@ -45,7 +46,7 @@ export class SugestaoDeContratoService implements OnModuleInit {
     if ((await this.prisma.contrato.count({ where: { negocioId } })) > 0)
       return;
     const lideres = await this.prisma.usuario.findMany({
-      where: { papel: 'LIDER_CS', ativo: true },
+      where: { papel: 'LIDER', area: SETOR_CS, ativo: true },
       select: { id: true },
     });
     const destinos = [

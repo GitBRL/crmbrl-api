@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean } from 'class-validator';
-import { Area, Papel } from '../../generated/prisma/client';
+import { Papel } from '../../generated/prisma/client';
 import { ResumoUsuarioDto } from './comum.dto';
+import type { Area } from '../../comum/dominio/setores';
 
 /** Por que a pessoa está (ou não) no rodízio. */
 export const MOTIVOS_NO_RODIZIO = [
@@ -59,7 +60,7 @@ export class RegraDistribuicaoDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 
   @ApiProperty({ description: 'O líder da área entra no rodízio.' })

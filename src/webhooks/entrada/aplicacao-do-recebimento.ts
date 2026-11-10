@@ -810,7 +810,7 @@ export class AplicacaoDoRecebimento {
           },
         ],
       },
-      select: { id: true, nome: true, papel: true },
+      select: { id: true, nome: true, papel: true, area: true },
     });
     if (!usuario) {
       avisos.push(
@@ -818,7 +818,7 @@ export class AplicacaoDoRecebimento {
       );
       return null;
     }
-    if (!podeSerResponsavelNaArea(usuario.papel, funil.area)) {
+    if (!podeSerResponsavelNaArea(usuario, funil.area)) {
       avisos.push(
         `Dono "${texto}" (${usuario.nome}) não é da área do funil ${funil.nome}: ignorado.`,
       );

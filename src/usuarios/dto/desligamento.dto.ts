@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 import { Papel } from '../../generated/prisma/client';
 import {
   MOTIVOS_DESTINATARIO,
@@ -156,10 +158,22 @@ export class ReativarUsuarioDto {
   papel?: Papel;
 
   @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'COMERCIAL',
+    description:
+      'Novo setor (chave), se a pessoa volta em outro setor (padrão: o de antes). Obrigatório para Líder e Membro ' +
+      'e precisa estar ativo (R1.9); ignorado para Admin e C-level.',
+  })
+  @IsOptional()
+  @ChaveDeSetor()
+  area?: Area | null;
+
+  @ApiPropertyOptional({
     format: 'uuid',
     nullable: true,
     description:
-      'Obrigatório para membro (líder ativo da área) e líder (C-level ativo); Admin e C-level não têm (R1.2, R7.5).',
+      'Obrigatório para membro (líder ativo do setor) e líder (C-level ativo); Admin e C-level não têm (R1.2, R7.5).',
   })
   @IsOptional()
   @Transform(idEmMinusculas)

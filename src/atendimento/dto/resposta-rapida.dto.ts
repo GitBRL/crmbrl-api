@@ -2,26 +2,29 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
-  IsIn,
   IsNotEmpty,
+  IsNotIn,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
 } from 'class-validator';
 import { ArquivoDto } from '../../arquivos/arquivos.dto';
-import { Area } from '../../generated/prisma/client';
 import type { VariavelDisponivel } from '../variaveis';
-import { AREAS_DO_ATENDIMENTO, type AreaDoAtendimento } from './fila.dto';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
+import {
+  DESCRICAO_SETOR_DO_ATENDIMENTO,
+  MENSAGEM_SETOR_SEM_ATENDIMENTO,
+} from './fila.dto';
 import {
   aparar,
-  emMaiusculas,
   MENSAGEM_UUID,
   OpcionalNaoNulo,
   paraBooleano,
   PessoaDto,
 } from './comum.dto';
 import { TAMANHO_MAXIMO_MENSAGEM } from './mensagem.dto';
+import { type Area, SETOR_MARKETING } from '../../comum/dominio/setores';
 
 /** Resposta rápida ("/atalho" no compositor), com variáveis (R12). */
 export class RespostaRapidaDto {
@@ -45,9 +48,9 @@ export class RespostaRapidaDto {
 
   @ApiPropertyOptional({
     nullable: true,
-    enum: Area,
-    enumName: 'Area',
-    description: 'Nula = vale para todas as áreas.',
+    type: String,
+    example: 'COMERCIAL',
+    description: 'Setor (chave); nula = vale para todos os setores.',
   })
   area: Area | null;
 
@@ -100,15 +103,16 @@ export class FiltroRespostasRapidasDto {
   busca?: string;
 
   @ApiPropertyOptional({
-    enum: [...AREAS_DO_ATENDIMENTO, 'GLOBAL'],
-    description: 'Só as de uma área (`GLOBAL` = só as que valem para todas).',
+    type: String,
+    example: 'COMERCIAL',
+    description:
+      'Só as de um setor (chave) — `GLOBAL` = só as que valem para todos.',
   })
   @IsOptional()
-  @Transform(emMaiusculas)
-  @IsIn([...AREAS_DO_ATENDIMENTO, 'GLOBAL'], {
-    message: 'deve ser COMERCIAL, CS ou GLOBAL',
-  })
-  area?: AreaDoAtendimento | 'GLOBAL';
+  @ChaveDeSetor('deve ser a chave de um setor ou GLOBAL')
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  /** Chave do setor, ou `GLOBAL` (as que valem para todos). */
+  area?: Area;
 
   @ApiPropertyOptional({
     description: 'Inclui as desativadas (só para quem as gerencia).',
@@ -155,16 +159,14 @@ export class CriarRespostaRapidaDto {
 
   @ApiPropertyOptional({
     nullable: true,
-    enum: AREAS_DO_ATENDIMENTO,
-    description:
-      'Nula = todas as áreas (só Admin e C-level). O líder cria as da sua área.',
+    type: String,
+    example: 'COMERCIAL',
+    description: `${DESCRICAO_SETOR_DO_ATENDIMENTO} Nula = todos os setores (só Admin e C-level). O líder cria as do seu setor.`,
   })
   @IsOptional()
-  @Transform(emMaiusculas)
-  @IsIn(AREAS_DO_ATENDIMENTO, {
-    message: 'deve ser COMERCIAL ou CS (ou nula, para todas)',
-  })
-  area?: AreaDoAtendimento | null;
+  @ChaveDeSetor()
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  area?: Area | null;
 
   @ApiPropertyOptional({
     nullable: true,

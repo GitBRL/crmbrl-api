@@ -120,10 +120,11 @@ describe('Negócio por linha (R16.12)', () => {
   });
 
   it('R16.12 — responsável por e-mail exato ou nome normalizado único', () => {
+    const comercial = { papel: 'MEMBRO' as const, area: 'COMERCIAL' };
     const usuarios = [
-      { id: 'u1', nome: 'Ana Souza', email: 'ana@x.com', papel: 'VENDEDOR' },
-      { id: 'u2', nome: 'João', email: 'j1@x.com', papel: 'VENDEDOR' },
-      { id: 'u3', nome: 'Joao', email: 'j2@x.com', papel: 'VENDEDOR' },
+      { id: 'u1', nome: 'Ana Souza', email: 'ana@x.com', ...comercial },
+      { id: 'u2', nome: 'João', email: 'j1@x.com', ...comercial },
+      { id: 'u3', nome: 'Joao', email: 'j2@x.com', ...comercial },
     ];
     expect(resolverResponsavel('ANA@x.com', usuarios).usuario?.id).toBe('u1');
     expect(resolverResponsavel(' ana  souza', usuarios).usuario?.id).toBe('u1');

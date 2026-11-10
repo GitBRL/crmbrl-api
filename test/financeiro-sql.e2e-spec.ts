@@ -122,7 +122,7 @@ describe('Financeiro — agregações em SQL equivalem ao filtro de visibilidade
 
   it('cenário 119: o SQL de visibilidade devolve os mesmos contratos e parcelas que o filtro do Prisma, por papel', async () => {
     const e = await montar();
-    const usuarios: { id: string; papel: Papel }[] = [
+    const usuarios: { id: string; papel: Papel; area: string | null }[] = [
       e.cLevel,
       e.lider,
       e.m1,

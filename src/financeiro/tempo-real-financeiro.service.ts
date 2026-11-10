@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SETOR_CS } from '../comum/dominio/setores';
 import type { Parcela } from '../generated/prisma/client';
 import { EVENTOS_DO_SERVIDOR, salas } from '../tempo-real/catalogo';
 import type {
@@ -52,7 +53,7 @@ export class TempoRealFinanceiro {
     return [
       salas.papel('ADMIN'),
       salas.papel('C_LEVEL'),
-      salas.papel('LIDER_CS'),
+      salas.lideres(SETOR_CS),
       ...(responsavelCsId ? [salas.usuario(responsavelCsId)] : []),
     ];
   }

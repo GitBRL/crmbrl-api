@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsIn,
   IsNotEmpty,
+  IsNotIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,7 +22,6 @@ import {
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
 import { ResumoFunilDto } from '../../funis/dto/comum.dto';
 import {
-  Area,
   DirecaoMensagem,
   ModoSdr,
   MotivoAtribuicao,
@@ -51,8 +51,13 @@ import {
   ResumoCanalDto,
   ResumoFilaDto,
 } from './comum.dto';
-import { AREAS_DO_ATENDIMENTO, type AreaDoAtendimento } from './fila.dto';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
+import {
+  DESCRICAO_SETOR_DO_ATENDIMENTO,
+  MENSAGEM_SETOR_SEM_ATENDIMENTO,
+} from './fila.dto';
 import { TAMANHO_MAXIMO_MENSAGEM, TemplateParaEnviarDto } from './mensagem.dto';
+import { type Area, SETOR_MARKETING } from '../../comum/dominio/setores';
 
 /** Tamanho máximo da nota de uma transferência. */
 export const TAMANHO_MAXIMO_NOTA = 1000;
@@ -937,7 +942,7 @@ export class AtendenteDto extends PessoaDto {
   @ApiProperty({ example: 'Comercial' })
   rotuloPapel: string;
 
-  @ApiPropertyOptional({ nullable: true, enum: Area, enumName: 'Area' })
+  @ApiPropertyOptional({ nullable: true, type: String, example: 'COMERCIAL' })
   area: Area | null;
 
   @ApiProperty({ description: 'Conversas em aberto com a pessoa agora.' })
@@ -949,11 +954,15 @@ export class AtendenteDto extends PessoaDto {
 
 /** `GET /atendimento/atendentes`. */
 export class FiltroAtendentesDto {
-  @ApiPropertyOptional({ enum: AREAS_DO_ATENDIMENTO })
+  @ApiPropertyOptional({
+    type: String,
+    example: 'COMERCIAL',
+    description: DESCRICAO_SETOR_DO_ATENDIMENTO,
+  })
   @IsOptional()
-  @Transform(emMaiusculas)
-  @IsIn(AREAS_DO_ATENDIMENTO, { message: 'deve ser COMERCIAL ou CS' })
-  area?: AreaDoAtendimento;
+  @ChaveDeSetor()
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  area?: Area;
 
   @ApiPropertyOptional({ maxLength: 100 })
   @IsOptional()

@@ -1,6 +1,9 @@
-import type { Papel } from '../generated/prisma/client';
 import {
-  areasVisiveis,
+  type PapelDeTeste,
+  pessoa,
+} from '../comum/dominio/papeis-antigos.apoio-spec';
+import {
+  filtroDeFunisVisiveis,
   filtroDeNegociosVisiveis,
   podeConfigurarFunis,
   podeConfigurarPassagens,
@@ -11,20 +14,24 @@ import {
   podeVerNegocio,
 } from './acesso-funis';
 
-const quem = (papel: Papel) => ({ id: `id-${papel}`, papel });
+const quem = (papel: PapelDeTeste) => pessoa(papel, { id: `id-${papel}` });
 
 describe('acesso aos funis (R5.1, R5.5, R5.9 e matriz da seção 12)', () => {
-  it('R5.9 — Admin e C-level veem todas as áreas; os demais, só a sua', () => {
-    expect(areasVisiveis(quem('ADMIN'))).toEqual([
-      'MARKETING',
-      'COMERCIAL',
-      'CS',
-    ]);
-    expect(areasVisiveis(quem('C_LEVEL'))).toHaveLength(3);
-    expect(areasVisiveis(quem('LIDER_COMERCIAL'))).toEqual(['COMERCIAL']);
-    expect(areasVisiveis(quem('MARKETING'))).toEqual(['MARKETING']);
+  it('R5.9 — Admin e C-level veem todos os setores; os demais, só o seu', () => {
+    expect(filtroDeFunisVisiveis(quem('ADMIN'))).toEqual({});
+    expect(filtroDeFunisVisiveis(quem('C_LEVEL'))).toEqual({});
+    expect(filtroDeFunisVisiveis(quem('LIDER_COMERCIAL'))).toEqual({
+      area: 'COMERCIAL',
+    });
+    expect(filtroDeFunisVisiveis(quem('MARKETING'))).toEqual({
+      area: 'MARKETING',
+    });
     expect(podeVerArea(quem('MARKETING'), 'COMERCIAL')).toBe(false);
     expect(podeVerArea(quem('CS'), 'CS')).toBe(true);
+    expect(podeVerArea(quem('C_LEVEL'), 'POS_VENDA')).toBe(true);
+    expect(
+      podeVerArea({ id: 'x', papel: 'MEMBRO', area: 'POS_VENDA' }, 'POS_VENDA'),
+    ).toBe(true);
   });
 
   it('R5.1 — Admin e C-level configuram todos os funis; o líder, os da sua área; o membro, nenhum', () => {
@@ -91,10 +98,10 @@ describe('acesso aos funis (R5.1, R5.5, R5.9 e matriz da seção 12)', () => {
   });
 
   it('responsável de um negócio: diretoria ou alguém da área do funil', () => {
-    expect(podeSerResponsavelNaArea('ADMIN', 'CS')).toBe(true);
-    expect(podeSerResponsavelNaArea('C_LEVEL', 'CS')).toBe(true);
-    expect(podeSerResponsavelNaArea('LIDER_CS', 'CS')).toBe(true);
-    expect(podeSerResponsavelNaArea('CS', 'CS')).toBe(true);
-    expect(podeSerResponsavelNaArea('COMERCIAL', 'CS')).toBe(false);
+    expect(podeSerResponsavelNaArea(quem('ADMIN'), 'CS')).toBe(true);
+    expect(podeSerResponsavelNaArea(quem('C_LEVEL'), 'CS')).toBe(true);
+    expect(podeSerResponsavelNaArea(quem('LIDER_CS'), 'CS')).toBe(true);
+    expect(podeSerResponsavelNaArea(quem('CS'), 'CS')).toBe(true);
+    expect(podeSerResponsavelNaArea(quem('COMERCIAL'), 'CS')).toBe(false);
   });
 });

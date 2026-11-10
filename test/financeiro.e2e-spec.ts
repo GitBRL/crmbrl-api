@@ -738,7 +738,11 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     ).toEqual([contato.id]);
 
     // Serviços de leitura para o BI.
-    const doBi = { id: lider.lider.id, papel: lider.lider.papel };
+    const doBi = {
+      id: lider.lider.id,
+      papel: lider.lider.papel,
+      area: lider.lider.area,
+    };
     expect(await t.get(RiscoDeChurnService).contagemPorNivel(doBi)).toEqual({
       BAIXO: 1,
       MEDIO: 0,
@@ -753,7 +757,10 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     expect(
       await t
         .get(RiscoDeChurnService)
-        .doContato({ id: outro.membros[0].id, papel: 'CS' }, contato.id),
+        .doContato(
+          { id: outro.membros[0].id, papel: 'MEMBRO', area: 'CS' },
+          contato.id,
+        ),
     ).toBeNull();
   });
 

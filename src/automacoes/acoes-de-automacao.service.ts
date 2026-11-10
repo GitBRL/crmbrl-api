@@ -249,6 +249,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
       email: admin.email,
       papel: admin.papel,
       area: null,
+      nomeSetor: null,
       liderId: null,
       deveTrocarSenha: false,
       sessaoId: 'automacao',
@@ -443,7 +444,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
     }
     const automacao = await this.automacaoDaExecucao(ctx);
     const area =
-      (c.area as 'MARKETING' | 'COMERCIAL' | 'CS' | undefined) ??
+      (c.area as string | undefined) ??
       negocio?.funil.area ??
       automacao?.area ??
       null;

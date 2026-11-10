@@ -1,3 +1,4 @@
+import { papelESetor as comPapel } from '../comum/dominio/papeis-antigos.apoio-spec';
 import { escolherNaFila, participantesDaFila } from './distribuicao-fila';
 
 const pessoa = (
@@ -8,7 +9,7 @@ const pessoa = (
 ) => ({
   id,
   nome: id,
-  papel,
+  ...comPapel(papel),
   avatarUrl: null,
   criadoEm: new Date(Date.UTC(2026, 9, 1, 12, minuto)),
   acessoAtivadoEm: acesso === 'ativo' ? new Date() : null,
