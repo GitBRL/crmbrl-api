@@ -41,7 +41,8 @@ export interface ResultadoDaMontagem {
 type OrigemDoPublico = Pick<
   Campanha,
   'tipoPublico' | 'segmento' | 'importacaoId' | 'canal'
->;
+> &
+  Partial<Pick<Campanha, 'criadoPorId'>>;
 
 /**
  * Público da campanha (R17): segmento (`SegmentosService`) ou lista importada.
@@ -101,7 +102,12 @@ export class PublicoDaCampanha {
     }
   }
 
-  /** Contagem e amostra, sem montar nada. */
+  /**
+   * Contagem e amostra, sem montar nada. As condições de negócio do segmento
+   * contam só os funis que a pessoa vê (R5.14): `usuario` na prévia de quem monta
+   * a campanha; sem ele (revisão de uma campanha salva), os de quem a criou —
+   * o acesso atual dele (`SegmentosService.opcoesDoAutor`).
+   */
   async previa(
     origem: OrigemDoPublico,
     usuario?: UsuarioAutenticado,
@@ -115,7 +121,7 @@ export class PublicoDaCampanha {
       const segmento = this.segmentos.validar(origem.segmento);
       const restricao = usuario
         ? await this.segmentos.opcoesDoUsuario(usuario)
-        : {};
+        : await this.segmentos.opcoesDoAutor(origem.criadoPorId ?? null);
       const [total, elegiveis, comOptOut, amostra] = await Promise.all([
         this.segmentos.contar(segmento, restricao),
         this.segmentos.contar(segmento, {
@@ -174,7 +180,9 @@ export class PublicoDaCampanha {
 
   /**
    * Cria os destinatários da campanha (uma vez). Ordem estável pelo id do contato.
-   * Já com destinatários: não faz nada (devolve os números atuais).
+   * Já com destinatários: não faz nada (devolve os números atuais). No segmento,
+   * as condições de negócio contam só os funis que quem criou a campanha vê na
+   * hora do envio (R5.14).
    */
   async montar(campanha: Campanha): Promise<ResultadoDaMontagem> {
     const existentes = await this.prisma.campanhaDestinatario.count({
@@ -244,7 +252,11 @@ export class PublicoDaCampanha {
     } as const;
     if (campanha.tipoPublico === 'SEGMENTO') {
       const segmento: Segmento = this.segmentos.validar(campanha.segmento);
+      const restricao = await this.segmentos.opcoesDoAutor(
+        campanha.criadoPorId,
+      );
       for await (const ids of this.segmentos.iterarIds(segmento, {
+        ...restricao,
         lote: TAMANHO_DO_LOTE_DO_PUBLICO,
       })) {
         const contatos = await this.prisma.contato.findMany({

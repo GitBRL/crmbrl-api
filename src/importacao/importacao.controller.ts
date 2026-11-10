@@ -206,10 +206,10 @@ export class ImportacaoController {
   @ApiOperation({
     summary: 'Mapeamento e opções (só no rascunho)',
     description:
-      'Mapeamento `{ coluna: campo }`, `modeloId` (aplica um modelo salvo), duplicados, etiquetas, responsável (fixo ou rodízio da área), detalhe da origem e `leitura` (separador, aba…).',
+      'Mapeamento `{ coluna: campo }`, `modeloId` (aplica um modelo salvo), duplicados, etiquetas, responsável (fixo ou rodízio da área), detalhe da origem e `leitura` (separador, aba…). Funil do cartão ou da tradução que não existe ou que a pessoa não vê → 404 (R5.9); visto mas sem criar (`VER`) → 403 `R5.12`.',
   })
   @ApiOkResponse({ type: ImportacaoDto })
-  @ApiRespostasDeErro(400, 404, 422)
+  @ApiRespostasDeErro(400, 403, 404, 422)
   atualizar(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,

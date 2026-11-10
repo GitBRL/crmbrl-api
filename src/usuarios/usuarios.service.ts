@@ -42,6 +42,10 @@ import type {
   MembroDaEquipeDto,
 } from './dto/equipe.dto';
 import type { FiltroUsuariosDto } from './dto/filtro-usuarios.dto';
+import {
+  type FiltroOpcoesDePessoasDto,
+  OpcaoDePessoaDto,
+} from './dto/opcoes-de-pessoas.dto';
 import type { DefinirSenhaTemporariaDto } from './dto/senha-temporaria.dto';
 import {
   type ConviteDto,
@@ -94,6 +98,33 @@ export class UsuariosService {
     private readonly cripto: CriptografiaService,
     private readonly tempoReal: TempoRealService,
   ) {}
+
+  /**
+   * Pessoas ativas para os editores de acessos (R5.11): qualquer setor, por
+   * trecho do nome e/ou setor, só o resumo. Quem pode pedir (Admin, C-level e
+   * líderes) é conferido no controller.
+   */
+  async opcoes(filtro: FiltroOpcoesDePessoasDto): Promise<OpcaoDePessoaDto[]> {
+    const pessoas = await this.prisma.usuario.findMany({
+      where: {
+        ativo: true,
+        ...(filtro.busca
+          ? { nome: { contains: filtro.busca, mode: 'insensitive' } }
+          : {}),
+        ...(filtro.area ? { area: filtro.area } : {}),
+      },
+      select: {
+        id: true,
+        nome: true,
+        avatarUrl: true,
+        papel: true,
+        area: true,
+      },
+      orderBy: [{ nome: 'asc' }, { id: 'asc' }],
+      take: filtro.limite,
+    });
+    return pessoas.map((pessoa) => OpcaoDePessoaDto.de(pessoa));
+  }
 
   async listar(
     observador: UsuarioAutenticado,

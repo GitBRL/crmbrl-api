@@ -212,14 +212,49 @@ export class ConversasService {
         this.prisma.conversa.count({ where: emAberto }),
         this.contagens.contar(usuario),
       ]);
+    const negociosQueVe = await this.negociosQueVe(usuario, itens);
     return {
       ...montarPagina(
-        itens.map((conversa) => ConversaResumoDto.de(conversa, agora)),
+        itens.map((conversa) => {
+          const dto = ConversaResumoDto.de(conversa, agora);
+          // R5.9: o negócio ligado que a pessoa não vê não aparece nem pelo id.
+          return conversa.negocioId && !negociosQueVe.has(conversa.negocioId)
+            ? { ...dto, negocioId: null }
+            : dto;
+        }),
         total,
         filtro,
       ),
       contadores: { minhas, semResponsavel, todas, naoLidas },
     };
+  }
+
+  /** R5.9: os negócios ligados às conversas que a pessoa vê (os ids). */
+  private async negociosQueVe(
+    usuario: UsuarioAutenticado,
+    conversas: readonly { negocioId: string | null }[],
+  ): Promise<Set<string>> {
+    const ids = [
+      ...new Set(
+        conversas.flatMap(({ negocioId }) => (negocioId ? [negocioId] : [])),
+      ),
+    ];
+    if (ids.length === 0) {
+      return new Set();
+    }
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    if (acesso.todos) {
+      return new Set(ids);
+    }
+    const negocios = await this.prisma.negocio.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, funilId: true, responsavelId: true },
+    });
+    return new Set(
+      negocios
+        .filter((negocio) => acesso.podeVerNegocio(negocio))
+        .map(({ id }) => id),
+    );
   }
 
   async detalhar(
@@ -1086,6 +1121,8 @@ export class ConversasService {
         : null;
     return {
       ...ConversaResumoDto.de(conversa, agora),
+      // R5.9: o negócio que a pessoa não vê some também pelo id.
+      negocioId: mostrarNegocio ? conversa.negocioId : null,
       primeiraRespostaEm: conversa.primeiraRespostaEm?.toISOString() ?? null,
       resolvidaPor: PessoaDto.ouNulo(conversa.resolvidaPor),
       reaberturas: conversa.reaberturas,

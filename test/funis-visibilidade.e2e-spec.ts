@@ -5,6 +5,7 @@
  * (R5.9, R5.11–R5.13).
  */
 import { executarComoAtor } from '../src/comum/contexto/contexto-requisicao';
+import { PublicoDaCampanha } from '../src/disparos/publico.service';
 import { DistribuicaoService } from '../src/funis/distribuicao.service';
 import type { Usuario } from '../src/generated/prisma/client';
 import { cartao, consultarPainel } from './bi-apoio';
@@ -15,6 +16,7 @@ import {
   conectarTempoReal,
   criarAppTeste,
   criarArquivo,
+  criarCampanha,
   criarCanal,
   criarContato,
   criarEquipe,
@@ -38,6 +40,7 @@ interface FunilDaApi {
   nomeSetor: string;
   visibilidade: 'SETOR' | 'RESTRITA';
   nivel: 'VER' | 'MEMBRO' | 'GESTOR' | 'CONFIGURAR';
+  veTodos: boolean;
   etapas: { id: string; tipo: string }[];
 }
 
@@ -262,15 +265,34 @@ describe('Quem vê um funil (e2e, R5.9, R5.11–R5.13)', () => {
       }
       expect(await textos(c.comoLider)).toContain('Proposta reservada');
 
-      // R5.9: o detalhe da conversa (o CS vê a conversa) não mostra o negócio ligado.
+      // R5.9: o detalhe e a lista de conversas (o CS vê a conversa) não mostram
+      // o negócio ligado — nem pelo id.
       const doCs = await c.comoLiderCs
         .get(`/api/v1/atendimento/conversas/${conversa.id}`)
         .expect(200);
       expect(doCs.body.negocio).toBeNull();
+      expect(doCs.body.negocioId).toBeNull();
+      const listaDoCs = await c.comoLiderCs
+        .get('/api/v1/atendimento/conversas')
+        .expect(200);
+      const naListaDoCs = (
+        listaDoCs.body.itens as { id: string; negocioId: string | null }[]
+      ).find(({ id }) => id === conversa.id);
+      expect(naListaDoCs).toMatchObject({ negocioId: null });
+      expect(JSON.stringify(listaDoCs.body)).not.toContain(criado.body.id);
       const doAdmin = await c.comoAdmin
         .get(`/api/v1/atendimento/conversas/${conversa.id}`)
         .expect(200);
       expect(doAdmin.body.negocio).toMatchObject({ id: criado.body.id });
+      expect(doAdmin.body.negocioId).toBe(criado.body.id);
+      const listaDoAdmin = await c.comoAdmin
+        .get('/api/v1/atendimento/conversas')
+        .expect(200);
+      expect(
+        (
+          listaDoAdmin.body.itens as { id: string; negocioId: string | null }[]
+        ).find(({ id }) => id === conversa.id),
+      ).toMatchObject({ negocioId: criado.body.id });
     });
 
     it('R5.9 — atividades: o vínculo com o negócio restrito some da resposta e não serve de filtro nem de vínculo novo', async () => {
@@ -382,16 +404,87 @@ describe('Quem vê um funil (e2e, R5.9, R5.11–R5.13)', () => {
       await c.comoLider.post('/api/v1/automacoes', automacao).expect(201);
     });
 
-    it('R5.9/R20.2 — BI: o membro não conta o funil restrito (nem com acesso: acessos não ampliam o BI); o líder conta', async () => {
+    it('R5.14 — campanha: revisão e envio contam só os funis que quem a criou vê agora; desligado, nenhum funil restrito conta', async () => {
+      const visivel = await criarNegocio(t, {
+        area: 'COMERCIAL',
+        responsavel: c.semLista,
+      });
+      const segmento = {
+        combinacao: 'todas',
+        condicoes: [
+          { campo: 'negocio', operador: 'tem', valor: { status: ['ABERTO'] } },
+        ],
+      };
+      const publicoNaRevisao = async (campanhaId: string) =>
+        (
+          await c.comoAdmin
+            .get(`/api/v1/disparos/campanhas/${campanhaId}/revisao`)
+            .expect(200)
+        ).body.publico.total as number;
+
+      // Criada por quem não vê o funil restrito: nem pelo Admin na revisão.
+      const doSemLista = await criarCampanha(t, {
+        criadoPor: c.semLista,
+        segmento,
+        canais: [],
+      });
+      expect(await publicoNaRevisao(doSemLista.id)).toBe(1);
+      await t.get(PublicoDaCampanha).montar(doSemLista);
+      const destinatarios = await t.prisma.campanhaDestinatario.findMany({
+        where: { campanhaId: doSemLista.id },
+        select: { contatoId: true },
+      });
+      expect(destinatarios.map(({ contatoId }) => contatoId)).toEqual([
+        visivel.contatoId,
+      ]);
+
+      // Criada por quem está na lista do funil restrito: conta; desligado, não.
+      const doNaLista = await criarCampanha(t, {
+        criadoPor: c.naLista,
+        segmento,
+        canais: [],
+      });
+      expect(await publicoNaRevisao(doNaLista.id)).toBe(2);
+      await t.prisma.usuario.update({
+        where: { id: c.naLista.id },
+        data: { ativo: false, desligadoEm: new Date() },
+      });
+      expect(await publicoNaRevisao(doNaLista.id)).toBe(1);
+      await t.get(PublicoDaCampanha).montar(doNaLista);
+      expect(
+        await t.prisma.campanhaDestinatario.count({
+          where: { campanhaId: doNaLista.id, contatoId: c.contatoSecreto.id },
+        }),
+      ).toBe(0);
+
+      const doAdmin = await criarCampanha(t, {
+        criadoPor: c.admin,
+        segmento,
+        canais: [],
+      });
+      expect(await publicoNaRevisao(doAdmin.id)).toBe(2);
+    });
+
+    it('R5.9/R20.2 — BI: o membro não conta o funil restrito (nem com acesso: acessos não ampliam o BI) nem filtra por ele (404); o líder conta', async () => {
       await criarNegocio(t, { area: 'COMERCIAL', responsavel: null });
       const abertos = async (cliente: ClienteHttp) =>
         cartao(await consultarPainel(cliente, 'comercial'), 'abertos').valor;
       expect(await abertos(c.comoSemLista)).toBe(1);
       expect(await abertos(c.comoNaLista)).toBe(1);
       expect(await abertos(c.comoLider)).toBe(2);
+      // O filtro por um funil que a pessoa não vê: 404, sem nome nem etapas.
+      const negado = (await consultarPainel(
+        c.comoSemLista,
+        'comercial',
+        { funilId: c.vip.id },
+        404,
+      )) as unknown as { mensagem: string };
+      expect(negado.mensagem).toBe('Funil não encontrado.');
+      expect(JSON.stringify(negado)).not.toContain('Contas VIP');
+      await consultarPainel(c.comoLider, 'comercial', { funilId: c.vip.id });
     });
 
-    it('R5.12/R16.12 — importação: quem não cria no funil (sem acesso ou só VER) recebe 403 no cartão e SEM_PERMISSAO na conferência', async () => {
+    it('R5.9/R5.12/R16.12 — importação: funil que não vê é inexistente (404 no cartão, NAO_ENCONTRADO sem dados); só VER → 403 e SEM_PERMISSAO', async () => {
       const comoLiderMkt = await entrarComo(t, c.marketing.lider);
       const comoLiderCs = c.comoLiderCs;
       // O CS ganha "só ver" no funil restrito: ver não cria (R5.12).
@@ -428,19 +521,40 @@ describe('Quem vê um funil (e2e, R5.9, R5.11–R5.13)', () => {
             },
           })
           .expect(200);
+        const ve = cliente === comoLiderCs;
         const negado = await cliente
           .patch(`/api/v1/importacoes/${criada.id}`, {
             negocio: { funilId: c.vip.id, etapaId: c.vip.etapas[0].id },
           })
-          .expect(403);
-        expect(negado.body.detalhes.regra).toBe('R5.12');
+          .expect(ve ? 403 : 404);
+        if (ve) {
+          expect(negado.body.detalhes.regra).toBe('R5.12');
+        } else {
+          expect(JSON.stringify(negado.body)).not.toContain('Contas VIP');
+        }
+        // A tradução por id segue a mesma regra.
+        await cliente
+          .patch(`/api/v1/importacoes/${criada.id}`, {
+            traducaoFunis: { 'contas vip': c.vip.id },
+          })
+          .expect(ve ? 403 : 404);
         const conferencia = await cliente
           .get(`/api/v1/importacoes/${criada.id}/funis-da-planilha`)
           .expect(200);
-        expect(conferencia.body.funis[0]).toMatchObject({
-          valor: 'Contas VIP',
-          problema: 'SEM_PERMISSAO',
-        });
+        if (ve) {
+          expect(conferencia.body.funis[0]).toMatchObject({
+            valor: 'Contas VIP',
+            funil: { id: c.vip.id },
+            problema: 'SEM_PERMISSAO',
+          });
+        } else {
+          expect(conferencia.body.funis[0]).toMatchObject({
+            valor: 'Contas VIP',
+            funil: null,
+            problema: 'NAO_ENCONTRADO',
+          });
+          expect(JSON.stringify(conferencia.body)).not.toContain(c.vip.id);
+        }
       }
       // Com acesso como membro, o CS passa a criar no funil.
       await c.comoLider
@@ -603,6 +717,79 @@ describe('Quem vê um funil (e2e, R5.9, R5.11–R5.13)', () => {
       await c.comoNaLista
         .delete(`/api/v1/negocios/${c.secreto.id}`)
         .expect(403);
+    });
+
+    it('R5.12 — ver separado de agir: membro do Comercial com VER no funil-base vê o negócio do colega e não o move; continua movendo os seus', async () => {
+      const comercial = await funilBase(t, 'COMERCIAL');
+      const doColega = await criarNegocio(t, {
+        area: 'COMERCIAL',
+        responsavel: c.naLista,
+        titulo: 'Do colega',
+      });
+      const meu = await criarNegocio(t, {
+        area: 'COMERCIAL',
+        responsavel: c.semLista,
+        titulo: 'Meu',
+      });
+      const antes = (await funisDe(c.comoSemLista)).find(
+        ({ id }) => id === comercial.id,
+      );
+      expect(antes).toMatchObject({ nivel: 'MEMBRO', veTodos: false });
+      await c.comoSemLista.get(`/api/v1/negocios/${doColega.id}`).expect(404);
+
+      await c.comoLider
+        .put(`/api/v1/funis/${comercial.id}/acessos`, {
+          acessos: [{ usuarioId: c.semLista.id, nivel: 'VER' }],
+        })
+        .expect(200);
+      const depois = (await funisDe(c.comoSemLista)).find(
+        ({ id }) => id === comercial.id,
+      );
+      expect(depois).toMatchObject({ nivel: 'MEMBRO', veTodos: true });
+      const detalhe = await c.comoSemLista
+        .get(`/api/v1/funis/${comercial.id}`)
+        .expect(200);
+      expect(detalhe.body).toMatchObject({ nivel: 'MEMBRO', veTodos: true });
+      await c.comoSemLista.get(`/api/v1/negocios/${doColega.id}`).expect(200);
+      expect(
+        await idsDaLista(c.comoSemLista, `&funilId=${comercial.id}`),
+      ).toEqual(expect.arrayContaining([doColega.id, meu.id]));
+      const quadro = await c.comoSemLista
+        .get(`/api/v1/funis/${comercial.id}/quadro`)
+        .expect(200);
+      expect(JSON.stringify(quadro.body)).toContain(doColega.id);
+
+      const proxima = comercial.etapas.find(
+        ({ tipo, ordem }) =>
+          tipo === 'ABERTA' && ordem > comercial.etapas[0].ordem,
+      )!;
+      const recusado = await mover(
+        c.comoSemLista,
+        doColega.id,
+        proxima.id,
+      ).expect(403);
+      expect(recusado.body.detalhes.regra).toBe('R5.12');
+      await c.comoSemLista
+        .patch(`/api/v1/negocios/${doColega.id}`, { titulo: 'Mudado' })
+        .expect(403);
+      await mover(c.comoSemLista, meu.id, proxima.id).expect(200);
+      // As ações seguem o maior nível: continua criando no funil.
+      const criado = await c.comoSemLista
+        .post('/api/v1/negocios', {
+          funilId: comercial.id,
+          contatoId: c.contatoSecreto.id,
+        })
+        .expect(201);
+      expect(criado.body.responsavel.id).toBe(c.semLista.id);
+      // Quem só tem VER também vem com veTodos (e nível VER).
+      await c.comoLider
+        .put(`/api/v1/funis/${c.vip.id}/acessos`, {
+          acessos: [{ area: 'CS', nivel: 'VER' }],
+        })
+        .expect(200);
+      expect(
+        (await funisDe(c.comoLiderCs)).find(({ id }) => id === c.vip.id),
+      ).toMatchObject({ nivel: 'VER', veTodos: true });
     });
 
     it('R5.12 — GESTOR vê e move todos e troca o responsável; não reabre, não exclui e não configura', async () => {

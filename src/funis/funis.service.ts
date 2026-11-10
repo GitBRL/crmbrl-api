@@ -17,7 +17,11 @@ import type {
   TipoEtapa,
 } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
-import { type NivelNoFunil, podeConfigurarFunis } from './acesso-funis';
+import {
+  type AlcanceNoFunil,
+  type NivelNoFunil,
+  podeConfigurarFunis,
+} from './acesso-funis';
 import {
   chaveDoAlvo,
   mudancaDeAcessos,
@@ -125,18 +129,19 @@ export class FunisService {
       include: INCLUIR_FUNIL,
       orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
     });
-    return funis.map((funil) =>
-      FunilDto.de(funil, acesso.nivel(funil.id) as NivelNoFunil),
-    );
+    return funis.map((funil) => {
+      const alcance = acesso.alcance(funil.id) as AlcanceNoFunil;
+      return FunilDto.de(funil, alcance.nivel, alcance.veTodos);
+    });
   }
 
   async detalhar(usuario: UsuarioAutenticado, id: string): Promise<FunilDto> {
-    const { funil, nivel } = await this.carregarVisivel(
+    const { funil, nivel, veTodos } = await this.carregarVisivel(
       this.prisma,
       usuario,
       id,
     );
-    return FunilDto.de(funil, nivel);
+    return FunilDto.de(funil, nivel, veTodos);
   }
 
   /** Cria um funil extra (nunca um funil-base: esses vêm da configuração inicial). */
@@ -624,7 +629,13 @@ export class FunisService {
     const acessos = await db.acessoFunil.findMany({
       where: { funilId: funil.id },
       include: INCLUIR_ALVO_DO_ACESSO,
-      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+      // Estável: as linhas gravadas juntas (mesmo PUT) têm o mesmo `criadoEm`.
+      orderBy: [
+        { criadoEm: 'asc' },
+        { area: { sort: 'asc', nulls: 'last' } },
+        { usuario: { nome: 'asc' } },
+        { id: 'asc' },
+      ],
     });
     return {
       funilId: funil.id,
@@ -657,18 +668,22 @@ export class FunisService {
     tx: Tx,
     usuario: UsuarioAutenticado,
     id: string,
-  ): Promise<{ funil: FunilComEtapas; nivel: NivelNoFunil }> {
+  ): Promise<{
+    funil: FunilComEtapas;
+    nivel: NivelNoFunil;
+    veTodos: boolean;
+  }> {
     const funil = await tx.funil.findFirst({
       where: { id, excluidoEm: null },
       include: INCLUIR_FUNIL,
     });
-    const nivel = funil
-      ? (await funisAcessiveis(tx, usuario)).nivel(funil.id)
+    const alcance = funil
+      ? (await funisAcessiveis(tx, usuario)).alcance(funil.id)
       : null;
-    if (!funil || !nivel) {
+    if (!funil || !alcance) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
-    return { funil, nivel };
+    return { funil, nivel: alcance.nivel, veTodos: alcance.veTodos };
   }
 
   /**

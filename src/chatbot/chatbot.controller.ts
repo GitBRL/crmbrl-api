@@ -143,8 +143,10 @@ export class ChatbotController {
   @ApiOperation({
     summary:
       'Salva o rascunho (estrutura conferida; a configuração só na publicação)',
+    description:
+      'O passo "Criar negócio" só aceita funil e etapa em que quem salva cria negócios: funil que não vê → 422 `R5.9`; só `VER` → 422 `R5.12` (`detalhes.passos`).',
   })
-  @ApiRespostasDeErro(400, 404)
+  @ApiRespostasDeErro(400, 404, 422)
   salvarRascunho(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,
@@ -172,8 +174,10 @@ export class ChatbotController {
   @ApiOperation({
     summary:
       'Publica o rascunho como a próxima versão (imutável); `ativar` também liga o fluxo',
+    description:
+      'O passo "Criar negócio" só aceita funil e etapa em que quem publica cria negócios: funil que não vê → 422 `R5.9`; só `VER` → 422 `R5.12` (`detalhes.passos`).',
   })
-  @ApiRespostasDeErro(400, 404)
+  @ApiRespostasDeErro(400, 404, 422)
   publicar(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,

@@ -44,7 +44,6 @@ import { TempoRealService } from '../tempo-real/tempo-real.service';
 import { problemaDeMudancaDePapel } from '../usuarios/dominio/hierarquia';
 import { SELECAO_RESUMO, UsuarioResumoDto } from '../usuarios/dto/usuario.dto';
 import {
-  exigirOutroAdminAtivo,
   lideradosAtivos,
   travarHierarquia,
 } from '../usuarios/hierarquia-no-banco';
@@ -286,9 +285,11 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Os líderes escolhidos viram `LIDER` do setor, respondendo ao C-level
-   * responsável (R1.2). Quem tem liderados ativos não muda de setor nem deixa
-   * de ser líder (R1.3): 409 com a lista de quem precisa de novo líder, de
-   * todos os escolhidos de uma vez. Devolve quem mudou.
+   * responsável (R1.2). Só líderes e membros de hoje (R1.7): Admin e C-level não
+   * mudam de papel por aqui (422 com quem foi recusado), e o C-level responsável
+   * não lidera o próprio setor (422 `R1.2`). Quem tem liderados ativos não muda
+   * de setor nem deixa de ser líder (R1.3): 409 com a lista de quem precisa de
+   * novo líder, de todos os escolhidos de uma vez. Devolve quem mudou.
    */
   private async promoverLideres(
     tx: Tx,
@@ -305,6 +306,13 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
         'R1.2',
         'O C-level responsável precisa ser um C-level ativo.',
         { campo: 'cLevelResponsavelId', cLevelResponsavelId: cLevelId },
+      );
+    }
+    if (ids.includes(cLevel.id)) {
+      throw new RegraVioladaException(
+        'R1.2',
+        'O C-level responsável não pode ser também líder do setor.',
+        { campo: 'lideres', cLevelResponsavelId: cLevelId },
       );
     }
     const pessoas = await tx.usuario.findMany({
@@ -328,6 +336,23 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
           campo: 'lideres',
           naoEncontrados: faltando,
           inativos: inativos.map(({ id, nome }) => ({ id, nome })),
+        },
+      );
+    }
+    const foraDoNivel = pessoas.filter(
+      ({ papel }) => papel !== 'LIDER' && papel !== 'MEMBRO',
+    );
+    if (foraDoNivel.length > 0) {
+      throw new RegraVioladaException(
+        'R1.7',
+        'Só líderes e membros podem liderar um setor novo: Admin e C-level não mudam de papel ao criar um setor.',
+        {
+          campo: 'lideres',
+          recusados: foraDoNivel.map(({ id, nome, papel }) => ({
+            id,
+            nome,
+            papel,
+          })),
         },
       );
     }
@@ -365,9 +390,6 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
       );
     }
     for (const pessoa of pessoas) {
-      if (pessoa.papel === 'ADMIN') {
-        await exigirOutroAdminAtivo(tx, pessoa, 'rebaixar');
-      }
       const depois = await tx.usuario.update({
         where: { id: pessoa.id },
         data: { papel: 'LIDER', area: setor.chave, liderId: cLevel.id },
@@ -677,7 +699,13 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
     const acessos = await db.acessoSetor.findMany({
       where: { areaDono: setor.chave },
       include: INCLUIR_ALVO_DO_ACESSO,
-      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+      // Estável: as linhas gravadas juntas (mesmo PUT) têm o mesmo `criadoEm`.
+      orderBy: [
+        { criadoEm: 'asc' },
+        { area: { sort: 'asc', nulls: 'last' } },
+        { usuario: { nome: 'asc' } },
+        { id: 'asc' },
+      ],
     });
     return {
       area: setor.chave,

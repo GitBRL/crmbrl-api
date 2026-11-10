@@ -593,6 +593,65 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       expect(pagina.body.itens).toHaveLength(1);
       await comoAdmin.get('/api/v1/usuarios?ativo=talvez').expect(400);
     });
+
+    it('R5.11 — busca de pessoas para os editores de acessos: o líder acha pessoas ativas de outros setores, só com o resumo; membro 403', async () => {
+      const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+      const cs = await criarEquipe(t, 'CS', {
+        membros: 2,
+        cLevel: comercial.cLevel,
+      });
+      await t.prisma.usuario.update({
+        where: { id: cs.membros[0].id },
+        data: { nome: 'Bruna Suporte', avatarUrl: '/avatares/bruna.png' },
+      });
+      await t.prisma.usuario.update({
+        where: { id: cs.membros[1].id },
+        data: { ativo: false, desligadoEm: new Date(), nome: 'Bruno Saiu' },
+      });
+      const comoLider = await entrarComo(t, comercial.lider);
+      // A lista de usuários do líder continua só com a equipe dele (R1.5).
+      const equipe = await comoLider
+        .get('/api/v1/usuarios?busca=brun')
+        .expect(200);
+      expect(equipe.body.total).toBe(0);
+
+      const achadas = await comoLider
+        .get('/api/v1/usuarios/opcoes?busca=BRUN')
+        .expect(200);
+      expect(achadas.body).toEqual([
+        {
+          id: cs.membros[0].id,
+          nome: 'Bruna Suporte',
+          avatarUrl: '/avatares/bruna.png',
+          papel: 'MEMBRO',
+          rotuloPapel: 'Customer Success',
+          area: 'CS',
+          nomeSetor: 'Customer Success',
+        },
+      ]);
+      const doCs = await comoLider
+        .get('/api/v1/usuarios/opcoes?area=CS')
+        .expect(200);
+      expect(
+        (doCs.body as { id: string }[]).map(({ id }) => id).sort(),
+      ).toEqual([cs.lider.id, cs.membros[0].id].sort());
+      const todas = await comoLider
+        .get('/api/v1/usuarios/opcoes?limite=50')
+        .expect(200);
+      expect(todas.body).toHaveLength(6); // Admin, C-level, 2 líderes, 2 membros ativos
+      expect(JSON.stringify(todas.body)).not.toContain('@');
+      const limitadas = await comoLider
+        .get('/api/v1/usuarios/opcoes?limite=2')
+        .expect(200);
+      expect(limitadas.body).toHaveLength(2);
+      await comoLider.get('/api/v1/usuarios/opcoes?limite=51').expect(400);
+      await comoLider.get('/api/v1/usuarios/opcoes?area=x-y').expect(400);
+
+      const comoCLevel = await entrarComo(t, comercial.cLevel);
+      await comoCLevel.get('/api/v1/usuarios/opcoes').expect(200);
+      const comoMembro = await entrarComo(t, comercial.membros[0]);
+      await comoMembro.get('/api/v1/usuarios/opcoes').expect(403);
+    });
   });
 
   describe('senha temporária e convite (R2.8)', () => {

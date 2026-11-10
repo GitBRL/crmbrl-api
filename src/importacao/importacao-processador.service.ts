@@ -682,7 +682,10 @@ export class ImportacaoProcessadorService {
     plano.status = lido.status;
     const acesso = await funisAcessiveis(this.prisma, usuario);
     const resolucao = resolverDestino({
-      funis: await this.funisDoContexto(contexto),
+      // R5.9: funil que quem importa não vê é como se não existisse.
+      funis: (await this.funisDoContexto(contexto)).filter((f) =>
+        acesso.podeVerFunil(f.id),
+      ),
       cartao,
       funilTexto: colunaFunil,
       etapaTexto: colunaEtapa,

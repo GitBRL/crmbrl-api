@@ -888,11 +888,16 @@ export class NegociosService {
     return negocio;
   }
 
-  /** R5.12: quem só vê o funil (`VER`) não cria, edita, move, assume, ganha nem perde. */
+  /**
+   * R5.12: quem só vê o funil (`VER`) não cria, edita, move, assume, ganha nem
+   * perde; o `MEMBRO` que vê todos age só nos seus e nos sem responsável.
+   */
   private exigirAcao(acesso: AcessoAosFunis, negocio: NegocioParaAcesso): void {
     if (!acesso.podeAgirNoNegocio(negocio)) {
       throw new SemPermissaoException(
-        'Você só pode ver os negócios deste funil: não pode editar, mover nem assumir.',
+        acesso.nivel(negocio.funilId) === 'MEMBRO'
+          ? 'Você só pode ver este negócio: neste funil você edita e move só os seus e os sem responsável.'
+          : 'Você só pode ver os negócios deste funil: não pode editar, mover nem assumir.',
         { regra: 'R5.12' },
       );
     }

@@ -750,6 +750,7 @@ proximoCursor }` (`?cursor&limite`). Valores em reais são strings decimais
 | --- | --- | --- |
 | `GET /usuarios` | todos (C-level vê todos; líder, a equipe; membro, a si) | `?busca&papel&area&ativo&liderId` → página de `Usuario` |
 | `GET /usuarios/equipes` | Admin, C-level, líderes | `?liderId&area` → `[{ lider, area, membros: [{ usuario, indicadores: { atividadesPendentes, atividadesAtrasadas, negociosAbertos, valorEmAberto, contatos }, aguardandoNovoLider }] }]` |
+| `GET /usuarios/opcoes` | Admin, C-level, líderes (membro 403) | `?busca&area&limite` (nome; setor; 1–50, padrão 20) → `[{ id, nome, avatarUrl, papel, rotuloPapel, area, nomeSetor }]`: pessoas **ativas** de qualquer setor, só o resumo, para os editores de acessos (R5.11) |
 | `GET /usuarios/:id` | dentro do recorte | `Usuario` |
 | `POST /usuarios` | Admin | `{ nome, email, papel, liderId?, telefone?, avatarUrl?, senhaTemporaria? }` → 201; sem senha temporária envia convite (422 `R2.8` sem SMTP); 409 `R1.1`; 422 `R1.2` |
 | `PATCH /usuarios/:id` | Admin | mesmos campos (parciais) → 200; 422 `R1.2`/`R1.3` (com `detalhes.liderados`)/`R1.4` |
@@ -777,9 +778,9 @@ proximoCursor }` (`?cursor&limite`). Valores em reais são strings decimais
 
 | Método e rota | Quem | Recebe → devolve |
 | --- | --- | --- |
-| `GET /funis` · `GET /funis/:id` | quem vê o funil (R5.9) | funis visíveis (do setor e de outros setores por acesso) com as etapas em ordem, `nomeSetor`, `visibilidade` e o `nivel` de quem consulta (`CONFIGURAR`/`GESTOR`/`MEMBRO`/`VER`, R5.12) |
+| `GET /funis` · `GET /funis/:id` | quem vê o funil (R5.9) | funis visíveis (do setor e de outros setores por acesso) com as etapas em ordem, `nomeSetor`, `visibilidade`, o `nivel` de ação de quem consulta (`CONFIGURAR`/`GESTOR`/`MEMBRO`/`VER`, R5.12) e `veTodos` (vê todos os negócios: algum `VER`/`GESTOR`/`CONFIGURAR`; ver é separado de agir) |
 | `POST /funis` · `PATCH /funis/:id` · `DELETE /funis/:id` | Admin, C-level, líder do setor dono | `{ nome, area, descricao?, visibilidade?, etapas? }` → 201; renomear, reordenar, arquivar, reativar, `visibilidade` (`SETOR`/`RESTRITA`); excluir só funil extra (R5.1) → 204 |
-| `GET`/`PUT /funis/:id/acessos` | quem configura o funil | lista de acessos extras do funil (R5.11): `{ acessos: [{ area? \| usuarioId?, nivel }] }` substitui a lista |
+| `GET`/`PUT /funis/:id/acessos` | quem configura o funil | lista de acessos extras do funil (R5.11): `{ acessos: [{ area? \| usuarioId?, nivel }] }` substitui a lista; volta em ordem estável (criação, setores antes de pessoas, nome) |
 | `GET`/`PUT /setores/:chave/acessos` | Admin, C-level, líderes do setor | acessos extras a todos os funis `SETOR` do setor (R5.11), mesmo corpo |
 | `POST /funis/:id/etapas` · `POST /funis/:id/etapas/reordenar` · `PATCH`/`DELETE /funis/:id/etapas/:etapaId` | Admin, C-level, líder da área | etapa nova (aberta), nova ordem, nome/prazo/probabilidade; etapa com negócios não sai (R5.2) |
 | `GET /funis/:id/quadro` | quem vê a área | kanban: etapas com cartões, totais, valor e parados; filtros meus/equipe/todos, sem responsável, responsável, busca, etiqueta |

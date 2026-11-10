@@ -281,6 +281,68 @@ describe('Setores (e2e, R1.6–R1.11)', () => {
     ).toEqual({ papel: 'MEMBRO', area: 'COMERCIAL' });
   });
 
+  it('R1.7/R1.2 — Admin e C-level não viram líder de setor novo (422 com quem foi recusado); o C-level responsável não lidera o setor', async () => {
+    const cLevel = await criarUsuario(t, { papel: 'C_LEVEL' });
+    const outroCLevel = await criarUsuario(t, { papel: 'C_LEVEL' });
+    const outroAdmin = await criarUsuario(t, { papel: 'ADMIN' });
+    const { membros } = await criarEquipe(t, 'COMERCIAL', {
+      membros: 1,
+      cLevel,
+    });
+    const comoCLevel = await entrarComo(t, cLevel);
+
+    const comAdmin = await comoCLevel
+      .post('/api/v1/setores', {
+        nome: 'Jurídico',
+        lideres: [membros[0].id, outroAdmin.id, outroCLevel.id],
+        cLevelResponsavelId: cLevel.id,
+      })
+      .expect(422);
+    expect(comAdmin.body.detalhes).toMatchObject({
+      regra: 'R1.7',
+      campo: 'lideres',
+    });
+    expect(comAdmin.body.detalhes.recusados).toEqual(
+      expect.arrayContaining([
+        { id: outroAdmin.id, nome: outroAdmin.nome, papel: 'ADMIN' },
+        { id: outroCLevel.id, nome: outroCLevel.nome, papel: 'C_LEVEL' },
+      ]),
+    );
+    expect(comAdmin.body.detalhes.recusados).toHaveLength(2);
+
+    const responsavelNaLista = await comoCLevel
+      .post('/api/v1/setores', {
+        nome: 'Jurídico',
+        lideres: [membros[0].id, cLevel.id],
+        cLevelResponsavelId: cLevel.id,
+      })
+      .expect(422);
+    expect(responsavelNaLista.body.detalhes).toMatchObject({
+      regra: 'R1.2',
+      campo: 'lideres',
+    });
+
+    expect(await t.prisma.setor.count({ where: { chave: 'JURIDICO' } })).toBe(
+      0,
+    );
+    for (const pessoa of [outroAdmin, outroCLevel, cLevel, membros[0]]) {
+      const agora = await t.prisma.usuario.findUniqueOrThrow({
+        where: { id: pessoa.id },
+        select: { papel: true, area: true },
+      });
+      expect(agora).toEqual({ papel: pessoa.papel, area: pessoa.area });
+    }
+
+    const criado = await comoCLevel
+      .post('/api/v1/setores', {
+        nome: 'Jurídico',
+        lideres: [membros[0].id],
+        cLevelResponsavelId: cLevel.id,
+      })
+      .expect(201);
+    expect(criado.body.chave).toBe('JURIDICO');
+  });
+
   it('R1.11 — edita nome, descrição, cor e ordem (também os de base); o rótulo e o canal do chat acompanham', async () => {
     const { lider } = await criarEquipe(t, 'CS', { membros: 0 });
     await t.prisma.chatCanal.create({

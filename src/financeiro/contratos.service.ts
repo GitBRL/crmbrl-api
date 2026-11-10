@@ -17,6 +17,7 @@ import {
   paraSkipTake,
 } from '../comum/paginacao/paginacao';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import {
   type Contrato,
   type PeriodicidadeContrato,
@@ -185,7 +186,10 @@ export class ContratosService {
     };
   }
 
-  /** R22.6 — dados para pré-preencher o contrato de um negócio ganho. */
+  /**
+   * R22.6 — dados para pré-preencher o contrato de um negócio ganho (só de funil
+   * que a pessoa vê: senão 404).
+   */
   async sugestaoDoNegocio(usuario: UsuarioAutenticado, negocioId: string) {
     this.exigirAtuacao(usuario);
     const negocio = await this.prisma.negocio.findFirst({
@@ -215,7 +219,10 @@ export class ContratosService {
     };
   }
 
-  /** Negócios ganhos, visíveis ao usuário, que ainda não têm contrato (R22.6). */
+  /**
+   * Negócios ganhos, visíveis ao usuário, que ainda não têm contrato (R22.6): só
+   * de funis que ele vê (R5.9) — e, para o membro de CS, os da carteira.
+   */
   async negociosSemContrato(usuario: UsuarioAutenticado, limite = 50) {
     this.exigirAtuacao(usuario);
     const visiveis: Prisma.NegocioWhereInput = ehGestorFinanceiro(usuario)
@@ -226,11 +233,16 @@ export class ContratosService {
             { contato: { responsavelId: usuario.id } },
           ],
         };
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const dosFunisQueVe: Prisma.NegocioWhereInput = acesso.todos
+      ? {}
+      : { funilId: { in: acesso.idsVisiveis() } };
     const negocios = await this.prisma.negocio.findMany({
       where: {
         AND: [
           { status: 'GANHO', excluidoEm: null, contratos: { none: {} } },
           visiveis,
+          dosFunisQueVe,
         ],
       },
       include: {
@@ -251,14 +263,26 @@ export class ContratosService {
     }));
   }
 
+  /**
+   * O negócio de origem de um contrato (sugestão e criação, R22.6): só de funil
+   * que a pessoa vê (R5.9); dentro dele, o gestor do Financeiro vê todos e o
+   * membro de CS, os da carteira.
+   */
   private async negocioVisivel(
     usuario: UsuarioAutenticado,
     negocio: {
+      funilId: string;
       responsavelId: string | null;
       contatoId: string;
       funil: { area: string };
     },
   ): Promise<boolean> {
+    if (
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerFunil(
+        negocio.funilId,
+      )
+    )
+      return false;
     if (ehGestorFinanceiro(usuario) || negocio.responsavelId === usuario.id)
       return true;
     if (ehLiderDoSetor(usuario, negocio.funil.area)) return true;

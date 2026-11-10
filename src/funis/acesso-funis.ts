@@ -11,6 +11,13 @@
  *   para funil `RESTRITA`.
  * Admin e C-level: `CONFIGURAR` em todos. Acesso dado a um setor desativado não
  * conta.
+ *
+ * **Ver** e **agir** são separados (R5.12): a pessoa vê todos os negócios do
+ * funil se tiver, por qualquer caminho (direto, pelo setor ou pelo papel), `VER`,
+ * `GESTOR` ou `CONFIGURAR` — senão só os seus e os sem responsável; as ações
+ * seguem o maior nível (`MEMBRO` age só nos seus e nos sem responsável, mesmo
+ * que veja todos). Ex.: um membro do Comercial com `VER` no funil-base vê os
+ * negócios dos colegas e continua movendo só os seus.
  */
 import {
   type ComPapel,
@@ -100,26 +107,48 @@ export interface AcessosDoFunil {
 }
 
 /**
- * Nível efetivo da pessoa no funil (R5.9, R5.11): `null` = não vê.
+ * O que a pessoa tem num funil (R5.12): o nível que decide as **ações** e se ela
+ * **vê** todos os negócios dele.
+ */
+export interface AlcanceNoFunil {
+  /** O maior nível que ela tem no funil: decide o que faz. */
+  readonly nivel: NivelNoFunil;
+  /**
+   * Vê todos os negócios: algum dos seus níveis no funil (direto, pelo setor ou
+   * pelo papel) é `VER`, `GESTOR` ou `CONFIGURAR`. Falso = só os seus e os sem
+   * responsável (só `MEMBRO`).
+   */
+  readonly veTodos: boolean;
+}
+
+/** O alcance de quem tem um nível só (ex.: `CONFIGURAR` da diretoria). */
+export function alcanceDoNivel(nivel: NivelNoFunil): AlcanceNoFunil {
+  return { nivel, veTodos: nivel !== 'MEMBRO' };
+}
+
+const CONFIGURA_TUDO: AlcanceNoFunil = alcanceDoNivel('CONFIGURAR');
+
+/**
+ * Alcance efetivo da pessoa no funil (R5.9, R5.11, R5.12): `null` = não vê.
  * `setorAtivo` diz se um setor-alvo está ativo (acesso de setor desativado não conta).
  */
-export function nivelEfetivo(
+export function alcanceEfetivo(
   pessoa: QuemAcessa,
   funil: FunilParaAcesso,
   acessos: AcessosDoFunil,
   setorAtivo: (area: Area) => boolean,
-): NivelNoFunil | null {
+): AlcanceNoFunil | null {
   if (ehDiretoria(pessoa.papel)) {
-    return 'CONFIGURAR';
+    return CONFIGURA_TUDO;
   }
   const meuSetor = setorDaPessoa(pessoa);
-  let nivel: NivelNoFunil | null = null;
+  const niveis: NivelNoFunil[] = [];
   if (meuSetor !== null && meuSetor === funil.area) {
     if (pessoa.papel === 'LIDER') {
-      return 'CONFIGURAR';
+      return CONFIGURA_TUDO;
     }
     if (funil.visibilidade === 'SETOR') {
-      nivel = 'MEMBRO';
+      niveis.push('MEMBRO');
     }
   }
   const valeParaMim = (acesso: AcessoExtra): boolean =>
@@ -130,17 +159,33 @@ export function nivelEfetivo(
       setorAtivo(acesso.area));
   for (const acesso of acessos.doFunil) {
     if (valeParaMim(acesso)) {
-      nivel = maiorNivel(nivel, acesso.nivel);
+      niveis.push(acesso.nivel);
     }
   }
   if (funil.visibilidade === 'SETOR') {
     for (const acesso of acessos.doSetor) {
       if (valeParaMim(acesso)) {
-        nivel = maiorNivel(nivel, acesso.nivel);
+        niveis.push(acesso.nivel);
       }
     }
   }
-  return nivel;
+  const nivel = niveis.reduce<NivelNoFunil | null>(maiorNivel, null);
+  return nivel
+    ? { nivel, veTodos: niveis.some((cada) => cada !== 'MEMBRO') }
+    : null;
+}
+
+/**
+ * Nível efetivo da pessoa no funil — o de ação (R5.9, R5.11, R5.12): `null` =
+ * não vê. Para saber se ela vê todos os negócios, use `alcanceEfetivo`.
+ */
+export function nivelEfetivo(
+  pessoa: QuemAcessa,
+  funil: FunilParaAcesso,
+  acessos: AcessosDoFunil,
+  setorAtivo: (area: Area) => boolean,
+): NivelNoFunil | null {
+  return alcanceEfetivo(pessoa, funil, acessos, setorAtivo)?.nivel ?? null;
 }
 
 /** O mínimo de um negócio para as regras de visibilidade e ação. */
@@ -152,14 +197,14 @@ export interface NegocioParaAcesso {
 const NENHUM_NEGOCIO: Prisma.NegocioWhereInput = { id: { in: [] } };
 
 /**
- * Os níveis de uma pessoa em todos os funis que ela vê (o mapa de
+ * O alcance de uma pessoa em todos os funis que ela vê (o mapa de
  * `funisAcessiveis`). Admin e C-level (`todos`) têm `CONFIGURAR` em qualquer
  * funil, sem precisar do mapa.
  */
 export class AcessoAosFunis {
   private constructor(
     readonly pessoa: QuemAcessa,
-    private readonly niveis: ReadonlyMap<string, NivelNoFunil>,
+    private readonly alcances: ReadonlyMap<string, AlcanceNoFunil>,
     /** Admin e C-level: veem e configuram todos os funis. */
     readonly todos: boolean,
   ) {}
@@ -168,23 +213,42 @@ export class AcessoAosFunis {
     return new AcessoAosFunis(pessoa, new Map(), true);
   }
 
+  /** O mapa `funil → alcance` (um nível sozinho vale como `alcanceDoNivel`). */
   static comNiveis(
     pessoa: QuemAcessa,
-    niveis: ReadonlyMap<string, NivelNoFunil>,
+    niveis: ReadonlyMap<string, NivelNoFunil | AlcanceNoFunil>,
   ): AcessoAosFunis {
-    return ehDiretoria(pessoa.papel)
-      ? AcessoAosFunis.deDiretoria(pessoa)
-      : new AcessoAosFunis(pessoa, niveis, false);
+    if (ehDiretoria(pessoa.papel)) {
+      return AcessoAosFunis.deDiretoria(pessoa);
+    }
+    const alcances = new Map<string, AlcanceNoFunil>();
+    for (const [funilId, valor] of niveis) {
+      alcances.set(
+        funilId,
+        typeof valor === 'string' ? alcanceDoNivel(valor) : valor,
+      );
+    }
+    return new AcessoAosFunis(pessoa, alcances, false);
   }
 
-  /** Nível da pessoa no funil (`null` = não vê). */
+  /** Alcance da pessoa no funil (`null` = não vê). */
+  alcance(funilId: string): AlcanceNoFunil | null {
+    return this.todos ? CONFIGURA_TUDO : (this.alcances.get(funilId) ?? null);
+  }
+
+  /** Nível de ação da pessoa no funil (`null` = não vê). */
   nivel(funilId: string): NivelNoFunil | null {
-    return this.todos ? 'CONFIGURAR' : (this.niveis.get(funilId) ?? null);
+    return this.alcance(funilId)?.nivel ?? null;
+  }
+
+  /** Vê todos os negócios do funil (e não só os seus e os sem responsável)? */
+  veTodosNoFunil(funilId: string): boolean {
+    return this.alcance(funilId)?.veTodos ?? false;
   }
 
   /** Funis que a pessoa vê (sem os de Admin e C-level, que veem todos: confira `todos`). */
   idsVisiveis(): string[] {
-    return [...this.niveis.keys()];
+    return [...this.alcances.keys()];
   }
 
   /** Vê o funil (qualquer nível)? */
@@ -202,24 +266,34 @@ export class AcessoAosFunis {
     return this.nivel(funilId) === 'CONFIGURAR';
   }
 
-  /** Vê o negócio (R5.9): `MEMBRO` só os seus e os sem responsável; os demais níveis, todos. */
+  /**
+   * Vê o negócio (R5.9, R5.12): todos, se vê todos no funil (`VER`, `GESTOR` ou
+   * `CONFIGURAR` por algum caminho); senão, os seus e os sem responsável.
+   */
   podeVerNegocio(negocio: NegocioParaAcesso): boolean {
-    const nivel = this.nivel(negocio.funilId);
-    if (!nivel) {
+    const alcance = this.alcance(negocio.funilId);
+    if (!alcance) {
       return false;
     }
-    return (
-      nivel !== 'MEMBRO' ||
-      negocio.responsavelId === null ||
-      negocio.responsavelId === this.pessoa.id
-    );
+    return alcance.veTodos || this.ehSeuOuSemResponsavel(negocio);
   }
 
-  /** Edita, move, assume, ganha e perde o negócio (R5.12): vê e tem `MEMBRO` ou mais. */
+  /**
+   * Edita, move, assume, ganha e perde o negócio (R5.12), pelo nível de ação:
+   * `GESTOR` e `CONFIGURAR` em todos; `MEMBRO` nos seus e nos sem responsável
+   * (mesmo que veja os demais); `VER` em nenhum.
+   */
   podeAgirNoNegocio(negocio: NegocioParaAcesso): boolean {
+    const nivel = this.nivel(negocio.funilId);
+    if (!nivelAlcanca(nivel, 'MEMBRO')) {
+      return false;
+    }
+    return nivel !== 'MEMBRO' || this.ehSeuOuSemResponsavel(negocio);
+  }
+
+  private ehSeuOuSemResponsavel(negocio: NegocioParaAcesso): boolean {
     return (
-      this.podeVerNegocio(negocio) &&
-      nivelAlcanca(this.nivel(negocio.funilId), 'MEMBRO')
+      negocio.responsavelId === null || negocio.responsavelId === this.pessoa.id
     );
   }
 
@@ -260,8 +334,8 @@ export class AcessoAosFunis {
   private separarPorAlcance(): { completos: string[]; deMembro: string[] } {
     const completos: string[] = [];
     const deMembro: string[] = [];
-    for (const [funilId, nivel] of this.niveis) {
-      (nivel === 'MEMBRO' ? deMembro : completos).push(funilId);
+    for (const [funilId, { veTodos }] of this.alcances) {
+      (veTodos ? completos : deMembro).push(funilId);
     }
     return { completos, deMembro };
   }

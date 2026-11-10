@@ -3,7 +3,8 @@
  * puras de `acesso-funis.ts`. Funcionam com o `PrismaService` ou dentro de uma
  * transação, sem injeção (como `setores-no-banco.ts`).
  *
- * - `funisAcessiveis(db, pessoa)`: o mapa `funil → nível` da pessoa — a base de
+ * - `funisAcessiveis(db, pessoa)`: o mapa `funil → alcance` (nível de ação e se
+ *   vê todos os negócios) da pessoa — a base de
  *   **toda** consulta e ação de negócio. Guardado por requisição (o contexto da
  *   requisição HTTP ou do job): são poucos funis e poucas linhas de acesso.
  * - `acessosDoFunil(db, funil)`: os acessos de um funil, para saber o nível de
@@ -20,6 +21,8 @@ import type { Tx } from '../prisma/prisma.service';
 import {
   type AcessoExtra,
   AcessoAosFunis,
+  type AlcanceNoFunil,
+  alcanceEfetivo,
   type FunilParaAcesso,
   type NivelNoFunil,
   nivelAlcanca,
@@ -123,9 +126,9 @@ async function calcularAcessos(
     select: { id: true, area: true, visibilidade: true },
   });
   const setorAtivo = (area: Area) => area === meuSetor && meuSetorAtivo;
-  const niveis = new Map<string, NivelNoFunil>();
+  const alcances = new Map<string, AlcanceNoFunil>();
   for (const funil of funis) {
-    const nivel = nivelEfetivo(
+    const alcance = alcanceEfetivo(
       pessoa,
       funil,
       {
@@ -134,11 +137,11 @@ async function calcularAcessos(
       },
       setorAtivo,
     );
-    if (nivel) {
-      niveis.set(funil.id, nivel);
+    if (alcance) {
+      alcances.set(funil.id, alcance);
     }
   }
-  return AcessoAosFunis.comNiveis(pessoa, niveis);
+  return AcessoAosFunis.comNiveis(pessoa, alcances);
 }
 
 /** Os acessos de um funil, prontos para dizer o nível de qualquer pessoa nele. */

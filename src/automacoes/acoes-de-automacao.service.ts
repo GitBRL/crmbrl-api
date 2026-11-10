@@ -220,6 +220,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
       if (
         segmento &&
         !(await this.segmentos.contem(segmento, alvo.contatoId, {
+          ...(await this.segmentos.opcoesDoAutor(automacao.criadoPorId)),
           excluirOptOut: automacao.marketing,
           ...(alvo.negocioId ? { negocioId: alvo.negocioId } : {}),
         }))
@@ -327,13 +328,16 @@ export class AcoesDeAutomacao implements OnModuleInit {
     const automacao = await this.automacaoDaExecucao(ctx);
     const dentro = ctx.execucao.contatoId
       ? await this.segmentos.contem(segmento, ctx.execucao.contatoId, {
+          // R5.14: as condições de negócio contam os funis que quem criou vê agora.
+          ...(await this.segmentos.opcoesDoAutor(
+            automacao?.criadoPorId ?? null,
+          )),
           excluirOptOut: false,
           ...(ctx.execucao.negocioId
             ? { negocioId: ctx.execucao.negocioId }
             : {}),
         })
       : false;
-    void automacao;
     const ramo = dentro ? 'sim' : 'nao';
     const existe = (ctx.passo.ramos ?? []).some((r) => r.id === ramo);
     return existe

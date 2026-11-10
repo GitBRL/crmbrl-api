@@ -6,6 +6,7 @@ import {
   NaoEncontradoException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { PrismaService } from '../prisma/prisma.service';
 import { REGRA_BI } from './bi.constantes';
 import type { FiltroResolvido, PainelBi } from './bi.tipos';
@@ -44,7 +45,12 @@ export class FiltrosBiService {
     }
     const pessoas = await this.pessoas(usuario, dto);
     const areaDoPainelAtual = areaDoPainel(painel);
-    const funilId = await this.funil(painel, areaDoPainelAtual, dto.funilId);
+    const funilId = await this.funil(
+      usuario,
+      painel,
+      areaDoPainelAtual,
+      dto.funilId,
+    );
     const canalId = await this.canal(painel, dto.canalId);
     const filaId = await this.fila(painel, dto.filaId);
     const area =
@@ -125,7 +131,12 @@ export class FiltrosBiService {
     return equipe ? equipe.filter((id) => id === pessoa.id) : [pessoa.id];
   }
 
+  /**
+   * O funil do filtro: do setor do painel e visível à pessoa (R5.9) — o que ela
+   * não vê responde como inexistente (404, sem nome nem etapas).
+   */
   private async funil(
+    usuario: UsuarioAutenticado,
     painel: PainelBi,
     areaDoPainelAtual: ReturnType<typeof areaDoPainel>,
     funilId: string | undefined,
@@ -142,7 +153,11 @@ export class FiltrosBiService {
       where: { id: funilId, excluidoEm: null },
       select: { area: true },
     });
-    if (!funil || funil.area !== areaDoPainelAtual) {
+    if (
+      !funil ||
+      funil.area !== areaDoPainelAtual ||
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerFunil(funilId)
+    ) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
     return funilId;

@@ -997,11 +997,12 @@ describe('Importação de contatos e empresas (e2e)', () => {
       etapaId: segunda.id,
       ...extra,
     });
+    // Funil inexistente: 404, como o funil que a pessoa não vê (R5.9).
     await cliente
       .patch(url, {
         negocio: negocio({ funilId: '00000000-0000-4000-8000-000000000000' }),
       })
-      .expect(422);
+      .expect(404);
     await cliente
       .patch(url, { negocio: negocio({ etapaId: perdida.id }) })
       .expect(422);
@@ -1309,7 +1310,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
     });
   });
 
-  it('cenário 411 — R16.12/R5.9 — quem não pode criar negócio no funil (de outra área) recebe 403 ao definir o cartão', async () => {
+  it('cenário 411 — R16.12/R5.9 — funil que a pessoa não vê (de outra área) é como inexistente: 404 no cartão, sem nome', async () => {
     const { cliente } = await lider();
     const marketing = await funilBase(t, 'MARKETING');
     const criada = await rascunho(cliente, 'Nome,E-mail\nAna,ana@403.com\n');
@@ -1317,10 +1318,11 @@ describe('Importação de contatos e empresas (e2e)', () => {
       .patch(`/api/v1/importacoes/${criada.id}`, {
         negocio: { funilId: marketing.id, etapaId: marketing.etapas[0].id },
       })
-      .expect(403);
-    expect((resposta.body as { mensagem: string }).mensagem).toMatch(
-      /não pode criar negócios/,
+      .expect(404);
+    expect((resposta.body as { mensagem: string }).mensagem).toBe(
+      'Funil não encontrado.',
     );
+    expect(JSON.stringify(resposta.body)).not.toContain(marketing.nome);
     // Funil de marketing por coluna: contato entra, negócio não, com aviso
     const final = await importar(
       cliente,
@@ -1333,7 +1335,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
       }),
     ).toBe(0);
     expect((await linhasDe(final.id, cliente))[0].motivo).toMatch(
-      /sem permissão para criar negócios/,
+      /funil "Marketing" não encontrado/,
     );
   });
 
@@ -1576,13 +1578,14 @@ describe('Importação de contatos e empresas (e2e)', () => {
       'SEGUNDA ETAPA',
     ]);
 
-    // Validação da tradução (R16.14): funil inexistente 422, forma errada 400, outra área 403.
+    // Validação da tradução (R16.14): funil inexistente ou de outra área (que a
+    // pessoa não vê, R5.9) 404, forma errada 400.
     const lixo = '00000000-0000-4000-8000-000000000000';
     await cliente
       .patch(`/api/v1/importacoes/${criada.id}`, {
         traducaoFunis: { sdr: lixo },
       })
-      .expect(422);
+      .expect(404);
     await cliente
       .patch(`/api/v1/importacoes/${criada.id}`, { traducaoFunis: { sdr: 1 } })
       .expect(400);
@@ -1594,7 +1597,7 @@ describe('Importação de contatos e empresas (e2e)', () => {
       .patch(`/api/v1/importacoes/${criada.id}`, {
         traducaoFunis: { SDR: marketing.id },
       })
-      .expect(403);
+      .expect(404);
     await cliente
       .patch(`/api/v1/importacoes/${criada.id}`, {
         traducaoFunis: { SDR: funil.id },

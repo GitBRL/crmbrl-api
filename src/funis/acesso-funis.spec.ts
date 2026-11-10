@@ -6,6 +6,7 @@ import { Prisma } from '../generated/prisma/client';
 import {
   type AcessoExtra,
   AcessoAosFunis,
+  alcanceEfetivo,
   atuaNoSetor,
   type FunilParaAcesso,
   maiorNivel,
@@ -274,6 +275,86 @@ describe('o mapa de níveis — AcessoAosFunis (R5.9, R5.12)', () => {
       membro.id,
     ]);
     expect(sql.strings.join('?')).toContain('n.responsavel_id IS NULL');
+  });
+});
+
+describe('ver separado de agir (R5.12)', () => {
+  const membro = quem('COMERCIAL');
+  const colega = 'id-colega';
+
+  it('R5.12 — membro do setor com VER no próprio funil: nível de ação MEMBRO, mas vê todos', () => {
+    const doFunil = [paraPessoa(membro.id, 'VER')];
+    expect(
+      alcanceEfetivo(membro, comercial, { doFunil, doSetor: [] }, todosAtivos),
+    ).toEqual({ nivel: 'MEMBRO', veTodos: true });
+    expect(
+      nivelEfetivo(membro, comercial, { doFunil, doSetor: [] }, todosAtivos),
+    ).toBe('MEMBRO');
+    const pelaEquipe = [paraSetor('COMERCIAL', 'VER')];
+    expect(
+      alcanceEfetivo(
+        membro,
+        comercial,
+        { doFunil: [], doSetor: pelaEquipe },
+        todosAtivos,
+      ),
+    ).toEqual({ nivel: 'MEMBRO', veTodos: true });
+  });
+
+  it('R5.12 — só MEMBRO (papel e acessos): vê só os seus; GESTOR e CONFIGURAR veem todos', () => {
+    expect(alcanceEfetivo(membro, comercial, semAcessos, todosAtivos)).toEqual({
+      nivel: 'MEMBRO',
+      veTodos: false,
+    });
+    expect(
+      alcanceEfetivo(
+        quem('CS'),
+        comercial,
+        { doFunil: [paraSetor('CS', 'MEMBRO')], doSetor: [] },
+        todosAtivos,
+      ),
+    ).toEqual({ nivel: 'MEMBRO', veTodos: false });
+    expect(
+      alcanceEfetivo(
+        membro,
+        comercial,
+        { doFunil: [paraPessoa(membro.id, 'GESTOR')], doSetor: [] },
+        todosAtivos,
+      ),
+    ).toEqual({ nivel: 'GESTOR', veTodos: true });
+    expect(
+      alcanceEfetivo(
+        quem('LIDER_COMERCIAL'),
+        comercial,
+        semAcessos,
+        todosAtivos,
+      ),
+    ).toEqual({ nivel: 'CONFIGURAR', veTodos: true });
+    expect(
+      alcanceEfetivo(quem('CS'), comercial, semAcessos, todosAtivos),
+    ).toBeNull();
+  });
+
+  it('R5.12 — com MEMBRO e VER: vê o negócio do colega, não age nele; age nos seus e nos sem responsável', () => {
+    const acesso = AcessoAosFunis.comNiveis(
+      membro,
+      new Map([['f-com', { nivel: 'MEMBRO' as const, veTodos: true }]]),
+    );
+    const doColega = { funilId: 'f-com', responsavelId: colega };
+    expect(acesso.nivel('f-com')).toBe('MEMBRO');
+    expect(acesso.veTodosNoFunil('f-com')).toBe(true);
+    expect(acesso.podeVerNegocio(doColega)).toBe(true);
+    expect(acesso.podeAgirNoNegocio(doColega)).toBe(false);
+    expect(
+      acesso.podeAgirNoNegocio({ funilId: 'f-com', responsavelId: membro.id }),
+    ).toBe(true);
+    expect(
+      acesso.podeAgirNoNegocio({ funilId: 'f-com', responsavelId: null }),
+    ).toBe(true);
+    expect(acesso.podeCriarNoFunil('f-com')).toBe(true);
+    expect(acesso.filtroDeNegocios()).toEqual({
+      OR: [{ funilId: { in: ['f-com'] } }],
+    });
   });
 });
 

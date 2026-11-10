@@ -119,6 +119,31 @@ export class SegmentosService {
     return acesso.todos ? {} : { funisDosNegocios: acesso.idsVisiveis() };
   }
 
+  /**
+   * Opções do público de uma campanha ou automação (R5.14): as condições de
+   * negócio contam os funis que **quem a criou** vê agora (o acesso atual dele,
+   * na hora da prévia, da revisão, do envio ou da execução). Desligado — ou sem
+   * autor conhecido —, nenhum negócio de funil `RESTRITA` conta.
+   */
+  async opcoesDoAutor(
+    autorId: string | null,
+  ): Promise<{ funisDosNegocios?: string[] }> {
+    const autor = autorId
+      ? await this.prisma.usuario.findUnique({
+          where: { id: autorId },
+          select: { id: true, papel: true, area: true, ativo: true },
+        })
+      : null;
+    if (autor?.ativo) {
+      return this.opcoesDoUsuario(autor);
+    }
+    const abertos = await this.prisma.funil.findMany({
+      where: { visibilidade: 'SETOR' },
+      select: { id: true },
+    });
+    return { funisDosNegocios: abertos.map(({ id }) => id) };
+  }
+
   where(
     segmento: Segmento,
     opcoes?: OpcoesDoSegmento,

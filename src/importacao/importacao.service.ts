@@ -876,9 +876,10 @@ export class ImportacaoService implements OnModuleInit {
   }
 
   /**
-   * R16.12: o cartão "Negócio para todos" só vale para contatos; o funil existe,
-   * está ativo e é visível a quem importa (a regra da criação manual, R5.9 — 403),
-   * a etapa é do funil e não é a de perda (422); o valor é um número ≥ 0 (400).
+   * R16.12: o cartão "Negócio para todos" só vale para contatos; o funil existe
+   * e a pessoa o vê (senão 404, R5.9), está ativo (422) e ela cria nele (a regra
+   * da criação manual, R5.12 — 403); a etapa é do funil e não é a de perda (422);
+   * o valor é um número ≥ 0 (400).
    */
   private async validarNegocio(
     usuario: UsuarioAutenticado,
@@ -894,31 +895,7 @@ export class ImportacaoService implements OnModuleInit {
         },
       );
     }
-    const funil = await this.prisma.funil.findFirst({
-      where: { id: negocio.funilId, excluidoEm: null },
-    });
-    if (!funil) {
-      throw new RegraVioladaException(
-        'R5.1',
-        'O funil de destino não existe ou foi excluído.',
-        { funilId: negocio.funilId },
-      );
-    }
-    if (!funil.ativo) {
-      throw new RegraVioladaException(
-        'R5.1',
-        `O funil ${funil.nome} está arquivado e não recebe negócios.`,
-        { funilId: funil.id },
-      );
-    }
-    if (
-      !(await funisAcessiveis(this.prisma, usuario)).podeCriarNoFunil(funil.id)
-    ) {
-      throw new SemPermissaoException(
-        `Você não pode criar negócios no funil ${funil.nome}.`,
-        { regra: 'R5.12', funilId: funil.id },
-      );
-    }
+    const funil = await this.funilEscolhido(usuario, negocio.funilId);
     const etapa = await this.prisma.etapa.findFirst({
       where: { id: negocio.etapaId, funilId: funil.id },
     });
@@ -1064,19 +1041,26 @@ export class ImportacaoService implements OnModuleInit {
     }
   }
 
-  private async funilParaTraducao(
-    usuario: UsuarioAutenticado,
-    funilId: string,
-  ) {
+  private funilParaTraducao(usuario: UsuarioAutenticado, funilId: string) {
+    return this.funilEscolhido(usuario, funilId);
+  }
+
+  /**
+   * O funil escolhido por id (cartão "Negócio para todos" ou tradução, R16.12,
+   * R16.14): o que não existe e o que a pessoa não vê respondem igual — 404, sem
+   * nome nem etapas (R5.9); arquivado → 422 (`R5.1`); visto mas sem criar
+   * negócios → 403 (`R5.12`).
+   */
+  private async funilEscolhido(usuario: UsuarioAutenticado, funilId: string) {
     const funil = await this.prisma.funil.findFirst({
       where: { id: funilId, excluidoEm: null },
     });
-    if (!funil) {
-      throw new RegraVioladaException(
-        'R5.1',
-        'O funil de destino não existe ou foi excluído.',
-        { funilId },
-      );
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    if (!funil || !acesso.podeVerFunil(funil.id)) {
+      throw new NaoEncontradoException('Funil não encontrado.', {
+        campo: 'funilId',
+        funilId,
+      });
     }
     if (!funil.ativo) {
       throw new RegraVioladaException(
@@ -1085,9 +1069,7 @@ export class ImportacaoService implements OnModuleInit {
         { funilId: funil.id },
       );
     }
-    if (
-      !(await funisAcessiveis(this.prisma, usuario)).podeCriarNoFunil(funil.id)
-    ) {
+    if (!acesso.podeCriarNoFunil(funil.id)) {
       throw new SemPermissaoException(
         `Você não pode criar negócios no funil ${funil.nome}.`,
         { regra: 'R5.12', funilId: funil.id },
@@ -1126,8 +1108,12 @@ export class ImportacaoService implements OnModuleInit {
       : planilha.linhas;
 
     const acesso = await funisAcessiveis(this.prisma, usuario);
+    // R5.9: funil que a pessoa não vê é como se não existisse (NAO_ENCONTRADO).
     const funisDb = await this.prisma.funil.findMany({
-      where: { excluidoEm: null },
+      where: {
+        excluidoEm: null,
+        ...(acesso.todos ? {} : { id: { in: acesso.idsVisiveis() } }),
+      },
       orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
       include: {
         etapas: { orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }] },

@@ -80,6 +80,31 @@ interface PlanoDeDesligamento {
    * o destinatário não está definido.
    */
   readonly divisao: readonly ParteDosNegocios<UsuarioDoDesligamento>[];
+  /** O Admin que executa e todos os usuários (para dividir o que chegar depois). */
+  readonly executor: UsuarioDoDesligamento;
+  readonly usuarios: readonly UsuarioDoDesligamento[];
+}
+
+/** Junta as partes da mesma pessoa (a divisão e a varredura final). */
+function juntarPartes(
+  partes: readonly ParteDosNegocios<UsuarioDoDesligamento>[],
+): ParteDosNegocios<UsuarioDoDesligamento>[] {
+  const juntas = new Map<string, ParteDosNegocios<UsuarioDoDesligamento>>();
+  for (const parte of partes) {
+    const anterior = juntas.get(parte.destinatario.id);
+    if (!anterior) {
+      juntas.set(parte.destinatario.id, parte);
+      continue;
+    }
+    const funis = new Map(anterior.funis.map((funil) => [funil.id, funil]));
+    for (const funil of parte.funis) funis.set(funil.id, funil);
+    juntas.set(parte.destinatario.id, {
+      ...anterior,
+      negocioIds: [...anterior.negocioIds, ...parte.negocioIds],
+      funis: [...funis.values()],
+    });
+  }
+  return [...juntas.values()];
 }
 
 /**
@@ -168,7 +193,7 @@ export class DesligamentoService {
             },
           );
         }
-        return this.executar(tx, plano.usuario, plano.escolha, plano.divisao);
+        return this.executar(tx, plano, plano.escolha);
       }),
     );
     const usuario = await this.prisma.usuario.findUniqueOrThrow({
@@ -379,6 +404,8 @@ export class DesligamentoService {
       escolha,
       liderados,
       divisao,
+      executor,
+      usuarios,
       contagens: {
         atividades,
         negocios,
@@ -434,18 +461,18 @@ export class DesligamentoService {
   /** Aplica o desligamento dentro da transação `tx`. */
   private async executar(
     tx: Tx,
-    usuario: UsuarioDoDesligamento,
+    plano: PlanoDeDesligamento,
     escolha: Extract<
       ResultadoDestinatario<UsuarioDoDesligamento>,
       { tipo: 'definido' }
     >,
-    divisao: readonly ParteDosNegocios<UsuarioDoDesligamento>[],
   ): Promise<{
     destinatario: UsuarioDoDesligamento;
     motivo: MotivoDestinatario;
     contagens: ContagensDoDesligamento;
     divisao: readonly ParteDosNegocios<UsuarioDoDesligamento>[];
   }> {
+    const { usuario } = plano;
     const { destinatario, motivo } = escolha;
     const agora = new Date();
     const de = { id: usuario.id, nome: usuario.nome };
@@ -508,38 +535,41 @@ export class DesligamentoService {
       para: UsuarioDoDesligamento;
       motivo: ParteDosNegocios<UsuarioDoDesligamento>['motivo'];
     }[] = [];
-    for (const parte of divisao) {
-      const movidos = await tx.negocio.updateManyAndReturn({
-        where: {
-          id: { in: [...parte.negocioIds] },
-          responsavelId: usuario.id,
-          status: 'ABERTO',
-          excluidoEm: null,
-        },
-        data: { responsavelId: parte.destinatario.id },
-        select: { id: true, titulo: true, contatoId: true, empresaId: true },
-      });
-      negocios.push(
-        ...movidos.map((negocio) => ({
-          ...negocio,
-          para: parte.destinatario,
-          motivo: parte.motivo,
-        })),
-      );
-    }
-    // O que tiver chegado depois da divisão (outra transação) vai para o destinatário, como antes.
-    const restantes = await tx.negocio.updateManyAndReturn({
-      where: { responsavelId: usuario.id, status: 'ABERTO', excluidoEm: null },
-      data: { responsavelId: destinatario.id },
-      select: { id: true, titulo: true, contatoId: true, empresaId: true },
-    });
-    negocios.push(
-      ...restantes.map((negocio) => ({
-        ...negocio,
-        para: destinatario,
-        motivo: 'DESTINATARIO' as const,
-      })),
+    const mover = async (
+      partes: readonly ParteDosNegocios<UsuarioDoDesligamento>[],
+    ): Promise<void> => {
+      for (const parte of partes) {
+        const movidos = await tx.negocio.updateManyAndReturn({
+          where: {
+            id: { in: [...parte.negocioIds] },
+            responsavelId: usuario.id,
+            status: 'ABERTO',
+            excluidoEm: null,
+          },
+          data: { responsavelId: parte.destinatario.id },
+          select: { id: true, titulo: true, contatoId: true, empresaId: true },
+        });
+        negocios.push(
+          ...movidos.map((negocio) => ({
+            ...negocio,
+            para: parte.destinatario,
+            motivo: parte.motivo,
+          })),
+        );
+      }
+    };
+    await mover(plano.divisao);
+    // O que tiver chegado depois da divisão (outra transação) segue a mesma
+    // regra (R5.13): uma segunda divisão, só com os que restaram.
+    const tardios = await this.dividirNegocios(
+      tx,
+      usuario,
+      destinatario,
+      plano.executor,
+      plano.usuarios,
     );
+    await mover(tardios);
+    const divisao = juntarPartes([...plano.divisao, ...tardios]);
     const contatos = await tx.contato.updateManyAndReturn({
       where: { responsavelId: usuario.id, excluidoEm: null },
       data: { responsavelId: destinatario.id },

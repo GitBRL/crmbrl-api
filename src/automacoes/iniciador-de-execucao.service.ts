@@ -201,6 +201,8 @@ export class IniciadorDeExecucao {
     const { segmento } = lerCondicoes(automacao.condicoes);
     if (segmento) {
       const dentro = await this.segmentos.contem(segmento, alvo.contatoId, {
+        // R5.14: as condições de negócio contam os funis que quem criou vê agora.
+        ...(await this.segmentos.opcoesDoAutor(automacao.criadoPorId)),
         excluirOptOut: automacao.marketing,
         ...(alvo.negocioId ? { negocioId: alvo.negocioId } : {}),
       });

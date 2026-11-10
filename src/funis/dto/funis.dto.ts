@@ -148,6 +148,12 @@ export class FunilDto {
   })
   nivel: NivelNoFunil;
 
+  @ApiProperty({
+    description:
+      'Vê todos os negócios do funil (R5.12): verdadeiro se quem consulta tem, por algum caminho (direto, pelo setor ou pelo papel), `VER`, `GESTOR` ou `CONFIGURAR`; falso = só os seus e os sem responsável. Ver é separado de agir: um `MEMBRO` com `veTodos` vê os negócios dos colegas, mas edita e move só os seus e os sem responsável.',
+  })
+  veTodos: boolean;
+
   @ApiProperty({ type: [EtapaDto], description: 'Etapas em ordem.' })
   etapas: EtapaDto[];
 
@@ -157,7 +163,11 @@ export class FunilDto {
   @ApiProperty({ format: 'date-time' })
   atualizadoEm: string;
 
-  static de(funil: FunilParaDto, nivel: NivelNoFunil): FunilDto {
+  static de(
+    funil: FunilParaDto,
+    nivel: NivelNoFunil,
+    veTodos = nivel !== 'MEMBRO',
+  ): FunilDto {
     return {
       id: funil.id,
       nome: funil.nome,
@@ -169,6 +179,7 @@ export class FunilDto {
       nomeSetor: funil.setor.nome,
       visibilidade: funil.visibilidade,
       nivel,
+      veTodos,
       etapas: [...funil.etapas]
         .sort((a, b) => a.ordem - b.ordem)
         .map((etapa) => EtapaDto.de(etapa)),

@@ -1,6 +1,7 @@
 import type { Response } from 'supertest';
 import { filtroDeLinhaDoTempo } from '../src/auditoria/auditoria.service';
 import { TIPOS_NOTIFICACAO } from '../src/notificacoes/tipos-notificacao';
+import { DesligamentoService } from '../src/usuarios/desligamento.service';
 import type { Usuario } from '../src/generated/prisma/client';
 import {
   type AppTeste,
@@ -856,6 +857,71 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
     ]);
     await desligar(ana.id).expect(200);
     expect(await responsavel(outroDoCs.id)).toBe(comercial.cLevel.id);
+  });
+
+  it('R7.3/R5.13 — a varredura final (negócio que chegou depois da divisão) segue a mesma divisão por funil', async () => {
+    const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    const cs = await criarEquipe(t, 'CS', {
+      membros: 0,
+      cLevel: comercial.cLevel,
+    });
+    const [pedro] = comercial.membros;
+    const funilCs = await funilBase(t, 'CS');
+    await comoAdmin
+      .put(`/api/v1/funis/${funilCs.id}/acessos`, {
+        acessos: [{ usuarioId: pedro.id, nivel: 'MEMBRO' }],
+      })
+      .expect(200);
+    const doComercial = await criarNegocio(t, {
+      area: 'COMERCIAL',
+      responsavel: pedro,
+    });
+    const doCs = await criarNegocio(t, { area: 'CS', responsavel: pedro });
+    // A divisão do plano não vê nenhum negócio: todos "chegam depois" dela.
+    const servico = t.get(DesligamentoService) as unknown as {
+      dividirNegocios: (...argumentos: unknown[]) => Promise<unknown[]>;
+    };
+    const espiao = jest
+      .spyOn(servico, 'dividirNegocios')
+      .mockResolvedValueOnce([]);
+    try {
+      const resposta = await desligar(pedro.id).expect(200);
+      expect(espiao).toHaveBeenCalledTimes(2);
+      expect(resposta.body.contagens.negocios).toBe(2);
+      expect(resposta.body.divisaoDosNegocios).toEqual([
+        expect.objectContaining({
+          destinatario: expect.objectContaining({ id: comercial.lider.id }),
+          motivo: 'DESTINATARIO',
+          negocios: 1,
+        }),
+        expect.objectContaining({
+          destinatario: expect.objectContaining({ id: cs.lider.id }),
+          motivo: 'LIDER_DO_SETOR_DO_FUNIL',
+          negocios: 1,
+        }),
+      ]);
+    } finally {
+      espiao.mockRestore();
+    }
+    const responsavel = async (id: string) =>
+      (await t.prisma.negocio.findUniqueOrThrow({ where: { id } }))
+        .responsavelId;
+    expect(await responsavel(doComercial.id)).toBe(comercial.lider.id);
+    expect(await responsavel(doCs.id)).toBe(cs.lider.id);
+    const auditoria = await t.prisma.eventoAuditoria.findFirstOrThrow({
+      where: { acao: 'negocio.encaminhado', entidadeId: doCs.id },
+    });
+    expect(auditoria.dados).toMatchObject({
+      motivoDaParte: 'LIDER_DO_SETOR_DO_FUNIL',
+      regra: 'R5.13',
+    });
+    const avisoCs = await t.prisma.notificacao.findFirstOrThrow({
+      where: {
+        usuarioId: cs.lider.id,
+        tipo: TIPOS_NOTIFICACAO.ITENS_ENCAMINHADOS,
+      },
+    });
+    expect(avisoCs.texto).toContain('1 negócio');
   });
 
   it('R7.3 — invalida os links de senha pendentes e não mexe em itens excluídos', async () => {
