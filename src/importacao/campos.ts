@@ -55,10 +55,10 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
     rotulo: 'Empresa',
     sinonimos: [
       'empresa',
+      'organization name',
       'company',
       'organizacao',
       'razao social',
-      'organization name',
     ],
   },
   {
