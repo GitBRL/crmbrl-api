@@ -16,7 +16,12 @@ export interface OpcoesDeLeitura {
   aba?: string;
   /** Linha do cabeçalho (padrão 1). */
   linhaCabecalho?: number;
+  /** A planilha não tem cabeçalho: colunas "Coluna 1"…"Coluna N" e a linha 1 é dado (R16.13). */
+  semCabecalho?: boolean;
 }
+
+/** Linhas olhadas para saber quantas colunas tem uma planilha sem cabeçalho. */
+const LINHAS_PARA_LARGURA = 50;
 
 export interface LinhaLida {
   /** Número da linha no arquivo (CSV: ordem do registro, cabeçalho = 1). */
@@ -156,7 +161,13 @@ function lerCsv(conteudo: Buffer, opcoes: OpcoesDeLeitura): PlanilhaLida {
   return montar(
     registros.map((valores, i) => ({ numero: i + 1, valores })),
     opcoes.linhaCabecalho ?? 1,
-    { separador, codificacao, linhaCabecalho: opcoes.linhaCabecalho ?? 1 },
+    {
+      separador,
+      codificacao,
+      linhaCabecalho: opcoes.linhaCabecalho ?? 1,
+      ...(opcoes.semCabecalho ? { semCabecalho: true } : {}),
+    },
+    opcoes.semCabecalho === true,
   );
 }
 
@@ -211,7 +222,8 @@ async function lerXlsx(
   conteudo: Buffer,
   opcoes: OpcoesDeLeitura,
 ): Promise<PlanilhaLida> {
-  const linhaCabecalho = opcoes.linhaCabecalho ?? 1;
+  const semCabecalho = opcoes.semCabecalho === true;
+  const linhaCabecalho = semCabecalho ? 1 : (opcoes.linhaCabecalho ?? 1);
   const entrada = Readable.from([conteudo]);
   const leitor = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
     worksheets: 'emit',
@@ -246,7 +258,13 @@ async function lerXlsx(
           continue;
         }
         const celulas = linha.values as ExcelJS.CellValue[];
-        if (linha.number === linhaCabecalho) {
+        if (semCabecalho) {
+          // Sem cabeçalho não há largura de referência: vale a última célula com texto da linha.
+          largura = Math.min(
+            larguraDoCabecalho(celulas, false),
+            LIMITE_DE_COLUNAS_DA_IMPORTACAO,
+          );
+        } else if (linha.number === linhaCabecalho) {
           largura = larguraDoCabecalho(celulas);
         }
         const valores: string[] = [];
@@ -274,22 +292,31 @@ async function lerXlsx(
           : 'A planilha não tem abas.',
     );
   }
-  return montar(registros, linhaCabecalho, {
-    aba: nomeDaAba,
-    abas,
+  return montar(
+    registros,
     linhaCabecalho,
-  });
+    {
+      aba: nomeDaAba,
+      abas,
+      linhaCabecalho,
+      ...(semCabecalho ? { semCabecalho: true } : {}),
+    },
+    semCabecalho,
+  );
 }
 
 /** Última coluna com texto no cabeçalho (as células vêm num array esparso). */
-function larguraDoCabecalho(celulas: readonly ExcelJS.CellValue[]): number {
+function larguraDoCabecalho(
+  celulas: readonly ExcelJS.CellValue[],
+  limitar = true,
+): number {
   let ultima = 0;
   celulas.forEach((valor, indice) => {
     if (textoDaCelula(valor).trim() !== '') {
       ultima = Math.max(ultima, indice);
     }
   });
-  if (ultima > LIMITE_DE_COLUNAS_DA_IMPORTACAO) {
+  if (limitar && ultima > LIMITE_DE_COLUNAS_DA_IMPORTACAO) {
     throw new PlanilhaIlegivelError(
       `A planilha tem mais de ${LIMITE_DE_COLUNAS_DA_IMPORTACAO} colunas no cabeçalho.`,
     );
@@ -303,7 +330,11 @@ function montar(
   registros: LinhaLida[],
   linhaCabecalho: number,
   leitura: PlanilhaLida['leitura'],
+  semCabecalho = false,
 ): PlanilhaLida {
+  if (semCabecalho) {
+    return montarSemCabecalho(registros, leitura);
+  }
   const cabecalho = registros.find((r) => r.numero === linhaCabecalho);
   if (!cabecalho || cabecalho.valores.every((v) => v.trim() === '')) {
     throw new PlanilhaIlegivelError(
@@ -320,6 +351,33 @@ function montar(
       numero: r.numero,
       valores: colunas.map((_, i) => (r.valores[i] ?? '').trim()),
     }));
+  return { colunas, linhas, leitura };
+}
+
+/** Sem cabeçalho: "Coluna 1"…"Coluna N" (N = maior largura entre as primeiras linhas) e a linha 1 é dado. */
+function montarSemCabecalho(
+  registros: LinhaLida[],
+  leitura: PlanilhaLida['leitura'],
+): PlanilhaLida {
+  const comDados = registros.filter((r) =>
+    r.valores.some((v) => v.trim() !== ''),
+  );
+  if (comDados.length === 0) {
+    throw new PlanilhaIlegivelError('A planilha está vazia.');
+  }
+  let largura = 0;
+  for (const r of comDados.slice(0, LINHAS_PARA_LARGURA)) {
+    let ultimo = r.valores.length;
+    while (ultimo > 0 && r.valores[ultimo - 1].trim() === '') {
+      ultimo--;
+    }
+    largura = Math.max(largura, ultimo);
+  }
+  const colunas = Array.from({ length: largura }, (_, i) => `Coluna ${i + 1}`);
+  const linhas = comDados.map((r) => ({
+    numero: r.numero,
+    valores: colunas.map((_, i) => (r.valores[i] ?? '').trim()),
+  }));
   return { colunas, linhas, leitura };
 }
 

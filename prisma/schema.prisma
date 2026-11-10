@@ -2202,6 +2202,10 @@ model Importacao {
   atualizados           Int                     @default(0)
   ignorados             Int                     @default(0)
   erros                 Int                     @default(0)
+  /// Linhas que não passaram no filtro da planilha (não viram `ImportacaoLinha`).
+  filtradas             Int                     @default(0)
+  negociosCriados       Int                     @default(0) @map("negocios_criados")
+  negociosReconvertidos Int                     @default(0) @map("negocios_reconvertidos")
   /// Relatório XLSX gerado no fim.
   relatorioId           String?                 @map("relatorio_id") @db.Uuid
   relatorio             Arquivo?                @relation("ImportacaoRelatorio", fields: [relatorioId], references: [id], onDelete: SetNull)

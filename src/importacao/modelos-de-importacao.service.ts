@@ -8,7 +8,7 @@ import {
 } from '../comum/erros/excecoes';
 import { type Prisma, TipoImportacao } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { camposDoTipo, validarMapeamento } from './campos';
+import { camposDoTipo, grupoDoCampo, validarMapeamento } from './campos';
 import {
   type AtualizarModeloDto,
   CampoDeImportacaoDto,
@@ -16,6 +16,31 @@ import {
   ModeloDeImportacaoDto,
 } from './importacao.dto';
 import { ImportacaoService } from './importacao.service';
+import { DDI_PADRAO, PADRAO_DDI } from './ddi';
+import { lerFiltro, lerNegocio } from './opcoes';
+
+/**
+ * Opções de um modelo (R16.13): filtro, negócio e DDI são conferidos na forma
+ * (o que não serve é descartado); as demais chaves (duplicados, etiquetas…) seguem como vieram.
+ */
+function limparOpcoesDoModelo(
+  opcoes: Record<string, unknown>,
+): Prisma.InputJsonObject {
+  const { filtro, negocio, ddiPadrao, ...resto } = opcoes;
+  const limpas: Record<string, unknown> = { ...resto };
+  const f = lerFiltro(filtro);
+  if (f) limpas.filtro = f;
+  const n = lerNegocio(negocio);
+  if (n) limpas.negocio = n;
+  if (
+    typeof ddiPadrao === 'string' &&
+    PADRAO_DDI.test(ddiPadrao) &&
+    ddiPadrao !== DDI_PADRAO
+  ) {
+    limpas.ddiPadrao = ddiPadrao;
+  }
+  return limpas as Prisma.InputJsonObject;
+}
 
 /** Modelos de mapeamento salvos (R16.3): coluna da planilha → campo, para reaproveitar. */
 @Injectable()
@@ -31,6 +56,7 @@ export class ModelosDeImportacaoService {
       chave: c.chave,
       rotulo: c.rotulo,
       obrigatorio: c.obrigatorio === true,
+      grupo: grupoDoCampo(tipo, c),
     }));
   }
 
@@ -60,7 +86,7 @@ export class ModelosDeImportacaoService {
           nome,
           tipo: dto.tipo,
           mapeamento: dto.mapeamento,
-          opcoes: (dto.opcoes ?? {}) as Prisma.InputJsonObject,
+          opcoes: limparOpcoesDoModelo(dto.opcoes ?? {}),
           criadoPorId: usuario.id,
         },
       });
@@ -92,7 +118,7 @@ export class ModelosDeImportacaoService {
       dados.mapeamento = dto.mapeamento;
     }
     if (dto.opcoes !== undefined) {
-      dados.opcoes = dto.opcoes as Prisma.InputJsonObject;
+      dados.opcoes = limparOpcoesDoModelo(dto.opcoes);
     }
     const modelo = await this.prisma.$transaction(async (tx) => {
       const atualizado = await tx.importacaoModelo.update({

@@ -746,7 +746,12 @@ real ("cenário N" no nome do teste).
   origem, etiquetas, UTM e `campos.<chave>` para campos personalizados; para empresas,
   nome, CNPJ, UF etc.). Cada campo recebe no máximo uma coluna; para contatos, o início
   exige **nome** e e-mail ou telefone mapeados. Mapeamentos podem ser salvos como
-  **modelo** (auditado) e aplicados a outra planilha pelos nomes das colunas.
+  **modelo** (auditado) e aplicados a outra planilha pelos nomes das colunas. Para
+  contatos há também os campos `responsavel` (e-mail ou nome), `negocio.funil`,
+  `negocio.etapa`, `negocio.titulo`, `negocio.valor` e `negocio.valorRecorrente`
+  (R16.12); a lista de campos vem agrupada (`grupo`: Contato, Negócio, Empresa, Parcela).
+  O modelo guarda também filtro, negócio e DDI; ao aplicar, regras de filtro de colunas que
+  o arquivo novo não tem são descartadas e o negócio que não serve mais some em silêncio.
 - **R16.4** **Processamento:** em fila, em lotes de 100 linhas, **linha a linha pelos
   mesmos serviços da criação manual** (normalização R4.1 e deduplicação R4.2, origem
   `IMPORTACAO` com o detalhe informado, etiquetas e campos personalizados). A linha
@@ -758,10 +763,11 @@ real ("cenário N" no nome do teste).
   existente) ou *sobrescrever* (troca pelos valores da planilha).
 - **R16.6** **Responsável:** quem importou (R4.5), uma pessoa fixa ao alcance de quem
   importa, ou rodízio da área (R5.8); só vale para contatos criados, nunca troca o
-  responsável de quem já existe.
+  responsável de quem já existe. Com a coluna `responsavel` (R16.12) ela tem prioridade.
 - **R16.7** **Cancelar e retomar:** cancelar antes de processar não importa nada; depois
   de concluída, não cancela. Se o processo cair, a retomada continua depois da última
-  linha gravada e os contadores somam tudo.
+  linha gravada e os contadores somam tudo; `filtradas` é recalculado do arquivo (não
+  somado), então retomar não o conta em dobro nem pula linhas.
 - **R16.8** **Auditoria e relatório:** o resumo da importação é auditado (`criada`,
   `iniciada`, `concluida`, `cancelada`, `falhou`, com as contagens) **e** cada contato ou
   empresa criado ou reconvertido tem o seu próprio evento de auditoria
@@ -778,6 +784,48 @@ real ("cenário N" no nome do teste).
   texto e as de data e valor em formato de data e de número. A 2ª aba, "Como preencher",
   explica cada coluna e as regras (etiquetas separadas por vírgula, campos personalizados,
   limites). Mesma permissão de importar (R16.1); para parcelas, a mesma da criação (R22.1).
+- **R16.11** **Filtro da planilha:** de 1 a 10 regras (`coluna`, `operador`, `valor`) sobre
+  **qualquer coluna do arquivo**, mapeada ou não, combinadas por `TODAS` (E) ou `QUALQUER`
+  (OU). Operadores: igual, diferente, contém, não contém, começa com, termina com, um de
+  (`,` ou `;`), vazio, preenchido, maior que, menor que. Texto comparado sem acento, caixa
+  nem espaços extras; maior/menor comparam datas (`dd/mm/aaaa` ou data do XLSX) e, senão,
+  números (`1.234,56`, `1234.56`, `R$ 1.234,56`); outra coisa dá falso. A prévia mostra só as
+  linhas que passam (com o `numero` original) e `linhasNoFiltro`. Linha fora do filtro **não
+  vira linha da importação** e soma em `filtradas`. Iniciar sem nenhuma linha no filtro é 422
+  ("Nenhuma linha da planilha passa no filtro."). Coluna inexistente, operador sem valor ou
+  mais de 10 regras são 400.
+- **R16.12** **Negócio por importação (só contatos):** o cartão "Negócio para todos" (`negocio`:
+  funil, etapa, título e valor opcionais) e/ou as colunas `negocio.*` criam um negócio para
+  cada contato resolvido (criado, atualizado ou encontrado; **duplicado com IGNORAR não toca
+  no existente e não cria negócio**). Destino: colunas de funil e etapa > só funil na coluna
+  (etapa de entrada, a primeira aberta, como na criação manual) > só etapa na coluna (procura
+  no funil do cartão) > funil e etapa do cartão > nada: sem negócio. Vínculo pelo nome
+  normalizado. Funil ou etapa inexistente, arquivado, sem permissão (a mesma da criação manual:
+  a pessoa precisa ver a área do funil, R5.9) ou etapa de perda: o contato importa e a linha
+  leva o aviso `Negócio não criado: …` no `motivo`; ao definir o cartão, funil/etapa inválidos
+  são 422 (R5.1, R5.4, R5.5), funil de área que a pessoa não vê é 403 e valor que não é
+  número ≥ 0 é 400. A criação usa `NegociosService.criarAutomatico` (origem `IMPORTACAO`,
+  título coluna > cartão > nome do contato, valor e valor recorrente coluna > cartão): R5.6
+  vale (contato com negócio aberto no funil ganha reconversão, contada em
+  `negociosReconvertidos`; senão `negociosCriados`). **Responsável** do negócio (e do contato
+  criado): coluna `responsavel` (usuário ativo por e-mail exato ou nome normalizado único, ao
+  alcance de quem importa e que atue na área do funil) > estratégia da importação (pessoa
+  fixa; rodízio da área do funil; quem importou); coluna que não serve usa a estratégia e
+  avisa. Se a pessoa fixa (ou quem importou) não atua na área do funil, o negócio vai direto
+  para o líder da área (R5.8), sem aviso no log técnico a cada linha. Contato que já existia
+  nunca troca de responsável. **Transação:** contato, negócio e
+  linha são gravados juntos; se o negócio falhar por erro inesperado, a linha inteira é
+  desfeita e vira erro ("Negócio não criado: … A linha inteira foi desfeita."). **Notificação:**
+  a importação não notifica por negócio; ao concluir, cada responsável (menos quem importou)
+  recebe **uma** notificação `negocio.atribuido` ("Você recebeu N negócios da importação
+  <nome>"). Eventos de domínio, auditoria, automações e passagens seguem por negócio.
+- **R16.13** **Sem cabeçalho e DDI padrão:** `leitura.semCabecalho` faz as colunas serem
+  "Coluna 1"…"Coluna N" (N = a maior largura entre as primeiras 50 linhas), a linha 1 ser dado
+  (o `numero` continua sendo a linha do arquivo) e o mapeamento sugerido ficar vazio.
+  `ddiPadrao` (1 a 3 dígitos, padrão `55`) vai no telefone sem `+`/`00` que ainda não começa
+  com ele; com `55` vale a regra brasileira de R4.1, sem mudança. O relatório XLSX, a
+  auditoria (`importacao.concluida`) e o evento de domínio levam `filtradas`, `negociosCriados`
+  e `negociosReconvertidos`.
 
 ## 22. Disparos (R17)
 
@@ -2901,3 +2949,13 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
      remover o webhook (nova tentativa) ou o Admin descartar a pendência (R32.25, R32.26).
 402. A renovação do token que termina depois de a conexão mudar (troca do ID do app) não a sobrescreve (R32.22, R32.25).
 403. Duas chamadas ao mesmo tempo com o token vencido renovam uma só vez e as duas dão certo (R32.25).
+404. Filtro da planilha: validação das regras (400), prévia só com as linhas que passam, "nenhuma linha passa" é 422 e as filtradas não viram linha da importação (R16.11).
+405. Retomar uma importação com filtro não conta as filtradas duas vezes nem pula linhas (R16.11, R16.7).
+406. Negócio para todos: cartão validado (422/400), funil e etapa devolvidos com nome, um negócio por contato com origem `IMPORTACAO` (R16.12).
+407. Funil e etapa por coluna pelo nome sem acento nem caixa, padrões e aviso de funil inexistente sem perder o contato (R16.12).
+408. Reconversão (R5.6) conta em `negociosReconvertidos`; duplicado com IGNORAR não ganha negócio (R16.12).
+409. Responsável por coluna (e-mail ou nome) no contato novo e no negócio; coluna inválida ou fora do alcance cai na estratégia com aviso; contato existente não troca de responsável (R16.12).
+410. Planilha sem cabeçalho (Coluna 1…N) e DDI padrão (R16.13).
+411. Quem não vê a área do funil recebe 403 ao definir o cartão; por coluna, o contato entra sem negócio e com aviso (R16.12, R5.9).
+412. Uma notificação por responsável ao concluir; se o negócio falha, contato, negócio e linha são desfeitos juntos (R16.12).
+413. Campos com grupo e modelo de mapeamento com filtro, negócio e DDI (colunas inexistentes descartadas) (R16.3, R16.13).

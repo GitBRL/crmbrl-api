@@ -78,6 +78,8 @@ export interface EntradaNegocioAutomatico {
   sempreCriar?: boolean;
   /** Integração (R32.3): com mais de um aberto, a reconversão vai para o mais recente (padrão: o mais antigo, R5.6). */
   abertoMaisRecente?: boolean;
+  /** `false` não notifica o responsável (a importação manda uma só notificação por responsável ao concluir). Padrão: notifica. */
+  notificar?: boolean;
 }
 
 /** Campos do negócio que a edição audita (antes/depois, R3.1). */
@@ -587,7 +589,11 @@ export class NegociosService {
     });
     const { negocio } = resultado;
     const ator = contextoAtual().usuario?.id;
-    if (negocio.responsavelId && negocio.responsavelId !== ator) {
+    if (
+      entrada.notificar !== false &&
+      negocio.responsavelId &&
+      negocio.responsavelId !== ator
+    ) {
       await this.notificacoes.notificar(tx, negocio.responsavelId, {
         tipo: TIPOS_NOTIFICACAO.NEGOCIO_ATRIBUIDO,
         titulo: resultado.criado

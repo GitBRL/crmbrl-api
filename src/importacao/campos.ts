@@ -11,6 +11,8 @@ export interface CampoDeImportacao {
   readonly rotulo: string;
   /** Preencher este campo não é opcional para a importação rodar. */
   readonly obrigatorio?: boolean;
+  /** Seção da lista de campos na tela (padrão: a do tipo — Contato, Empresa ou Parcela). */
+  readonly grupo?: string;
   /** Nomes de coluna (já sem acento, minúsculos) que sugerem este campo. */
   readonly sinonimos: readonly string[];
 }
@@ -69,6 +71,77 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
   },
   { chave: 'utm.term', rotulo: 'UTM term', sinonimos: ['utm term'] },
   { chave: 'utm.content', rotulo: 'UTM content', sinonimos: ['utm content'] },
+  {
+    chave: 'responsavel',
+    rotulo: 'Responsável (e-mail ou nome)',
+    sinonimos: [
+      'responsavel',
+      'responsavel e mail ou nome',
+      'atendente',
+      'vendedor',
+      'dono',
+      'owner',
+      'consultor',
+      'representante',
+      'sdr',
+      'closer',
+    ],
+  },
+  {
+    chave: 'negocio.funil',
+    rotulo: 'Funil do negócio',
+    grupo: 'Negócio',
+    sinonimos: ['funil', 'pipeline', 'funil de vendas', 'funil do negocio'],
+  },
+  {
+    chave: 'negocio.etapa',
+    rotulo: 'Etapa do negócio',
+    grupo: 'Negócio',
+    sinonimos: [
+      'etapa',
+      'fase',
+      'estagio',
+      'status do negocio',
+      'etapa do funil',
+      'etapa do negocio',
+    ],
+  },
+  {
+    chave: 'negocio.titulo',
+    rotulo: 'Título do negócio',
+    grupo: 'Negócio',
+    sinonimos: [
+      'titulo do negocio',
+      'negocio',
+      'oportunidade',
+      'deal',
+      'nome do negocio',
+    ],
+  },
+  {
+    chave: 'negocio.valor',
+    rotulo: 'Valor do negócio',
+    grupo: 'Negócio',
+    sinonimos: [
+      'valor',
+      'valor do negocio',
+      'preco',
+      'valor total',
+      'valor da proposta',
+    ],
+  },
+  {
+    chave: 'negocio.valorRecorrente',
+    rotulo: 'Valor recorrente do negócio',
+    grupo: 'Negócio',
+    sinonimos: [
+      'valor recorrente',
+      'valor recorrente do negocio',
+      'recorrente',
+      'mrr',
+      'mensalidade',
+    ],
+  },
 ];
 
 export const CAMPOS_DE_EMPRESA: readonly CampoDeImportacao[] = [
@@ -114,6 +187,21 @@ export const CAMPOS_DE_EMPRESA: readonly CampoDeImportacao[] = [
     sinonimos: ['etiquetas', 'etiqueta', 'tags', 'tag'],
   },
 ];
+
+/** Seção de um campo na lista: a do próprio campo ou a do tipo. */
+export function grupoDoCampo(
+  tipo: TipoImportacao,
+  campo: CampoDeImportacao,
+): string {
+  if (campo.grupo) {
+    return campo.grupo;
+  }
+  return tipo === 'PARCELAS'
+    ? 'Parcela'
+    : tipo === 'CONTATOS'
+      ? 'Contato'
+      : 'Empresa';
+}
 
 export function camposDoTipo(
   tipo: TipoImportacao,

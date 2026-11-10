@@ -65,6 +65,12 @@ export async function gerarRelatorio(
     { item: 'Atualizados', valor: importacao.atualizados },
     { item: 'Ignorados', valor: importacao.ignorados },
     { item: 'Erros', valor: importacao.erros },
+    { item: 'Fora do filtro', valor: importacao.filtradas },
+    { item: 'Negócios criados', valor: importacao.negociosCriados },
+    {
+      item: 'Negócios reconvertidos',
+      valor: importacao.negociosReconvertidos,
+    },
     { item: 'Duração (segundos)', valor: duracao ?? '' },
   ]);
   resumo.getRow(1).font = { bold: true };

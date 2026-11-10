@@ -5,6 +5,8 @@ import {
   normalizarColuna,
   sugerirMapeamento,
   validarMapeamento,
+  camposDoTipo,
+  grupoDoCampo,
 } from './campos';
 
 describe('Mapeamento de colunas (R16.3)', () => {
@@ -95,5 +97,62 @@ describe('Mapeamento de colunas (R16.3)', () => {
     expect(
       validarMapeamento('EMPRESAS', ['A'], { A: 'cnpj' }, true),
     ).toHaveLength(1);
+  });
+
+  it('R16.12 — sinônimos de funil, etapa, responsável, valor e título do negócio', () => {
+    expect(
+      sugerirMapeamento('CONTATOS', [
+        'Nome',
+        'E-mail',
+        'Pipeline',
+        'Fase',
+        'Vendedor',
+        'Valor',
+        'Oportunidade',
+      ]),
+    ).toEqual({
+      Nome: 'nome',
+      'E-mail': 'email',
+      Pipeline: 'negocio.funil',
+      Fase: 'negocio.etapa',
+      Vendedor: 'responsavel',
+      Valor: 'negocio.valor',
+      Oportunidade: 'negocio.titulo',
+    });
+    const m = sugerirMapeamento('CONTATOS', [
+      'Funil',
+      'Estágio',
+      'Atendente',
+      'Dono',
+    ]);
+    expect(m).toEqual({
+      Funil: 'negocio.funil',
+      Estágio: 'negocio.etapa',
+      Atendente: 'responsavel',
+    });
+  });
+
+  it('R16.12 — campos de negócio só existem para contatos e têm grupo', () => {
+    expect(campoValido('CONTATOS', 'negocio.valorRecorrente')).toBe(true);
+    expect(campoValido('EMPRESAS', 'negocio.funil')).toBe(false);
+    const campos = camposDoTipo('CONTATOS');
+    expect(
+      grupoDoCampo(
+        'CONTATOS',
+        campos.find((c) => c.chave === 'negocio.funil')!,
+      ),
+    ).toBe('Negócio');
+    expect(
+      grupoDoCampo(
+        'CONTATOS',
+        campos.find((c) => c.chave === 'nome')!,
+      ),
+    ).toBe('Contato');
+    expect(grupoDoCampo('EMPRESAS', camposDoTipo('EMPRESAS')[0])).toBe(
+      'Empresa',
+    );
+    expect(grupoDoCampo('PARCELAS', camposDoTipo('PARCELAS')[0])).toBe(
+      'Parcela',
+    );
   });
 });

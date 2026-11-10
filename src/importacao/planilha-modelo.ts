@@ -71,6 +71,32 @@ const ORIENTACOES: Record<TipoImportacao, Record<string, Orientacao>> = {
       oQueColocar: 'Variação do anúncio ou do link.',
       exemplo: 'banner-azul',
     },
+    responsavel: {
+      oQueColocar:
+        'E-mail ou nome de um usuário ativo do CRM, dono do contato e do negócio.',
+      exemplo: 'ana@exemplo.com.br',
+    },
+    'negocio.funil': {
+      oQueColocar: 'Nome do funil em que o negócio entra.',
+      exemplo: 'Vendas',
+    },
+    'negocio.etapa': {
+      oQueColocar:
+        'Nome da etapa do funil (sem a coluna, entra na primeira etapa aberta).',
+      exemplo: 'Novo lead',
+    },
+    'negocio.titulo': {
+      oQueColocar: 'Título do negócio (sem a coluna, vale o nome do contato).',
+      exemplo: 'Proposta de implantação',
+    },
+    'negocio.valor': {
+      oQueColocar: 'Valor do negócio em reais.',
+      exemplo: '1.500,00',
+    },
+    'negocio.valorRecorrente': {
+      oQueColocar: 'Valor recorrente (mensal) do negócio em reais.',
+      exemplo: '300,00',
+    },
   },
   EMPRESAS: {
     nome: { oQueColocar: 'Nome da empresa.', exemplo: 'Exemplo Ltda' },

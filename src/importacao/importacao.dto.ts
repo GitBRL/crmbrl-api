@@ -2,7 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -16,6 +18,13 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import {
+  MAXIMO_DE_REGRAS_DO_FILTRO,
+  OPERADORES_DO_FILTRO,
+  type FiltroDaPlanilha,
+  type OperadorFiltro,
+} from './filtro-de-linhas';
+import { type NegocioParaTodos, lerOpcoes } from './opcoes';
 import { QUANTIDADE_MAXIMA_ETIQUETAS } from '../comum/dominio/etiquetas';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import {
@@ -69,6 +78,14 @@ export class LeituraDto {
   @Min(1, { message: 'deve ser no mínimo 1' })
   @Max(100, { message: 'deve ser no máximo 100' })
   linhaCabecalho?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'A planilha não tem cabeçalho: colunas "Coluna 1", "Coluna 2"… e a linha 1 é dado.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
+  semCabecalho?: boolean;
 }
 
 export class CriarImportacaoDto {
@@ -94,7 +111,110 @@ export class CriarImportacaoDto {
   leitura?: LeituraDto;
 }
 
+export class RegraDoFiltroDto {
+  @ApiProperty({ description: 'Nome de uma coluna do arquivo.' })
+  @IsString({ message: MENSAGEM_TEXTO })
+  @MaxLength(200, { message: 'deve ter no máximo 200 caracteres' })
+  coluna: string;
+
+  @ApiProperty({ enum: OPERADORES_DO_FILTRO })
+  @emMaiusculas()
+  @IsIn([...OPERADORES_DO_FILTRO], {
+    message: `deve ser um destes: ${OPERADORES_DO_FILTRO.join(', ')}`,
+  })
+  operador: OperadorFiltro;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Obrigatório, menos em VAZIO e PREENCHIDO.',
+  })
+  @IsOptional()
+  @IsString({ message: MENSAGEM_TEXTO })
+  @MaxLength(500, { message: 'deve ter no máximo 500 caracteres' })
+  valor?: string | null;
+}
+
+export class FiltroDaPlanilhaDto {
+  @ApiProperty({ enum: ['TODAS', 'QUALQUER'] })
+  @emMaiusculas()
+  @IsIn(['TODAS', 'QUALQUER'], { message: 'deve ser TODAS ou QUALQUER' })
+  combinacao: 'TODAS' | 'QUALQUER';
+
+  @ApiProperty({
+    type: [RegraDoFiltroDto],
+    description: `De 1 a ${MAXIMO_DE_REGRAS_DO_FILTRO} regras.`,
+  })
+  @IsArray({ message: 'deve ser uma lista de regras' })
+  @ArrayMinSize(1, { message: 'informe ao menos uma regra' })
+  @ArrayMaxSize(MAXIMO_DE_REGRAS_DO_FILTRO, {
+    message: `no máximo ${MAXIMO_DE_REGRAS_DO_FILTRO} regras`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => RegraDoFiltroDto)
+  regras: RegraDoFiltroDto[];
+}
+
+export class NegocioParaTodosDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID('all', MENSAGEM_UUID)
+  funilId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID('all', MENSAGEM_UUID)
+  etapaId: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 200,
+    description: 'Padrão: o nome do contato.',
+  })
+  @IsOptional()
+  @IsString({ message: MENSAGEM_TEXTO })
+  @MaxLength(200, { message: 'deve ter no máximo 200 caracteres' })
+  titulo?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Número maior ou igual a zero (`1500`, `1500.50`).',
+  })
+  @IsOptional()
+  @IsString({ message: 'deve ser um número em texto' })
+  @MaxLength(30, { message: 'deve ter no máximo 30 caracteres' })
+  valor?: string | null;
+}
+
 export class AtualizarImportacaoDto {
+  @ApiPropertyOptional({
+    type: FiltroDaPlanilhaDto,
+    nullable: true,
+    description:
+      'Só importa as linhas que passam nas regras (R16.11). Nulo remove.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FiltroDaPlanilhaDto)
+  filtro?: FiltroDaPlanilhaDto | null;
+
+  @ApiPropertyOptional({
+    type: NegocioParaTodosDto,
+    nullable: true,
+    description:
+      'Negócio para cada contato importado (R16.12), só para contatos. Nulo remove.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NegocioParaTodosDto)
+  negocio?: NegocioParaTodosDto | null;
+
+  @ApiPropertyOptional({
+    example: '55',
+    description: 'DDI aplicado a telefones sem `+`/`00` (1 a 3 dígitos).',
+  })
+  @IsOptional()
+  @IsString({ message: MENSAGEM_TEXTO })
+  @Matches(/^\d{1,3}$/, { message: 'deve ter de 1 a 3 dígitos' })
+  ddiPadrao?: string;
+
   @ApiPropertyOptional({
     type: 'object',
     additionalProperties: { type: 'string' },
@@ -321,6 +441,22 @@ export class ImportacaoDto {
   @ApiProperty() atualizados: number;
   @ApiProperty() ignorados: number;
   @ApiProperty() erros: number;
+  @ApiProperty({
+    description: 'Linhas que não passaram no filtro da planilha.',
+  })
+  filtradas: number;
+  @ApiProperty() negociosCriados: number;
+  @ApiProperty() negociosReconvertidos: number;
+  @ApiProperty({ type: FiltroDaPlanilhaDto, nullable: true })
+  filtro: FiltroDaPlanilha | null;
+  @ApiProperty({ type: 'object', additionalProperties: true, nullable: true })
+  negocio:
+    | (NegocioParaTodos & {
+        funil: { id: string; nome: string };
+        etapa: { id: string; nome: string };
+      })
+    | null;
+  @ApiProperty({ example: '55' }) ddiPadrao: string;
   @ApiProperty({ description: '0 a 100.' }) progresso: number;
   @ApiProperty({
     type: String,
@@ -341,18 +477,26 @@ export class ImportacaoDto {
   @ApiProperty({ type: CriadorDaImportacaoDto, nullable: true })
   criadoPor: CriadorDaImportacaoDto | null;
 
+  /** `nomes`: nomes de funis e etapas do cartão "Negócio para todos" (id → nome). */
   static de(
     importacao: Importacao & {
       criadoPor?: { id: string; nome: string } | null;
     },
+    nomes: ReadonlyMap<string, string> = new Map(),
   ): ImportacaoDto {
     const total = importacao.totalLinhas ?? 0;
+    const feitas = importacao.processadas + importacao.filtradas;
     const progresso =
       importacao.status === 'CONCLUIDA'
         ? 100
         : total > 0
-          ? Math.min(100, Math.floor((importacao.processadas / total) * 100))
+          ? Math.min(100, Math.floor((feitas / total) * 100))
           : 0;
+    const opcoes = lerOpcoes(importacao.opcoes);
+    const leitura = {
+      ...(importacao.leitura as Record<string, unknown>),
+    };
+    leitura.semCabecalho = leitura.semCabecalho === true;
     return {
       id: importacao.id,
       tipo: importacao.tipo,
@@ -360,7 +504,7 @@ export class ImportacaoDto {
       nome: importacao.nome,
       arquivoId: importacao.arquivoId,
       formato: importacao.formato,
-      leitura: importacao.leitura as Record<string, unknown>,
+      leitura,
       colunas: importacao.colunas,
       totalLinhas: importacao.totalLinhas,
       mapeamento: importacao.mapeamento as Record<string, string>,
@@ -376,6 +520,24 @@ export class ImportacaoDto {
       atualizados: importacao.atualizados,
       ignorados: importacao.ignorados,
       erros: importacao.erros,
+      filtradas: importacao.filtradas,
+      negociosCriados: importacao.negociosCriados,
+      negociosReconvertidos: importacao.negociosReconvertidos,
+      filtro: opcoes.filtro,
+      negocio: opcoes.negocio
+        ? {
+            ...opcoes.negocio,
+            funil: {
+              id: opcoes.negocio.funilId,
+              nome: nomes.get(opcoes.negocio.funilId) ?? '',
+            },
+            etapa: {
+              id: opcoes.negocio.etapaId,
+              nome: nomes.get(opcoes.negocio.etapaId) ?? '',
+            },
+          }
+        : null,
+      ddiPadrao: opcoes.ddiPadrao,
       progresso,
       relatorioId: importacao.relatorioId,
       erro: importacao.erro,
@@ -397,6 +559,11 @@ export class PreviaDto {
   })
   linhas: Array<{ numero: number; valores: string[] }>;
   @ApiProperty() totalLinhas: number;
+  @ApiProperty({
+    description:
+      'Linhas que passam no filtro da planilha (igual a `totalLinhas` sem filtro).',
+  })
+  linhasNoFiltro: number;
   @ApiProperty({
     type: 'object',
     additionalProperties: { type: 'string' },
@@ -432,6 +599,12 @@ export class CampoDeImportacaoDto {
   @ApiProperty({ example: 'email' }) chave: string;
   @ApiProperty({ example: 'E-mail' }) rotulo: string;
   @ApiProperty() obrigatorio: boolean;
+  @ApiProperty({
+    example: 'Contato',
+    description:
+      'Seção da lista: Contato, Negócio, Campos personalizados, Empresa ou Parcela.',
+  })
+  grupo: string;
 }
 
 export class ModeloDeImportacaoDto {

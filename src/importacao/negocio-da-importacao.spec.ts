@@ -1,0 +1,135 @@
+import {
+  type FunilDoCache,
+  resolverDestino,
+  resolverResponsavel,
+} from './negocio-da-importacao';
+
+const funis: FunilDoCache[] = [
+  {
+    id: 'f1',
+    nome: 'Vendas Diretas',
+    ativo: true,
+    area: 'COMERCIAL',
+    etapas: [
+      { id: 'e1', nome: 'Novo Lead', tipo: 'ABERTA' },
+      { id: 'e2', nome: 'Proposta', tipo: 'ABERTA' },
+      { id: 'e3', nome: 'Ganho', tipo: 'GANHO' },
+      { id: 'e4', nome: 'Perdido', tipo: 'PERDIDO' },
+    ],
+  },
+  {
+    id: 'f2',
+    nome: 'Parceiros',
+    ativo: true,
+    area: 'MARKETING',
+    etapas: [{ id: 'e5', nome: 'Triagem', tipo: 'ABERTA' }],
+  },
+  { id: 'f3', nome: 'Antigo', ativo: false, area: 'COMERCIAL', etapas: [] },
+];
+const cartao = { funilId: 'f1', etapaId: 'e2' };
+const tudo = () => true;
+
+describe('Negócio por linha (R16.12)', () => {
+  it('R16.12 — sem coluna e sem cartão, não há negócio', () => {
+    expect(resolverDestino({ funis, cartao: null, podeVerArea: tudo })).toEqual(
+      {},
+    );
+  });
+
+  it('R16.12 — sem coluna usa o funil e a etapa do cartão', () => {
+    const r = resolverDestino({ funis, cartao, podeVerArea: tudo });
+    expect(r.destino?.etapa.id).toBe('e2');
+  });
+
+  it('R16.12 — funil e etapa da coluna têm prioridade, com nome sem acento nem caixa', () => {
+    const r = resolverDestino({
+      funis,
+      cartao,
+      funilTexto: ' vendas  DIRETAS ',
+      etapaTexto: 'novo lead',
+      podeVerArea: tudo,
+    });
+    expect(r.destino?.funil.id).toBe('f1');
+    expect(r.destino?.etapa.id).toBe('e1');
+  });
+
+  it('R16.12 — só funil na linha usa a etapa de entrada; só etapa usa o funil do cartão', () => {
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        funilTexto: 'parceiros',
+        podeVerArea: tudo,
+      }).destino?.etapa.id,
+    ).toBe('e5');
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        etapaTexto: 'Novo lead',
+        podeVerArea: tudo,
+      }).destino?.etapa.id,
+    ).toBe('e1');
+    expect(
+      resolverDestino({
+        funis,
+        cartao: null,
+        etapaTexto: 'Novo lead',
+        podeVerArea: tudo,
+      }).aviso,
+    ).toContain('informe o funil');
+  });
+
+  it('R16.12 — funil inexistente, arquivado, sem permissão e etapa de perda viram aviso', () => {
+    expect(
+      resolverDestino({ funis, cartao, funilTexto: 'Nada', podeVerArea: tudo })
+        .aviso,
+    ).toBe('funil "Nada" não encontrado.');
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        funilTexto: 'Antigo',
+        podeVerArea: tudo,
+      }).aviso,
+    ).toContain('arquivado');
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        funilTexto: 'Parceiros',
+        podeVerArea: (a) => a !== 'MARKETING',
+      }).aviso,
+    ).toContain('sem permissão');
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        etapaTexto: 'perdido',
+        podeVerArea: tudo,
+      }).aviso,
+    ).toContain('perda');
+    expect(
+      resolverDestino({
+        funis,
+        cartao,
+        etapaTexto: 'Triagem',
+        podeVerArea: tudo,
+      }).aviso,
+    ).toContain('não encontrada');
+  });
+
+  it('R16.12 — responsável por e-mail exato ou nome normalizado único', () => {
+    const usuarios = [
+      { id: 'u1', nome: 'Ana Souza', email: 'ana@x.com', papel: 'VENDEDOR' },
+      { id: 'u2', nome: 'João', email: 'j1@x.com', papel: 'VENDEDOR' },
+      { id: 'u3', nome: 'Joao', email: 'j2@x.com', papel: 'VENDEDOR' },
+    ];
+    expect(resolverResponsavel('ANA@x.com', usuarios).usuario?.id).toBe('u1');
+    expect(resolverResponsavel(' ana  souza', usuarios).usuario?.id).toBe('u1');
+    expect(resolverResponsavel('joao', usuarios).aviso).toContain('ambíguo');
+    expect(resolverResponsavel('Zé', usuarios).aviso).toContain(
+      'não encontrado',
+    );
+  });
+});
