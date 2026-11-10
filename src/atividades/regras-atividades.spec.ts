@@ -12,7 +12,6 @@ import {
   grupoDaAtividade,
   marcadoresParaRearmar,
   podeVerAtividade,
-  podeVerNegocio,
   prazoDaAtividade,
   referenciaDeTempo,
   resolverDatas,
@@ -190,34 +189,6 @@ describe('regras das atividades (R6)', () => {
           { responsavel: { liderId: 'x' } },
         ],
       });
-    });
-
-    it('ligar a um negócio exige poder vê-lo (R5.9)', () => {
-      const negocio = { responsavelId: 'outro', area: 'COMERCIAL' as const };
-      expect(podeVerNegocio({ id: 'a', ...comPapel('ADMIN') }, negocio)).toBe(
-        true,
-      );
-      expect(
-        podeVerNegocio({ id: 'l', ...comPapel('LIDER_COMERCIAL') }, negocio),
-      ).toBe(true);
-      expect(
-        podeVerNegocio({ id: 'm', ...comPapel('COMERCIAL') }, negocio),
-      ).toBe(false);
-      expect(
-        podeVerNegocio(
-          { id: 'm', ...comPapel('COMERCIAL') },
-          { responsavelId: null, area: 'COMERCIAL' },
-        ),
-      ).toBe(true);
-      expect(
-        podeVerNegocio(
-          { id: 'm', ...comPapel('COMERCIAL') },
-          { responsavelId: 'm', area: 'COMERCIAL' },
-        ),
-      ).toBe(true);
-      expect(
-        podeVerNegocio({ id: 'l', ...comPapel('LIDER_CS') }, negocio),
-      ).toBe(false);
     });
   });
 

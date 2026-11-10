@@ -12,6 +12,7 @@ import type {
   TraducaoDeFunis,
 } from './opcoes';
 import type { Area } from '../comum/dominio/setores';
+import type { VisibilidadeFunil } from '../generated/prisma/client';
 import type { Papel } from '../generated/prisma/client';
 
 export interface EtapaDoCache {
@@ -25,6 +26,7 @@ export interface FunilDoCache {
   nome: string;
   ativo: boolean;
   area: Area;
+  visibilidade: VisibilidadeFunil;
   /** Na ordem do funil. */
   etapas: EtapaDoCache[];
 }
@@ -68,13 +70,13 @@ export interface AchadoDoFunil {
 
 /**
  * Funil de um valor da planilha (R16.14): a tradução escolhida pela pessoa vale
- * antes do nome; depois confere arquivado e permissão (R5.9).
+ * antes do nome; depois confere arquivado e permissão (R5.12: criar no funil).
  */
 export function acharFunil(
   funis: readonly FunilDoCache[],
   texto: string,
   traducaoFunis: TraducaoDeFunis,
-  podeVerArea: (area: Area) => boolean,
+  podeCriarNoFunil: (funil: FunilDoCache) => boolean,
 ): AchadoDoFunil {
   const chave = normalizarTextoDoFiltro(texto);
   const traduzido = traducaoFunis[chave];
@@ -96,7 +98,7 @@ export function acharFunil(
   if (!funil.ativo) {
     return { funil, como, problema: 'ARQUIVADO' };
   }
-  if (!podeVerArea(funil.area)) {
+  if (!podeCriarNoFunil(funil)) {
     return { funil, como, problema: 'SEM_PERMISSAO' };
   }
   return { funil, como, problema: null };
@@ -152,7 +154,8 @@ export function resolverDestino(entrada: {
   cartao: NegocioParaTodos | null;
   funilTexto?: string;
   etapaTexto?: string;
-  podeVerArea: (area: Area) => boolean;
+  /** Quem importa cria negócios no funil (nível `MEMBRO` ou mais, R5.12)? */
+  podeCriarNoFunil: (funil: FunilDoCache) => boolean;
   status?: StatusDoNegocioImportado;
   traducaoFunis?: TraducaoDeFunis;
   traducaoEtapas?: TraducaoDeEtapas;
@@ -170,7 +173,7 @@ export function resolverDestino(entrada: {
       funis,
       funilTexto,
       entrada.traducaoFunis ?? {},
-      entrada.podeVerArea,
+      entrada.podeCriarNoFunil,
     );
     if (achado.problema === 'NAO_ENCONTRADO') {
       return {
@@ -201,7 +204,7 @@ export function resolverDestino(entrada: {
     if (!funil.ativo) {
       return { aviso: `funil "${funil.nome}" está arquivado.` };
     }
-    if (!entrada.podeVerArea(funil.area)) {
+    if (!entrada.podeCriarNoFunil(funil)) {
       return {
         aviso: `sem permissão para criar negócios no funil "${funil.nome}".`,
       };

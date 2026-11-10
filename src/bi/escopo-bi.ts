@@ -72,7 +72,13 @@ export function areaDoPainel(painel: PainelBi): Area | null {
   return AREA_DO_PAINEL[painel];
 }
 
-/** Negócios que o usuário vê (`filtroDeNegociosVisiveis`, R5.9). `n` = negocios, `f` = funis. */
+/**
+ * Negócios que o BI conta para a pessoa (R5.9, R20). O BI continua **pelo
+ * setor da pessoa**: Admin e C-level, todos; o líder, os dos funis do seu
+ * setor (inclusive os `RESTRITA`); o membro, os seus e os sem responsável dos
+ * funis `SETOR` do seu setor. Acessos extras (R5.11) **não** ampliam o BI (nem
+ * o acesso a um funil restrito do próprio setor). `n` = negocios, `f` = funis.
+ */
 export function sqlNegociosVisiveis(
   usuario: Quem,
   n = Prisma.raw('n'),
@@ -89,7 +95,8 @@ export function sqlNegociosVisiveis(
   if (escopo === 'AREA') {
     return Prisma.sql`${f}.area = ${area}`;
   }
-  return Prisma.sql`(${f}.area = ${area} AND (${n}.responsavel_id = ${usuario.id}::uuid OR ${n}.responsavel_id IS NULL))`;
+  return Prisma.sql`(${f}.area = ${area} AND ${f}.visibilidade = 'SETOR'::visibilidade_funil
+    AND (${n}.responsavel_id = ${usuario.id}::uuid OR ${n}.responsavel_id IS NULL))`;
 }
 
 /** Conversas que o usuário vê (`filtroDeConversasVisiveis`, R12). `c` = conversas, `f` = filas. */

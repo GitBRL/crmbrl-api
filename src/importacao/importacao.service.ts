@@ -25,7 +25,7 @@ import type {
   Prisma,
   TipoImportacao,
 } from '../generated/prisma/client';
-import { podeVerArea } from '../funis/acesso-funis';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { gerarPlanilhaModelo } from './planilha-modelo';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR } from '../tempo-real/catalogo';
@@ -911,10 +911,12 @@ export class ImportacaoService implements OnModuleInit {
         { funilId: funil.id },
       );
     }
-    if (!podeVerArea(usuario, funil.area)) {
+    if (
+      !(await funisAcessiveis(this.prisma, usuario)).podeCriarNoFunil(funil.id)
+    ) {
       throw new SemPermissaoException(
         `Você não pode criar negócios no funil ${funil.nome}.`,
-        { regra: 'R5.9', funilId: funil.id },
+        { regra: 'R5.12', funilId: funil.id },
       );
     }
     const etapa = await this.prisma.etapa.findFirst({
@@ -1083,10 +1085,12 @@ export class ImportacaoService implements OnModuleInit {
         { funilId: funil.id },
       );
     }
-    if (!podeVerArea(usuario, funil.area)) {
+    if (
+      !(await funisAcessiveis(this.prisma, usuario)).podeCriarNoFunil(funil.id)
+    ) {
       throw new SemPermissaoException(
         `Você não pode criar negócios no funil ${funil.nome}.`,
-        { regra: 'R5.9', funilId: funil.id },
+        { regra: 'R5.12', funilId: funil.id },
       );
     }
     return funil;
@@ -1121,6 +1125,7 @@ export class ImportacaoService implements OnModuleInit {
       ? planilha.linhas.filter((l) => passa(l.valores))
       : planilha.linhas;
 
+    const acesso = await funisAcessiveis(this.prisma, usuario);
     const funisDb = await this.prisma.funil.findMany({
       where: { excluidoEm: null },
       orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
@@ -1133,6 +1138,7 @@ export class ImportacaoService implements OnModuleInit {
       nome: f.nome,
       ativo: f.ativo,
       area: f.area,
+      visibilidade: f.visibilidade,
       etapas: f.etapas.map((e) => ({ id: e.id, nome: e.nome, tipo: e.tipo })),
     }));
 
@@ -1187,11 +1193,8 @@ export class ImportacaoService implements OnModuleInit {
     return {
       semFunil,
       funis: [...grupos.values()].map((g) => {
-        const achado = acharFunil(
-          funis,
-          g.valor,
-          opcoes.traducaoFunis,
-          (area) => podeVerArea(usuario, area),
+        const achado = acharFunil(funis, g.valor, opcoes.traducaoFunis, (f) =>
+          acesso.podeCriarNoFunil(f.id),
         );
         return {
           valor: g.valor,

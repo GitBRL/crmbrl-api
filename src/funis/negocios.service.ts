@@ -24,13 +24,16 @@ import type {
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TIPOS_NOTIFICACAO } from '../notificacoes/tipos-notificacao';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
-import {
-  podeExcluirNegocio,
-  podeReabrirNegocio,
-  podeSerResponsavelNaArea,
-  podeVerArea,
-  podeVerNegocio,
+import type {
+  AcessoAosFunis,
+  FunilParaAcesso,
+  NegocioParaAcesso,
 } from './acesso-funis';
+import {
+  acessosDoFunil,
+  funisAcessiveis,
+  podeSerResponsavelNoFunil,
+} from './acessos-no-banco';
 import {
   type AtualizarNegocioDto,
   type CriarNegocioDto,
@@ -55,7 +58,6 @@ import {
   lerDataSemHora,
   type NegocioCompleto,
 } from './negocio-completo';
-import type { Area } from '../comum/dominio/setores';
 
 /**
  * Entrada de `criarAutomatico` (contrato da Fase 1, §5) — usada pelos
@@ -126,10 +128,11 @@ const CAMPOS_EDITAVEIS = [
  * cada operação numa transação com auditoria, eventos e notificações — e a
  * criação automática (`criarAutomatico`) para os webhooks de entrada.
  *
- * Visibilidade (R5.9): Admin e C-level veem todos; o líder, os da sua área; o
- * membro, os da sua área em que é responsável e os sem responsável. Quem vê
- * pode editar e mover, menos reabrir (R5.5). Negócio que a pessoa não vê
- * responde 404.
+ * Visibilidade e ações pelo nível da pessoa no funil (R5.9, R5.12,
+ * `funisAcessiveis`): `VER` só lê; `MEMBRO` vê os seus e os sem responsável e
+ * age neles; `GESTOR` age em todos; `CONFIGURAR` (líder do setor dono, C-level,
+ * Admin) também reabre e exclui (R5.5). Negócio que a pessoa não vê responde
+ * 404; o que ela só vê (`VER`), 403 nas ações.
  */
 @Injectable()
 export class NegociosService {
@@ -150,10 +153,15 @@ export class NegociosService {
     usuario: UsuarioAutenticado,
     id: string,
   ): Promise<NegocioDetalheDto> {
-    const negocio = await this.carregarVisivel(this.prisma, usuario, id);
+    const { negocio, acesso } = await this.carregarVisivel(
+      this.prisma,
+      usuario,
+      id,
+    );
     const LIGADO = {
       id: true,
       responsavelId: true,
+      funilId: true,
       funil: { select: { area: true } },
     } satisfies Prisma.NegocioSelect;
     const origem = negocio.negocioOrigemId
@@ -172,7 +180,7 @@ export class NegociosService {
     ): NegocioDaJornadaDto => ({
       id: ligado.id,
       area: ligado.funil.area,
-      visivel: podeVerNegocio(usuario, ligado),
+      visivel: acesso.podeVerNegocio(ligado),
     });
     const sdr = (await sdrPorContato(this.prisma, [negocio.contatoId])).get(
       negocio.contatoId,
@@ -196,7 +204,7 @@ export class NegociosService {
     dto: CriarNegocioDto,
   ): Promise<NegocioDto> {
     const negocio = await this.prisma.$transaction(async (tx) => {
-      const funil = await this.funilVisivel(tx, usuario, dto.funilId);
+      const funil = await this.funilParaCriar(tx, usuario, dto.funilId);
       if (!funil.ativo) {
         throw new RegraVioladaException(
           'R5.1',
@@ -219,7 +227,7 @@ export class NegociosService {
       const responsavelId =
         dto.responsavelId === undefined ? usuario.id : dto.responsavelId;
       if (responsavelId) {
-        await this.validarResponsavel(tx, responsavelId, funil.area);
+        await this.validarResponsavel(tx, responsavelId, funil);
       }
       const criado = await this.motor.criar(tx, {
         titulo: dto.titulo ?? contato.nome,
@@ -260,7 +268,7 @@ export class NegociosService {
     dto: AtualizarNegocioDto,
   ): Promise<NegocioDto> {
     const negocio = await this.prisma.$transaction(async (tx) => {
-      const antes = await this.carregarVisivel(tx, usuario, id, true);
+      const antes = await this.carregarParaAgir(tx, usuario, id);
       const dados: Prisma.NegocioUncheckedUpdateInput = {};
       if (dto.titulo !== undefined) {
         dados.titulo = dto.titulo;
@@ -279,11 +287,7 @@ export class NegociosService {
         dto.responsavelId !== antes.responsavelId
       ) {
         if (dto.responsavelId) {
-          await this.validarResponsavel(
-            tx,
-            dto.responsavelId,
-            antes.funil.area,
-          );
+          await this.validarResponsavel(tx, dto.responsavelId, antes.funil);
         }
         dados.responsavelId = dto.responsavelId;
       }
@@ -364,7 +368,13 @@ export class NegociosService {
   ): Promise<ResultadoMovimentacaoDto> {
     const { negocio, passagens } = await this.prisma.$transaction(
       async (tx) => {
-        const atual = await this.carregarVisivel(tx, usuario, id, true);
+        const { negocio: atual, acesso } = await this.carregarVisivel(
+          tx,
+          usuario,
+          id,
+          true,
+        );
+        this.exigirAcao(acesso, atual);
         const destino = await tx.etapa.findUnique({
           where: { id: dto.etapaId },
         });
@@ -386,7 +396,7 @@ export class NegociosService {
         }
         if (
           atual.status !== 'ABERTO' &&
-          !podeReabrirNegocio(usuario, atual.funil.area)
+          !acesso.podeConfigurarFunil(atual.funilId)
         ) {
           throw this.semPermissaoParaReabrir();
         }
@@ -425,11 +435,16 @@ export class NegociosService {
   ): Promise<ResultadoMovimentacaoDto> {
     const { negocio, passagens } = await this.prisma.$transaction(
       async (tx) => {
-        const atual = await this.carregarVisivel(tx, usuario, id, true);
+        const { negocio: atual, acesso } = await this.carregarVisivel(
+          tx,
+          usuario,
+          id,
+          true,
+        );
         if (atual.status === 'ABERTO') {
           throw new ConflitoException('O negócio já está aberto.');
         }
-        if (!podeReabrirNegocio(usuario, atual.funil.area)) {
+        if (!acesso.podeConfigurarFunil(atual.funilId)) {
           throw this.semPermissaoParaReabrir();
         }
         const destino = dto.etapaId
@@ -456,10 +471,10 @@ export class NegociosService {
     return { negocio: NegocioDto.de(negocio), passagens };
   }
 
-  /** R5.9: o membro assume um negócio da sua área ainda sem responsável. */
+  /** R5.9, R5.12: quem age no funil (`MEMBRO` ou mais) assume um negócio ainda sem responsável. */
   async assumir(usuario: UsuarioAutenticado, id: string): Promise<NegocioDto> {
     const negocio = await this.prisma.$transaction(async (tx) => {
-      const atual = await this.carregarVisivel(tx, usuario, id, true);
+      const atual = await this.carregarParaAgir(tx, usuario, id);
       if (atual.responsavelId === usuario.id) {
         return atual;
       }
@@ -467,12 +482,6 @@ export class NegociosService {
         throw new ConflitoException(
           'O negócio já tem responsável. Peça ao líder para transferir.',
           { responsavelId: atual.responsavelId },
-        );
-      }
-      if (!podeSerResponsavelNaArea(usuario, atual.funil.area)) {
-        throw new RegraVioladaException(
-          'R5.9',
-          'Só quem é da área do funil (ou C-level/Admin) assume o negócio.',
         );
       }
       const depois = await tx.negocio.update({
@@ -502,10 +511,16 @@ export class NegociosService {
   /** Exclusão lógica (`excluidoEm`), pelo líder da área, C-level ou Admin. */
   async excluir(usuario: UsuarioAutenticado, id: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const atual = await this.carregarVisivel(tx, usuario, id, true);
-      if (!podeExcluirNegocio(usuario, atual.funil.area)) {
+      const { negocio: atual, acesso } = await this.carregarVisivel(
+        tx,
+        usuario,
+        id,
+        true,
+      );
+      if (!acesso.podeConfigurarFunil(atual.funilId)) {
         throw new SemPermissaoException(
-          'Só o líder da área, o C-level e o Admin excluem negócios.',
+          'Só o líder do setor do funil, o C-level e o Admin excluem negócios.',
+          { regra: 'R5.12' },
         );
       }
       const excluido = await tx.negocio.update({
@@ -635,7 +650,9 @@ export class NegociosService {
     if (
       entrada.notificar !== false &&
       negocio.responsavelId &&
-      negocio.responsavelId !== ator
+      negocio.responsavelId !== ator &&
+      (resultado.criado ||
+        (await this.responsavelVe(tx, funil, negocio.responsavelId)))
     ) {
       await this.notificacoes.notificar(tx, negocio.responsavelId, {
         tipo: TIPOS_NOTIFICACAO.NEGOCIO_ATRIBUIDO,
@@ -685,6 +702,16 @@ export class NegociosService {
     if (!antes) {
       throw new NaoEncontradoException('Negócio não encontrado.');
     }
+    const acesso = await funisAcessiveis(tx, usuario);
+    if (!acesso.podeAgirNoNegocio(antes)) {
+      // R5.12: o mesmo id de origem não dá acesso a negócio de funil que a pessoa não edita.
+      return {
+        negocio: antes,
+        alterou: false,
+        aviso:
+          'O negócio já importado está num funil em que você não edita negócios: não foi atualizado.',
+      };
+    }
     const completar = entrada.modo === 'COMPLETAR';
     const dados: Prisma.NegocioUncheckedUpdateInput = {};
     if (entrada.titulo && (completar ? !antes.titulo.trim() : true)) {
@@ -701,11 +728,7 @@ export class NegociosService {
       entrada.responsavelId !== antes.responsavelId &&
       (completar ? antes.responsavelId === null : true)
     ) {
-      await this.validarResponsavel(
-        tx,
-        entrada.responsavelId,
-        antes.funil.area,
-      );
+      await this.validarResponsavel(tx, entrada.responsavelId, antes.funil);
       dados.responsavelId = entrada.responsavelId;
     }
     if (
@@ -751,7 +774,7 @@ export class NegociosService {
         aviso = 'O negócio já importado está em outro funil: não foi movido.';
       } else if (
         atual.status !== 'ABERTO' &&
-        !podeReabrirNegocio(usuario, atual.funil.area)
+        !acesso.podeConfigurarFunil(atual.funilId)
       ) {
         aviso =
           'Sem permissão para reabrir o negócio já importado: não foi movido.';
@@ -825,15 +848,16 @@ export class NegociosService {
 
   /**
    * O negócio, se existir, não estiver excluído e o usuário puder vê-lo
-   * (R5.9) — senão 404. Com `travar`, a linha fica presa até o fim da
-   * transação: movimentações simultâneas do mesmo negócio entram em fila.
+   * (R5.9) — senão 404 —, com os níveis da pessoa. Com `travar`, a linha fica
+   * presa até o fim da transação: movimentações simultâneas do mesmo negócio
+   * entram em fila.
    */
   private async carregarVisivel(
     tx: Tx,
     usuario: UsuarioAutenticado,
     id: string,
     travar = false,
-  ): Promise<NegocioCompleto> {
+  ): Promise<{ negocio: NegocioCompleto; acesso: AcessoAosFunis }> {
     if (travar) {
       await tx.$queryRaw`SELECT id FROM negocios WHERE id = ${id}::uuid FOR UPDATE`;
     }
@@ -841,10 +865,37 @@ export class NegociosService {
       where: { id, excluidoEm: null },
       include: INCLUIR_NEGOCIO,
     });
-    if (!negocio || !podeVerNegocio(usuario, negocio)) {
+    const acesso = await funisAcessiveis(tx, usuario);
+    if (!negocio || !acesso.podeVerNegocio(negocio)) {
       throw new NaoEncontradoException('Negócio não encontrado.');
     }
+    return { negocio, acesso };
+  }
+
+  /** `carregarVisivel` travado, exigindo que a pessoa possa agir no negócio (R5.12). */
+  private async carregarParaAgir(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    id: string,
+  ): Promise<NegocioCompleto> {
+    const { negocio, acesso } = await this.carregarVisivel(
+      tx,
+      usuario,
+      id,
+      true,
+    );
+    this.exigirAcao(acesso, negocio);
     return negocio;
+  }
+
+  /** R5.12: quem só vê o funil (`VER`) não cria, edita, move, assume, ganha nem perde. */
+  private exigirAcao(acesso: AcessoAosFunis, negocio: NegocioParaAcesso): void {
+    if (!acesso.podeAgirNoNegocio(negocio)) {
+      throw new SemPermissaoException(
+        'Você só pode ver os negócios deste funil: não pode editar, mover nem assumir.',
+        { regra: 'R5.12' },
+      );
+    }
   }
 
   private async reposicionar(
@@ -901,7 +952,8 @@ export class NegociosService {
     return this.primeiraEtapaAberta(tx, atual.funilId);
   }
 
-  private async funilVisivel(
+  /** O funil, se a pessoa o vê (senão 404) e cria nele (`MEMBRO` ou mais, senão 403 — R5.12). */
+  private async funilParaCriar(
     tx: Tx,
     usuario: UsuarioAutenticado,
     funilId: string,
@@ -909,8 +961,15 @@ export class NegociosService {
     const funil = await tx.funil.findFirst({
       where: { id: funilId, excluidoEm: null },
     });
-    if (!funil || !podeVerArea(usuario, funil.area)) {
+    const acesso = await funisAcessiveis(tx, usuario);
+    if (!funil || !acesso.podeVerFunil(funil.id)) {
       throw new NaoEncontradoException('Funil não encontrado.');
+    }
+    if (!acesso.podeCriarNoFunil(funil.id)) {
+      throw new SemPermissaoException(
+        `Você só pode ver os negócios do funil ${funil.nome}: não pode criar negócios nele.`,
+        { regra: 'R5.12', funilId: funil.id },
+      );
     }
     return funil;
   }
@@ -974,11 +1033,15 @@ export class NegociosService {
     }
   }
 
-  /** Responsável: usuário ativo que vê o funil (R5.3, R5.9). */
+  /**
+   * Responsável (R5.3, R5.13): usuário ativo que age no funil — do setor dono
+   * (no `RESTRITA`, os líderes e quem está na lista), com acesso `MEMBRO` ou
+   * `GESTOR`, C-level ou Admin.
+   */
   private async validarResponsavel(
     tx: Tx,
     responsavelId: string,
-    area: Area,
+    funil: FunilParaAcesso,
   ): Promise<void> {
     const responsavel = await tx.usuario.findUnique({
       where: { id: responsavelId },
@@ -991,13 +1054,31 @@ export class NegociosService {
         { responsavelId },
       );
     }
-    if (!podeSerResponsavelNaArea(responsavel, area)) {
+    if (!(await podeSerResponsavelNoFunil(tx, funil, responsavel))) {
       throw new RegraVioladaException(
-        'R5.9',
-        'O responsável precisa ser da área do funil (ou C-level/Admin): quem é de outra área não vê o negócio.',
-        { responsavelId, area },
+        'R5.13',
+        'O responsável precisa atuar no funil: ser do setor dono (no funil restrito, líder ou da lista) ou ter acesso como membro ou gestor.',
+        { responsavelId, area: funil.area, funilId: funil.id },
       );
     }
+  }
+
+  /**
+   * R5.9: o responsável ainda vê o funil? (Na reconversão, o dono pode ter
+   * perdido o acesso — ex.: o funil ficou restrito —, e não é avisado.)
+   */
+  private async responsavelVe(
+    tx: Tx,
+    funil: FunilParaAcesso,
+    responsavelId: string,
+  ): Promise<boolean> {
+    const pessoa = await tx.usuario.findUnique({
+      where: { id: responsavelId },
+      select: { id: true, papel: true, area: true },
+    });
+    return (
+      !!pessoa && (await acessosDoFunil(tx, funil)).nivelDe(pessoa) !== null
+    );
   }
 
   private async notificarAtribuicao(
@@ -1019,7 +1100,7 @@ export class NegociosService {
 
   private semPermissaoParaReabrir(): SemPermissaoException {
     return new SemPermissaoException(
-      'Só o líder da área, o C-level e o Admin reabrem negócio ganho ou perdido.',
+      'Só o líder do setor do funil, o C-level e o Admin reabrem negócio ganho ou perdido.',
       { regra: 'R5.5' },
     );
   }

@@ -777,12 +777,14 @@ proximoCursor }` (`?cursor&limite`). Valores em reais são strings decimais
 
 | Método e rota | Quem | Recebe → devolve |
 | --- | --- | --- |
-| `GET /funis` · `GET /funis/:id` | quem vê a área | funis visíveis com as etapas em ordem |
-| `POST /funis` · `PATCH /funis/:id` · `DELETE /funis/:id` | Admin, C-level, líder da área | `{ nome, area, descricao?, etapas? }` → 201; renomear, reordenar, arquivar, reativar; excluir só funil extra (R5.1) → 204 |
+| `GET /funis` · `GET /funis/:id` | quem vê o funil (R5.9) | funis visíveis (do setor e de outros setores por acesso) com as etapas em ordem, `nomeSetor`, `visibilidade` e o `nivel` de quem consulta (`CONFIGURAR`/`GESTOR`/`MEMBRO`/`VER`, R5.12) |
+| `POST /funis` · `PATCH /funis/:id` · `DELETE /funis/:id` | Admin, C-level, líder do setor dono | `{ nome, area, descricao?, visibilidade?, etapas? }` → 201; renomear, reordenar, arquivar, reativar, `visibilidade` (`SETOR`/`RESTRITA`); excluir só funil extra (R5.1) → 204 |
+| `GET`/`PUT /funis/:id/acessos` | quem configura o funil | lista de acessos extras do funil (R5.11): `{ acessos: [{ area? \| usuarioId?, nivel }] }` substitui a lista |
+| `GET`/`PUT /setores/:chave/acessos` | Admin, C-level, líderes do setor | acessos extras a todos os funis `SETOR` do setor (R5.11), mesmo corpo |
 | `POST /funis/:id/etapas` · `POST /funis/:id/etapas/reordenar` · `PATCH`/`DELETE /funis/:id/etapas/:etapaId` | Admin, C-level, líder da área | etapa nova (aberta), nova ordem, nome/prazo/probabilidade; etapa com negócios não sai (R5.2) |
 | `GET /funis/:id/quadro` | quem vê a área | kanban: etapas com cartões, totais, valor e parados; filtros meus/equipe/todos, sem responsável, responsável, busca, etiqueta |
 | `GET /funis/:id/metricas` | quem vê a área | `?de&ate&responsavelId` → conversão, tempo médio por etapa, ciclo médio, parados (R5.10) |
-| `GET /negocios` · `GET /negocios/:id` | recorte R5.9 | `?funilId&etapaId&status&contatoId&empresaId&parados…` → página de `Negocio` · detalhe |
+| `GET /negocios` · `GET /negocios/:id` | recorte R5.9 (`funisAcessiveis`: nível por funil) | `?funilId&etapaId&status&contatoId&empresaId&parados…` → página de `Negocio` · detalhe |
 | `POST /negocios` | quem vê o funil | `{ contatoId, funilId, etapaId?, titulo?, empresaId?, responsavelId?, valor?, valorRecorrente?, previsaoFechamento?, … }` → 201 (criação manual livre, R5.6) |
 | `PATCH /negocios/:id` · `DELETE /negocios/:id` | recorte R5.9 · líder da área, C-level, Admin | dados do negócio (a etapa muda por `mover`) · exclusão lógica → 204 |
 | `POST /negocios/:id/mover` | recorte R5.9 | `{ etapaId, motivoPerda?, antesDeId?, depoisDeId? }` → 200 `{ negocio, passagens: [{ negocioDestinoId, criado, responsavel }] }`; 400 `R5.5` perda sem motivo; 422 etapa de outro funil (R5.4); 403 `R5.5` tirar de etapa fechada sem poder reabrir |

@@ -60,6 +60,28 @@ enum Papel {
   @@map("papel")
 }
 
+/// Quem vê um funil (R5.9): `SETOR` = o setor dono inteiro (líder vê todos os
+/// negócios; membro, os seus e os sem responsável); `RESTRITA` = do setor dono, só
+/// os líderes — membros e outras pessoas só com acesso na lista do próprio funil.
+enum VisibilidadeFunil {
+  SETOR
+  RESTRITA
+
+  @@map("visibilidade_funil")
+}
+
+/// Nível de um acesso extra a funis (R5.12): `VER` só lê todos os negócios;
+/// `MEMBRO` age como membro do setor dono; `GESTOR` vê, cria, edita e move todos e
+/// troca o responsável. Configurar o funil continua só com o líder do setor dono,
+/// o C-level e o Admin.
+enum NivelAcesso {
+  VER
+  MEMBRO
+  GESTOR
+
+  @@map("nivel_acesso")
+}
+
 /// Tipo da etapa: o status do negócio deriva dele (R5.2, R5.3).
 enum TipoEtapa {
   ABERTA
@@ -224,6 +246,12 @@ model Setor {
   automacoes          Automacao[]
   assistenteConversas AssistenteConversa[]
   assistentePerguntas AssistentePergunta[]
+  /// Acessos extras dados por este setor (dono) a outras pessoas ou setores (R5.11).
+  acessosConcedidos   AcessoSetor[]        @relation("AcessoSetorDono")
+  /// Acessos que este setor (inteiro) recebeu de outros setores (R5.11).
+  acessosRecebidos    AcessoSetor[]        @relation("AcessoSetorAlvo")
+  /// Acessos que este setor (inteiro) recebeu em funis (R5.11).
+  acessosAFunis       AcessoFunil[]
 
   @@index([ativo, ordem])
   @@map("setores")
@@ -326,6 +354,9 @@ model Usuario {
   // Onda E (ligações)
   ligacoesAtendidas          Ligacao[]                       @relation("LigacaoAtendente")
   configuracoesLigacao       CanalLigacaoConfig[]            @relation("CanalLigacaoConfigAtualizadaPor")
+  // Setores (S2): acessos extras a funis e a setores (R5.11)
+  acessosAFunis              AcessoFunil[]
+  acessosASetores            AcessoSetor[]
 
   @@index([liderId])
   @@index([papel, ativo])
@@ -506,18 +537,21 @@ model Contato {
 /// `ativo = false` arquiva (some do kanban, volta quando reativado); `excluidoEm`
 /// é a exclusão lógica de um funil extra, que preserva o histórico dos negócios.
 model Funil {
-  id           String    @id @default(uuid()) @db.Uuid
+  id           String            @id @default(uuid()) @db.Uuid
   nome         String
   area         String
-  setor        Setor     @relation(fields: [area], references: [chave], onDelete: Restrict)
-  base         Boolean   @default(false)
-  ordem        Int       @default(0)
-  ativo        Boolean   @default(true)
+  setor        Setor             @relation(fields: [area], references: [chave], onDelete: Restrict)
+  base         Boolean           @default(false)
+  ordem        Int               @default(0)
+  ativo        Boolean           @default(true)
   descricao    String?
-  criadoEm     DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
-  atualizadoEm DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
-  excluidoEm   DateTime? @map("excluido_em") @db.Timestamptz(3)
+  /// Quem vê (R5.9): o setor dono inteiro ou, `RESTRITA`, só os líderes dele e a lista do funil.
+  visibilidade VisibilidadeFunil @default(SETOR)
+  criadoEm     DateTime          @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime          @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm   DateTime?         @map("excluido_em") @db.Timestamptz(3)
 
+  acessos          AcessoFunil[]
   etapas           Etapa[]
   negocios         Negocio[]
   movimentacoes    NegocioMovimentacao[]
@@ -528,6 +562,51 @@ model Funil {
   @@unique([area], map: "funis_base_area_key", where: raw("base"))
   @@index([area, ordem])
   @@map("funis")
+}
+
+/// Acesso extra a um funil (R5.11): para um setor inteiro (`area`) **ou** uma pessoa
+/// (`usuarioId`) — um CHECK exige exatamente um alvo. Único por (funil, alvo). O
+/// setor dono do funil não é alvo (conferido no serviço). Acesso a um setor-alvo
+/// desativado não conta.
+model AcessoFunil {
+  id           String      @id @default(uuid()) @db.Uuid
+  funilId      String      @map("funil_id") @db.Uuid
+  funil        Funil       @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  area         String?
+  setor        Setor?      @relation(fields: [area], references: [chave], onDelete: Cascade)
+  usuarioId    String?     @map("usuario_id") @db.Uuid
+  usuario      Usuario?    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nivel        NivelAcesso
+  criadoEm     DateTime    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([funilId, area])
+  @@unique([funilId, usuarioId])
+  @@index([usuarioId])
+  @@index([area])
+  @@map("acessos_funil")
+}
+
+/// Acesso extra a todos os funis de um setor (R5.11), exceto os `RESTRITA` (esses
+/// só pela lista do próprio funil). Alvo: um setor inteiro (`area`) **ou** uma
+/// pessoa (`usuarioId`) — exatamente um (CHECK); o setor dono não é alvo (CHECK).
+model AcessoSetor {
+  id           String      @id @default(uuid()) @db.Uuid
+  areaDono     String      @map("area_dono")
+  setorDono    Setor       @relation("AcessoSetorDono", fields: [areaDono], references: [chave], onDelete: Cascade)
+  area         String?
+  setor        Setor?      @relation("AcessoSetorAlvo", fields: [area], references: [chave], onDelete: Cascade)
+  usuarioId    String?     @map("usuario_id") @db.Uuid
+  usuario      Usuario?    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nivel        NivelAcesso
+  criadoEm     DateTime    @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm DateTime    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@unique([areaDono, area])
+  @@unique([areaDono, usuarioId])
+  @@index([usuarioId])
+  @@index([area])
+  @@map("acessos_setor")
 }
 
 /// Etapa de um funil (R5.2). Exatamente uma de ganho e uma de perda por funil

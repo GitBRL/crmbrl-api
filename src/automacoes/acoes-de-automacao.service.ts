@@ -436,7 +436,10 @@ export class AcoesDeAutomacao implements OnModuleInit {
     const negocio = ctx.execucao.negocioId
       ? await this.prisma.negocio.findFirst({
           where: { id: ctx.execucao.negocioId, excluidoEm: null },
-          select: { responsavelId: true, funil: { select: { area: true } } },
+          select: {
+            responsavelId: true,
+            funil: { select: { id: true, area: true, visibilidade: true } },
+          },
         })
       : null;
     if (!negocio && !ctx.execucao.contatoId) {
@@ -458,8 +461,11 @@ export class AcoesDeAutomacao implements OnModuleInit {
       if (!area) {
         throw new Error('Informe a área do rodízio ou do líder.');
       }
+      // No negócio, o rodízio do setor do funil respeita quem atua nele (R5.13).
+      const destino =
+        negocio && negocio.funil.area === area ? negocio.funil : area;
       responsavelId = await this.prisma.$transaction((tx) =>
-        this.distribuicao.escolherResponsavel(tx, area, estrategia),
+        this.distribuicao.escolherResponsavel(tx, destino, estrategia),
       );
       if (!responsavelId) {
         throw new Error(

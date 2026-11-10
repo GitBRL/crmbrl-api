@@ -21,7 +21,9 @@ import {
   type Etapa,
   type Funil,
   TipoEtapa,
+  VisibilidadeFunil,
 } from '../../generated/prisma/client';
+import { NIVEIS_NO_FUNIL, type NivelNoFunil } from '../acesso-funis';
 import { aparar, lerBooleano, OpcionalNaoNulo } from './comum.dto';
 import type { Area } from '../../comum/dominio/setores';
 import { ChaveDeSetor } from '../../comum/validacao/setor';
@@ -94,6 +96,12 @@ export class EtapaDto {
   }
 }
 
+/** O funil com etapas e o nome do setor, como `FunilDto.de` precisa. */
+export type FunilParaDto = Funil & {
+  etapas: Etapa[];
+  setor: { nome: string };
+};
+
 export class FunilDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -121,6 +129,25 @@ export class FunilDto {
   @ApiPropertyOptional({ nullable: true, type: String })
   descricao: string | null;
 
+  @ApiProperty({ example: 'Comercial', description: 'Nome do setor dono.' })
+  nomeSetor: string;
+
+  @ApiProperty({
+    enum: VisibilidadeFunil,
+    enumName: 'VisibilidadeFunil',
+    description:
+      'Quem vê (R5.9): `SETOR` = o setor dono inteiro; `RESTRITA` = do setor dono só os líderes, os demais só pela lista de acessos do funil.',
+  })
+  visibilidade: VisibilidadeFunil;
+
+  @ApiProperty({
+    enum: NIVEIS_NO_FUNIL,
+    enumName: 'NivelNoFunil',
+    description:
+      'O nível de quem consulta neste funil (R5.12), para a tela decidir os botões: `CONFIGURAR` (líder do setor dono, C-level, Admin: configura, reabre e exclui), `GESTOR` (vê, cria, edita e move todos, troca o responsável), `MEMBRO` (vê os seus e os sem responsável; cria, assume, edita e move os que vê) ou `VER` (só leitura).',
+  })
+  nivel: NivelNoFunil;
+
   @ApiProperty({ type: [EtapaDto], description: 'Etapas em ordem.' })
   etapas: EtapaDto[];
 
@@ -130,7 +157,7 @@ export class FunilDto {
   @ApiProperty({ format: 'date-time' })
   atualizadoEm: string;
 
-  static de(funil: Funil & { etapas: Etapa[] }): FunilDto {
+  static de(funil: FunilParaDto, nivel: NivelNoFunil): FunilDto {
     return {
       id: funil.id,
       nome: funil.nome,
@@ -139,6 +166,9 @@ export class FunilDto {
       ordem: funil.ordem,
       ativo: funil.ativo,
       descricao: funil.descricao,
+      nomeSetor: funil.setor.nome,
+      visibilidade: funil.visibilidade,
+      nivel,
       etapas: [...funil.etapas]
         .sort((a, b) => a.ordem - b.ordem)
         .map((etapa) => EtapaDto.de(etapa)),
@@ -229,6 +259,16 @@ export class CriarFunilDto {
   descricao?: string | null;
 
   @ApiPropertyOptional({
+    enum: VisibilidadeFunil,
+    enumName: 'VisibilidadeFunil',
+    default: VisibilidadeFunil.SETOR,
+    description: 'Quem vê (R5.9). Padrão: o setor inteiro.',
+  })
+  @IsOptional()
+  @IsEnum(VisibilidadeFunil, { message: 'deve ser SETOR ou RESTRITA' })
+  visibilidade?: VisibilidadeFunil;
+
+  @ApiPropertyOptional({
     type: [NovaEtapaDoFunilDto],
     description:
       'Etapas em ordem: ao menos uma aberta, exatamente uma de ganho e uma de perda (R5.2). ' +
@@ -282,6 +322,16 @@ export class AtualizarFunilDto {
   @OpcionalNaoNulo()
   @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
   ativo?: boolean;
+
+  @ApiPropertyOptional({
+    enum: VisibilidadeFunil,
+    enumName: 'VisibilidadeFunil',
+    description:
+      'Quem vê (R5.9): `SETOR` = o setor dono inteiro; `RESTRITA` = do setor dono só os líderes, os demais só pela lista de acessos do funil.',
+  })
+  @OpcionalNaoNulo()
+  @IsEnum(VisibilidadeFunil, { message: 'deve ser SETOR ou RESTRITA' })
+  visibilidade?: VisibilidadeFunil;
 }
 
 export class CriarEtapaDto {

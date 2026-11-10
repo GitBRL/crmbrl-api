@@ -3,7 +3,9 @@ import { ehAtrasada } from '../atividades/regras-atividades';
 import { referenciaDeAuditoria } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { semCodigoDeRegra } from '../comum/dados/textos';
-import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
+import { ehDiretoria, ehLider } from '../comum/dominio/papeis';
+import type { AcessoAosFunis } from '../funis/acesso-funis';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import {
   montarPagina,
   type Pagina,
@@ -34,6 +36,10 @@ export type EntidadeDaLinhaDoTempo = 'contato' | 'empresa' | 'negocio';
 /** Texto com cara de UUID (a coluna `entidade_id` da auditoria é texto livre). */
 const PADRAO_UUID =
   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
+/** `negocio:<uuid>` em `eventos_auditoria.relacionados`. */
+const PADRAO_REFERENCIA_DE_NEGOCIO =
+  '^negocio:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 
 interface LinhaDoIndice {
   tipo: 'evento' | 'atividade' | 'ligacao';
@@ -75,7 +81,14 @@ export class LinhaDoTempoService {
     id: string,
     filtro: FiltroDaLinhaDoTempoDto,
   ): Promise<Pagina<RegistroDaLinhaDoTempoDto>> {
-    const uniao = this.montarUniao(usuario, entidade, id, filtro.incluir);
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const uniao = this.montarUniao(
+      usuario,
+      acesso,
+      entidade,
+      id,
+      filtro.incluir,
+    );
     const { skip, take } = paraSkipTake(filtro);
     const [linhas, contagem] = await Promise.all([
       this.prisma.$queryRaw<LinhaDoIndice[]>`
@@ -88,12 +101,13 @@ export class LinhaDoTempoService {
       this.prisma.$queryRaw<{ total: number }[]>`
         SELECT count(*)::int AS total FROM (${uniao}) AS itens`,
     ]);
-    const itens = await this.hidratar(linhas);
+    const itens = await this.hidratar(linhas, acesso);
     return montarPagina(itens, contagem[0]?.total ?? 0, filtro);
   }
 
   private montarUniao(
     usuario: UsuarioAutenticado,
+    acesso: AcessoAosFunis,
     entidade: EntidadeDaLinhaDoTempo,
     id: string,
     incluir: ConteudoDaLinhaDoTempo,
@@ -107,7 +121,7 @@ export class LinhaDoTempoService {
                NULL::uuid AS ligacao_id, e.criado_em AS ocorrido_em
           FROM eventos_auditoria e
          WHERE e.relacionados @> ARRAY[${referenciaDeAuditoria(entidade, id)}]::text[]
-           AND ${this.eventoVisivel(usuario)}`);
+           AND ${this.eventoVisivel(usuario, acesso)}`);
     }
     if (so('atividades')) {
       ramos.push(Prisma.sql`
@@ -157,8 +171,15 @@ export class LinhaDoTempoService {
                 OR a.negocio_id IN (SELECT n.id FROM negocios n WHERE n.${coluna} = ${id}::uuid))`;
   }
 
-  /** Eventos de atividade e de negócio passam pelos mesmos filtros dos itens (R6.4, R5.9). */
-  private eventoVisivel(usuario: UsuarioAutenticado): Prisma.Sql {
+  /**
+   * Eventos de atividade e de negócio passam pelos mesmos filtros dos itens
+   * (R6.4, R5.9); e nenhum evento ligado (em `relacionados`) a um negócio que a
+   * pessoa não vê aparece — ex.: o negócio criado a partir de uma conversa.
+   */
+  private eventoVisivel(
+    usuario: UsuarioAutenticado,
+    acesso: AcessoAosFunis,
+  ): Prisma.Sql {
     // O fechamento da ligação aparece como entrada de ligação (só a quem a vê, R12), não como evento.
     const semFechamentoDeLigacao = Prisma.sql`NOT (e.entidade = 'ligacao' AND e.acao IN ('ligacao.encerrada', 'ligacao.perdida', 'ligacao.recusada', 'ligacao.sem_resposta', 'ligacao.falhou'))`;
     if (ehDiretoria(usuario.papel)) {
@@ -173,9 +194,15 @@ export class LinhaDoTempoService {
              WHERE ea.id = ${idDaEntidade}
                AND ${this.atividadeVisivel(usuario, Prisma.raw('ea'))}))
       OR (e.entidade = 'negocio' AND EXISTS (
-            SELECT 1 FROM negocios en JOIN funis ef ON ef.id = en.funil_id
+            SELECT 1 FROM negocios en
              WHERE en.id = ${idDaEntidade}
-               AND ${this.negocioVisivel(usuario)}))
+               AND ${acesso.sqlDeNegocios(Prisma.raw('en'))}))
+    ) AND NOT EXISTS (
+      SELECT 1 FROM unnest(e.relacionados) AS r(ref)
+        JOIN negocios rn
+          ON rn.id = (CASE WHEN r.ref ~ ${PADRAO_REFERENCIA_DE_NEGOCIO}
+                           THEN substr(r.ref, 9)::uuid END)
+       WHERE NOT ${acesso.sqlDeNegocios(Prisma.raw('rn'))}
     ))`;
   }
 
@@ -197,24 +224,9 @@ export class LinhaDoTempoService {
     return Prisma.sql`(${minhas})`;
   }
 
-  /** R5.9 (negócio `en`, funil `ef`): líder vê a área; membro, os seus e os sem responsável da área. */
-  private negocioVisivel(usuario: UsuarioAutenticado): Prisma.Sql {
-    const area = setorDaPessoa(usuario);
-    if (ehDiretoria(usuario.papel)) {
-      return Prisma.sql`TRUE`;
-    }
-    if (!area) {
-      return Prisma.sql`FALSE`;
-    }
-    if (ehLider(usuario.papel)) {
-      return Prisma.sql`ef.area = ${area}`;
-    }
-    return Prisma.sql`(ef.area = ${area}
-      AND (en.responsavel_id = ${usuario.id}::uuid OR en.responsavel_id IS NULL))`;
-  }
-
   private async hidratar(
     linhas: readonly LinhaDoIndice[],
+    acesso: AcessoAosFunis,
   ): Promise<RegistroDaLinhaDoTempoDto[]> {
     const idsDeEventos = linhas.flatMap((linha) =>
       linha.evento_id === null ? [] : [linha.evento_id],
@@ -254,6 +266,22 @@ export class LinhaDoTempoService {
     const atividadesPorId = new Map(
       atividades.map((atividade) => [atividade.id, atividade]),
     );
+    // A atividade que a pessoa vê (R6.4) pode ser de um negócio que ela não vê: o vínculo some (R5.9).
+    const idsDeNegocios = [
+      ...new Set(atividades.flatMap((a) => (a.negocioId ? [a.negocioId] : []))),
+    ];
+    const negociosVisiveis = new Set(
+      idsDeNegocios.length > 0
+        ? (
+            await this.prisma.negocio.findMany({
+              where: { id: { in: idsDeNegocios } },
+              select: { id: true, funilId: true, responsavelId: true },
+            })
+          )
+            .filter((negocio) => acesso.podeVerNegocio(negocio))
+            .map(({ id }) => id)
+        : [],
+    );
     const agora = new Date();
     const registros: RegistroDaLinhaDoTempoDto[] = [];
     for (const linha of linhas) {
@@ -276,7 +304,12 @@ export class LinhaDoTempoService {
             tipo: 'atividade',
             ocorridoEm,
             evento: null,
-            atividade: this.paraAtividade(atividade, agora),
+            atividade: this.paraAtividade(
+              atividade,
+              agora,
+              atividade.negocioId !== null &&
+                negociosVisiveis.has(atividade.negocioId),
+            ),
             ligacao: null,
           });
         }
@@ -354,6 +387,7 @@ export class LinhaDoTempoService {
   private paraAtividade(
     atividade: AtividadeComRelacoes,
     agora: Date,
+    negocioVisivel: boolean,
   ): AtividadeDaLinhaDoTempoDto {
     return {
       id: atividade.id,
@@ -376,7 +410,7 @@ export class LinhaDoTempoService {
         : null,
       contatoId: atividade.contatoId,
       empresaId: atividade.empresaId,
-      negocioId: atividade.negocioId,
+      negocioId: negocioVisivel ? atividade.negocioId : null,
       criadoEm: atividade.criadoEm.toISOString(),
     };
   }

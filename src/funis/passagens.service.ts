@@ -14,10 +14,8 @@ import type {
   Funil,
 } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
-import {
-  podeConfigurarPassagens,
-  podeSerResponsavelNaArea,
-} from './acesso-funis';
+import { podeConfigurarPassagens } from './acesso-funis';
+import { podeSerResponsavelNoFunil } from './acessos-no-banco';
 import {
   type AtualizarPassagemDto,
   type CriarPassagemDto,
@@ -289,12 +287,11 @@ export class PassagensService {
       });
       if (
         !responsavel ||
-        !responsavel.ativo ||
-        !podeSerResponsavelNaArea(responsavel, destino.funil.area)
+        !(await podeSerResponsavelNoFunil(tx, destino.funil, responsavel))
       ) {
         throw new RegraVioladaException(
           'R5.8',
-          'O responsável fixo precisa ser um usuário ativo da área do funil de destino (ou C-level/Admin).',
+          'O responsável fixo precisa ser um usuário ativo que atua no funil de destino (do setor dono, com acesso como membro ou gestor, C-level ou Admin — R5.13).',
           { responsavelFixoId: definicao.responsavelFixoId },
         );
       }

@@ -22,9 +22,15 @@ import type {
 import { LogsTecnicosService } from '../logs/logs-tecnicos.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import {
+  atuaNoSetor,
+  type FunilParaAcesso,
   podeConfigurarRodizio,
-  podeSerResponsavelNaArea,
 } from './acesso-funis';
+import {
+  type AcessosCarregados,
+  acessosDoFunil,
+  podeSerResponsavel,
+} from './acessos-no-banco';
 import type {
   AguardandoAcessoDto,
   AjusteDoRodizioDto,
@@ -93,28 +99,39 @@ export class DistribuicaoService {
   ) {}
 
   /**
-   * Escolhe o responsável de um negócio novo da `area`, **dentro da transação
-   * que cria o negócio** (o ponteiro do rodízio avança junto com ele; se a
-   * transação desfizer, o ponteiro volta).
+   * Escolhe o responsável de um negócio novo do funil (ou, sem funil, de algo
+   * da `area`, como um contato), **dentro da transação que cria o negócio** (o
+   * ponteiro do rodízio avança junto com ele; se a transação desfizer, o
+   * ponteiro volta). Com o funil, o responsável fixo precisa atuar nele
+   * (R5.13) e o rodízio de um funil `RESTRITA` fica só com quem o vê como
+   * membro (os líderes e quem está na lista dele).
    *
    * ```ts
-   * const responsavelId = await this.distribuicao.escolherResponsavel(tx, 'COMERCIAL', 'RODIZIO');
+   * const responsavelId = await this.distribuicao.escolherResponsavel(tx, funil, 'RODIZIO');
    * ```
    */
   async escolherResponsavel(
     tx: Tx,
-    area: Area,
+    destino: Area | FunilParaAcesso,
     estrategia: EstrategiaDistribuicao,
     responsavelFixoId?: string,
   ): Promise<string | null> {
+    const funil = typeof destino === 'string' ? null : destino;
+    const area = funil ? funil.area : (destino as Area);
+    const acessos = funil ? await acessosDoFunil(tx, funil) : null;
     if (estrategia === 'RESPONSAVEL_FIXO') {
       if (responsavelFixoId) {
         const fixo = await tx.usuario.findUnique({
           where: { id: responsavelFixoId },
           select: { id: true, ativo: true, papel: true, area: true },
         });
-        // Ativo e de quem vê o funil (a pessoa pode ter mudado de setor).
-        if (fixo?.ativo && podeSerResponsavelNaArea(fixo, area)) {
+        // Ativo e atuando no funil (a pessoa pode ter mudado de setor ou perdido o acesso).
+        if (
+          fixo &&
+          (acessos
+            ? podeSerResponsavel(acessos, fixo)
+            : fixo.ativo && atuaNoSetor(fixo, area))
+        ) {
           return fixo.id;
         }
       }
@@ -128,16 +145,32 @@ export class DistribuicaoService {
     if (estrategia === 'LIDER_DA_AREA') {
       return this.liderOuCLevel(tx, area);
     }
-    return this.proximoDoRodizio(tx, area);
+    return this.proximoDoRodizio(
+      tx,
+      area,
+      acessos?.funil.visibilidade === 'RESTRITA' ? acessos : null,
+    );
   }
 
-  /** O próximo da vez no rodízio da área, avançando o ponteiro (R5.8). */
-  private async proximoDoRodizio(tx: Tx, area: Area): Promise<string | null> {
+  /**
+   * O próximo da vez no rodízio da área, avançando o ponteiro (R5.8). Num
+   * funil `RESTRITA`, só entra quem atua nele (R5.13).
+   */
+  private async proximoDoRodizio(
+    tx: Tx,
+    area: Area,
+    restrito: AcessosCarregados | null,
+  ): Promise<string | null> {
     const regra = await this.travarRegra(tx, area);
-    const { candidatos } = await this.candidatos(tx, area, {
+    const { candidatos: todos } = await this.candidatos(tx, area, {
       id: regra.id,
       incluirLideres: regra.incluir_lideres,
     });
+    const candidatos = restrito
+      ? todos.filter(({ usuario }) =>
+          podeSerResponsavel(restrito, { ...usuario, ativo: true }),
+        )
+      : todos;
     const ponteiro = regra.ultimo_usuario_id
       ? await tx.usuario.findUnique({
           where: { id: regra.ultimo_usuario_id },

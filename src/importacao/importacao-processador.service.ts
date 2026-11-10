@@ -24,7 +24,12 @@ import type {
 } from '../contatos/dto/empresa.dto';
 import { EmpresasService } from '../contatos/empresas.service';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
-import { podeSerResponsavelNaArea, podeVerArea } from '../funis/acesso-funis';
+import {
+  type AcessosCarregados,
+  acessosDoFunil,
+  funisAcessiveis,
+  podeSerResponsavel,
+} from '../funis/acessos-no-banco';
 import { DistribuicaoService } from '../funis/distribuicao.service';
 import { NegociosService } from '../funis/negocios.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -92,6 +97,8 @@ interface ContextoDaExecucao {
   alcance: AlcanceDeEdicao;
   funis: FunilDoCache[] | null;
   usuarios: UsuarioDoCache[] | null;
+  /** Acessos de cada funil de destino, para o responsável válido (R5.13). */
+  acessosDosFunis?: Map<string, AcessosCarregados>;
   responsaveis: Map<string, { usuario: UsuarioDoCache } | { aviso: string }>;
 }
 
@@ -576,6 +583,7 @@ export class ImportacaoProcessadorService {
         nome: f.nome,
         ativo: f.ativo,
         area: f.area,
+        visibilidade: f.visibilidade,
         etapas: f.etapas.map((e) => ({
           id: e.id,
           nome: e.nome,
@@ -599,16 +607,25 @@ export class ImportacaoProcessadorService {
     return contexto.usuarios;
   }
 
-  /** A pessoa está ativa e pode ser responsável de negócio na área (R5.8)? */
-  private async atuaNaArea(
+  /** A pessoa está ativa e pode ser responsável de negócio no funil (R5.13)? */
+  private async atuaNoFunil(
     contexto: ContextoDaExecucao,
     usuarioId: string,
-    area: string,
+    funil: FunilDoCache,
   ): Promise<boolean> {
     const pessoa = (await this.usuariosDoContexto(contexto)).find(
       (u) => u.id === usuarioId,
     );
-    return !!pessoa && podeSerResponsavelNaArea(pessoa, area);
+    if (!pessoa) {
+      return false;
+    }
+    contexto.acessosDosFunis ??= new Map();
+    let acessos = contexto.acessosDosFunis.get(funil.id);
+    if (!acessos) {
+      acessos = await acessosDoFunil(this.prisma, funil);
+      contexto.acessosDosFunis.set(funil.id, acessos);
+    }
+    return podeSerResponsavel(acessos, { ...pessoa, ativo: true });
   }
 
   /** Responsável da coluna: usuário ativo, ao alcance de quem importa (R16.6); `aviso` quando não serve. */
@@ -663,12 +680,13 @@ export class ImportacaoProcessadorService {
     const colunaEtapa = v['negocio.etapa'];
     const lido = lerStatusDoNegocio(v['negocio.status']);
     plano.status = lido.status;
+    const acesso = await funisAcessiveis(this.prisma, usuario);
     const resolucao = resolverDestino({
       funis: await this.funisDoContexto(contexto),
       cartao,
       funilTexto: colunaFunil,
       etapaTexto: colunaEtapa,
-      podeVerArea: (area) => podeVerArea(usuario, area),
+      podeCriarNoFunil: (f) => acesso.podeCriarNoFunil(f.id),
       status: lido.status,
       traducaoFunis: contexto.opcoes.traducaoFunis,
       traducaoEtapas: contexto.opcoes.traducaoEtapas,
@@ -721,14 +739,18 @@ export class ImportacaoProcessadorService {
     }
     if (
       responsavelDaColuna &&
-      podeSerResponsavelNaArea(responsavelDaColuna, plano.destino.funil.area)
+      (await this.atuaNoFunil(
+        contexto,
+        responsavelDaColuna.id,
+        plano.destino.funil,
+      ))
     ) {
       plano.estrategia = 'RESPONSAVEL_FIXO';
       plano.responsavelFixoId = responsavelDaColuna.id;
     } else {
       if (responsavelDaColuna) {
         plano.avisos.push(
-          `Responsável "${responsavelDaColuna.nome}" não atua na área do funil "${plano.destino.funil.nome}"; negócio atribuído pela estratégia da importação.`,
+          `Responsável "${responsavelDaColuna.nome}" não atua no funil "${plano.destino.funil.nome}"; negócio atribuído pela estratégia da importação.`,
         );
       }
       if (
@@ -746,10 +768,10 @@ export class ImportacaoProcessadorService {
       if (
         plano.estrategia === 'RESPONSAVEL_FIXO' &&
         plano.responsavelFixoId &&
-        !(await this.atuaNaArea(
+        !(await this.atuaNoFunil(
           contexto,
           plano.responsavelFixoId,
-          plano.destino.funil.area,
+          plano.destino.funil,
         ))
       ) {
         // A pessoa fixa (ou quem importou) não atua na área do funil: vai direto para o

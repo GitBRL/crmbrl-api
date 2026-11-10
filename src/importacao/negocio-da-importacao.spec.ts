@@ -10,6 +10,7 @@ const funis: FunilDoCache[] = [
     nome: 'Vendas Diretas',
     ativo: true,
     area: 'COMERCIAL',
+    visibilidade: 'SETOR',
     etapas: [
       { id: 'e1', nome: 'Novo Lead', tipo: 'ABERTA' },
       { id: 'e2', nome: 'Proposta', tipo: 'ABERTA' },
@@ -22,22 +23,30 @@ const funis: FunilDoCache[] = [
     nome: 'Parceiros',
     ativo: true,
     area: 'MARKETING',
+    visibilidade: 'SETOR',
     etapas: [{ id: 'e5', nome: 'Triagem', tipo: 'ABERTA' }],
   },
-  { id: 'f3', nome: 'Antigo', ativo: false, area: 'COMERCIAL', etapas: [] },
+  {
+    id: 'f3',
+    nome: 'Antigo',
+    ativo: false,
+    area: 'COMERCIAL',
+    visibilidade: 'SETOR',
+    etapas: [],
+  },
 ];
 const cartao = { funilId: 'f1', etapaId: 'e2' };
 const tudo = () => true;
 
 describe('Negócio por linha (R16.12)', () => {
   it('R16.12 — sem coluna e sem cartão, não há negócio', () => {
-    expect(resolverDestino({ funis, cartao: null, podeVerArea: tudo })).toEqual(
-      {},
-    );
+    expect(
+      resolverDestino({ funis, cartao: null, podeCriarNoFunil: tudo }),
+    ).toEqual({});
   });
 
   it('R16.12 — sem coluna usa o funil e a etapa do cartão', () => {
-    const r = resolverDestino({ funis, cartao, podeVerArea: tudo });
+    const r = resolverDestino({ funis, cartao, podeCriarNoFunil: tudo });
     expect(r.destino?.etapa.id).toBe('e2');
   });
 
@@ -47,7 +56,7 @@ describe('Negócio por linha (R16.12)', () => {
       cartao,
       funilTexto: ' vendas  DIRETAS ',
       etapaTexto: 'novo lead',
-      podeVerArea: tudo,
+      podeCriarNoFunil: tudo,
     });
     expect(r.destino?.funil.id).toBe('f1');
     expect(r.destino?.etapa.id).toBe('e1');
@@ -59,7 +68,7 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao,
         funilTexto: 'parceiros',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).destino?.etapa.id,
     ).toBe('e5');
     expect(
@@ -67,7 +76,7 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao,
         etapaTexto: 'Novo lead',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).destino?.etapa.id,
     ).toBe('e1');
     expect(
@@ -75,22 +84,26 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao: null,
         etapaTexto: 'Novo lead',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).aviso,
     ).toContain('informe o funil');
   });
 
   it('R16.12 — funil inexistente, arquivado, sem permissão e etapa de perda viram aviso', () => {
     expect(
-      resolverDestino({ funis, cartao, funilTexto: 'Nada', podeVerArea: tudo })
-        .aviso,
+      resolverDestino({
+        funis,
+        cartao,
+        funilTexto: 'Nada',
+        podeCriarNoFunil: tudo,
+      }).aviso,
     ).toBe('funil "Nada" não encontrado.');
     expect(
       resolverDestino({
         funis,
         cartao,
         funilTexto: 'Antigo',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).aviso,
     ).toContain('arquivado');
     expect(
@@ -98,7 +111,7 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao,
         funilTexto: 'Parceiros',
-        podeVerArea: (a) => a !== 'MARKETING',
+        podeCriarNoFunil: (f) => f.area !== 'MARKETING',
       }).aviso,
     ).toContain('sem permissão');
     expect(
@@ -106,7 +119,7 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao,
         etapaTexto: 'perdido',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).aviso,
     ).toContain('perda');
     expect(
@@ -114,7 +127,7 @@ describe('Negócio por linha (R16.12)', () => {
         funis,
         cartao,
         etapaTexto: 'Triagem',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
       }).aviso,
     ).toContain('não encontrada');
   });
@@ -142,7 +155,7 @@ describe('Tradução e negócio fechado (R16.14)', () => {
       cartao: null,
       funilTexto: 'SDR',
       etapaTexto: '1º CONTATO',
-      podeVerArea: tudo,
+      podeCriarNoFunil: tudo,
       traducaoFunis: { sdr: 'f1' },
       traducaoEtapas: { f1: { '1º contato': 'e2' } },
     });
@@ -156,7 +169,7 @@ describe('Tradução e negócio fechado (R16.14)', () => {
         funis,
         cartao: null,
         funilTexto: 'SDR',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
         traducaoFunis: { sdr: 'inexistente' },
       }).aviso,
     ).toMatch(/não existe mais/);
@@ -166,7 +179,7 @@ describe('Tradução e negócio fechado (R16.14)', () => {
         cartao: null,
         funilTexto: 'Vendas Diretas',
         etapaTexto: 'x',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
         traducaoEtapas: { f1: { x: 'inexistente' } },
       }).aviso,
     ).toMatch(/não existe mais/);
@@ -178,7 +191,7 @@ describe('Tradução e negócio fechado (R16.14)', () => {
       cartao: null,
       funilTexto: 'Vendas Diretas',
       etapaTexto: 'etapa que não existe',
-      podeVerArea: tudo,
+      podeCriarNoFunil: tudo,
     };
     expect(
       resolverDestino({ ...entrada, status: 'GANHO' }).destino?.etapa.id,
@@ -194,7 +207,7 @@ describe('Tradução e negócio fechado (R16.14)', () => {
         funis,
         cartao: null,
         funilTexto: 'Parceiros',
-        podeVerArea: tudo,
+        podeCriarNoFunil: tudo,
         status: 'GANHO',
       }).aviso,
     ).toMatch(/não tem etapa de ganho/);

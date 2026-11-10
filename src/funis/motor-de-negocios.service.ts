@@ -41,7 +41,10 @@ import { posicaoEntre } from './posicao';
 export const PROFUNDIDADE_MAXIMA_DE_PASSAGENS = 5;
 
 /** O mínimo do funil que o motor precisa. */
-export type FunilDoNegocio = Pick<Funil, 'id' | 'nome' | 'area'>;
+export type FunilDoNegocio = Pick<
+  Funil,
+  'id' | 'nome' | 'area' | 'visibilidade'
+>;
 
 /** Dados já validados de um negócio novo. */
 export interface DadosDoNovoNegocio {
@@ -479,7 +482,7 @@ export class MotorDeNegociosService {
     }
     const responsavelId = await this.distribuicao.escolherResponsavel(
       tx,
-      entrada.funil.area,
+      entrada.funil,
       entrada.estrategia,
       entrada.responsavelFixoId ?? undefined,
     );

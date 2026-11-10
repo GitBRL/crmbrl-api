@@ -127,6 +127,14 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
         liderados: 0,
         responsavelFixo: 0,
       },
+      // Ajuste da R7.3: o líder atua no funil Comercial, então fica com os dois negócios.
+      divisaoDosNegocios: [
+        expect.objectContaining({
+          destinatario: expect.objectContaining({ id: lider.id }),
+          motivo: 'DESTINATARIO',
+          negocios: 2,
+        }),
+      ],
       liderados: [],
       alertaEquipeSemLider: false,
     });
@@ -742,6 +750,112 @@ describe('Usuários — desligamento com encaminhamento (e2e)', () => {
       where: { usuarioId: lider.id },
     });
     expect(aviso.texto).toContain('2 distribuições automáticas');
+  });
+
+  it('R7.3/R5.13 — membro com acesso MEMBRO a um funil de outro setor é desligado: o negócio desse funil vai para o líder do outro setor; a prévia mostra a divisão', async () => {
+    const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    const cs = await criarEquipe(t, 'CS', {
+      membros: 0,
+      cLevel: comercial.cLevel,
+    });
+    const [pedro] = comercial.membros;
+    const funilCs = await funilBase(t, 'CS');
+    const funilComercial = await funilBase(t, 'COMERCIAL');
+    await comoAdmin
+      .put(`/api/v1/funis/${funilCs.id}/acessos`, {
+        acessos: [{ usuarioId: pedro.id, nivel: 'MEMBRO' }],
+      })
+      .expect(200);
+    const doComercial = await criarNegocio(t, {
+      area: 'COMERCIAL',
+      responsavel: pedro,
+    });
+    const doCs = await criarNegocio(t, { area: 'CS', responsavel: pedro });
+
+    const vista = await previa(pedro.id).expect(200);
+    expect(vista.body.destinatario.id).toBe(comercial.lider.id);
+    expect(vista.body.contagens.negocios).toBe(2);
+    expect(vista.body.divisaoDosNegocios).toEqual([
+      {
+        destinatario: expect.objectContaining({ id: comercial.lider.id }),
+        motivo: 'DESTINATARIO',
+        negocios: 1,
+        funis: [
+          {
+            id: funilComercial.id,
+            nome: funilComercial.nome,
+            area: 'COMERCIAL',
+          },
+        ],
+      },
+      {
+        destinatario: expect.objectContaining({ id: cs.lider.id }),
+        motivo: 'LIDER_DO_SETOR_DO_FUNIL',
+        negocios: 1,
+        funis: [{ id: funilCs.id, nome: funilCs.nome, area: 'CS' }],
+      },
+    ]);
+
+    const resposta = await desligar(pedro.id).expect(200);
+    expect(resposta.body.contagens.negocios).toBe(2);
+    expect(resposta.body.divisaoDosNegocios).toHaveLength(2);
+    const responsavel = async (id: string) =>
+      (await t.prisma.negocio.findUniqueOrThrow({ where: { id } }))
+        .responsavelId;
+    expect(await responsavel(doComercial.id)).toBe(comercial.lider.id);
+    expect(await responsavel(doCs.id)).toBe(cs.lider.id);
+    const auditoria = await t.prisma.eventoAuditoria.findFirstOrThrow({
+      where: { acao: 'negocio.encaminhado', entidadeId: doCs.id },
+    });
+    expect(auditoria.dados).toMatchObject({
+      para: { id: cs.lider.id },
+      motivoDaParte: 'LIDER_DO_SETOR_DO_FUNIL',
+      regra: 'R5.13',
+      alteracoes: {
+        responsavelId: { antes: pedro.id, depois: cs.lider.id },
+      },
+    });
+    // Cada um é avisado só do que recebeu.
+    const avisoCs = await t.prisma.notificacao.findFirstOrThrow({
+      where: {
+        usuarioId: cs.lider.id,
+        tipo: TIPOS_NOTIFICACAO.ITENS_ENCAMINHADOS,
+      },
+    });
+    expect(avisoCs.texto).toContain('1 negócio');
+    const avisoLider = await t.prisma.notificacao.findFirstOrThrow({
+      where: {
+        usuarioId: comercial.lider.id,
+        tipo: TIPOS_NOTIFICACAO.ITENS_ENCAMINHADOS,
+      },
+    });
+    expect(avisoLider.texto).toContain('1 negócio');
+    // Sem líder ativo no CS, o negócio do funil de CS sobe para o C-level.
+    const ana = await criarUsuario(t, {
+      papel: 'MEMBRO',
+      area: 'COMERCIAL',
+      lider: comercial.lider,
+    });
+    await comoAdmin
+      .put(`/api/v1/funis/${funilCs.id}/acessos`, {
+        acessos: [{ usuarioId: ana.id, nivel: 'MEMBRO' }],
+      })
+      .expect(200);
+    const outroDoCs = await criarNegocio(t, { area: 'CS', responsavel: ana });
+    await t.prisma.usuario.update({
+      where: { id: cs.lider.id },
+      data: { ativo: false, desligadoEm: new Date() },
+    });
+    const semLider = await previa(ana.id).expect(200);
+    expect(semLider.body.divisaoDosNegocios).toEqual([
+      expect.objectContaining({
+        destinatario: expect.objectContaining({ id: comercial.cLevel.id }),
+        motivo: 'C_LEVEL',
+        negocios: 1,
+      }),
+    ]);
+    await desligar(ana.id).expect(200);
+    expect(await responsavel(outroDoCs.id)).toBe(comercial.cLevel.id);
   });
 
   it('R7.3 — invalida os links de senha pendentes e não mexe em itens excluídos', async () => {

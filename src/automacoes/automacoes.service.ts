@@ -52,6 +52,7 @@ import {
 } from './permissoes-automacoes';
 import type { Area } from '../comum/dominio/setores';
 import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 
 const CAMPOS_AUDITADOS = [
   'nome',
@@ -402,6 +403,46 @@ export class AutomacoesService {
     };
   }
 
+  /**
+   * R5.9: o líder só usa, no gatilho, nas condições (o público) e nos passos,
+   * funis e etapas de funis que ele vê (os do seu setor que a visibilidade
+   * deixa e os de outros setores por acesso, R5.11). Admin e C-level, todos.
+   */
+  private async exigirFunisVisiveis(
+    usuario: UsuarioAutenticado,
+    partes: readonly unknown[],
+  ): Promise<void> {
+    const funilIds = new Set<string>();
+    const etapaIds = new Set<string>();
+    for (const parte of partes) {
+      coletarReferenciasDeFunil(parte, funilIds, etapaIds);
+    }
+    if (funilIds.size === 0 && etapaIds.size === 0) {
+      return;
+    }
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    if (acesso.todos) {
+      return;
+    }
+    const usados = await this.prisma.funil.findMany({
+      where: {
+        OR: [
+          { id: { in: [...funilIds] } },
+          { etapas: { some: { id: { in: [...etapaIds] } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const fora = usados.filter(({ id }) => !acesso.podeVerFunil(id));
+    if (fora.length > 0) {
+      throw new RegraVioladaException(
+        'R5.9',
+        'A automação usa um funil que você não vê (no gatilho, no público ou numa ação).',
+        { funis: fora.map(({ id }) => id) },
+      );
+    }
+  }
+
   private lancarSeInvalida(avaliacao: AvaliacaoDaAutomacao): void {
     if (avaliacao.erros.length > 0) {
       throw new DadosInvalidosException(avaliacao.erros[0], {
@@ -431,6 +472,11 @@ export class AutomacoesService {
       limitePeriodoDias: dto.limitePeriodoDias ?? null,
     });
     this.lancarSeInvalida(avaliacao);
+    await this.exigirFunisVisiveis(usuario, [
+      dto.gatilhoConfig,
+      avaliacao.condicoes,
+      avaliacao.definicao,
+    ]);
     const entidade = avaliacao.entidade!;
     const area = areaDaNovaAutomacao(usuario, dto.area);
     const criada = await this.prisma.$transaction(async (tx) => {
@@ -504,6 +550,13 @@ export class AutomacoesService {
     };
     const avaliacao = this.avaliar(proximo);
     this.lancarSeInvalida(avaliacao);
+    if (dto.gatilhoConfig || dto.condicoes || dto.definicao) {
+      await this.exigirFunisVisiveis(usuario, [
+        proximo.gatilhoConfig,
+        avaliacao.condicoes,
+        avaliacao.definicao,
+      ]);
+    }
     if (antes.ativa && avaliacao.pendencias.length > 0) {
       throw new RegraVioladaException(
         REGRA_AUTOMACOES,
@@ -761,4 +814,37 @@ function rotuloDoGatilho(
   }
   const r = a.gatilhoConfig as unknown as Recorrencia;
   return `Recorrência ${r.frequencia === 'diaria' ? 'diária' : r.frequencia === 'semanal' ? 'semanal' : 'mensal'} às ${r.hora}`;
+}
+
+const UUID_DE_REFERENCIA =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Junta todo `funilId`, `etapaId` e `etapaIds` (uuids) de um JSON (gatilho, condições, passos). */
+function coletarReferenciasDeFunil(
+  valor: unknown,
+  funis: Set<string>,
+  etapas: Set<string>,
+): void {
+  if (Array.isArray(valor)) {
+    for (const item of valor) {
+      coletarReferenciasDeFunil(item, funis, etapas);
+    }
+    return;
+  }
+  if (!valor || typeof valor !== 'object') {
+    return;
+  }
+  for (const [chave, item] of Object.entries(valor)) {
+    const ids = (Array.isArray(item) ? item : [item]).filter(
+      (id): id is string =>
+        typeof id === 'string' && UUID_DE_REFERENCIA.test(id),
+    );
+    if (chave === 'funilId') {
+      ids.forEach((id) => funis.add(id.toLowerCase()));
+    } else if (chave === 'etapaId' || chave === 'etapaIds') {
+      ids.forEach((id) => etapas.add(id.toLowerCase()));
+    } else {
+      coletarReferenciasDeFunil(item, funis, etapas);
+    }
+  }
 }

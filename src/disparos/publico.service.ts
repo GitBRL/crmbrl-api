@@ -113,7 +113,9 @@ export class PublicoDaCampanha {
         : { email: { not: null } };
     if (origem.tipoPublico === 'SEGMENTO') {
       const segmento = this.segmentos.validar(origem.segmento);
-      const restricao = usuario ? this.segmentos.opcoesDoUsuario(usuario) : {};
+      const restricao = usuario
+        ? await this.segmentos.opcoesDoUsuario(usuario)
+        : {};
       const [total, elegiveis, comOptOut, amostra] = await Promise.all([
         this.segmentos.contar(segmento, restricao),
         this.segmentos.contar(segmento, {

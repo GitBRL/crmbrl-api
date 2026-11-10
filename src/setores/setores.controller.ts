@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -21,6 +22,10 @@ import { Papeis, UsuarioAtual } from '../auth/decorators';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import type { Area } from '../comum/dominio/setores';
 import { ApiRespostasDeErro } from '../comum/erros/documentacao-erros';
+import {
+  AcessosDoSetorDto,
+  SubstituirAcessosDto,
+} from '../funis/dto/acessos.dto';
 import { ParseAreaPipe } from '../funis/parse-area.pipe';
 import {
   AtualizarSetorDto,
@@ -106,6 +111,39 @@ export class SetoresController {
     @Body() dto: AtualizarSetorDto,
   ): Promise<SetorDto> {
     return this.setores.atualizar(usuario, chave, dto);
+  }
+
+  @Get(':chave/acessos')
+  @ApiOperation({
+    summary: 'Lista quem mais vê os funis do setor (R5.11)',
+    description:
+      'Só Admin, C-level e os líderes do setor (403 para os demais). Esses acessos valem para todos os funis do setor, menos os `RESTRITA`.',
+  })
+  @ApiParam(PARAMETRO_CHAVE)
+  @ApiOkResponse({ type: AcessosDoSetorDto })
+  @ApiRespostasDeErro(400, 403, 404)
+  listarAcessos(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('chave', ParseAreaPipe) chave: Area,
+  ): Promise<AcessosDoSetorDto> {
+    return this.setores.listarAcessos(usuario, chave);
+  }
+
+  @Put(':chave/acessos')
+  @ApiOperation({
+    summary: 'Troca a lista de quem mais vê os funis do setor (R5.11)',
+    description:
+      'Só Admin, C-level e os líderes do setor. A lista enviada substitui a atual (vazia remove todos). Cada linha: `area` (um setor inteiro) **ou** `usuarioId` (uma pessoa) e o `nivel` (`VER`, `MEMBRO`, `GESTOR`). Linha sem alvo, com os dois ou repetida → 400; setor ou pessoa inexistente, o próprio setor como alvo, setor desativado ou pessoa desligada novos na lista → 422 (`R5.11`). Auditado (`setor.acessos_alterados`).',
+  })
+  @ApiParam(PARAMETRO_CHAVE)
+  @ApiOkResponse({ type: AcessosDoSetorDto })
+  @ApiRespostasDeErro(400, 403, 404, 422)
+  substituirAcessos(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('chave', ParseAreaPipe) chave: Area,
+    @Body() dto: SubstituirAcessosDto,
+  ): Promise<AcessosDoSetorDto> {
+    return this.setores.substituirAcessos(usuario, chave, dto);
   }
 
   @Post(':chave/desativar')

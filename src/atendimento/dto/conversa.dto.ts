@@ -113,6 +113,7 @@ export const INCLUIR_CONVERSA_DETALHE = {
       titulo: true,
       status: true,
       excluidoEm: true,
+      responsavelId: true,
       funil: { select: { id: true, nome: true, area: true } },
     },
   },

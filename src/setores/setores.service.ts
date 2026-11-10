@@ -7,7 +7,11 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
-import { ehDiretoria, rotuloDaPessoa } from '../comum/dominio/papeis';
+import {
+  ehDiretoria,
+  ehLiderDoSetor,
+  rotuloDaPessoa,
+} from '../comum/dominio/papeis';
 import {
   type Area,
   gerarChaveDoSetor,
@@ -18,7 +22,21 @@ import {
   ConflitoException,
   NaoEncontradoException,
   RegraVioladaException,
+  SemPermissaoException,
 } from '../comum/erros/excecoes';
+import {
+  chaveDoAlvo,
+  mudancaDeAcessos,
+  resumoDosAcessos,
+  validarAcessosPedidos,
+} from '../funis/acessos-extras';
+import { esquecerAcessosDaRequisicao } from '../funis/acessos-no-banco';
+import {
+  AcessoDto,
+  type AcessosDoSetorDto,
+  INCLUIR_ALVO_DO_ACESSO,
+  type SubstituirAcessosDto,
+} from '../funis/dto/acessos.dto';
 import type { Setor, TipoEtapa } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
@@ -255,6 +273,7 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
       dados: {
         area: funil.area,
         base: true,
+        visibilidade: funil.visibilidade,
         etapas: funil.etapas.map((etapa) => ({
           nome: etapa.nome,
           tipo: etapa.tipo,
@@ -556,6 +575,115 @@ export class SetoresService implements OnApplicationBootstrap, OnModuleDestroy {
       ehDiretoria(usuario.papel),
     );
     return resposta;
+  }
+
+  // -------------------------------------------------------------------------
+  // Acessos extras do setor (R5.11)
+  // -------------------------------------------------------------------------
+
+  /** Quem mais vê os funis do setor (menos os `RESTRITA`): Admin, C-level e líderes do setor. */
+  async listarAcessos(
+    usuario: UsuarioAutenticado,
+    chave: Area,
+  ): Promise<AcessosDoSetorDto> {
+    const setor = await this.obterParaAcessos(this.prisma, usuario, chave);
+    return this.acessosDoSetor(this.prisma, setor);
+  }
+
+  /**
+   * Troca a lista de acessos do setor (R5.11): valida os alvos, grava só o que
+   * mudou e audita antes e depois (`setor.acessos_alterados`).
+   */
+  async substituirAcessos(
+    usuario: UsuarioAutenticado,
+    chave: Area,
+    dto: SubstituirAcessosDto,
+  ): Promise<AcessosDoSetorDto> {
+    const resposta = await this.prisma.$transaction(async (tx) => {
+      await travarChave(tx, `setor-acessos:${chave}`);
+      const setor = await this.obterParaAcessos(tx, usuario, chave);
+      const gravados = await tx.acessoSetor.findMany({
+        where: { areaDono: setor.chave },
+        select: { id: true, area: true, usuarioId: true, nivel: true },
+      });
+      const pedidos = await validarAcessosPedidos(
+        tx,
+        setor.chave,
+        dto.acessos,
+        gravados,
+      );
+      const mudanca = mudancaDeAcessos(gravados, pedidos);
+      if (mudanca.remover.length > 0) {
+        await tx.acessoSetor.deleteMany({
+          where: { id: { in: mudanca.remover } },
+        });
+      }
+      for (const { id, nivel } of mudanca.atualizar) {
+        await tx.acessoSetor.update({ where: { id }, data: { nivel } });
+      }
+      if (mudanca.criar.length > 0) {
+        await tx.acessoSetor.createMany({
+          data: mudanca.criar.map((acesso) => ({
+            areaDono: setor.chave,
+            area: acesso.area,
+            usuarioId: acesso.usuarioId,
+            nivel: acesso.nivel,
+          })),
+        });
+      }
+      const antes = resumoDosAcessos(gravados);
+      const depois = resumoDosAcessos(pedidos);
+      if (JSON.stringify(antes) !== JSON.stringify(depois)) {
+        await this.auditoria.registrar(tx, {
+          acao: 'setor.acessos_alterados',
+          entidade: 'setor',
+          entidadeId: setor.chave,
+          resumo: `Acessos do setor ${setor.nome} alterados (${depois.length} na lista)`,
+          dados: {
+            alteracoes: { acessos: { antes, depois } },
+            incluidos: mudanca.criar.map(chaveDoAlvo),
+            removidos: gravados
+              .filter(({ id }) => mudanca.remover.includes(id))
+              .map(chaveDoAlvo),
+          },
+        });
+      }
+      return this.acessosDoSetor(tx, setor);
+    });
+    esquecerAcessosDaRequisicao();
+    return resposta;
+  }
+
+  /** O setor, para Admin, C-level e líderes dele (os demais: 403). */
+  private async obterParaAcessos(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    chave: Area,
+  ): Promise<Setor> {
+    const setor = await this.obter(tx, chave);
+    if (!ehDiretoria(usuario.papel) && !ehLiderDoSetor(usuario, setor.chave)) {
+      throw new SemPermissaoException(
+        `Só o Admin, o C-level e os líderes de ${setor.nome} configuram quem mais vê os funis do setor.`,
+        { regra: 'R5.11' },
+      );
+    }
+    return setor;
+  }
+
+  private async acessosDoSetor(
+    db: Tx,
+    setor: Setor,
+  ): Promise<AcessosDoSetorDto> {
+    const acessos = await db.acessoSetor.findMany({
+      where: { areaDono: setor.chave },
+      include: INCLUIR_ALVO_DO_ACESSO,
+      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+    });
+    return {
+      area: setor.chave,
+      nomeSetor: setor.nome,
+      acessos: acessos.map((acesso) => AcessoDto.de(acesso)),
+    };
   }
 
   // -------------------------------------------------------------------------

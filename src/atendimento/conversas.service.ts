@@ -20,6 +20,7 @@ import { montarPagina, paraSkipTake } from '../comum/paginacao/paginacao';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
 import type { NegocioDto } from '../funis/dto/negocios.dto';
 import { NegociosService } from '../funis/negocios.service';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import type {
   Canal,
   Conversa,
@@ -236,7 +237,25 @@ export class ConversasService {
     const canal = await this.prisma.canal.findUniqueOrThrow({
       where: { id: conversa.canalId },
     });
-    return this.montarDetalhe(conversa, canal);
+    return this.montarDetalhe(
+      conversa,
+      canal,
+      await this.veONegocio(usuario, conversa),
+    );
+  }
+
+  /** R5.9: o negócio ligado à conversa só aparece para quem vê o funil dele. */
+  private async veONegocio(
+    usuario: UsuarioAutenticado,
+    conversa: ConversaDetalhada,
+  ): Promise<boolean> {
+    if (!conversa.negocio) {
+      return true;
+    }
+    return (await funisAcessiveis(this.prisma, usuario)).podeVerNegocio({
+      funilId: conversa.negocio.funil.id,
+      responsavelId: conversa.negocio.responsavelId,
+    });
   }
 
   /** A contagem do menu (`nao-lidas.atendimento`). */
@@ -608,7 +627,14 @@ export class ConversasService {
         where: { id: conversa.canalId },
       });
       // Quem transferiu para fora do próprio alcance recebe a última foto da conversa.
-      return { ...this.montarDetalhe(conversa, canal), acoes: SEM_ACOES };
+      return {
+        ...this.montarDetalhe(
+          conversa,
+          canal,
+          await this.veONegocio(usuario, conversa),
+        ),
+        acoes: SEM_ACOES,
+      };
     }
     return this.detalhar(usuario, id);
   }
@@ -1026,6 +1052,7 @@ export class ConversasService {
   montarDetalhe(
     conversa: ConversaDetalhada,
     canal: Canal,
+    mostrarNegocio = true,
   ): Campos<ConversaDetalheDto> {
     const agora = new Date();
     const emAberto = conversa.status !== 'RESOLVIDA';
@@ -1054,7 +1081,7 @@ export class ConversasService {
       criarNegocio: conversa.contato.excluidoEm === null,
     };
     const negocio =
-      conversa.negocio && !conversa.negocio.excluidoEm
+      mostrarNegocio && conversa.negocio && !conversa.negocio.excluidoEm
         ? conversa.negocio
         : null;
     return {

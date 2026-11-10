@@ -21,7 +21,7 @@ import {
   resumirProblemas,
 } from '../../comum/validacao/validacao';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
-import { podeSerResponsavelNaArea } from '../../funis/acesso-funis';
+import { podeSerResponsavelNoFunil } from '../../funis/acessos-no-banco';
 import type {
   AplicativoIntegracao,
   EstrategiaDistribuicao,
@@ -1300,10 +1300,10 @@ export class WebhooksEntradaService {
         { responsavelFixoId },
       );
     }
-    if (!podeSerResponsavelNaArea(usuario, funil.area)) {
+    if (!(await podeSerResponsavelNoFunil(tx, funil, usuario))) {
       throw new RegraVioladaException(
         'R8.1',
-        `O responsável fixo precisa ser da área ${rotuloDaArea(funil.area)} (ou C-level/Admin), para ver os negócios do funil ${funil.nome}.`,
+        `O responsável fixo precisa atuar no funil ${funil.nome}: ser de ${rotuloDaArea(funil.area)} (no funil restrito, líder ou da lista), ter acesso como membro ou gestor, ou ser C-level/Admin (R5.13).`,
         { responsavelFixoId, area: funil.area },
       );
     }
