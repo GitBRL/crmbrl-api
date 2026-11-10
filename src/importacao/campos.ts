@@ -33,6 +33,8 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
     chave: 'telefone',
     rotulo: 'Telefone',
     sinonimos: [
+      // Clint: o telefone completo (com DDI) vence a coluna `phone`.
+      'complete phone',
       'telefone',
       'celular',
       'whatsapp',
@@ -46,12 +48,18 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
   {
     chave: 'cargo',
     rotulo: 'Cargo',
-    sinonimos: ['cargo', 'funcao', 'job title', 'title'],
+    sinonimos: ['cargo', 'funcao', 'job title', 'title', 'role'],
   },
   {
     chave: 'empresa',
     rotulo: 'Empresa',
-    sinonimos: ['empresa', 'company', 'organizacao', 'razao social'],
+    sinonimos: [
+      'empresa',
+      'company',
+      'organizacao',
+      'razao social',
+      'organization name',
+    ],
   },
   {
     chave: 'etiquetas',
@@ -85,13 +93,20 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
       'representante',
       'sdr',
       'closer',
+      'user email',
     ],
   },
   {
     chave: 'negocio.funil',
     rotulo: 'Funil do negócio',
     grupo: 'Negócio',
-    sinonimos: ['funil', 'pipeline', 'funil de vendas', 'funil do negocio'],
+    sinonimos: [
+      'funil',
+      'pipeline',
+      'funil de vendas',
+      'funil do negocio',
+      'origin',
+    ],
   },
   {
     chave: 'negocio.etapa',
@@ -101,7 +116,7 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
       'etapa',
       'fase',
       'estagio',
-      'status do negocio',
+      'stage',
       'etapa do funil',
       'etapa do negocio',
     ],
@@ -116,6 +131,7 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
       'oportunidade',
       'deal',
       'nome do negocio',
+      'deal name',
     ],
   },
   {
@@ -123,6 +139,7 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
     rotulo: 'Valor do negócio',
     grupo: 'Negócio',
     sinonimos: [
+      'value',
       'valor',
       'valor do negocio',
       'preco',
@@ -140,6 +157,59 @@ export const CAMPOS_DE_CONTATO: readonly CampoDeImportacao[] = [
       'recorrente',
       'mrr',
       'mensalidade',
+    ],
+  },
+  {
+    chave: 'negocio.status',
+    rotulo: 'Status do negócio',
+    grupo: 'Negócio',
+    sinonimos: ['status', 'situacao', 'status do negocio'],
+  },
+  {
+    chave: 'negocio.motivoPerda',
+    rotulo: 'Motivo da perda',
+    grupo: 'Negócio',
+    sinonimos: [
+      'lost status',
+      'motivo da perda',
+      'motivo de perda',
+      'motivo perda',
+    ],
+  },
+  {
+    chave: 'negocio.ganhoEm',
+    rotulo: 'Data do ganho',
+    grupo: 'Negócio',
+    sinonimos: ['won at', 'data do ganho', 'data de ganho', 'ganho em'],
+  },
+  {
+    chave: 'negocio.perdidoEm',
+    rotulo: 'Data da perda',
+    grupo: 'Negócio',
+    sinonimos: ['lost at', 'data da perda', 'perdido em'],
+  },
+  {
+    chave: 'negocio.criadoEm',
+    rotulo: 'Data de criação do negócio',
+    grupo: 'Negócio',
+    sinonimos: [
+      'created at',
+      'criado em',
+      'data de criacao',
+      'data de criacao do negocio',
+      'data de cadastro',
+    ],
+  },
+  {
+    chave: 'negocio.idExterno',
+    rotulo: 'ID do negócio na origem',
+    grupo: 'Negócio',
+    sinonimos: [
+      'id',
+      'deal id',
+      'id do negocio',
+      'id externo',
+      'id do negocio na origem',
     ],
   },
 ];
@@ -253,26 +323,45 @@ export type Mapeamento = Record<string, string>;
 
 /**
  * Sugere o mapeamento pelos nomes das colunas. Cada campo fixo é usado uma vez
- * (a primeira coluna que combina); colunas sem correspondência ficam de fora.
+ * e cada coluna liga a um só campo. Com mais de uma coluna possível para o
+ * campo, vale a de sinônimo mais à frente na lista do campo (`complete_phone`
+ * antes de `phone`) e, no empate, a primeira do arquivo; colunas sem
+ * correspondência ficam de fora.
  */
 export function sugerirMapeamento(
   tipo: TipoImportacao,
   colunas: readonly string[],
 ): Mapeamento {
-  const campos = camposDoTipo(tipo);
+  const nomes = colunas.map(normalizarColuna);
   const mapeamento: Mapeamento = {};
-  const usados = new Set<string>();
-  for (const coluna of colunas) {
-    const nome = normalizarColuna(coluna);
-    const campo = campos.find(
-      (c) => !usados.has(c.chave) && c.sinonimos.includes(nome),
-    );
-    if (campo) {
-      usados.add(campo.chave);
-      mapeamento[coluna] = campo.chave;
+  const usadas = new Set<number>();
+  for (const campo of camposDoTipo(tipo)) {
+    let melhor = -1;
+    let melhorPeso = Infinity;
+    nomes.forEach((nome, i) => {
+      const peso = campo.sinonimos.indexOf(nome);
+      if (peso >= 0 && !usadas.has(i) && peso < melhorPeso) {
+        melhor = i;
+        melhorPeso = peso;
+      }
+    });
+    if (melhor >= 0) {
+      usadas.add(melhor);
+      mapeamento[colunas[melhor]] = campo.chave;
     }
   }
   return mapeamento;
+}
+
+/**
+ * A planilha é uma exportação do Clint? O cabeçalho tem `origin` (funil),
+ * `stage`, `status` e `user_email`.
+ */
+export function formatoDeOrigem(colunas: readonly string[]): 'CLINT' | null {
+  const nomes = new Set(colunas.map(normalizarColuna));
+  return ['origin', 'stage', 'status', 'user email'].every((n) => nomes.has(n))
+    ? 'CLINT'
+    : null;
 }
 
 /**

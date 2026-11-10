@@ -7,6 +7,7 @@ import { DDI_PADRAO, PADRAO_DDI } from './ddi';
 import {
   type FiltroDaPlanilha,
   MAXIMO_DE_REGRAS_DO_FILTRO,
+  normalizarTextoDoFiltro,
   OPERADORES_DO_FILTRO,
   type OperadorFiltro,
 } from './filtro-de-linhas';
@@ -18,10 +19,17 @@ export interface NegocioParaTodos {
   valor?: string | null;
 }
 
+/** `{ valorNormalizado: funilId }` (R16.14). */
+export type TraducaoDeFunis = Record<string, string>;
+/** `{ funilId: { valorNormalizado: etapaId } }` (R16.14). */
+export type TraducaoDeEtapas = Record<string, Record<string, string>>;
+
 export interface OpcoesDaImportacao {
   filtro: FiltroDaPlanilha | null;
   negocio: NegocioParaTodos | null;
   ddiPadrao: string;
+  traducaoFunis: TraducaoDeFunis;
+  traducaoEtapas: TraducaoDeEtapas;
 }
 
 const texto = (v: unknown): string | null =>
@@ -77,6 +85,32 @@ export function lerNegocio(bruto: unknown): NegocioParaTodos | null {
   };
 }
 
+export function lerTraducaoDeFunis(bruto: unknown): TraducaoDeFunis {
+  const saida: TraducaoDeFunis = {};
+  if (bruto && typeof bruto === 'object' && !Array.isArray(bruto)) {
+    for (const [valor, id] of Object.entries(bruto)) {
+      const chave = normalizarTextoDoFiltro(valor);
+      if (texto(id) && chave !== '') {
+        saida[chave] = id as string;
+      }
+    }
+  }
+  return saida;
+}
+
+export function lerTraducaoDeEtapas(bruto: unknown): TraducaoDeEtapas {
+  const saida: TraducaoDeEtapas = {};
+  if (bruto && typeof bruto === 'object' && !Array.isArray(bruto)) {
+    for (const [funilId, etapas] of Object.entries(bruto)) {
+      const lidas = lerTraducaoDeFunis(etapas);
+      if (Object.keys(lidas).length > 0) {
+        saida[funilId] = lidas;
+      }
+    }
+  }
+  return saida;
+}
+
 export function lerOpcoes(bruto: unknown): OpcoesDaImportacao {
   const o =
     bruto && typeof bruto === 'object'
@@ -89,5 +123,7 @@ export function lerOpcoes(bruto: unknown): OpcoesDaImportacao {
       typeof o.ddiPadrao === 'string' && PADRAO_DDI.test(o.ddiPadrao)
         ? o.ddiPadrao
         : DDI_PADRAO,
+    traducaoFunis: lerTraducaoDeFunis(o.traducaoFunis),
+    traducaoEtapas: lerTraducaoDeEtapas(o.traducaoEtapas),
   };
 }

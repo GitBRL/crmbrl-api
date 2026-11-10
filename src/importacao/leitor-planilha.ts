@@ -189,7 +189,11 @@ function textoDaCelula(valor: ExcelJS.CellValue): string {
     return valor ? 'sim' : 'não';
   }
   if (valor instanceof Date) {
-    return valor.toISOString().slice(0, 10);
+    const iso = valor.toISOString();
+    // Com hora (data e hora do Excel), mantém a hora "de parede".
+    return iso.slice(11, 19) === '00:00:00'
+      ? iso.slice(0, 10)
+      : iso.slice(0, 19);
   }
   if (typeof valor === 'object') {
     if ('richText' in valor) {

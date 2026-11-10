@@ -71,6 +71,7 @@ export async function gerarRelatorio(
       item: 'Negócios reconvertidos',
       valor: importacao.negociosReconvertidos,
     },
+    { item: 'Negócios atualizados', valor: importacao.negociosAtualizados },
     { item: 'Duração (segundos)', valor: duracao ?? '' },
   ]);
   resumo.getRow(1).font = { bold: true };

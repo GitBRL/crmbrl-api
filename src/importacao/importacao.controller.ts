@@ -40,6 +40,7 @@ import {
   FiltroLinhasDto,
   FiltroModelosDto,
   FiltroPreviaDto,
+  FunisDaPlanilhaDto,
   ImportacaoDto,
   LinhaDeImportacaoDto,
   ModeloDeImportacaoDto,
@@ -227,6 +228,21 @@ export class ImportacaoController {
     @Query() filtro: FiltroPreviaDto,
   ): Promise<PreviaDto> {
     return this.importacoes.previa(usuario, id, filtro.linhas);
+  }
+
+  @Get(':id/funis-da-planilha')
+  @ApiOperation({
+    summary: 'Conferência de funis e etapas da planilha (R16.14)',
+    description:
+      'Usa o mapeamento, o filtro, o cartão "Negócio para todos" e as traduções salvos no rascunho: para cada valor de funil, quantas linhas (por status), qual funil do CRM corresponde e como; e as etapas das linhas abertas.',
+  })
+  @ApiOkResponse({ type: FunisDaPlanilhaDto })
+  @ApiRespostasDeErro(404)
+  funisDaPlanilha(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<FunisDaPlanilhaDto> {
+    return this.importacoes.funisDaPlanilha(usuario, id);
   }
 
   @Post(':id/iniciar')

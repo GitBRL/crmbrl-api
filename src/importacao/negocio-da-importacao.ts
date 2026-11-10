@@ -6,7 +6,12 @@
  */
 import type { Area } from '../generated/prisma/client';
 import { normalizarTextoDoFiltro } from './filtro-de-linhas';
-import type { NegocioParaTodos } from './opcoes';
+import type { StatusDoNegocioImportado } from './dados-do-negocio';
+import type {
+  NegocioParaTodos,
+  TraducaoDeEtapas,
+  TraducaoDeFunis,
+} from './opcoes';
 
 export interface EtapaDoCache {
   id: string;
@@ -47,11 +52,99 @@ export function etapaDeEntrada(funil: FunilDoCache): EtapaDoCache | undefined {
   return funil.etapas.find((e) => e.tipo === 'ABERTA');
 }
 
+export type ComoAchou = 'NOME' | 'TRADUCAO';
+export type ProblemaDoFunil = 'NAO_ENCONTRADO' | 'ARQUIVADO' | 'SEM_PERMISSAO';
+export type ProblemaDaEtapa = 'NAO_ENCONTRADA' | 'ETAPA_DE_PERDA';
+
+export interface AchadoDoFunil {
+  /** Presente quando o funil existe (mesmo arquivado ou sem permissão). */
+  funil?: FunilDoCache;
+  como: ComoAchou | null;
+  problema: ProblemaDoFunil | null;
+  /** A tradução escolhida aponta para um funil que não existe mais. */
+  traducaoPerdida?: boolean;
+}
+
+/**
+ * Funil de um valor da planilha (R16.14): a tradução escolhida pela pessoa vale
+ * antes do nome; depois confere arquivado e permissão (R5.9).
+ */
+export function acharFunil(
+  funis: readonly FunilDoCache[],
+  texto: string,
+  traducaoFunis: TraducaoDeFunis,
+  podeVerArea: (area: Area) => boolean,
+): AchadoDoFunil {
+  const chave = normalizarTextoDoFiltro(texto);
+  const traduzido = traducaoFunis[chave];
+  let funil: FunilDoCache | undefined;
+  let como: ComoAchou | null = null;
+  if (traduzido) {
+    funil = funis.find((f) => f.id === traduzido);
+    if (!funil) {
+      return { como: null, problema: 'NAO_ENCONTRADO', traducaoPerdida: true };
+    }
+    como = 'TRADUCAO';
+  } else {
+    funil = funilPorNome(funis, texto);
+    if (!funil) {
+      return { como: null, problema: 'NAO_ENCONTRADO' };
+    }
+    como = 'NOME';
+  }
+  if (!funil.ativo) {
+    return { funil, como, problema: 'ARQUIVADO' };
+  }
+  if (!podeVerArea(funil.area)) {
+    return { funil, como, problema: 'SEM_PERMISSAO' };
+  }
+  return { funil, como, problema: null };
+}
+
+export interface AchadoDaEtapa {
+  etapa?: EtapaDoCache;
+  como: ComoAchou | null;
+  problema: ProblemaDaEtapa | null;
+  traducaoPerdida?: boolean;
+}
+
+/** Etapa de um valor da planilha dentro do funil: tradução (R16.14) antes do nome. */
+export function acharEtapa(
+  funil: FunilDoCache,
+  texto: string,
+  traducaoEtapas: TraducaoDeEtapas,
+): AchadoDaEtapa {
+  const chave = normalizarTextoDoFiltro(texto);
+  const traduzida = traducaoEtapas[funil.id]?.[chave];
+  let etapa: EtapaDoCache | undefined;
+  let como: ComoAchou;
+  if (traduzida) {
+    etapa = funil.etapas.find((e) => e.id === traduzida);
+    if (!etapa) {
+      return { como: null, problema: 'NAO_ENCONTRADA', traducaoPerdida: true };
+    }
+    como = 'TRADUCAO';
+  } else {
+    etapa = funil.etapas.find((e) => normalizarTextoDoFiltro(e.nome) === chave);
+    if (!etapa) {
+      return { como: null, problema: 'NAO_ENCONTRADA' };
+    }
+    como = 'NOME';
+  }
+  return {
+    etapa,
+    como,
+    problema: etapa.tipo === 'PERDIDO' ? 'ETAPA_DE_PERDA' : null,
+  };
+}
+
 /**
  * Destino do negócio de uma linha. Colunas de funil e etapa têm prioridade;
  * só funil → etapa de entrada; só etapa → procura no funil do cartão; nada →
  * funil e etapa do cartão; nada em lugar nenhum → `{}` (sem negócio). Quando
  * não dá para criar, devolve o `aviso` (sem o prefixo "Negócio não criado").
+ * Negócio fechado (`status` GANHO ou PERDIDO, R16.14): o destino é a etapa de
+ * ganho ou de perda do funil e a etapa da planilha não é usada.
  */
 export function resolverDestino(entrada: {
   funis: readonly FunilDoCache[];
@@ -59,8 +152,12 @@ export function resolverDestino(entrada: {
   funilTexto?: string;
   etapaTexto?: string;
   podeVerArea: (area: Area) => boolean;
+  status?: StatusDoNegocioImportado;
+  traducaoFunis?: TraducaoDeFunis;
+  traducaoEtapas?: TraducaoDeEtapas;
 }): ResolucaoDoDestino {
   const { funis, cartao } = entrada;
+  const status = entrada.status ?? 'ABERTO';
   const funilTexto = entrada.funilTexto?.trim() ?? '';
   const etapaTexto = entrada.etapaTexto?.trim() ?? '';
   if (!funilTexto && !etapaTexto && !cartao) {
@@ -68,9 +165,27 @@ export function resolverDestino(entrada: {
   }
   let funil: FunilDoCache | undefined;
   if (funilTexto) {
-    funil = funilPorNome(funis, funilTexto);
-    if (!funil) {
-      return { aviso: `funil "${funilTexto}" não encontrado.` };
+    const achado = acharFunil(
+      funis,
+      funilTexto,
+      entrada.traducaoFunis ?? {},
+      entrada.podeVerArea,
+    );
+    if (achado.problema === 'NAO_ENCONTRADO') {
+      return {
+        aviso: achado.traducaoPerdida
+          ? `o funil escolhido para "${funilTexto}" não existe mais.`
+          : `funil "${funilTexto}" não encontrado.`,
+      };
+    }
+    funil = achado.funil as FunilDoCache;
+    if (achado.problema === 'ARQUIVADO') {
+      return { aviso: `funil "${funil.nome}" está arquivado.` };
+    }
+    if (achado.problema === 'SEM_PERMISSAO') {
+      return {
+        aviso: `sem permissão para criar negócios no funil "${funil.nome}".`,
+      };
     }
   } else {
     if (!cartao) {
@@ -82,24 +197,34 @@ export function resolverDestino(entrada: {
         aviso: 'o funil do cartão "Negócio para todos" não existe mais.',
       };
     }
+    if (!funil.ativo) {
+      return { aviso: `funil "${funil.nome}" está arquivado.` };
+    }
+    if (!entrada.podeVerArea(funil.area)) {
+      return {
+        aviso: `sem permissão para criar negócios no funil "${funil.nome}".`,
+      };
+    }
   }
-  if (!funil.ativo) {
-    return { aviso: `funil "${funil.nome}" está arquivado.` };
-  }
-  if (!entrada.podeVerArea(funil.area)) {
-    return {
-      aviso: `sem permissão para criar negócios no funil "${funil.nome}".`,
-    };
+  if (status !== 'ABERTO') {
+    const fechamento = funil.etapas.find((e) => e.tipo === status);
+    return fechamento
+      ? { destino: { funil, etapa: fechamento } }
+      : {
+          aviso: `o funil "${funil.nome}" não tem etapa de ${status === 'GANHO' ? 'ganho' : 'perda'}.`,
+        };
   }
   let etapa: EtapaDoCache | undefined;
   if (etapaTexto) {
-    const alvo = normalizarTextoDoFiltro(etapaTexto);
-    etapa = funil.etapas.find((e) => normalizarTextoDoFiltro(e.nome) === alvo);
-    if (!etapa) {
+    const achada = acharEtapa(funil, etapaTexto, entrada.traducaoEtapas ?? {});
+    if (achada.problema === 'NAO_ENCONTRADA') {
       return {
-        aviso: `etapa "${etapaTexto}" não encontrada no funil "${funil.nome}".`,
+        aviso: achada.traducaoPerdida
+          ? `a etapa escolhida para "${etapaTexto}" não existe mais no funil "${funil.nome}".`
+          : `etapa "${etapaTexto}" não encontrada no funil "${funil.nome}".`,
       };
     }
+    etapa = achada.etapa;
   } else if (!funilTexto && cartao) {
     etapa = funil.etapas.find((e) => e.id === cartao.etapaId);
     if (!etapa) {
@@ -113,12 +238,12 @@ export function resolverDestino(entrada: {
       return { aviso: `o funil "${funil.nome}" não tem etapa aberta.` };
     }
   }
-  if (etapa.tipo === 'PERDIDO') {
+  if (etapa && etapa.tipo === 'PERDIDO') {
     return {
       aviso: `a etapa "${etapa.nome}" é de perda e exige motivo.`,
     };
   }
-  return { destino: { funil, etapa } };
+  return { destino: { funil, etapa: etapa as EtapaDoCache } };
 }
 
 export interface UsuarioDoCache {

@@ -64,6 +64,12 @@ export interface DadosDoNovoNegocio {
   criadoPorId: string | null;
   /** Vai para os `dados` da auditoria (ex.: a passagem ou a distribuição que criou). */
   detalhesDaCriacao?: Record<string, unknown>;
+  /** Importação (R16.14): data de criação na origem (também `etapaDesde` e a entrada no histórico). Padrão: agora. */
+  criadoEm?: Date;
+  /** Importação: data do ganho ou da perda quando nasce fechado. Padrão: agora. */
+  fechadoEm?: Date;
+  /** Importação: id do negócio no sistema de origem (índice único parcial). */
+  idExterno?: string | null;
 }
 
 /** Negócio pedido por uma automação (webhook ou passagem), já validado. */
@@ -87,6 +93,12 @@ export interface EntradaDeAutomacao {
   abertoMaisRecente?: boolean;
   /** Vai para os `dados` da auditoria (ex.: a passagem que pediu). */
   detalhesDaCriacao?: Record<string, unknown>;
+  /** Importação (R16.14): ver `DadosDoNovoNegocio`. */
+  criadoEm?: Date;
+  fechadoEm?: Date;
+  idExterno?: string | null;
+  /** Importação: nasce fechado, com este motivo se for de perda. */
+  motivoPerda?: string | null;
 }
 
 export interface ResultadoDeAutomacao {
@@ -224,6 +236,8 @@ export class MotorDeNegociosService {
   async criar(tx: Tx, dados: DadosDoNovoNegocio): Promise<NegocioCompleto> {
     const contexto = contextoAtual();
     const agora = new Date();
+    const criadoEm = dados.criadoEm ?? agora;
+    const fechadoEm = dados.fechadoEm ?? agora;
     const status = statusDaEtapa(dados.etapa.tipo);
     const negocio = await tx.negocio.create({
       data: {
@@ -238,9 +252,9 @@ export class MotorDeNegociosService {
         valorRecorrente: dados.valorRecorrente,
         previsaoFechamento: dados.previsaoFechamento,
         motivoPerda: status === 'PERDIDO' ? dados.motivoPerda : null,
-        ganhoEm: status === 'GANHO' ? agora : null,
-        perdidoEm: status === 'PERDIDO' ? agora : null,
-        etapaDesde: agora,
+        ganhoEm: status === 'GANHO' ? fechadoEm : null,
+        perdidoEm: status === 'PERDIDO' ? fechadoEm : null,
+        etapaDesde: criadoEm,
         posicao: await this.posicaoNoTopo(tx, dados.etapa.id),
         negocioOrigemId: dados.negocioOrigemId,
         origem: dados.origem,
@@ -249,7 +263,8 @@ export class MotorDeNegociosService {
         camposPersonalizados:
           dados.camposPersonalizados as Prisma.InputJsonObject,
         criadoPorId: dados.criadoPorId,
-        criadoEm: agora,
+        idExterno: dados.idExterno ?? null,
+        criadoEm,
         movimentacoes: {
           create: {
             funilId: dados.funil.id,
@@ -257,7 +272,7 @@ export class MotorDeNegociosService {
             paraEtapaId: dados.etapa.id,
             usuarioId: contexto.usuario?.id ?? null,
             tipoAtor: contexto.tipoAtor,
-            criadoEm: agora,
+            criadoEm,
           },
         },
       },
@@ -316,10 +331,16 @@ export class MotorDeNegociosService {
     tx: Tx,
     atual: NegocioCompleto,
     destino: Etapa,
-    opcoes: { motivoPerda?: string | null; posicao: number },
+    opcoes: {
+      motivoPerda?: string | null;
+      posicao: number;
+      /** Importação: data do ganho ou da perda (padrão: agora). */
+      fechadoEm?: Date | null;
+    },
   ): Promise<NegocioCompleto> {
     const contexto = contextoAtual();
     const agora = new Date();
+    const fechadoEm = opcoes.fechadoEm ?? agora;
     const status = statusDaEtapa(destino.tipo);
     const segundos = Math.max(
       0,
@@ -332,8 +353,8 @@ export class MotorDeNegociosService {
         status,
         etapaDesde: agora,
         posicao: opcoes.posicao,
-        ganhoEm: status === 'GANHO' ? agora : null,
-        perdidoEm: status === 'PERDIDO' ? agora : null,
+        ganhoEm: status === 'GANHO' ? fechadoEm : null,
+        perdidoEm: status === 'PERDIDO' ? fechadoEm : null,
         motivoPerda: status === 'PERDIDO' ? (opcoes.motivoPerda ?? null) : null,
       },
       include: INCLUIR_NEGOCIO,
@@ -472,13 +493,16 @@ export class MotorDeNegociosService {
       valor: entrada.valor,
       valorRecorrente: entrada.valorRecorrente,
       previsaoFechamento: null,
-      motivoPerda: null,
+      motivoPerda: entrada.motivoPerda ?? null,
       origem: entrada.origem,
       origemDetalhe: entrada.origemDetalhe,
       utm: entrada.utm,
       camposPersonalizados: {},
       negocioOrigemId: entrada.negocioOrigemId,
       criadoPorId: contextoAtual().usuario?.id ?? null,
+      criadoEm: entrada.criadoEm,
+      fechadoEm: entrada.fechadoEm,
+      idExterno: entrada.idExterno,
       detalhesDaCriacao: {
         distribuicao: {
           estrategia: entrada.estrategia,

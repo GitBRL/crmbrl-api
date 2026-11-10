@@ -43,6 +43,11 @@ import { TempoRealService } from '../tempo-real/tempo-real.service';
 import { ImportacaoDeParcelasService } from '../financeiro/importacao-de-parcelas.service';
 import { PREFIXO_CAMPO_PERSONALIZADO } from './campos';
 import { normalizarTelefoneComDdi } from './ddi';
+import {
+  lerDataDoNegocio,
+  lerStatusDoNegocio,
+  type StatusDoNegocioImportado,
+} from './dados-do-negocio';
 import { compilarFiltro, valorEmReais } from './filtro-de-linhas';
 import {
   type DestinoDoNegocio,
@@ -101,6 +106,16 @@ interface PlanoDoNegocio {
   titulo?: string;
   valor?: string;
   valorRecorrente?: string;
+  /** Negócio fechado na importação (R16.14): ganho ou perdido, direto na etapa de fechamento. */
+  status: StatusDoNegocioImportado;
+  motivoPerda?: string;
+  criadoEm?: Date;
+  fechadoEm?: Date;
+  idExterno?: string;
+  /** Etapa da planilha (vai para a auditoria do negócio fechado). */
+  etapaOriginal?: string;
+  /** Negócio que já tem este `idExterno`: ele é atualizado, não criado. */
+  negocioExistente?: { id: string };
 }
 
 /**
@@ -420,6 +435,21 @@ export class ImportacaoProcessadorService {
     const existente = await this.contatoExistente(email, telefone);
     const sufixo = notas.length > 0 ? ` (${notas.join('; ')})` : '';
 
+    // R16.14: o mesmo id do negócio na origem não cria outro negócio.
+    const idExterno = v['negocio.idExterno']?.trim();
+    const negocioJa = idExterno
+      ? await this.prisma.negocio.findFirst({
+          where: { idExterno, excluidoEm: null },
+          select: { id: true, contatoId: true },
+        })
+      : null;
+    if (negocioJa && importacao.duplicados === 'IGNORAR') {
+      return {
+        resultado: 'IGNORADO',
+        entidadeId: negocioJa.contatoId,
+        motivo: 'Negócio já importado (mesmo ID do negócio na origem).',
+      };
+    }
     if (existente && importacao.duplicados === 'IGNORAR') {
       // R16.5: o existente não é tocado e não ganha negócio.
       return {
@@ -435,6 +465,9 @@ export class ImportacaoProcessadorService {
       v,
       existente !== null,
     );
+    if (negocioJa) {
+      plano.negocioExistente = { id: negocioJa.id };
+    }
     const motivoCom = (base: string | null): string | null =>
       [base, ...plano.avisos].filter(Boolean).join(' ') || null;
 
@@ -623,6 +656,7 @@ export class ImportacaoProcessadorService {
       avisos: [],
       estrategia: 'RESPONSAVEL_FIXO',
       responsavelFixoId: usuario.id,
+      status: 'ABERTO',
     };
     if (importacao.tipo !== 'CONTATOS') {
       return plano;
@@ -630,17 +664,50 @@ export class ImportacaoProcessadorService {
     const cartao = contexto.opcoes.negocio;
     const colunaFunil = v['negocio.funil'];
     const colunaEtapa = v['negocio.etapa'];
+    const lido = lerStatusDoNegocio(v['negocio.status']);
+    plano.status = lido.status;
     const resolucao = resolverDestino({
       funis: await this.funisDoContexto(contexto),
       cartao,
       funilTexto: colunaFunil,
       etapaTexto: colunaEtapa,
       podeVerArea: (area) => podeVerArea(usuario, area),
+      status: lido.status,
+      traducaoFunis: contexto.opcoes.traducaoFunis,
+      traducaoEtapas: contexto.opcoes.traducaoEtapas,
     });
     if (resolucao.aviso) {
       plano.avisos.push(`Negócio não criado: ${resolucao.aviso}`);
     }
     plano.destino = resolucao.destino;
+    if (plano.destino && lido.aviso) {
+      plano.avisos.push(lido.aviso);
+    }
+    if (plano.destino) {
+      const agora = new Date();
+      const data = (rotulo: string, chave: string): Date | undefined => {
+        if (!v[chave]) {
+          return undefined;
+        }
+        const r = lerDataDoNegocio(rotulo, v[chave], agora);
+        if (r.aviso) {
+          plano.avisos.push(r.aviso);
+        }
+        return r.data;
+      };
+      plano.criadoEm = data('Data de criação do negócio', 'negocio.criadoEm');
+      if (plano.status === 'GANHO') {
+        plano.fechadoEm =
+          data('Data do ganho', 'negocio.ganhoEm') ?? plano.criadoEm ?? agora;
+      } else if (plano.status === 'PERDIDO') {
+        plano.fechadoEm =
+          data('Data da perda', 'negocio.perdidoEm') ?? plano.criadoEm ?? agora;
+        plano.motivoPerda =
+          v['negocio.motivoPerda']?.trim() || 'Importado como perdido';
+      }
+      plano.idExterno = v['negocio.idExterno']?.trim() || undefined;
+      plano.etapaOriginal = colunaEtapa?.trim() || undefined;
+    }
 
     let responsavelDaColuna: UsuarioDoCache | undefined;
     if (v.responsavel && (plano.destino || !contatoExistente)) {
@@ -728,6 +795,8 @@ export class ImportacaoProcessadorService {
   /**
    * Cria (ou reconverte, R5.6) o negócio da linha dentro da transação da linha, sem notificar
    * cada um: as contagens por responsável ficam em `opcoes` para a notificação única do fim.
+   * Linha fechada (R16.14) nasce direto na etapa de ganho ou de perda, sem reconversão nem
+   * passagens; negócio com `idExterno` já existente é atualizado (`negociosAtualizados`).
    */
   private async criarNegocioDaLinha(
     tx: Tx,
@@ -738,6 +807,11 @@ export class ImportacaoProcessadorService {
     detalhe: string,
   ): Promise<void> {
     const { funil, etapa } = plano.destino as DestinoDoNegocio;
+    const fechado = plano.status !== 'ABERTO';
+    if (plano.negocioExistente) {
+      await this.atualizarNegocioDaLinha(tx, importacao, usuario, plano);
+      return;
+    }
     let resultado;
     try {
       resultado = await this.negocios.criarAutomatico(tx, {
@@ -752,6 +826,25 @@ export class ImportacaoProcessadorService {
         estrategia: plano.estrategia,
         responsavelFixoId: plano.responsavelFixoId,
         notificar: false,
+        importado: {
+          ...(fechado
+            ? {
+                fechado: {
+                  motivoPerda: plano.motivoPerda ?? null,
+                  em: plano.fechadoEm as Date,
+                },
+              }
+            : {}),
+          criadoEm: plano.criadoEm,
+          idExterno: plano.idExterno,
+          detalhes: {
+            importacaoId: importacao.id,
+            ...(plano.etapaOriginal
+              ? { etapaOriginalNaPlanilha: plano.etapaOriginal }
+              : {}),
+            ...(plano.idExterno ? { idExterno: plano.idExterno } : {}),
+          },
+        },
       });
     } catch (erro) {
       if (erro instanceof ErroApi) {
@@ -771,7 +864,8 @@ export class ImportacaoProcessadorService {
       ...((opcoes[CHAVE_NOTIFICACOES] ?? {}) as NegociosPorResponsavel),
     };
     const dono = resultado.negocio.responsavelId;
-    if (dono && dono !== usuario.id) {
+    // Negócio fechado é histórico: não entra na notificação de "negócios recebidos".
+    if (dono && dono !== usuario.id && !fechado) {
       const n = porResponsavel[dono] ?? { criados: 0, reconvertidos: 0 };
       porResponsavel[dono] = resultado.criado
         ? { ...n, criados: n.criados + 1 }
@@ -787,6 +881,57 @@ export class ImportacaoProcessadorService {
         opcoes: opcoes as Prisma.InputJsonObject,
       },
     });
+  }
+
+  /** Negócio já importado (mesmo `idExterno`): aplica a opção de duplicados (R16.14). */
+  private async atualizarNegocioDaLinha(
+    tx: Tx,
+    importacao: Importacao,
+    usuario: UsuarioAutenticado,
+    plano: PlanoDoNegocio,
+  ): Promise<void> {
+    const { etapa } = plano.destino as DestinoDoNegocio;
+    let resultado;
+    try {
+      resultado = await this.negocios.atualizarImportado(
+        tx,
+        usuario,
+        (plano.negocioExistente as { id: string }).id,
+        {
+          modo:
+            importacao.duplicados === 'SOBRESCREVER'
+              ? 'SOBRESCREVER'
+              : 'COMPLETAR',
+          titulo: plano.titulo,
+          valor: plano.valor,
+          responsavelId:
+            plano.responsavelDaColunaId &&
+            plano.responsavelFixoId === plano.responsavelDaColunaId
+              ? plano.responsavelDaColunaId
+              : undefined,
+          motivoPerda: plano.motivoPerda,
+          etapaId: etapa.id,
+          fechadoEm: plano.fechadoEm,
+        },
+      );
+    } catch (erro) {
+      if (erro instanceof ErroApi) {
+        throw new RegraVioladaException(
+          'R16.14',
+          `Negócio não atualizado: ${motivoDoErro(erro)} A linha inteira foi desfeita.`,
+        );
+      }
+      throw erro;
+    }
+    if (resultado.aviso) {
+      plano.avisos.push(resultado.aviso);
+    }
+    if (resultado.alterou) {
+      await tx.importacao.update({
+        where: { id: importacao.id },
+        data: { negociosAtualizados: { increment: 1 } },
+      });
+    }
   }
 
   private async contatoExistente(
@@ -1122,13 +1267,14 @@ export class ImportacaoProcessadorService {
         filtradas: final.filtradas,
         negociosCriados: final.negociosCriados,
         negociosReconvertidos: final.negociosReconvertidos,
+        negociosAtualizados: final.negociosAtualizados,
       };
       await this.notificarResponsaveis(tx, final);
       await this.auditoria.registrar(tx, {
         acao: 'importacao.concluida',
         entidade: 'importacao',
         entidadeId: final.id,
-        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : final.tipo === 'PARCELAS' ? 'parcelas' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro${final.filtradas > 0 ? `, ${final.filtradas} fora do filtro` : ''}${final.negociosCriados + final.negociosReconvertidos > 0 ? `; negócios: ${final.negociosCriados} criados, ${final.negociosReconvertidos} reconvertidos` : ''}`,
+        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : final.tipo === 'PARCELAS' ? 'parcelas' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro${final.filtradas > 0 ? `, ${final.filtradas} fora do filtro` : ''}${final.negociosCriados + final.negociosReconvertidos + final.negociosAtualizados > 0 ? `; negócios: ${final.negociosCriados} criados, ${final.negociosReconvertidos} reconvertidos, ${final.negociosAtualizados} atualizados` : ''}`,
         dados: {
           tipo: final.tipo,
           totalLinhas: final.totalLinhas,
@@ -1230,6 +1376,7 @@ export function cargaDeProgresso(i: Importacao) {
     filtradas: i.filtradas,
     negociosCriados: i.negociosCriados,
     negociosReconvertidos: i.negociosReconvertidos,
+    negociosAtualizados: i.negociosAtualizados,
     relatorioId: i.relatorioId,
   };
 }

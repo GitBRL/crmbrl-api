@@ -133,3 +133,69 @@ describe('Negócio por linha (R16.12)', () => {
     );
   });
 });
+
+describe('Tradução e negócio fechado (R16.14)', () => {
+  it('R16.14 — a tradução do funil vale antes do nome e leva à etapa traduzida', () => {
+    const r = resolverDestino({
+      funis,
+      cartao: null,
+      funilTexto: 'SDR',
+      etapaTexto: '1º CONTATO',
+      podeVerArea: tudo,
+      traducaoFunis: { sdr: 'f1' },
+      traducaoEtapas: { f1: { '1º contato': 'e2' } },
+    });
+    expect(r.destino?.funil.id).toBe('f1');
+    expect(r.destino?.etapa.id).toBe('e2');
+  });
+
+  it('R16.14 — tradução para funil ou etapa que não existe mais vira aviso', () => {
+    expect(
+      resolverDestino({
+        funis,
+        cartao: null,
+        funilTexto: 'SDR',
+        podeVerArea: tudo,
+        traducaoFunis: { sdr: 'inexistente' },
+      }).aviso,
+    ).toMatch(/não existe mais/);
+    expect(
+      resolverDestino({
+        funis,
+        cartao: null,
+        funilTexto: 'Vendas Diretas',
+        etapaTexto: 'x',
+        podeVerArea: tudo,
+        traducaoEtapas: { f1: { x: 'inexistente' } },
+      }).aviso,
+    ).toMatch(/não existe mais/);
+  });
+
+  it('R16.14 — ganho e perdido vão direto para a etapa de fechamento; a etapa da planilha não conta', () => {
+    const entrada = {
+      funis,
+      cartao: null,
+      funilTexto: 'Vendas Diretas',
+      etapaTexto: 'etapa que não existe',
+      podeVerArea: tudo,
+    };
+    expect(
+      resolverDestino({ ...entrada, status: 'GANHO' }).destino?.etapa.id,
+    ).toBe('e3');
+    expect(
+      resolverDestino({ ...entrada, status: 'PERDIDO' }).destino?.etapa.id,
+    ).toBe('e4');
+  });
+
+  it('R16.14 — funil sem etapa de ganho avisa', () => {
+    expect(
+      resolverDestino({
+        funis,
+        cartao: null,
+        funilTexto: 'Parceiros',
+        podeVerArea: tudo,
+        status: 'GANHO',
+      }).aviso,
+    ).toMatch(/não tem etapa de ganho/);
+  });
+});

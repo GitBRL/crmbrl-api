@@ -33,6 +33,7 @@ import { TempoRealService } from '../tempo-real/tempo-real.service';
 import {
   aplicarModeloDeMapeamento,
   camposDoTipo,
+  formatoDeOrigem,
   type Mapeamento,
   sugerirMapeamento,
   validarMapeamento,
@@ -43,6 +44,7 @@ import {
   type CriarImportacaoDto,
   type FiltroImportacoesDto,
   type FiltroLinhasDto,
+  type FunisDaPlanilhaDto,
   ImportacaoDto,
   type LinhaDeImportacaoDto,
   type PreviaDto,
@@ -60,6 +62,7 @@ import {
   compilarFiltro,
   type FiltroDaPlanilha,
   MAXIMO_DE_REGRAS_DO_FILTRO,
+  normalizarTextoDoFiltro,
   OPERADORES_SEM_VALOR,
   valorEmReais,
 } from './filtro-de-linhas';
@@ -67,14 +70,27 @@ import {
   lerFiltro,
   lerNegocio,
   lerOpcoes,
+  lerTraducaoDeEtapas,
+  lerTraducaoDeFunis,
   type NegocioParaTodos,
+  type TraducaoDeEtapas,
+  type TraducaoDeFunis,
 } from './opcoes';
+import { lerStatusDoNegocio } from './dados-do-negocio';
+import {
+  acharEtapa,
+  acharFunil,
+  type FunilDoCache,
+} from './negocio-da-importacao';
 import {
   lerPlanilha,
   type OpcoesDeLeitura,
   PlanilhaIlegivelError,
   type PlanilhaLida,
 } from './leitor-planilha';
+
+const PADRAO_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const INCLUIR_CRIADOR = {
   criadoPor: { select: { id: true, nome: true } },
@@ -363,6 +379,8 @@ export class ImportacaoService implements OnModuleInit {
     let filtro: FiltroDaPlanilha | null = opcoesAtuais.filtro;
     let negocio: NegocioParaTodos | null = opcoesAtuais.negocio;
     let ddiPadrao = opcoesAtuais.ddiPadrao;
+    let traducaoFunis = opcoesAtuais.traducaoFunis;
+    let traducaoEtapas = opcoesAtuais.traducaoEtapas;
     let opcoesMudaram = false;
 
     if (dto.leitura) {
@@ -442,6 +460,15 @@ export class ImportacaoService implements OnModuleInit {
           ddiPadrao = lerOpcoes(modelo.opcoes).ddiPadrao;
           opcoesMudaram = true;
         }
+        // R16.14: as traduções do modelo valem; as que não servem mais viram aviso na linha.
+        if (dto.traducaoFunis === undefined) {
+          traducaoFunis = lerOpcoes(modelo.opcoes).traducaoFunis;
+          opcoesMudaram = true;
+        }
+        if (dto.traducaoEtapas === undefined) {
+          traducaoEtapas = lerOpcoes(modelo.opcoes).traducaoEtapas;
+          opcoesMudaram = true;
+        }
         if (
           dto.duplicados === undefined &&
           ['ATUALIZAR_VAZIOS', 'IGNORAR', 'SOBRESCREVER'].includes(
@@ -491,10 +518,34 @@ export class ImportacaoService implements OnModuleInit {
       ddiPadrao = dto.ddiPadrao;
       opcoesMudaram = true;
     }
+    if (dto.traducaoFunis !== undefined) {
+      traducaoFunis = await this.validarTraducaoDeFunis(
+        usuario,
+        atual.tipo,
+        dto.traducaoFunis,
+      );
+      opcoesMudaram = true;
+    }
+    if (dto.traducaoEtapas !== undefined) {
+      traducaoEtapas = await this.validarTraducaoDeEtapas(
+        usuario,
+        atual.tipo,
+        dto.traducaoEtapas,
+      );
+      opcoesMudaram = true;
+    }
     if (opcoesMudaram) {
       delete opcoesBrutas.filtro;
       delete opcoesBrutas.negocio;
       delete opcoesBrutas.ddiPadrao;
+      delete opcoesBrutas.traducaoFunis;
+      delete opcoesBrutas.traducaoEtapas;
+      if (Object.keys(traducaoFunis).length > 0) {
+        opcoesBrutas.traducaoFunis = traducaoFunis;
+      }
+      if (Object.keys(traducaoEtapas).length > 0) {
+        opcoesBrutas.traducaoEtapas = traducaoEtapas;
+      }
       if (filtro) opcoesBrutas.filtro = filtro;
       if (negocio) opcoesBrutas.negocio = negocio;
       if (ddiPadrao !== DDI_PADRAO) opcoesBrutas.ddiPadrao = ddiPadrao;
@@ -909,6 +960,277 @@ export class ImportacaoService implements OnModuleInit {
     };
   }
 
+  /**
+   * R16.14: tradução de funis (`{ valor: funilId }`): só contatos (400); texto e id (400);
+   * o funil existe e está ativo (422, R5.1) e a pessoa pode criar negócios nele (403, R5.9).
+   * Chaves guardadas normalizadas (sem acento, caixa nem espaços extras).
+   */
+  private async validarTraducaoDeFunis(
+    usuario: UsuarioAutenticado,
+    tipo: Importacao['tipo'],
+    bruto: Record<string, unknown>,
+  ): Promise<TraducaoDeFunis> {
+    this.garantirTraducaoValida(
+      tipo,
+      'traducaoFunis',
+      bruto,
+      (v) => typeof v === 'string' && PADRAO_UUID.test(v),
+    );
+    const traducao = lerTraducaoDeFunis(bruto);
+    for (const funilId of new Set(Object.values(traducao))) {
+      await this.funilParaTraducao(usuario, funilId);
+    }
+    return traducao;
+  }
+
+  /**
+   * R16.14: tradução de etapas (`{ funilId: { valor: etapaId } }`): a etapa é do funil
+   * (422, R5.4) e não é de perda (422, R5.5); o funil segue as regras da tradução de funis.
+   */
+  private async validarTraducaoDeEtapas(
+    usuario: UsuarioAutenticado,
+    tipo: Importacao['tipo'],
+    bruto: Record<string, unknown>,
+  ): Promise<TraducaoDeEtapas> {
+    this.garantirTraducaoValida(
+      tipo,
+      'traducaoEtapas',
+      bruto,
+      (v) =>
+        !!v &&
+        typeof v === 'object' &&
+        !Array.isArray(v) &&
+        Object.values(v).every(
+          (e) => typeof e === 'string' && PADRAO_UUID.test(e),
+        ),
+      true,
+    );
+    const traducao = lerTraducaoDeEtapas(bruto);
+    for (const [funilId, etapas] of Object.entries(traducao)) {
+      const funil = await this.funilParaTraducao(usuario, funilId);
+      for (const etapaId of new Set(Object.values(etapas))) {
+        const etapa = await this.prisma.etapa.findFirst({
+          where: { id: etapaId, funilId: funil.id },
+        });
+        if (!etapa) {
+          throw new RegraVioladaException(
+            'R5.4',
+            `A etapa informada não é do funil ${funil.nome}.`,
+            { funilId: funil.id, etapaId },
+          );
+        }
+        if (etapa.tipo === 'PERDIDO') {
+          throw new RegraVioladaException(
+            'R5.5',
+            'Uma etapa de perda não recebe negócio aberto da planilha (ela exige motivo).',
+            { etapaId },
+          );
+        }
+      }
+    }
+    return traducao;
+  }
+
+  private garantirTraducaoValida(
+    tipo: Importacao['tipo'],
+    campo: string,
+    bruto: Record<string, unknown>,
+    valorValido: (valor: unknown) => boolean,
+    chaveEhUuid = false,
+  ): void {
+    const mensagens: string[] = [];
+    if (tipo !== 'CONTATOS' && Object.keys(bruto).length > 0) {
+      mensagens.push('só vale para contatos');
+    }
+    for (const [chave, valor] of Object.entries(bruto)) {
+      if (chaveEhUuid ? !PADRAO_UUID.test(chave) : chave.trim() === '') {
+        mensagens.push(
+          chaveEhUuid
+            ? `"${chave}" não é um id de funil`
+            : 'o valor da planilha não pode ser vazio',
+        );
+      } else if (!valorValido(valor)) {
+        mensagens.push(`"${chave}": destino inválido`);
+      }
+    }
+    if (mensagens.length > 0) {
+      throw new DadosInvalidosException('A tradução tem problemas.', {
+        regra: 'R16.14',
+        campos: [{ campo, mensagens }],
+      });
+    }
+  }
+
+  private async funilParaTraducao(
+    usuario: UsuarioAutenticado,
+    funilId: string,
+  ) {
+    const funil = await this.prisma.funil.findFirst({
+      where: { id: funilId, excluidoEm: null },
+    });
+    if (!funil) {
+      throw new RegraVioladaException(
+        'R5.1',
+        'O funil de destino não existe ou foi excluído.',
+        { funilId },
+      );
+    }
+    if (!funil.ativo) {
+      throw new RegraVioladaException(
+        'R5.1',
+        `O funil ${funil.nome} está arquivado e não recebe negócios.`,
+        { funilId: funil.id },
+      );
+    }
+    if (!podeVerArea(usuario, funil.area)) {
+      throw new SemPermissaoException(
+        `Você não pode criar negócios no funil ${funil.nome}.`,
+        { regra: 'R5.9', funilId: funil.id },
+      );
+    }
+    return funil;
+  }
+
+  /**
+   * R16.14: conferência de funis e etapas da planilha com o mapeamento, o filtro, o cartão e as
+   * traduções salvos. Agrupa as linhas que passam no filtro por valor de funil (e, nas linhas
+   * abertas, por valor de etapa) e diz onde cada uma cairia.
+   */
+  async funisDaPlanilha(
+    usuario: UsuarioAutenticado,
+    id: string,
+  ): Promise<FunisDaPlanilhaDto> {
+    const importacao = await this.obter(usuario, id);
+    const vazio: FunisDaPlanilhaDto = { funis: [], semFunil: 0 };
+    if (importacao.tipo !== 'CONTATOS') {
+      return vazio;
+    }
+    const opcoes = lerOpcoes(importacao.opcoes);
+    const mapeamento = importacao.mapeamento as Mapeamento;
+    const indiceDe = (campo: string): number => {
+      const coluna = Object.entries(mapeamento).find(([, c]) => c === campo);
+      return coluna ? importacao.colunas.indexOf(coluna[0]) : -1;
+    };
+    const iFunil = indiceDe('negocio.funil');
+    const iEtapa = indiceDe('negocio.etapa');
+    const iStatus = indiceDe('negocio.status');
+    const planilha = await this.ler(importacao);
+    const passa = compilarFiltro(opcoes.filtro, planilha.colunas);
+    const linhas = opcoes.filtro
+      ? planilha.linhas.filter((l) => passa(l.valores))
+      : planilha.linhas;
+
+    const funisDb = await this.prisma.funil.findMany({
+      where: { excluidoEm: null },
+      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+      include: {
+        etapas: { orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }] },
+      },
+    });
+    const funis: FunilDoCache[] = funisDb.map((f) => ({
+      id: f.id,
+      nome: f.nome,
+      ativo: f.ativo,
+      area: f.area,
+      etapas: f.etapas.map((e) => ({ id: e.id, nome: e.nome, tipo: e.tipo })),
+    }));
+
+    interface GrupoDeEtapa {
+      valor: string;
+      linhas: number;
+    }
+    interface GrupoDeFunil {
+      valor: string;
+      linhas: number;
+      porStatus: Record<'ABERTO' | 'GANHO' | 'PERDIDO', number>;
+      etapas: Map<string, GrupoDeEtapa>;
+    }
+    const grupos = new Map<string, GrupoDeFunil>();
+    let semFunil = 0;
+    for (const linha of linhas) {
+      const valorFunil =
+        iFunil >= 0 ? (linha.valores[iFunil] ?? '').trim() : '';
+      if (valorFunil === '') {
+        semFunil++;
+        continue;
+      }
+      const chave = normalizarTextoDoFiltro(valorFunil);
+      let grupo = grupos.get(chave);
+      if (!grupo) {
+        grupo = {
+          valor: valorFunil,
+          linhas: 0,
+          porStatus: { ABERTO: 0, GANHO: 0, PERDIDO: 0 },
+          etapas: new Map(),
+        };
+        grupos.set(chave, grupo);
+      }
+      grupo.linhas++;
+      const { status } = lerStatusDoNegocio(
+        iStatus >= 0 ? linha.valores[iStatus] : undefined,
+      );
+      grupo.porStatus[status]++;
+      const valorEtapa =
+        iEtapa >= 0 ? (linha.valores[iEtapa] ?? '').trim() : '';
+      if (status === 'ABERTO' && valorEtapa !== '') {
+        const chaveEtapa = normalizarTextoDoFiltro(valorEtapa);
+        const etapa = grupo.etapas.get(chaveEtapa);
+        if (etapa) {
+          etapa.linhas++;
+        } else {
+          grupo.etapas.set(chaveEtapa, { valor: valorEtapa, linhas: 1 });
+        }
+      }
+    }
+
+    return {
+      semFunil,
+      funis: [...grupos.values()].map((g) => {
+        const achado = acharFunil(
+          funis,
+          g.valor,
+          opcoes.traducaoFunis,
+          (area) => podeVerArea(usuario, area),
+        );
+        return {
+          valor: g.valor,
+          linhas: g.linhas,
+          porStatus: g.porStatus,
+          funil: achado.funil
+            ? {
+                id: achado.funil.id,
+                nome: achado.funil.nome,
+                area: achado.funil.area,
+              }
+            : null,
+          como: achado.como,
+          problema: achado.problema,
+          etapas: [...g.etapas.values()].map((e) => {
+            if (!achado.funil) {
+              return {
+                valor: e.valor,
+                linhas: e.linhas,
+                etapa: null,
+                como: null,
+                problema: 'NAO_ENCONTRADA' as const,
+              };
+            }
+            const a = acharEtapa(achado.funil, e.valor, opcoes.traducaoEtapas);
+            return {
+              valor: e.valor,
+              linhas: e.linhas,
+              etapa: a.etapa
+                ? { id: a.etapa.id, nome: a.etapa.nome, tipo: a.etapa.tipo }
+                : null,
+              como: a.como,
+              problema: a.problema,
+            };
+          }),
+        };
+      }),
+    };
+  }
+
   /** Negócio de um modelo salvo: some em silêncio se o funil ou a etapa não servem mais. */
   private async negocioAindaValido(
     usuario: UsuarioAutenticado,
@@ -1080,6 +1402,8 @@ function montarPrevia(
     totalLinhas: planilha.linhas.length,
     linhasNoFiltro: aprovadas.length,
     sugestao: sugerirMapeamento(tipo, planilha.colunas),
+    formatoOrigem:
+      tipo === 'CONTATOS' ? formatoDeOrigem(planilha.colunas) : null,
     ...(planilha.leitura.abas ? { abas: planilha.leitura.abas } : {}),
   };
 }

@@ -80,6 +80,32 @@ export interface EntradaNegocioAutomatico {
   abertoMaisRecente?: boolean;
   /** `false` não notifica o responsável (a importação manda uma só notificação por responsável ao concluir). Padrão: notifica. */
   notificar?: boolean;
+  /**
+   * Importação (R16.14): `fechado` cria o negócio já fechado na etapa de ganho
+   * ou de perda (sem reconversão, sem passagens, sem notificação); `criadoEm`
+   * é a data de criação na origem; `idExterno`, o id no sistema de origem
+   * (também gravado no negócio aberto em que a reconversão caiu); `detalhes`
+   * vai para a auditoria da criação.
+   */
+  importado?: {
+    fechado?: { motivoPerda?: string | null; em: Date };
+    criadoEm?: Date;
+    idExterno?: string;
+    detalhes?: Record<string, unknown>;
+  };
+}
+
+/** Atualização de um negócio já importado (mesmo `idExterno`, R16.14). */
+export interface EntradaAtualizacaoImportada {
+  /** COMPLETAR só preenche o que está vazio; SOBRESCREVER troca e move. */
+  modo: 'COMPLETAR' | 'SOBRESCREVER';
+  titulo?: string;
+  valor?: string;
+  responsavelId?: string;
+  motivoPerda?: string;
+  /** Etapa de destino (a de ganho/perda no negócio fechado) e data do fechamento. */
+  etapaId: string;
+  fechadoEm?: Date;
 }
 
 /** Campos do negócio que a edição audita (antes/depois, R3.1). */
@@ -555,7 +581,8 @@ export class NegociosService {
         { funilId: funil.id, etapaId: entrada.etapaId },
       );
     }
-    if (etapa.tipo === 'PERDIDO') {
+    const importado = entrada.importado;
+    if (etapa.tipo === 'PERDIDO' && !importado?.fechado) {
       throw new RegraVioladaException(
         'R5.5',
         'Um negócio automático não entra direto na etapa de perda (ela exige motivo).',
@@ -584,10 +611,26 @@ export class NegociosService {
       estrategia: entrada.estrategia,
       responsavelFixoId: entrada.responsavelFixoId ?? null,
       negocioOrigemId: null,
-      sempreCriar: entrada.sempreCriar,
+      sempreCriar: entrada.sempreCriar || !!importado?.fechado,
       abertoMaisRecente: entrada.abertoMaisRecente,
+      criadoEm: importado?.criadoEm,
+      fechadoEm: importado?.fechado?.em,
+      idExterno: importado?.idExterno ?? null,
+      motivoPerda: importado?.fechado?.motivoPerda ?? null,
+      detalhesDaCriacao: importado?.detalhes,
     });
-    const { negocio } = resultado;
+    let { negocio } = resultado;
+    if (importado?.idExterno && resultado.reconversao && !negocio.idExterno) {
+      // A reconversão caiu num negócio aberto sem id de origem: ele passa a tê-lo (reimportar não repete).
+      negocio = {
+        ...negocio,
+        ...(await tx.negocio.update({
+          where: { id: negocio.id },
+          data: { idExterno: importado.idExterno },
+          select: { idExterno: true },
+        })),
+      };
+    }
     const ator = contextoAtual().usuario?.id;
     if (
       entrada.notificar !== false &&
@@ -610,7 +653,7 @@ export class NegociosService {
         },
       });
     }
-    if (resultado.criado) {
+    if (resultado.criado && !importado?.fechado) {
       await this.motor.executarPassagens(tx, negocio);
     }
     return {
@@ -618,6 +661,110 @@ export class NegociosService {
       criado: resultado.criado,
       reconversao: resultado.reconversao,
     };
+  }
+
+  /**
+   * Atualiza um negócio já importado (mesmo `idExterno`, R16.14), dentro da
+   * transação da linha: COMPLETAR só preenche valor, título, responsável e
+   * motivo vazios; SOBRESCREVER troca esses campos e, se a etapa de destino
+   * mudou, move pelo motor (histórico, auditoria e eventos), sem passagens.
+   * Reabrir um negócio fechado segue a regra R5.5. `aviso` explica o que não
+   * foi feito (outro funil, sem permissão para reabrir).
+   */
+  async atualizarImportado(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    negocioId: string,
+    entrada: EntradaAtualizacaoImportada,
+  ): Promise<{ negocio: NegocioCompleto; alterou: boolean; aviso?: string }> {
+    await tx.$queryRaw`SELECT id FROM negocios WHERE id = ${negocioId}::uuid FOR UPDATE`;
+    const antes = await tx.negocio.findFirst({
+      where: { id: negocioId, excluidoEm: null },
+      include: INCLUIR_NEGOCIO,
+    });
+    if (!antes) {
+      throw new NaoEncontradoException('Negócio não encontrado.');
+    }
+    const completar = entrada.modo === 'COMPLETAR';
+    const dados: Prisma.NegocioUncheckedUpdateInput = {};
+    if (entrada.titulo && (completar ? !antes.titulo.trim() : true)) {
+      dados.titulo = entrada.titulo;
+    }
+    if (entrada.valor !== undefined) {
+      const valor = lerValor(entrada.valor);
+      if (completar ? antes.valor.isZero() && !valor.isZero() : true) {
+        dados.valor = valor;
+      }
+    }
+    if (
+      entrada.responsavelId &&
+      entrada.responsavelId !== antes.responsavelId &&
+      (completar ? antes.responsavelId === null : true)
+    ) {
+      await this.validarResponsavel(
+        tx,
+        entrada.responsavelId,
+        antes.funil.area,
+      );
+      dados.responsavelId = entrada.responsavelId;
+    }
+    if (
+      entrada.motivoPerda &&
+      antes.status === 'PERDIDO' &&
+      (completar ? !antes.motivoPerda : true)
+    ) {
+      dados.motivoPerda = entrada.motivoPerda;
+    }
+    let atual: NegocioCompleto = antes;
+    let alterou = false;
+    if (Object.keys(dados).length > 0) {
+      const depois = await tx.negocio.update({
+        where: { id: antes.id },
+        data: dados,
+        include: INCLUIR_NEGOCIO,
+      });
+      const alteracoes = calcularAlteracoes(antes, depois, CAMPOS_EDITAVEIS);
+      if (Object.keys(alteracoes).length > 0) {
+        alterou = true;
+        await this.auditoria.registrar(tx, {
+          acao: 'negocio.atualizado',
+          entidade: 'negocio',
+          entidadeId: depois.id,
+          resumo: `Negócio "${depois.titulo}" atualizado pela importação (${Object.keys(alteracoes).join(', ')})`,
+          dados: { alteracoes },
+          relacionados: relacionadosDoNegocio(depois),
+        });
+        await this.eventos.publicar(
+          tx,
+          'negocio.atualizado',
+          dadosDoEventoDeNegocio(depois, { alteracoes }),
+        );
+      }
+      atual = depois;
+    }
+    let aviso: string | undefined;
+    if (!completar && entrada.etapaId !== atual.etapaId) {
+      const destino = await tx.etapa.findUnique({
+        where: { id: entrada.etapaId },
+      });
+      if (!destino || destino.funilId !== atual.funilId) {
+        aviso = 'O negócio já importado está em outro funil: não foi movido.';
+      } else if (
+        atual.status !== 'ABERTO' &&
+        !podeReabrirNegocio(usuario, atual.funil.area)
+      ) {
+        aviso =
+          'Sem permissão para reabrir o negócio já importado: não foi movido.';
+      } else {
+        atual = await this.motor.entrarNaEtapa(tx, atual, destino, {
+          motivoPerda: entrada.motivoPerda ?? null,
+          posicao: await this.motor.posicaoNoTopo(tx, destino.id, atual.id),
+          fechadoEm: entrada.fechadoEm ?? null,
+        });
+        alterou = true;
+      }
+    }
+    return { negocio: atual, alterou, ...(aviso ? { aviso } : {}) };
   }
 
   /**

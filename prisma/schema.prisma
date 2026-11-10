@@ -570,6 +570,8 @@ model Negocio {
   reconversoes         Int           @default(0)
   ultimaReconversaoEm  DateTime?     @map("ultima_reconversao_em") @db.Timestamptz(3)
   camposPersonalizados Json          @default("{}") @map("campos_personalizados")
+  /// Id do negócio no sistema de origem (importação, ex.: Clint); índice único parcial (não nulo e não excluído).
+  idExterno            String?       @map("id_externo")
   criadoPorId          String?       @map("criado_por_id") @db.Uuid
   criadoPor            Usuario?      @relation("NegocioCriadoPor", fields: [criadoPorId], references: [id], onDelete: SetNull)
   criadoEm             DateTime      @default(now()) @map("criado_em") @db.Timestamptz(3)
@@ -587,6 +589,7 @@ model Negocio {
   // Onda C
   contratos Contrato[]
 
+  @@unique([idExterno], map: "negocios_id_externo_key", where: raw("((id_externo IS NOT NULL) AND (excluido_em IS NULL))"))
   @@index([funilId, etapaId, status])
   @@index([etapaId, posicao])
   @@index([responsavelId, status])
@@ -2206,6 +2209,8 @@ model Importacao {
   filtradas             Int                     @default(0)
   negociosCriados       Int                     @default(0) @map("negocios_criados")
   negociosReconvertidos Int                     @default(0) @map("negocios_reconvertidos")
+  /// Negócios já importados antes (mesmo `idExterno`) que a importação atualizou.
+  negociosAtualizados   Int                     @default(0) @map("negocios_atualizados")
   /// Relatório XLSX gerado no fim.
   relatorioId           String?                 @map("relatorio_id") @db.Uuid
   relatorio             Arquivo?                @relation("ImportacaoRelatorio", fields: [relatorioId], references: [id], onDelete: SetNull)

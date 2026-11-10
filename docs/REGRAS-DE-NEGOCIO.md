@@ -826,6 +826,54 @@ real ("cenário N" no nome do teste).
   com ele; com `55` vale a regra brasileira de R4.1, sem mudança. O relatório XLSX, a
   auditoria (`importacao.concluida`) e o evento de domínio levam `filtradas`, `negociosCriados`
   e `negociosReconvertidos`.
+- **R16.14** **Exportação do Clint e negócio fechado (só contatos):** campos novos do grupo
+  "Negócio" — `negocio.status` (`aberto`/`em aberto`/`open`/`em andamento` → ABERTO;
+  `ganho`/`won`/`vendido` → GANHO; `perdido`/`lost`/`perda` → PERDIDO; sem acento, caixa nem
+  espaços extras; vazio → ABERTO; outro valor → ABERTO com o aviso `Status "X" desconhecido: o
+  negócio entrou aberto.`), `negocio.motivoPerda`, `negocio.ganhoEm`, `negocio.perdidoEm`,
+  `negocio.criadoEm` e `negocio.idExterno`. Sinônimos do Clint: `origin` → funil, `stage` →
+  etapa, `value` → valor, `user_email` → responsável, `deal_name` → título, `complete_phone` →
+  telefone (vence `phone`; o `ddi` e o `phone` ficam sem campo), `organization_name`,
+  `role`, `created_at`, `won_at`, `lost_at`, `lost_status`, `id`; a coluna `origem` (campo de
+  formulário) não é funil. A sugestão nunca liga duas colunas ao mesmo campo e, havendo mais de
+  uma coluna possível, vale a de sinônimo mais à frente na lista do campo (a primeira do
+  arquivo no empate). **Formato detectado:** quando o cabeçalho tem `origin`, `stage`, `status`
+  e `user_email`, a prévia (`previa.formatoOrigem`) e o rascunho (`formatoOrigem`) trazem
+  `CLINT`; senão `null`. **Datas:** `dd/mm/aaaa`, `dd/mm/aaaa hh:mm[:ss]`,
+  `aaaa-mm-dd[Thh:mm[:ss]]` e número de série do Excel (XLSX com hora vem como
+  `aaaa-mm-ddThh:mm:ss`), no horário de America/Sao_Paulo; inválida ou no futuro vira aviso na
+  linha e o campo é ignorado. **Negócio fechado:** ganho ou perdido nasce **já fechado**, direto
+  na etapa de ganho / de perda do funil (a etapa da coluna não é destino; vai na auditoria
+  `negocio.criado` como `etapaOriginalNaPlanilha`); sem etapa de ganho/perda no funil, aviso
+  `Negócio não criado: …`. `ganhoEm`/`perdidoEm` = coluna > `criadoEm` da coluna > agora;
+  motivo da perda = coluna > "Importado como perdido". Linha fechada **nunca** reconverte
+  (R5.6), **não dispara passagens** (R5.7) e não entra na notificação de negócios recebidos;
+  eventos de domínio e auditoria seguem como hoje. `negocio.criadoEm` da coluna grava
+  `criadoEm`, `etapaDesde` e a data da movimentação de entrada. **ID externo:** coluna
+  `negocios.id_externo` com índice único parcial (não nulo e não excluído); a reconversão que
+  cai num negócio aberto sem ID passa a guardá-lo. Linha com `idExterno` que já existe **não
+  cria outro negócio**: aplica a opção de duplicados ao negócio — IGNORAR: nada (linha
+  ignorada); ATUALIZAR_VAZIOS: só preenche valor (se zero), título, responsável e motivo
+  vazios; SOBRESCREVER: troca esses campos e, se a etapa de destino mudou, move pelo motor de
+  negócios (histórico, auditoria e eventos, sem passagens; reabrir segue R5.5 e, sem permissão,
+  avisa; outro funil não move e avisa). Conta em `negociosAtualizados` (progresso, relatório
+  XLSX, auditoria `importacao.concluida` e evento) quando algo mudou.
+- **R16.15** **Conferência de funis e etapas:** `GET /importacoes/:id/funis-da-planilha`
+  (rascunho; mesma permissão da prévia) usa mapeamento, filtro, cartão e traduções salvos e
+  devolve `{ funis: [{ valor, linhas, porStatus, funil, como, problema, etapas: [{ valor,
+  linhas, etapa, como, problema }] }], semFunil }`. `como`: `NOME` ou `TRADUCAO`; `problema`
+  do funil: `NAO_ENCONTRADO`, `ARQUIVADO`, `SEM_PERMISSAO`; da etapa (só linhas abertas):
+  `NAO_ENCONTRADA`, `ETAPA_DE_PERDA`. Só vale para contatos (outros tipos: lista vazia).
+- **R16.16** **Traduções:** o rascunho (PATCH) e os modelos aceitam `traducaoFunis:
+  { [valor]: funilId }` e `traducaoEtapas: { [funilId]: { [valor]: etapaId } }` (chaves
+  normalizadas na gravação; o objeto enviado substitui o anterior e `{}` limpa). O
+  processamento aplica a tradução antes da busca pelo nome. Gravação: forma errada 400; só
+  contatos 400; funil inexistente ou arquivado 422 (R5.1); funil de área que a pessoa não vê
+  403 (R5.9); etapa de outro funil 422 (R5.4); etapa de perda 422 (R5.5). Tradução que deixou
+  de existir depois (ou veio de um modelo) vira aviso na linha, como o funil não encontrado.
+  Aplicar um modelo copia as traduções dele.
+- **R16.17** **Planilha modelo e relatório:** a planilha modelo (R16.10) traz as colunas novas
+  do grupo "Negócio" e o relatório XLSX traz "Negócios atualizados".
 
 ## 22. Disparos (R17)
 
@@ -2959,3 +3007,6 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
 411. Quem não vê a área do funil recebe 403 ao definir o cartão; por coluna, o contato entra sem negócio e com aviso (R16.12, R5.9).
 412. Uma notificação por responsável ao concluir; se o negócio falha, contato, negócio e linha são desfeitos juntos (R16.12).
 413. Campos com grupo e modelo de mapeamento com filtro, negócio e DDI (colunas inexistentes descartadas) (R16.3, R16.13).
+414. Exportação do Clint: formato detectado, conferência de funis, tradução de funil e etapa, ganho e perdido já fechados com datas e motivo (sem passagem para o CS) e `criadoEm` respeitado (R16.14–R16.16).
+415. Reimportar o mesmo ID de negócio não duplica: pular, completar e trocar (com movimentação); a reconversão passa a guardar o ID (R16.14).
+416. Status desconhecido entra aberto com aviso, data inválida ou futura é ignorada com aviso e o modelo guarda as traduções (R16.14, R16.16).

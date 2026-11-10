@@ -1485,4 +1485,451 @@ describe('Importação de contatos e empresas (e2e)', () => {
       ddiPadrao: '351',
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Exportação do Clint (R16.14) — dados inventados, só o cabeçalho é o real
+  // -------------------------------------------------------------------------
+
+  const CABECALHO_CLINT =
+    'id,created_at,name,email,ddi,phone,complete_phone,tags,status,stage,value,lost_status,user_email,user_name,origin,won_at,lost_at,origem';
+
+  function csvClint(linhas: string[]): string {
+    return `${CABECALHO_CLINT}\n${linhas.join('\n')}\n`;
+  }
+
+  interface ConferenciaDaApi {
+    semFunil: number;
+    funis: Array<{
+      valor: string;
+      linhas: number;
+      porStatus: Record<string, number>;
+      funil: { id: string; nome: string } | null;
+      como: string | null;
+      problema: string | null;
+      etapas: Array<{
+        valor: string;
+        linhas: number;
+        etapa: { id: string; nome: string; tipo: string } | null;
+        como: string | null;
+        problema: string | null;
+      }>;
+    }>;
+  }
+
+  it('cenário 414 — R16.14 — exportação do Clint: formato detectado, conferência de funis, tradução, ganho e perdido já fechados (datas, motivo, sem passagem) e criadoEm respeitado', async () => {
+    const equipe = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    const cliente = await entrarComo(t, equipe.lider);
+    const dono = equipe.membros[0].email;
+    const { funil, entrada, segunda, perdida } = await comercial();
+    const ganha = funil.etapas.find((e) => e.tipo === 'GANHO')!;
+    const csv = csvClint([
+      `id-001,01/11/2026 09:00:00,Ana Teste,ana@cli.com,55,61988880001,+55 61988880001,"t1,t2",Aberto,1º CONTATO - 1º DIA,0,,${dono},Fulano,SDR,,,x`,
+      `id-002,02/11/2026 10:30:00,Bia Teste,bia@cli.com,55,61988880002,+55 61988880002,,Aberto,SEGUNDA ETAPA,100,,${dono},Fulano,SDR,,,x`,
+      `id-003,02/11/2026 11:00:00,Caio Teste,caio@cli.com,55,61988880003,+55 61988880003,,Ganho,VENDA REALIZADA ,1500,,${dono},Fulano,SDR,05/11/2026 13:08:29,,x`,
+      `id-004,03/11/2026 08:00:00,Davi Teste,davi@cli.com,55,61988880004,+55 61988880004,,Perdido,1º CONTATO - 1º DIA,0,Sem interesse,${dono},Fulano,SDR,,06/11/2026 08:00:00,x`,
+      `id-005,03/11/2026 09:15:00,Eva Teste,eva@cli.com,55,61988880005,+55 61988880005,,Perdido,SEGUNDA ETAPA,0,,${dono},Fulano,SDR,,,x`,
+      `id-006,04/11/2026 09:00:00,Fred Teste,fred@cli.com,55,61988880006,+55 61988880006,,Aberto,ETAPA DESCONHECIDA,0,,${dono},Fulano,SDR,,,x`,
+    ]);
+    const criada = await rascunho(cliente, csv);
+    // Formato detectado e mapeamento sugerido (origin → funil, `origem` do formulário não).
+    expect(criada.previa).toMatchObject({ formatoOrigem: 'CLINT' });
+    expect(criada).toMatchObject({ formatoOrigem: 'CLINT' });
+    expect(criada.mapeamento).toMatchObject({
+      id: 'negocio.idExterno',
+      created_at: 'negocio.criadoEm',
+      complete_phone: 'telefone',
+      status: 'negocio.status',
+      stage: 'negocio.etapa',
+      lost_status: 'negocio.motivoPerda',
+      user_email: 'responsavel',
+      origin: 'negocio.funil',
+      won_at: 'negocio.ganhoEm',
+      lost_at: 'negocio.perdidoEm',
+    });
+    expect(criada.mapeamento.origem).toBeUndefined();
+    expect(criada.mapeamento.phone).toBeUndefined();
+    const semClint = await rascunho(cliente, 'Nome,E-mail\nAna,ana@x.com\n');
+    expect(semClint.previa).toMatchObject({ formatoOrigem: null });
+
+    // Conferência antes da tradução: "SDR" não existe.
+    const conferir = async () =>
+      (
+        await cliente
+          .get(`/api/v1/importacoes/${criada.id}/funis-da-planilha`)
+          .expect(200)
+      ).body as ConferenciaDaApi;
+    const antes = await conferir();
+    expect(antes.semFunil).toBe(0);
+    expect(antes.funis).toHaveLength(1);
+    expect(antes.funis[0]).toMatchObject({
+      valor: 'SDR',
+      linhas: 6,
+      porStatus: { ABERTO: 3, GANHO: 1, PERDIDO: 2 },
+      funil: null,
+      como: null,
+      problema: 'NAO_ENCONTRADO',
+    });
+    // Só linhas abertas entram nas etapas.
+    expect(antes.funis[0].etapas.map((e) => e.valor).sort()).toEqual([
+      '1º CONTATO - 1º DIA',
+      'ETAPA DESCONHECIDA',
+      'SEGUNDA ETAPA',
+    ]);
+
+    // Validação da tradução (R16.14): funil inexistente 422, forma errada 400, outra área 403.
+    const lixo = '00000000-0000-4000-8000-000000000000';
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        traducaoFunis: { sdr: lixo },
+      })
+      .expect(422);
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, { traducaoFunis: { sdr: 1 } })
+      .expect(400);
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, { traducaoFunis: 'x' })
+      .expect(400);
+    const marketing = await funilBase(t, 'MARKETING');
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        traducaoFunis: { SDR: marketing.id },
+      })
+      .expect(403);
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        traducaoFunis: { SDR: funil.id },
+        traducaoEtapas: { [funil.id]: { x: marketing.etapas[0].id } },
+      })
+      .expect(422);
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        traducaoFunis: { SDR: funil.id },
+        traducaoEtapas: { [funil.id]: { x: perdida.id } },
+      })
+      .expect(422);
+
+    const gravada = await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        traducaoFunis: { ' SDR ': funil.id },
+        traducaoEtapas: {
+          [funil.id]: {
+            '1º contato - 1º dia': entrada.id,
+            'Segunda Etapa': segunda.id,
+          },
+        },
+      })
+      .expect(200);
+    expect(gravada.body).toMatchObject({
+      traducaoFunis: { sdr: funil.id },
+      traducaoEtapas: {
+        [funil.id]: {
+          '1º contato - 1º dia': entrada.id,
+          'segunda etapa': segunda.id,
+        },
+      },
+    });
+    const depois = await conferir();
+    expect(depois.funis[0]).toMatchObject({
+      funil: { id: funil.id, nome: funil.nome },
+      como: 'TRADUCAO',
+      problema: null,
+    });
+    const etapaDe = (valor: string) =>
+      depois.funis[0].etapas.find((e) => e.valor === valor);
+    expect(etapaDe('1º CONTATO - 1º DIA')).toMatchObject({
+      linhas: 1,
+      como: 'TRADUCAO',
+      problema: null,
+      etapa: { id: entrada.id },
+    });
+    expect(etapaDe('ETAPA DESCONHECIDA')).toMatchObject({
+      etapa: null,
+      como: null,
+      problema: 'NAO_ENCONTRADA',
+    });
+
+    // Passagem do Comercial (ganho → CS) existe; negócio importado como ganho não a dispara.
+    expect(
+      await t.prisma.passagem.count({ where: { etapaGatilhoId: ganha.id } }),
+    ).toBeGreaterThan(0);
+
+    await cliente.post(`/api/v1/importacoes/${criada.id}/iniciar`).expect(200);
+    await drenarTudo(t);
+    const final = (
+      await cliente.get(`/api/v1/importacoes/${criada.id}`).expect(200)
+    ).body as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosAtualizados: number;
+    };
+    expect(final).toMatchObject({
+      status: 'CONCLUIDA',
+      criados: 6,
+      erros: 0,
+      negociosCriados: 5,
+      negociosAtualizados: 0,
+    });
+    const negocioDe = (email: string) =>
+      t.prisma.negocio.findFirst({
+        where: { contato: { email } },
+        include: { movimentacoes: true },
+      });
+
+    const ana = (await negocioDe('ana@cli.com'))!;
+    expect(ana).toMatchObject({
+      etapaId: entrada.id,
+      status: 'ABERTO',
+      idExterno: 'id-001',
+    });
+    // 01/11/2026 09:00 em São Paulo = 12:00Z (R16.14: criadoEm, etapaDesde e a entrada no histórico)
+    expect(ana.criadoEm.toISOString()).toBe('2026-11-01T12:00:00.000Z');
+    expect(ana.etapaDesde.toISOString()).toBe('2026-11-01T12:00:00.000Z');
+    expect(ana.movimentacoes[0].criadoEm.toISOString()).toBe(
+      '2026-11-01T12:00:00.000Z',
+    );
+    expect(ana.responsavelId).toBe(equipe.membros[0].id);
+    expect(await negocioDe('bia@cli.com')).toMatchObject({
+      etapaId: segunda.id,
+    });
+
+    const caio = (await negocioDe('caio@cli.com'))!;
+    expect(caio).toMatchObject({
+      status: 'GANHO',
+      etapaId: ganha.id,
+      idExterno: 'id-003',
+    });
+    expect(caio.valor.toString()).toBe('1500');
+    expect(caio.ganhoEm?.toISOString()).toBe('2026-11-05T16:08:29.000Z');
+    expect(caio.perdidoEm).toBeNull();
+    expect(caio.criadoEm.toISOString()).toBe('2026-11-02T14:00:00.000Z');
+
+    const davi = (await negocioDe('davi@cli.com'))!;
+    expect(davi).toMatchObject({
+      status: 'PERDIDO',
+      etapaId: perdida.id,
+      motivoPerda: 'Sem interesse',
+    });
+    expect(davi.perdidoEm?.toISOString()).toBe('2026-11-06T11:00:00.000Z');
+    // Perdido sem motivo nem data: motivo padrão e data = criação do negócio.
+    const eva = (await negocioDe('eva@cli.com'))!;
+    expect(eva).toMatchObject({
+      status: 'PERDIDO',
+      motivoPerda: 'Importado como perdido',
+    });
+    expect(eva.perdidoEm?.toISOString()).toBe(eva.criadoEm.toISOString());
+
+    // Etapa sem destino: contato entra, negócio não, linha com aviso.
+    expect(await negocioDe('fred@cli.com')).toBeNull();
+    const linhas = await linhasDe(final.id, cliente);
+    expect(linhas.find((l) => l.numero === 7)?.motivo).toMatch(
+      /etapa "ETAPA DESCONHECIDA" não encontrada/,
+    );
+
+    // Nenhuma passagem para o CS (nem negócio derivado) por causa do ganho importado.
+    expect(
+      await t.prisma.negocio.count({ where: { negocioOrigemId: caio.id } }),
+    ).toBe(0);
+    expect(
+      await t.prisma.negocio.count({ where: { funil: { area: 'CS' } } }),
+    ).toBe(0);
+    // A etapa original da planilha fica na auditoria da criação do negócio fechado.
+    const auditoria = await t.prisma.eventoAuditoria.findFirstOrThrow({
+      where: { acao: 'negocio.criado', entidadeId: caio.id },
+    });
+    expect(JSON.stringify(auditoria.dados)).toContain('VENDA REALIZADA');
+    // Fechado não entra na notificação de "negócios recebidos"; os 3 abertos entram.
+    const notas = await t.prisma.notificacao.findMany({
+      where: { usuarioId: equipe.membros[0].id, tipo: 'negocio.atribuido' },
+    });
+    const nota = notas.map((n) => n.texto).join(' ');
+    expect(nota).toMatch(/2 negócios/);
+  });
+
+  it('cenário 415 — R16.14 — reimportar o mesmo ID não duplica: pular, completar e trocar (com movimentação); reconversão passa a guardar o ID', async () => {
+    const { cliente } = await lider();
+    const { funil, entrada } = await comercial();
+    const ganha = funil.etapas.find((e) => e.tipo === 'GANHO')!;
+    const traducao = {
+      traducaoFunis: { sdr: funil.id },
+      traducaoEtapas: { [funil.id]: { 'etapa a': entrada.id } },
+    };
+    const csv1 = csvClint([
+      'k-1,01/11/2026 09:00:00,Gil Teste,gil@rei.com,55,61977770001,+55 61977770001,,Aberto,Etapa A,0,,,,SDR,,,x',
+      'k-2,01/11/2026 09:00:00,Hana Teste,hana@rei.com,55,61977770002,+55 61977770002,,Ganho,Etapa A,200,,,,SDR,03/11/2026 10:00:00,,x',
+    ]);
+    const primeira = await importar(cliente, csv1, traducao);
+    expect(primeira).toMatchObject({ status: 'CONCLUIDA' });
+    expect(await t.prisma.negocio.count()).toBe(2);
+
+    // Pular: nada muda e nenhum negócio é criado.
+    const pulada = (await importar(cliente, csv1, {
+      ...traducao,
+      duplicados: 'IGNORAR',
+    })) as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosAtualizados: number;
+    };
+    expect(pulada).toMatchObject({
+      ignorados: 2,
+      negociosCriados: 0,
+      negociosAtualizados: 0,
+    });
+    expect(await t.prisma.negocio.count()).toBe(2);
+
+    // Completar: preenche só o vazio (valor 0 do Gil e motivo ausente); o valor do Hana (200) fica.
+    const csv2 = csvClint([
+      'k-1,01/11/2026 09:00:00,Gil Teste,gil@rei.com,55,61977770001,+55 61977770001,,Aberto,Etapa A,750,,,,SDR,,,x',
+      'k-2,01/11/2026 09:00:00,Hana Teste,hana@rei.com,55,61977770002,+55 61977770002,,Ganho,Etapa A,999,,,,SDR,03/11/2026 10:00:00,,x',
+    ]);
+    const completada = (await importar(cliente, csv2, {
+      ...traducao,
+      duplicados: 'ATUALIZAR_VAZIOS',
+    })) as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosAtualizados: number;
+    };
+    expect(completada).toMatchObject({
+      negociosCriados: 0,
+      negociosAtualizados: 1,
+    });
+    expect(await t.prisma.negocio.count()).toBe(2);
+    const gil = (await t.prisma.negocio.findFirst({
+      where: { idExterno: 'k-1' },
+    }))!;
+    const hana = (await t.prisma.negocio.findFirst({
+      where: { idExterno: 'k-2' },
+    }))!;
+    expect(gil.valor.toString()).toBe('750');
+    expect(hana.valor.toString()).toBe('200');
+
+    // Trocar: Gil virou ganho no Clint → o negócio existente é movido (histórico), sem outro negócio.
+    const csv3 = csvClint([
+      'k-1,01/11/2026 09:00:00,Gil Teste,gil@rei.com,55,61977770001,+55 61977770001,,Ganho,Etapa A,800,,,,SDR,04/11/2026 15:00:00,,x',
+      'k-2,01/11/2026 09:00:00,Hana Teste,hana@rei.com,55,61977770002,+55 61977770002,,Perdido,Etapa A,300,Preço,,,SDR,,05/11/2026 09:00:00,x',
+    ]);
+    const trocada = (await importar(cliente, csv3, {
+      ...traducao,
+      duplicados: 'SOBRESCREVER',
+    })) as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosAtualizados: number;
+    };
+    expect(trocada).toMatchObject({
+      negociosCriados: 0,
+      negociosAtualizados: 2,
+    });
+    expect(await t.prisma.negocio.count()).toBe(2);
+    const gilDepois = await t.prisma.negocio.findUniqueOrThrow({
+      where: { id: gil.id },
+      include: { movimentacoes: { orderBy: { criadoEm: 'asc' } } },
+    });
+    expect(gilDepois).toMatchObject({ status: 'GANHO', etapaId: ganha.id });
+    expect(gilDepois.valor.toString()).toBe('800');
+    expect(gilDepois.ganhoEm?.toISOString()).toBe('2026-11-04T18:00:00.000Z');
+    expect(gilDepois.movimentacoes).toHaveLength(2);
+    expect(gilDepois.movimentacoes[1]).toMatchObject({
+      deEtapaId: entrada.id,
+      paraEtapaId: ganha.id,
+    });
+    // Sem passagem para o CS e sem negócio novo.
+    expect(
+      await t.prisma.negocio.count({ where: { funil: { area: 'CS' } } }),
+    ).toBe(0);
+
+    // Reconversão: contato com negócio aberto (sem ID) no funil → reconverte e passa a guardar o ID.
+    const contato = await criarContato(t, {
+      nome: 'Ivo',
+      email: 'ivo@rei.com',
+    });
+    const aberto = await criarNegocio(t, { contato });
+    const csv4 = csvClint([
+      'k-9,01/11/2026 09:00:00,Ivo Teste,ivo@rei.com,55,61977770009,+55 61977770009,,Aberto,Etapa A,0,,,,SDR,,,x',
+    ]);
+    const reconv = (await importar(
+      cliente,
+      csv4,
+      traducao,
+    )) as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosReconvertidos: number;
+    };
+    expect(reconv).toMatchObject({
+      negociosCriados: 0,
+      negociosReconvertidos: 1,
+    });
+    expect(
+      (await t.prisma.negocio.findUniqueOrThrow({ where: { id: aberto.id } }))
+        .idExterno,
+    ).toBe('k-9');
+    const de2 = (await importar(cliente, csv4, traducao)) as ImportacaoDaApi & {
+      negociosCriados: number;
+      negociosReconvertidos: number;
+      negociosAtualizados: number;
+    };
+    expect(de2).toMatchObject({
+      negociosCriados: 0,
+      negociosReconvertidos: 0,
+    });
+    expect(
+      await t.prisma.negocio.count({
+        where: { contato: { email: 'ivo@rei.com' } },
+      }),
+    ).toBe(1);
+  });
+
+  it('cenário 416 — R16.14 — status desconhecido entra aberto com aviso; data inválida ou futura é ignorada com aviso; modelo guarda as traduções; relatório traz negócios atualizados', async () => {
+    const { cliente } = await lider();
+    const { funil, entrada } = await comercial();
+    const csv = csvClint([
+      'z-1,31/02/2026 09:00:00,Jo Teste,jo@st.com,55,61966660001,+55 61966660001,,Congelado,Etapa A,0,,,,SDR,,,x',
+      'z-2,01/01/2099 09:00:00,Kim Teste,kim@st.com,55,61966660002,+55 61966660002,,Ganho,Etapa A,0,,,,SDR,,,x',
+    ]);
+    const final = await importar(cliente, csv, {
+      traducaoFunis: { sdr: funil.id },
+      traducaoEtapas: { [funil.id]: { 'etapa a': entrada.id } },
+    });
+    expect(final).toMatchObject({ status: 'CONCLUIDA', criados: 2 });
+    const linhas = await linhasDe(final.id, cliente);
+    expect(linhas.find((l) => l.numero === 2)?.motivo).toMatch(
+      /Status "Congelado" desconhecido: o negócio entrou aberto\./,
+    );
+    expect(linhas.find((l) => l.numero === 2)?.motivo).toMatch(
+      /Data de criação do negócio inválida/,
+    );
+    expect(linhas.find((l) => l.numero === 3)?.motivo).toMatch(
+      /Data de criação do negócio no futuro/,
+    );
+    const jo = await t.prisma.negocio.findFirstOrThrow({
+      where: { contato: { email: 'jo@st.com' } },
+    });
+    expect(jo.status).toBe('ABERTO');
+    const kim = await t.prisma.negocio.findFirstOrThrow({
+      where: { contato: { email: 'kim@st.com' } },
+    });
+    // Data de criação futura ignorada: vale "agora" (ganhoEm também).
+    expect(kim.criadoEm.getTime()).toBeLessThan(Date.now() + 1000);
+    expect(kim.ganhoEm).not.toBeNull();
+
+    // O modelo de mapeamento guarda as traduções.
+    const modelo = await cliente
+      .post('/api/v1/importacoes/modelos', {
+        nome: 'Clint',
+        tipo: 'CONTATOS',
+        mapeamento: { origin: 'negocio.funil' },
+        opcoes: {
+          traducaoFunis: { SDR: funil.id },
+          traducaoEtapas: { [funil.id]: { 'Etapa A': entrada.id } },
+        },
+      })
+      .expect(201);
+    const novo = await rascunho(cliente, csv);
+    const aplicado = await cliente
+      .patch(`/api/v1/importacoes/${novo.id}`, {
+        modeloId: (modelo.body as { id: string }).id,
+      })
+      .expect(200);
+    expect(aplicado.body).toMatchObject({
+      traducaoFunis: { sdr: funil.id },
+      traducaoEtapas: { [funil.id]: { 'etapa a': entrada.id } },
+    });
+  });
 });

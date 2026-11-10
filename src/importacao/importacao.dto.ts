@@ -24,6 +24,7 @@ import {
   type FiltroDaPlanilha,
   type OperadorFiltro,
 } from './filtro-de-linhas';
+import { formatoDeOrigem } from './campos';
 import { type NegocioParaTodos, lerOpcoes } from './opcoes';
 import { QUANTIDADE_MAXIMA_ETIQUETAS } from '../comum/dominio/etiquetas';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
@@ -214,6 +215,27 @@ export class AtualizarImportacaoDto {
   @IsString({ message: MENSAGEM_TEXTO })
   @Matches(/^\d{1,3}$/, { message: 'deve ter de 1 a 3 dígitos' })
   ddiPadrao?: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string', format: 'uuid' },
+    example: { sdr: '3f0c0b0e-0000-4000-8000-000000000000' },
+    description:
+      'Valor de funil da planilha → funil escolhido (R16.14). Substitui o mapa inteiro; `{}` limpa.',
+  })
+  @IsOptional()
+  @IsObject({ message: 'deve ser um objeto { valor: funilId }' })
+  traducaoFunis?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      '`{ funilId: { valor: etapaId } }` (R16.14). Substitui o mapa inteiro; `{}` limpa.',
+  })
+  @IsOptional()
+  @IsObject({ message: 'deve ser um objeto { funilId: { valor: etapaId } }' })
+  traducaoEtapas?: Record<string, Record<string, string>>;
 
   @ApiPropertyOptional({
     type: 'object',
@@ -447,6 +469,11 @@ export class ImportacaoDto {
   filtradas: number;
   @ApiProperty() negociosCriados: number;
   @ApiProperty() negociosReconvertidos: number;
+  @ApiProperty({
+    description:
+      'Negócios já importados (mesmo ID na origem) que foram atualizados.',
+  })
+  negociosAtualizados: number;
   @ApiProperty({ type: FiltroDaPlanilhaDto, nullable: true })
   filtro: FiltroDaPlanilha | null;
   @ApiProperty({ type: 'object', additionalProperties: true, nullable: true })
@@ -457,6 +484,27 @@ export class ImportacaoDto {
       })
     | null;
   @ApiProperty({ example: '55' }) ddiPadrao: string;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string', format: 'uuid' },
+    description:
+      'Valor de funil da planilha (normalizado: sem acento, caixa nem espaços extras) → id do funil (R16.14).',
+  })
+  traducaoFunis: Record<string, string>;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      '`{ funilId: { valorNormalizado: etapaId } }` — traduz as etapas da planilha (R16.14).',
+  })
+  traducaoEtapas: Record<string, Record<string, string>>;
+  @ApiProperty({
+    enum: ['CLINT'],
+    nullable: true,
+    description:
+      'Formato reconhecido pelo cabeçalho (`CLINT`) ou nulo (R16.14).',
+  })
+  formatoOrigem: 'CLINT' | null;
   @ApiProperty({ description: '0 a 100.' }) progresso: number;
   @ApiProperty({
     type: String,
@@ -523,6 +571,7 @@ export class ImportacaoDto {
       filtradas: importacao.filtradas,
       negociosCriados: importacao.negociosCriados,
       negociosReconvertidos: importacao.negociosReconvertidos,
+      negociosAtualizados: importacao.negociosAtualizados,
       filtro: opcoes.filtro,
       negocio: opcoes.negocio
         ? {
@@ -538,6 +587,12 @@ export class ImportacaoDto {
           }
         : null,
       ddiPadrao: opcoes.ddiPadrao,
+      traducaoFunis: opcoes.traducaoFunis,
+      traducaoEtapas: opcoes.traducaoEtapas,
+      formatoOrigem:
+        importacao.tipo === 'CONTATOS'
+          ? formatoDeOrigem(importacao.colunas)
+          : null,
       progresso,
       relatorioId: importacao.relatorioId,
       erro: importacao.erro,
@@ -570,6 +625,13 @@ export class PreviaDto {
     description: 'Mapeamento sugerido pelos nomes das colunas.',
   })
   sugestao: Record<string, string>;
+  @ApiProperty({
+    enum: ['CLINT'],
+    nullable: true,
+    description:
+      'Exportação do Clint reconhecida pelo cabeçalho (`origin`, `stage`, `status`, `user_email`) ou nulo.',
+  })
+  formatoOrigem: 'CLINT' | null;
   @ApiPropertyOptional({
     type: [String],
     description: 'XLSX: abas do arquivo.',
@@ -630,4 +692,54 @@ export class ModeloDeImportacaoDto {
       criadoEm: modelo.criadoEm.toISOString(),
     };
   }
+}
+
+export class EtapaDaPlanilhaDto {
+  @ApiProperty({ description: 'Como está na planilha (aparado).' })
+  valor: string;
+  @ApiProperty() linhas: number;
+  @ApiProperty({ type: 'object', additionalProperties: true, nullable: true })
+  etapa: { id: string; nome: string; tipo: string } | null;
+  @ApiProperty({ enum: ['NOME', 'TRADUCAO'], nullable: true })
+  como: 'NOME' | 'TRADUCAO' | null;
+  @ApiProperty({
+    enum: ['NAO_ENCONTRADA', 'ETAPA_DE_PERDA'],
+    nullable: true,
+  })
+  problema: 'NAO_ENCONTRADA' | 'ETAPA_DE_PERDA' | null;
+}
+
+export class FunilDaPlanilhaDto {
+  @ApiProperty({ description: 'Como está na planilha (aparado).' })
+  valor: string;
+  @ApiProperty() linhas: number;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'number' },
+    example: { ABERTO: 7, GANHO: 1, PERDIDO: 2 },
+  })
+  porStatus: Record<'ABERTO' | 'GANHO' | 'PERDIDO', number>;
+  @ApiProperty({ type: 'object', additionalProperties: true, nullable: true })
+  funil: { id: string; nome: string; area: string } | null;
+  @ApiProperty({ enum: ['NOME', 'TRADUCAO'], nullable: true })
+  como: 'NOME' | 'TRADUCAO' | null;
+  @ApiProperty({
+    enum: ['NAO_ENCONTRADO', 'ARQUIVADO', 'SEM_PERMISSAO'],
+    nullable: true,
+  })
+  problema: 'NAO_ENCONTRADO' | 'ARQUIVADO' | 'SEM_PERMISSAO' | null;
+  @ApiProperty({
+    type: [EtapaDaPlanilhaDto],
+    description: 'Só das linhas abertas.',
+  })
+  etapas: EtapaDaPlanilhaDto[];
+}
+
+export class FunisDaPlanilhaDto {
+  @ApiProperty({ type: [FunilDaPlanilhaDto] }) funis: FunilDaPlanilhaDto[];
+  @ApiProperty({
+    description:
+      'Linhas sem valor de funil (usam o cartão "Negócio para todos", se houver).',
+  })
+  semFunil: number;
 }
