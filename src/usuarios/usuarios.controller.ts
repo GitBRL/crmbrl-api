@@ -26,6 +26,10 @@ import { AtualizarUsuarioDto } from './dto/atualizar-usuario.dto';
 import { CriarUsuarioDto } from './dto/criar-usuario.dto';
 import { EquipeDto, FiltroEquipesDto } from './dto/equipe.dto';
 import { FiltroUsuariosDto } from './dto/filtro-usuarios.dto';
+import {
+  FiltroOpcoesDePessoasDto,
+  OpcaoDePessoaDto,
+} from './dto/opcoes-de-pessoas.dto';
 import { DefinirSenhaTemporariaDto } from './dto/senha-temporaria.dto';
 import {
   ConviteEnviadoDto,
@@ -61,7 +65,7 @@ export class UsuariosController {
   }
 
   @Get('equipes')
-  @Papeis('ADMIN', 'C_LEVEL', 'LIDER_COMERCIAL', 'LIDER_MARKETING', 'LIDER_CS')
+  @Papeis('ADMIN', 'C_LEVEL', 'LIDER')
   @ApiOperation({
     summary:
       'Visão de equipe: cada líder com quem responde a ele e a carga de trabalho',
@@ -77,6 +81,22 @@ export class UsuariosController {
     @Query() filtro: FiltroEquipesDto,
   ): Promise<EquipeDto[]> {
     return this.usuarios.equipes(usuario, filtro);
+  }
+
+  @Get('opcoes')
+  @Papeis('ADMIN', 'C_LEVEL', 'LIDER')
+  @ApiOperation({
+    summary: 'Busca pessoas ativas para os editores de acessos',
+    description:
+      'Para quem configura funil ou setor (Admin, C-level e líderes; membros → 403): qualquer pessoa **ativa**, de qualquer setor, por trecho do nome e/ou setor, em ordem de nome (R5.11). ' +
+      'Só o resumo: `{id, nome, avatarUrl, papel, rotuloPapel, area, nomeSetor}` — sem e-mail, telefone nem dados de equipe.',
+  })
+  @ApiOkResponse({ type: [OpcaoDePessoaDto] })
+  @ApiRespostasDeErro(400, 403)
+  opcoes(
+    @Query() filtro: FiltroOpcoesDePessoasDto,
+  ): Promise<OpcaoDePessoaDto[]> {
+    return this.usuarios.opcoes(filtro);
   }
 
   @Get(':id')

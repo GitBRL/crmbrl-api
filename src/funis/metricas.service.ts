@@ -7,7 +7,7 @@ import {
 } from '../comum/erros/excecoes';
 import type { Etapa, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { filtroDeNegociosVisiveis, podeVerArea } from './acesso-funis';
+import { funisAcessiveis } from './acessos-no-banco';
 import type {
   ConversaoEntreEtapasDto,
   FiltroMetricasDto,
@@ -59,7 +59,8 @@ export class MetricasService {
       where: { id: funilId, excluidoEm: null },
       include: { etapas: { orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }] } },
     });
-    if (!funil || !podeVerArea(usuario, funil.area)) {
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    if (!funil || !acesso.podeVerFunil(funil.id)) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
     const { de, ate } = this.periodo(filtro);
@@ -68,7 +69,7 @@ export class MetricasService {
       AND: [
         { funilId: funil.id },
         { excluidoEm: null },
-        filtroDeNegociosVisiveis(usuario),
+        acesso.filtroDeNegocios(),
         ...(filtro.responsavelId
           ? [{ responsavelId: filtro.responsavelId }]
           : []),

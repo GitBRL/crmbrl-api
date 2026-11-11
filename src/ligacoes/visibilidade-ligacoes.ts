@@ -16,7 +16,7 @@ import type { Prisma } from '../generated/prisma/client';
  * que têm ele ou um liderado como responsável; o membro, os que têm ele como responsável.
  */
 export function filtroDeContatosNoAlcance(
-  usuario: Pick<UsuarioAutenticado, 'id' | 'papel'>,
+  usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
 ): Prisma.ContatoWhereInput {
   return permissoesDoPapel(usuario.papel).editarContatos === 'EQUIPE'
     ? {
@@ -30,7 +30,7 @@ export function filtroDeContatosNoAlcance(
 
 /** Filtro das ligações que o usuário vê (`{}` = todas). Quem não usa o Atendimento nunca chega aqui. */
 export function filtroDeLigacoesVisiveis(
-  usuario: Pick<UsuarioAutenticado, 'id' | 'papel'>,
+  usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
 ): Prisma.LigacaoWhereInput {
   if (ehDiretoria(usuario.papel)) {
     return {};

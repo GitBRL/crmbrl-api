@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ArquivoDto } from '../../arquivos/arquivos.dto';
-import { Area, Papel, TipoChatCanal } from '../../generated/prisma/client';
+import { Papel, TipoChatCanal } from '../../generated/prisma/client';
 import { TIPOS_DE_REFERENCIA, type TipoReferencia } from '../regras-chat';
+import type { Area } from '../../comum/dominio/setores';
 
 /** Pessoa como o chat mostra (autor, membro, outra pessoa da direta, busca de pessoas). */
 export class ChatPessoaDto {
@@ -20,7 +21,7 @@ export class ChatPessoaDto {
   @ApiProperty({ example: 'Comercial' })
   rotuloPapel: string;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL', nullable: true })
   area: Area | null;
 
   @ApiProperty({ description: '`false`: desligada (o histórico continua).' })
@@ -216,7 +217,7 @@ export class ChatCanalDto {
   @ApiPropertyOptional({ nullable: true, type: String })
   descricao: string | null;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL', nullable: true })
   area: Area | null;
 
   @ApiPropertyOptional({

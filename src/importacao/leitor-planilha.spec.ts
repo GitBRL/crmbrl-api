@@ -123,4 +123,25 @@ describe('Leitura de planilhas (R16.2)', () => {
     const ok = await xlsxEmFluxo(['nome', 'email'], 50_000);
     expect((await lerPlanilha(ok, 'xlsx')).linhas).toHaveLength(50_000);
   }, 60_000);
+
+  it('R16.13 — sem cabeçalho: Coluna 1…N pela maior largura e a linha 1 é dado', async () => {
+    const csv = Buffer.from('Ana,a@a.com\nBia,b@b.com,11999999999\n');
+    const lida = await lerPlanilha(csv, 'csv', { semCabecalho: true });
+    expect(lida.colunas).toEqual(['Coluna 1', 'Coluna 2', 'Coluna 3']);
+    expect(lida.linhas.map((l) => l.numero)).toEqual([1, 2]);
+    expect(lida.linhas[0].valores).toEqual(['Ana', 'a@a.com', '']);
+    expect(lida.leitura.semCabecalho).toBe(true);
+  });
+
+  it('R16.13 — sem cabeçalho no XLSX', async () => {
+    const livro = new ExcelJS.Workbook();
+    const aba = livro.addWorksheet('Plan1');
+    aba.addRow(['Ana', 'a@a.com']);
+    aba.addRow(['Bia', 'b@b.com', 'x']);
+    const buffer = Buffer.from(await livro.xlsx.writeBuffer());
+    const lida = await lerPlanilha(buffer, 'xlsx', { semCabecalho: true });
+    expect(lida.colunas).toEqual(['Coluna 1', 'Coluna 2', 'Coluna 3']);
+    expect(lida.linhas).toHaveLength(2);
+    expect(lida.linhas[0].valores[0]).toBe('Ana');
+  });
 });

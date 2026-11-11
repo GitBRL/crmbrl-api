@@ -19,13 +19,13 @@
  * ```
  */
 import {
-  Area,
   OrigemContato,
   Prisma,
   StatusNegocio,
 } from '../../generated/prisma/client';
-import { papeisDaArea } from '../dominio/papeis';
+import { FORMATO_DA_CHAVE_DE_SETOR } from '../validacao/setor';
 import { DadosInvalidosException } from '../erros/excecoes';
+import type { Area } from '../dominio/setores';
 
 export type CombinacaoDeSegmento = 'todas' | 'qualquer';
 
@@ -389,7 +389,7 @@ function validarValor(
     case 'origens':
       return listaDoEnum(valor, Object.values(OrigemContato), 'origem');
     case 'areas':
-      return listaDoEnum(valor, Object.values(Area), 'área');
+      return listaDeSetores(valor);
     case 'data':
       return dataValida(valor)
         ? { valor }
@@ -464,12 +464,28 @@ function validarFiltroDeNegocio(valor: unknown): {
     filtro.status = status.valor as StatusNegocio[];
   }
   if (valor.area !== undefined) {
-    if (!(Object.values(Area) as unknown[]).includes(valor.area)) {
-      return { erro: 'Área inválida.' };
+    if (
+      typeof valor.area !== 'string' ||
+      !FORMATO_DA_CHAVE_DE_SETOR.test(valor.area)
+    ) {
+      return { erro: 'Setor inválido.' };
     }
-    filtro.area = valor.area as Area;
+    filtro.area = valor.area;
   }
   return { valor: filtro };
+}
+
+/** Chaves de setor (o formato; setor que não existe só não casa com ninguém). */
+function listaDeSetores(valor: unknown): { valor?: unknown; erro?: string } {
+  if (!Array.isArray(valor) || valor.length === 0) {
+    return { erro: 'Informe ao menos um setor.' };
+  }
+  const invalido = valor.find(
+    (v) => typeof v !== 'string' || !FORMATO_DA_CHAVE_DE_SETOR.test(v),
+  );
+  return invalido === undefined
+    ? { valor }
+    : { erro: `Valor inválido: "${String(invalido)}".` };
 }
 
 function listaDoEnum(
@@ -511,17 +527,18 @@ export interface OpcoesDoSegmento {
   /** Restringe as condições `negocio` a este negócio (condição de automação sobre um negócio). */
   negocioId?: string;
   /**
-   * Restringe as condições `negocio` aos funis desta área (R5.9): quem não vê
-   * todos os funis só enxerga negócios dos funis da própria área.
+   * Restringe as condições `negocio` a estes funis (R5.9): quem não vê todos os
+   * funis só enxerga negócios dos funis que vê (os do setor que a visibilidade
+   * deixa e os de outros setores por acesso, R5.11).
    */
-  areaDosNegocios?: Area;
+  funisDosNegocios?: readonly string[];
   /** Filtro extra (ex.: o escopo de visibilidade), combinado com E. */
   escopo?: Prisma.ContatoWhereInput;
   /** "Agora" das condições relativas (testes). */
   agora?: Date;
 }
 
-type OpcoesDoNegocio = Pick<OpcoesDoSegmento, 'negocioId' | 'areaDosNegocios'>;
+type OpcoesDoNegocio = Pick<OpcoesDoSegmento, 'negocioId' | 'funisDosNegocios'>;
 
 /** Monta o `where` de contatos. Sempre exclui os contatos excluídos. Valide antes. */
 export function whereDoSegmento(
@@ -624,13 +641,8 @@ function whereDaCondicao(
           };
     }
     case 'area_responsavel':
-      return {
-        responsavel: {
-          papel: {
-            in: (valor as Area[]).flatMap((area) => papeisDaArea(area)),
-          },
-        },
-      };
+      // Só Líder e Membro têm setor.
+      return { responsavel: { area: { in: valor as Area[] } } };
     case 'email':
     case 'telefone':
       return operador === 'vazio'
@@ -665,8 +677,11 @@ function whereDoNegocio(
     ...(filtro.funilId ? { funilId: filtro.funilId } : {}),
     ...(filtro.etapaIds ? { etapaId: { in: filtro.etapaIds } } : {}),
     ...(filtro.status ? { status: { in: filtro.status } } : {}),
-    ...(filtro.area || negocios.areaDosNegocios
-      ? { funil: { area: filtro.area ?? negocios.areaDosNegocios } }
+    ...(filtro.area ? { funil: { area: filtro.area } } : {}),
+    ...(negocios.funisDosNegocios
+      ? {
+          AND: [{ funilId: { in: [...negocios.funisDosNegocios] } }],
+        }
       : {}),
   };
 }

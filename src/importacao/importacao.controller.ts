@@ -40,6 +40,7 @@ import {
   FiltroLinhasDto,
   FiltroModelosDto,
   FiltroPreviaDto,
+  FunisDaPlanilhaDto,
   ImportacaoDto,
   LinhaDeImportacaoDto,
   ModeloDeImportacaoDto,
@@ -205,10 +206,10 @@ export class ImportacaoController {
   @ApiOperation({
     summary: 'Mapeamento e opções (só no rascunho)',
     description:
-      'Mapeamento `{ coluna: campo }`, `modeloId` (aplica um modelo salvo), duplicados, etiquetas, responsável (fixo ou rodízio da área), detalhe da origem e `leitura` (separador, aba…).',
+      'Mapeamento `{ coluna: campo }`, `modeloId` (aplica um modelo salvo), duplicados, etiquetas, responsável (fixo ou rodízio da área), detalhe da origem e `leitura` (separador, aba…). Funil do cartão ou da tradução que não existe ou que a pessoa não vê → 404 (R5.9); visto mas sem criar (`VER`) → 403 `R5.12`.',
   })
   @ApiOkResponse({ type: ImportacaoDto })
-  @ApiRespostasDeErro(400, 404, 422)
+  @ApiRespostasDeErro(400, 403, 404, 422)
   atualizar(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,
@@ -227,6 +228,21 @@ export class ImportacaoController {
     @Query() filtro: FiltroPreviaDto,
   ): Promise<PreviaDto> {
     return this.importacoes.previa(usuario, id, filtro.linhas);
+  }
+
+  @Get(':id/funis-da-planilha')
+  @ApiOperation({
+    summary: 'Conferência de funis e etapas da planilha (R16.14)',
+    description:
+      'Usa o mapeamento, o filtro, o cartão "Negócio para todos" e as traduções salvos no rascunho: para cada valor de funil, quantas linhas (por status), qual funil do CRM corresponde e como; e as etapas das linhas abertas.',
+  })
+  @ApiOkResponse({ type: FunisDaPlanilhaDto })
+  @ApiRespostasDeErro(404)
+  funisDaPlanilha(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<FunisDaPlanilhaDto> {
+    return this.importacoes.funisDaPlanilha(usuario, id);
   }
 
   @Post(':id/iniciar')

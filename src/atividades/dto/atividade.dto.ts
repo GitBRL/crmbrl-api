@@ -25,7 +25,9 @@ export const INCLUSOES_DA_ATIVIDADE = {
   encaminhadaDe: RESUMO_DE_USUARIO,
   contato: { select: { id: true, nome: true } },
   empresa: { select: { id: true, nome: true } },
-  negocio: { select: { id: true, titulo: true, funilId: true } },
+  negocio: {
+    select: { id: true, titulo: true, funilId: true, responsavelId: true },
+  },
 } satisfies Prisma.AtividadeInclude;
 
 export type AtividadeCompleta = Prisma.AtividadeGetPayload<{

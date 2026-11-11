@@ -3,7 +3,6 @@
  */
 import type request from 'supertest';
 import {
-  type Area,
   type Negocio,
   Prisma,
   type Usuario,
@@ -15,6 +14,7 @@ import {
   criarContato,
   funilBase,
 } from './utils';
+import type { Area } from '../src/comum/dominio/setores';
 
 const MS_POR_DIA = 86_400_000;
 

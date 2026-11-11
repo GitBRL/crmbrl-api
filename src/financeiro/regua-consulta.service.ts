@@ -28,7 +28,7 @@ export class ReguaConsultaService {
   ) {}
 
   private exigir(usuario: UsuarioAutenticado): void {
-    if (!podeAtuarNoFinanceiro(usuario.papel)) {
+    if (!podeAtuarNoFinanceiro(usuario)) {
       throw new SemPermissaoException(
         'Você não tem acesso à régua de cobrança.',
         { regra: 'R22.1' },
@@ -175,7 +175,7 @@ export class ReguaConsultaService {
             resumo: ultima.resumo as Record<string, number>,
           }
         : null,
-      podeGerenciar: podeGerenciarARegua(usuario.papel),
+      podeGerenciar: podeGerenciarARegua(usuario),
     };
   }
 
@@ -183,7 +183,7 @@ export class ReguaConsultaService {
     usuario: UsuarioAutenticado,
     opcoes: { canal?: 'WHATSAPP' | 'EMAIL'; dia?: string },
   ) {
-    if (!podeGerenciarARegua(usuario.papel)) {
+    if (!podeGerenciarARegua(usuario)) {
       throw new SemPermissaoException(
         'Só Admin, C-level e Líder de CS reenviam em massa.',
         { regra: 'R22.1' },

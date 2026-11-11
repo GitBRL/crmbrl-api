@@ -11,7 +11,15 @@ import type {
 
 /** `include` padrão de um negócio: o que o cartão e o detalhe mostram. */
 export const INCLUIR_NEGOCIO = {
-  funil: { select: { id: true, nome: true, area: true, ativo: true } },
+  funil: {
+    select: {
+      id: true,
+      nome: true,
+      area: true,
+      ativo: true,
+      visibilidade: true,
+    },
+  },
   etapa: {
     select: {
       id: true,

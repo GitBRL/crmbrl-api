@@ -738,7 +738,11 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     ).toEqual([contato.id]);
 
     // Serviços de leitura para o BI.
-    const doBi = { id: lider.lider.id, papel: lider.lider.papel };
+    const doBi = {
+      id: lider.lider.id,
+      papel: lider.lider.papel,
+      area: lider.lider.area,
+    };
     expect(await t.get(RiscoDeChurnService).contagemPorNivel(doBi)).toEqual({
       BAIXO: 1,
       MEDIO: 0,
@@ -753,15 +757,47 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
     expect(
       await t
         .get(RiscoDeChurnService)
-        .doContato({ id: outro.membros[0].id, papel: 'CS' }, contato.id),
+        .doContato(
+          { id: outro.membros[0].id, papel: 'MEMBRO', area: 'CS' },
+          contato.id,
+        ),
     ).toBeNull();
   });
 
   // ------------------------------------------------------------------ R22.6
 
+  /** R5.11: o setor CS passa a ver ("Só ver") os funis do Comercial. */
+  async function csVeOComercial(): Promise<void> {
+    const comoAdmin = await admin();
+    await comoAdmin
+      .put('/api/v1/setores/COMERCIAL/acessos', {
+        acessos: [{ area: 'CS', nivel: 'VER' }],
+      })
+      .expect(200);
+  }
+
+  async function publicarGanho(negocio: {
+    id: string;
+    funilId: string;
+  }): Promise<void> {
+    await executarComoAtor({ tipoAtor: 'SISTEMA' }, () =>
+      t.prisma.$transaction((tx) =>
+        t.get(EventosDominioService).publicar(tx, 'negocio.ganho', {
+          negocioId: negocio.id,
+          funilId: negocio.funilId,
+          valor: '900.00',
+        }),
+      ),
+    );
+    await processarEventos(t);
+    await processarEventos(t);
+  }
+
   it('cenário 91 — R22.6 — ao ganhar um negócio o CRM sugere criar o contrato (notificação e dados pré-preenchidos)', async () => {
     const equipeCs = await criarEquipe(t, 'CS', { membros: 0 });
     const equipeCom = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    // R22.6/R5.9: o líder de CS só recebe a sugestão de funil que vê.
+    await csVeOComercial();
     const empresa = await criarEmpresa(t);
     const negocio = await criarNegocio(t, {
       etapa: 'ganho',
@@ -830,6 +866,69 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
         ).body as unknown[]
       ).length,
     ).toBe(0);
+  });
+
+  it('R22.6/R5.9 — negócio ganho de funil que a pessoa não vê: sem notificação, fora da lista sem contrato, sugestão e contrato pelo negócio 404', async () => {
+    const equipeCs = await criarEquipe(t, 'CS', { membros: 1 });
+    const equipeCom = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+    const membroCs = equipeCs.membros[0];
+    // O contato é da carteira do membro de CS, mas o negócio é do Comercial.
+    const contato = await criarContato(t, { responsavel: membroCs });
+    const negocio = await criarNegocio(t, {
+      etapa: 'ganho',
+      responsavel: equipeCom.membros[0],
+      contato,
+      valor: '900.00',
+      titulo: 'Negócio do Comercial',
+    });
+    await publicarGanho(negocio);
+    const notificados = await t.prisma.notificacao.findMany({
+      where: { tipo: TIPO_NOTIFICACAO_SUGESTAO_CONTRATO },
+      select: { usuarioId: true },
+    });
+    expect(notificados.map(({ usuarioId }) => usuarioId)).toEqual([
+      equipeCom.membros[0].id,
+    ]);
+
+    for (const pessoa of [equipeCs.lider, membroCs]) {
+      const cliente = await entrarComo(t, pessoa);
+      const lista = await cliente
+        .get('/api/v1/financeiro/negocios/sem-contrato')
+        .expect(200);
+      expect(lista.body).toEqual([]);
+      await cliente
+        .get(`/api/v1/financeiro/negocios/${negocio.id}/sugestao-de-contrato`)
+        .expect(404);
+      await cliente
+        .post('/api/v1/financeiro/contratos', {
+          negocioId: negocio.id,
+          produto: 'Plano',
+          valor: '100.00',
+          inicioEm: hojeLocal(),
+        })
+        .expect(404);
+    }
+    // O Admin vê todos os funis.
+    const comoAdmin = await admin();
+    const doAdmin = await comoAdmin
+      .get('/api/v1/financeiro/negocios/sem-contrato')
+      .expect(200);
+    expect((doAdmin.body as { id: string }[]).map(({ id }) => id)).toEqual([
+      negocio.id,
+    ]);
+
+    // Com acesso ao funil (R5.11), o membro de CS vê o da carteira.
+    await csVeOComercial();
+    const comoMembroCs = await entrarComo(t, membroCs);
+    const daCarteira = await comoMembroCs
+      .get('/api/v1/financeiro/negocios/sem-contrato')
+      .expect(200);
+    expect((daCarteira.body as { id: string }[]).map(({ id }) => id)).toEqual([
+      negocio.id,
+    ]);
+    await comoMembroCs
+      .get(`/api/v1/financeiro/negocios/${negocio.id}/sugestao-de-contrato`)
+      .expect(200);
   });
 
   // ------------------------------------------------------------------ R22.5

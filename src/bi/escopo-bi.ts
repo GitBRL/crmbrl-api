@@ -5,48 +5,57 @@
  */
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import {
-  areaDoPapel,
+  type ComPapel,
   ehDiretoria,
   ehLider,
-  liderDaArea,
-  membroDaArea,
+  setorDaPessoa,
 } from '../comum/dominio/papeis';
 import { permissoesDoPapel } from '../comum/dominio/permissoes';
-import { type Area, Prisma, type Papel } from '../generated/prisma/client';
+import {
+  type Area,
+  SETOR_COMERCIAL,
+  SETOR_CS,
+  SETOR_MARKETING,
+} from '../comum/dominio/setores';
+import { Prisma } from '../generated/prisma/client';
 import type { PainelBi } from './bi.tipos';
 
-type Quem = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Quem = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 const VERDADEIRO = Prisma.sql`TRUE`;
 const FALSO = Prisma.sql`FALSE`;
 
-/** Área "dona" de cada painel (o Atendimento atende Comercial e CS). */
+/**
+ * Setor "dono" de cada painel (o Atendimento atende todos menos o Marketing).
+ * Os painéis de Marketing, Comercial, CS e Financeiro continuam presos aos
+ * setores de base: um setor criado vê só o Atendimento e o SDR (pelo seu setor).
+ */
 const AREA_DO_PAINEL: Record<PainelBi, Area | null> = {
-  marketing: 'MARKETING',
-  comercial: 'COMERCIAL',
-  cs: 'CS',
+  marketing: SETOR_MARKETING,
+  comercial: SETOR_COMERCIAL,
+  cs: SETOR_CS,
   atendimento: null,
   sdr: null,
-  financeiro: 'CS',
+  financeiro: SETOR_CS,
 };
 
-/** O papel enxerga o painel? Admin e C-level todos; as pessoas de área, o da sua (Atendimento e SDR, que olham conversas: não o Marketing). */
-export function podeVerPainel(papel: Papel, painel: PainelBi): boolean {
-  if (ehDiretoria(papel)) {
+/** A pessoa enxerga o painel? Admin e C-level todos; as pessoas de setor, o do seu (Atendimento e SDR, que olham conversas: não o Marketing). */
+export function podeVerPainel(pessoa: ComPapel, painel: PainelBi): boolean {
+  if (ehDiretoria(pessoa.papel)) {
     return true;
   }
-  const area = areaDoPapel(papel);
+  const area = setorDaPessoa(pessoa);
   if (!area) {
     return false;
   }
   if (painel === 'atendimento' || painel === 'sdr') {
-    return area !== 'MARKETING';
+    return area !== SETOR_MARKETING;
   }
   return AREA_DO_PAINEL[painel] === area;
 }
 
-/** Painéis que o papel vê, na ordem das abas. */
-export function paineisDoPapel(papel: Papel): PainelBi[] {
+/** Painéis que a pessoa vê, na ordem das abas. */
+export function paineisDoPapel(pessoa: ComPapel): PainelBi[] {
   return (
     [
       'marketing',
@@ -56,26 +65,27 @@ export function paineisDoPapel(papel: Papel): PainelBi[] {
       'sdr',
       'financeiro',
     ] as const
-  ).filter((painel) => podeVerPainel(papel, painel));
+  ).filter((painel) => podeVerPainel(pessoa, painel));
 }
 
 export function areaDoPainel(painel: PainelBi): Area | null {
   return AREA_DO_PAINEL[painel];
 }
 
-/** Papéis das pessoas de uma área (líder e membro). */
-export function papeisDaArea(area: Area): Papel[] {
-  return [liderDaArea(area), membroDaArea(area)];
-}
-
-/** Negócios que o usuário vê (`filtroDeNegociosVisiveis`, R5.9). `n` = negocios, `f` = funis. */
+/**
+ * Negócios que o BI conta para a pessoa (R5.9, R20). O BI continua **pelo
+ * setor da pessoa**: Admin e C-level, todos; o líder, os dos funis do seu
+ * setor (inclusive os `RESTRITA`); o membro, os seus e os sem responsável dos
+ * funis `SETOR` do seu setor. Acessos extras (R5.11) **não** ampliam o BI (nem
+ * o acesso a um funil restrito do próprio setor). `n` = negocios, `f` = funis.
+ */
 export function sqlNegociosVisiveis(
   usuario: Quem,
   n = Prisma.raw('n'),
   f = Prisma.raw('f'),
 ): Prisma.Sql {
   const escopo = permissoesDoPapel(usuario.papel).verNegocios;
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   if (escopo === 'TODOS') {
     return VERDADEIRO;
   }
@@ -83,9 +93,10 @@ export function sqlNegociosVisiveis(
     return FALSO;
   }
   if (escopo === 'AREA') {
-    return Prisma.sql`${f}.area = ${area}::area`;
+    return Prisma.sql`${f}.area = ${area}`;
   }
-  return Prisma.sql`(${f}.area = ${area}::area AND (${n}.responsavel_id = ${usuario.id}::uuid OR ${n}.responsavel_id IS NULL))`;
+  return Prisma.sql`(${f}.area = ${area} AND ${f}.visibilidade = 'SETOR'::visibilidade_funil
+    AND (${n}.responsavel_id = ${usuario.id}::uuid OR ${n}.responsavel_id IS NULL))`;
 }
 
 /** Conversas que o usuário vê (`filtroDeConversasVisiveis`, R12). `c` = conversas, `f` = filas. */
@@ -97,13 +108,13 @@ export function sqlConversasVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return VERDADEIRO;
   }
-  const area = areaDoPapel(usuario.papel);
-  if (!area || area === 'MARKETING') {
+  const area = setorDaPessoa(usuario);
+  if (!area || area === SETOR_MARKETING) {
     return FALSO;
   }
   return ehLider(usuario.papel)
-    ? Prisma.sql`(${c}.responsavel_id = ${usuario.id}::uuid OR ${f}.area = ${area}::area)`
-    : Prisma.sql`(${c}.responsavel_id = ${usuario.id}::uuid OR (${c}.responsavel_id IS NULL AND ${f}.area = ${area}::area))`;
+    ? Prisma.sql`(${c}.responsavel_id = ${usuario.id}::uuid OR ${f}.area = ${area})`
+    : Prisma.sql`(${c}.responsavel_id = ${usuario.id}::uuid OR (${c}.responsavel_id IS NULL AND ${f}.area = ${area}))`;
 }
 
 /**
@@ -119,8 +130,8 @@ export function sqlLigacoesVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return VERDADEIRO;
   }
-  const area = areaDoPapel(usuario.papel);
-  if (!area || area === 'MARKETING') {
+  const area = setorDaPessoa(usuario);
+  if (!area || area === SETOR_MARKETING) {
     return FALSO;
   }
   const liderDoResponsavel =
@@ -143,9 +154,9 @@ export function sqlCampanhasVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return VERDADEIRO;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   if (ehLider(usuario.papel) && area) {
-    return Prisma.sql`(${k}.area = ${area}::area OR ${k}.criado_por_id = ${usuario.id}::uuid)`;
+    return Prisma.sql`(${k}.area = ${area} OR ${k}.criado_por_id = ${usuario.id}::uuid)`;
   }
   return Prisma.sql`${k}.criado_por_id = ${usuario.id}::uuid`;
 }

@@ -9,7 +9,7 @@ import {
   RegraVioladaException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
-import { areaDoPapel, ehDiretoria } from '../comum/dominio/papeis';
+import { ehDiretoria, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   montarPagina,
   paraSkipTake,
@@ -36,6 +36,8 @@ import {
   podeGerenciarFluxo,
   podeUsarChatbot,
 } from './permissoes-chatbot';
+import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 
 const INCLUIR_VERSAO = {
   versaoPublicada: {
@@ -109,6 +111,40 @@ function contarPassos(definicao: unknown): number {
         }, 0)
       : 0;
   return conta((definicao as { passos?: unknown })?.passos);
+}
+
+/** Funis e etapas escolhidos nos passos "Criar negócio" (em qualquer ramo). */
+const PADRAO_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function destinosDeNegocio(definicao: unknown): {
+  passoId: string;
+  funilId?: string;
+  etapaId?: string;
+}[] {
+  const saida: { passoId: string; funilId?: string; etapaId?: string }[] = [];
+  const texto = (valor: unknown) =>
+    typeof valor === 'string' && valor.trim() !== '' ? valor : undefined;
+  const visitar = (lista: unknown): void => {
+    if (!Array.isArray(lista)) return;
+    for (const passo of lista as {
+      id?: unknown;
+      tipo?: unknown;
+      config?: { funilId?: unknown; etapaId?: unknown };
+      ramos?: Array<{ passos?: unknown }>;
+    }[]) {
+      if (passo?.tipo === 'acao.criar_negocio') {
+        const funilId = texto(passo.config?.funilId);
+        const etapaId = texto(passo.config?.etapaId);
+        if (funilId || etapaId) {
+          saida.push({ passoId: texto(passo.id) ?? '', funilId, etapaId });
+        }
+      }
+      for (const ramo of passo?.ramos ?? []) visitar(ramo?.passos);
+    }
+  };
+  visitar((definicao as { passos?: unknown })?.passos);
+  return saida;
 }
 
 /**
@@ -331,7 +367,9 @@ export class FluxosChatbotService {
       ? this.estruturar(dto.definicao)
       : { passos: [] };
     const criado = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivoSeHouver(tx, area);
       await this.conferirCanais(tx, usuario, dto.canalIds ?? []);
+      await this.exigirFunisDoNegocio(tx, usuario, definicao);
       const fluxo = await tx.fluxoChatbot.create({
         data: {
           nome: dto.nome,
@@ -422,6 +460,7 @@ export class FluxosChatbotService {
     const estrutura = this.estruturar(definicao);
     await this.prisma.$transaction(async (tx) => {
       const fluxo = await this.travar(tx, usuario, id, true);
+      await this.exigirFunisDoNegocio(tx, usuario, estrutura);
       await tx.fluxoChatbot.update({
         where: { id },
         data: {
@@ -468,6 +507,7 @@ export class FluxosChatbotService {
           { regra: 'R18', problemas },
         );
       }
+      await this.exigirFunisDoNegocio(tx, usuario, fluxo.rascunho);
       const ultima = await tx.fluxoChatbotVersao.aggregate({
         where: { fluxoId: id },
         _max: { numero: true },
@@ -720,7 +760,7 @@ export class FluxosChatbotService {
       });
     }
     if (restrito) {
-      const area = areaDoPapel(usuario.papel);
+      const area = setorDaPessoa(usuario);
       const fora = canais.filter((c) => c.filaPadrao?.area !== area);
       if (fora.length > 0) {
         throw new DadosInvalidosException(
@@ -754,6 +794,63 @@ export class FluxosChatbotService {
           regra: 'R18',
           campos: [{ campo: 'palavrasChave', mensagens: ['é obrigatória'] }],
         },
+      );
+    }
+  }
+
+  /**
+   * R5.12 (e R5.9): o passo "Criar negócio" só usa funil e etapa em que **quem
+   * salva ou publica** o fluxo cria negócios (`MEMBRO` ou mais). Funil que a
+   * pessoa não vê → 422 `R5.9`; visto mas sem criar → 422 `R5.12` (só os ids,
+   * sem nomes). Sem funil nem etapa, o passo usa o funil-base da fila na hora.
+   */
+  private async exigirFunisDoNegocio(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    definicao: unknown,
+  ): Promise<void> {
+    const destinos = destinosDeNegocio(definicao);
+    if (destinos.length === 0) return;
+    const acesso = await funisAcessiveis(tx, usuario);
+    if (acesso.todos) return;
+    const etapaIds = destinos.flatMap(({ etapaId }) =>
+      etapaId && PADRAO_UUID.test(etapaId) ? [etapaId] : [],
+    );
+    const etapas = new Map(
+      (etapaIds.length > 0
+        ? await tx.etapa.findMany({
+            where: { id: { in: etapaIds } },
+            select: { id: true, funilId: true },
+          })
+        : []
+      ).map(({ id, funilId }) => [id, funilId]),
+    );
+    const naoVe: string[] = [];
+    const naoCria: string[] = [];
+    for (const { passoId, funilId, etapaId } of destinos) {
+      const daEtapa = etapaId ? etapas.get(etapaId) : undefined;
+      const funis = [
+        ...(funilId ? [funilId] : []),
+        ...(daEtapa ? [daEtapa] : []),
+      ];
+      if (funis.some((id) => !acesso.podeVerFunil(id))) {
+        naoVe.push(passoId);
+      } else if (funis.some((id) => !acesso.podeCriarNoFunil(id))) {
+        naoCria.push(passoId);
+      }
+    }
+    if (naoVe.length > 0) {
+      throw new RegraVioladaException(
+        'R5.9',
+        'O passo "Criar negócio" usa um funil que você não vê.',
+        { campo: 'definicao', passos: naoVe },
+      );
+    }
+    if (naoCria.length > 0) {
+      throw new RegraVioladaException(
+        'R5.12',
+        'O passo "Criar negócio" usa um funil em que você não cria negócios.',
+        { campo: 'definicao', passos: naoCria },
       );
     }
   }

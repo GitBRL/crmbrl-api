@@ -40,8 +40,9 @@ const RESPOSTA_OK: RespostaDoTempoReal = { ok: true };
  *   (`autenticarHandshake`); sem sessão válida, a conexão é recusada
  *   (`connect_error` com `message` = `nao_autenticado`, `origem_nao_permitida`
  *   ou `troca_de_senha_pendente`).
- * - Ao conectar: salas `usuario:<id>`, `papel:<papel>`, `area:<area>` e a
- *   interna `sessao:<id>` (derrubada quando a sessão é revogada).
+ * - Ao conectar: salas `usuario:<id>`, `papel:<papel>`, `area:<area>`,
+ *   `lideres:<area>` (só líderes) e a interna `sessao:<id>` (derrubada quando
+ *   a sessão é revogada).
  * - Pedidos do cliente: `conversa.entrar`/`sair`, `chat.entrar`/`sair` (com o
  *   autorizador do módulo dono) e `digitando` (repassado à sala, com limite).
  *
@@ -107,6 +108,9 @@ export class TempoRealGateway
       salas.papel(usuario.papel),
       salas.sessao(usuario.sessaoId),
       ...(usuario.area ? [salas.area(usuario.area)] : []),
+      ...(usuario.area && usuario.papel === 'LIDER'
+        ? [salas.lideres(usuario.area)]
+        : []),
     ];
     await socket.join(salasIniciais);
   }

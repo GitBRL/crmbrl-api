@@ -6,14 +6,14 @@
  */
 import { Prisma } from '../generated/prisma/client';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehLider } from '../comum/dominio/papeis';
+import { ehLider } from '../comum/dominio/papeis';
 import {
   ehComercialSomenteLeitura,
   ehCsDaCarteira,
   ehGestorFinanceiro,
 } from './permissoes-financeiro';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 const VERDADEIRO = Prisma.sql`TRUE`;
 const FALSO = Prisma.sql`FALSE`;
@@ -23,14 +23,14 @@ export function sqlContratosVisiveis(
   usuario: Usuario,
   c: Prisma.Sql = Prisma.raw('c'),
 ): Prisma.Sql {
-  if (ehGestorFinanceiro(usuario.papel)) return VERDADEIRO;
-  if (ehCsDaCarteira(usuario.papel)) {
+  if (ehGestorFinanceiro(usuario)) return VERDADEIRO;
+  if (ehCsDaCarteira(usuario)) {
     return Prisma.sql`(${c}.responsavel_cs_id = ${usuario.id}::uuid
       OR EXISTS (SELECT 1 FROM empresas e WHERE e.id = ${c}.empresa_id AND e.responsavel_id = ${usuario.id}::uuid)
       OR EXISTS (SELECT 1 FROM contatos t WHERE t.id = ${c}.contato_id AND t.responsavel_id = ${usuario.id}::uuid))`;
   }
-  if (ehComercialSomenteLeitura(usuario.papel)) {
-    const area = areaDoPapel(usuario.papel);
+  if (ehComercialSomenteLeitura(usuario)) {
+    const area = usuario.area;
     return ehLider(usuario.papel) && area
       ? Prisma.sql`EXISTS (SELECT 1 FROM negocios n JOIN funis f ON f.id = n.funil_id
           WHERE n.id = ${c}.negocio_id AND n.status::text = 'GANHO' AND f.area::text = ${area})`
@@ -45,15 +45,15 @@ export function sqlParcelasVisiveis(
   usuario: Usuario,
   p: Prisma.Sql = Prisma.raw('p'),
 ): Prisma.Sql {
-  if (ehGestorFinanceiro(usuario.papel)) return VERDADEIRO;
+  if (ehGestorFinanceiro(usuario)) return VERDADEIRO;
   const doContrato = Prisma.sql`EXISTS (SELECT 1 FROM contratos c WHERE c.id = ${p}.contrato_id AND ${sqlContratosVisiveis(usuario)})`;
-  if (ehCsDaCarteira(usuario.papel)) {
+  if (ehCsDaCarteira(usuario)) {
     return Prisma.sql`(${doContrato}
       OR (${p}.contrato_id IS NULL AND (
         EXISTS (SELECT 1 FROM contatos t WHERE t.id = ${p}.contato_id AND t.responsavel_id = ${usuario.id}::uuid)
         OR EXISTS (SELECT 1 FROM empresas e WHERE e.id = ${p}.empresa_id AND e.responsavel_id = ${usuario.id}::uuid))))`;
   }
-  return ehComercialSomenteLeitura(usuario.papel) ? doContrato : FALSO;
+  return ehComercialSomenteLeitura(usuario) ? doContrato : FALSO;
 }
 
 /** Filtro por pessoas de CS (BI) sobre `parcelas`; `null` = todas. */

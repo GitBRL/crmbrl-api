@@ -16,11 +16,7 @@ import type {
 } from '../contatos/dto/linha-do-tempo.dto';
 import { LinhaDoTempoService } from '../contatos/linha-do-tempo.service';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  filtroDeNegociosVisiveis,
-  podeVerArea,
-  podeVerNegocio,
-} from './acesso-funis';
+import { funisAcessiveis } from './acessos-no-banco';
 import { EtapaDto } from './dto/funis.dto';
 import {
   type FiltroBaseNegociosDto,
@@ -43,8 +39,9 @@ const ORDEM_DO_QUADRO = [
 
 /**
  * Consultas de negócios: lista paginada, quadro kanban por funil e histórico
- * de movimentação. Toda consulta aplica a visibilidade do papel (R5.9) antes
- * dos filtros (visão, busca, etiqueta, responsável).
+ * de movimentação. Toda consulta aplica a visibilidade (R5.9: o nível da
+ * pessoa em cada funil, `funisAcessiveis`) antes dos filtros (visão, busca,
+ * etiqueta, responsável).
  */
 @Injectable()
 export class NegociosConsultaService {
@@ -117,7 +114,10 @@ export class NegociosConsultaService {
       where: { id: funilId, excluidoEm: null },
       include: { etapas: { orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }] } },
     });
-    if (!funil || !podeVerArea(usuario, funil.area)) {
+    if (
+      !funil ||
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerFunil(funil.id)
+    ) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
     const agora = new Date();
@@ -229,20 +229,19 @@ export class NegociosConsultaService {
     );
   }
 
-  /** 404 para negócio inexistente, excluído ou fora do que o papel vê (R5.9). */
+  /** 404 para negócio inexistente, excluído ou fora do que a pessoa vê (R5.9). */
   private async exigirVisivel(
     usuario: UsuarioAutenticado,
     negocioId: string,
   ): Promise<void> {
     const negocio = await this.prisma.negocio.findFirst({
       where: { id: negocioId, excluidoEm: null },
-      select: {
-        id: true,
-        responsavelId: true,
-        funil: { select: { area: true } },
-      },
+      select: { id: true, responsavelId: true, funilId: true },
     });
-    if (!negocio || !podeVerNegocio(usuario, negocio)) {
+    if (
+      !negocio ||
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerNegocio(negocio)
+    ) {
       throw new NaoEncontradoException('Negócio não encontrado.');
     }
   }
@@ -259,7 +258,7 @@ export class NegociosConsultaService {
     const condicoes: Prisma.NegocioWhereInput[] = [
       { excluidoEm: null },
       { funil: { excluidoEm: null } },
-      filtroDeNegociosVisiveis(usuario),
+      (await funisAcessiveis(this.prisma, usuario)).filtroDeNegocios(),
     ];
     if (filtro.visao === 'MEUS') {
       condicoes.push({ responsavelId: usuario.id });

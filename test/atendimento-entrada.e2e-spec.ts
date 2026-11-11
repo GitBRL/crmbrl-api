@@ -147,7 +147,7 @@ describe('Atendimento — entrada (e2e)', () => {
 
       const vazia = await criarFila(t, { area: 'CS', participantes: [] });
       await t.prisma.usuario.updateMany({
-        where: { papel: 'CS' },
+        where: { papel: 'MEMBRO', area: 'CS' },
         data: { ativo: false },
       });
       const canalCs = await criarCanal(t, { filaPadrao: vazia });

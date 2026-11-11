@@ -11,14 +11,15 @@
  *   (menos conversas em aberto; empate desempata pelo rodízio) e `MANUAL`
  *   (ninguém é escolhido: fica na fila até alguém assumir).
  */
-import { ehLider, ehMembro, papeisDaArea } from '../comum/dominio/papeis';
+import { ehDoSetor, ehLider, ehMembro } from '../comum/dominio/papeis';
 import {
   motivoSemAcessoAtivado,
   type PosicaoNoRodizio,
   ordenarParaRodizio,
   proximoDoRodizio,
 } from '../funis/rodizio';
-import type { Area, EstrategiaFila, Papel } from '../generated/prisma/client';
+import type { EstrategiaFila, Papel } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
 export type ModoDosParticipantes = 'AREA' | 'LISTA';
 
@@ -42,6 +43,7 @@ export type MotivoNaFila =
 export interface UsuarioDaFila extends PosicaoNoRodizio {
   readonly nome: string;
   readonly papel: Papel;
+  readonly area: Area | null;
   readonly avatarUrl: string | null;
   readonly acessoAtivadoEm: Date | null;
   readonly senhaHash: string | null;
@@ -76,14 +78,13 @@ export function participantesDaFila<U extends UsuarioDaFila>(
   usuarios: readonly U[],
   linhas: readonly LinhaDeParticipacao[],
 ): ParticipantesDaFila<U> {
-  const daArea = new Set<Papel>(papeisDaArea(area));
   const porUsuario = new Map(linhas.map((linha) => [linha.usuarioId, linha]));
   const modo: ModoDosParticipantes = linhas.some((linha) => linha.participa)
     ? 'LISTA'
     : 'AREA';
   const pessoas: PessoaNaFila<U>[] = [];
   for (const usuario of ordenarParaRodizio(
-    usuarios.filter((item) => daArea.has(item.papel)),
+    usuarios.filter((item) => ehDoSetor(item, area)),
   )) {
     const linha = porUsuario.get(usuario.id);
     let motivo: MotivoNaFila;

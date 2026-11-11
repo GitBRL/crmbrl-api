@@ -9,12 +9,12 @@
  * `ORIGENS_PERMITIDAS`.
  */
 import type {
-  Area,
   Papel,
   StatusMensagem,
   StatusWhatsapp,
 } from '../generated/prisma/client';
 import type { NotificacaoDto } from '../notificacoes/notificacoes.dto';
+import type { Area } from '../comum/dominio/setores';
 
 /** Caminho do Socket.IO (dentro de `/api`, que o proxy do front já encaminha). */
 export const CAMINHO_SOCKET_IO = '/api/socket.io';
@@ -34,14 +34,17 @@ export const OPCOES_DO_SOCKET_IO = {
 
 /**
  * Salas. Ao conectar, o socket entra sozinho em `usuario:<id>`, `papel:<papel>`
- * e, se tiver área, `area:<area>`. Em `conversa:<id>` e `chat:<canalId>` ele
- * entra pedindo (`conversa.entrar`, `chat.entrar`), com verificação de
- * permissão. `sessao:<id>` é interna (para derrubar os sockets de uma sessão).
+ * e, se tiver setor, `area:<area>` (líderes também em `lideres:<area>`). Em
+ * `conversa:<id>` e `chat:<canalId>` ele entra pedindo (`conversa.entrar`,
+ * `chat.entrar`), com verificação de permissão. `sessao:<id>` é interna (para
+ * derrubar os sockets de uma sessão).
  */
 export const salas = {
   usuario: (usuarioId: string) => `usuario:${usuarioId}`,
   papel: (papel: Papel) => `papel:${papel}`,
   area: (area: Area) => `area:${area}`,
+  /** Os líderes de um setor (antes, a sala do papel `LIDER_<AREA>`). */
+  lideres: (area: Area) => `lideres:${area}`,
   conversa: (conversaId: string) => `conversa:${conversaId}`,
   chat: (canalId: string) => `chat:${canalId}`,
   sessao: (sessaoId: string) => `sessao:${sessaoId}`,

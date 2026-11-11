@@ -3,13 +3,12 @@
  * `conversa.atualizada`, `mensagem.nova`, `mensagem.status`). Os dados são os
  * DTOs da API (`ConversaResumoDto`, `MensagemDaConversaDto`).
  */
-import { liderDaArea } from '../comum/dominio/papeis';
-import type { Area } from '../generated/prisma/client';
 import { salas } from '../tempo-real/catalogo';
+import type { Area } from '../comum/dominio/setores';
 
 /**
  * Salas que acompanham a conversa (R12): Admin e C-level sempre; o
- * responsável e os líderes da área da fila quando há responsável; a área
+ * responsável e os líderes do setor da fila quando há responsável; o setor
  * inteira da fila quando ainda não há (quem atende a fila pode assumir). Mais
  * a sala da própria conversa (`conversa:<id>`).
  */
@@ -26,7 +25,7 @@ export function salasDaConversa(conversa: {
   if (conversa.responsavelId) {
     lista.push(salas.usuario(conversa.responsavelId));
     if (conversa.area) {
-      lista.push(salas.papel(liderDaArea(conversa.area)));
+      lista.push(salas.lideres(conversa.area));
     }
   } else if (conversa.area) {
     lista.push(salas.area(conversa.area));

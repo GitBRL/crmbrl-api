@@ -6,6 +6,7 @@ import { validarModelo } from '../comum/modelos/modelos';
 import type { Passo, ValidadorDeConfig } from '../comum/passos/definicao';
 import { problemasDoSegmento } from '../comum/segmentos/segmentos';
 import { TIPOS_DE_PASSO_DE_AUTOMACAO as T } from './automacoes.constantes';
+import { FORMATO_DA_CHAVE_DE_SETOR } from '../comum/validacao/setor';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,7 +19,6 @@ export const TIPOS_DE_ATIVIDADE_DA_ACAO = [
 export const UNIDADES_DE_PRAZO = ['minutos', 'horas', 'dias'] as const;
 const PRIORIDADES = ['BAIXA', 'MEDIA', 'ALTA'];
 const ESTRATEGIAS = ['RESPONSAVEL_FIXO', 'RODIZIO', 'LIDER_DA_AREA'];
-const AREAS = ['MARKETING', 'COMERCIAL', 'CS'];
 
 type Config = Record<string, unknown>;
 
@@ -126,9 +126,9 @@ export const VALIDADORES_DE_ACAO: Readonly<Record<string, ValidadorDeConfig>> =
       if (
         c.area !== undefined &&
         c.area !== null &&
-        !AREAS.includes(c.area as string)
+        (typeof c.area !== 'string' || !FORMATO_DA_CHAVE_DE_SETOR.test(c.area))
       ) {
-        return 'Área inválida.';
+        return 'Setor inválido.';
       }
       return null;
     },

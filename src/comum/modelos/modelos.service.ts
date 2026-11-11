@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import { NaoEncontradoException } from '../erros/excecoes';
+import type { QuemAcessa } from '../../funis/acesso-funis';
+import { funisAcessiveis } from '../../funis/acessos-no-banco';
 import {
   type DadosDoModelo,
   type ErroDeModelo,
@@ -59,6 +61,23 @@ export const DADOS_DE_EXEMPLO: DadosDoModelo = {
 @Injectable()
 export class ModelosService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** 404 se o negócio não existe ou é de um funil que a pessoa não vê (R5.9). */
+  async exigirNegocioVisivel(
+    usuario: QuemAcessa,
+    negocioId: string,
+  ): Promise<void> {
+    const negocio = await this.prisma.negocio.findFirst({
+      where: { id: negocioId, excluidoEm: null },
+      select: { funilId: true, responsavelId: true },
+    });
+    if (
+      !negocio ||
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerNegocio(negocio)
+    ) {
+      throw new NaoEncontradoException('Negócio não encontrado.');
+    }
+  }
 
   /** Carrega contato, empresa, negócio e responsável. 404 se o contato/negócio não existir. */
   async carregarDados(alvo: AlvoDoModelo, tx?: Tx): Promise<DadosDoModelo> {

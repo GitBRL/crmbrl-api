@@ -7,15 +7,13 @@ import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import { formatarValor } from '../comum/dominio/dinheiro';
 import { normalizarEmail } from '../comum/dominio/email';
 import {
-  areaDoPapel,
   ehDiretoria,
   ehLider,
-  liderDaArea,
   liderEsperado,
-  papeisDaArea,
+  papelTemSetor,
   rotuloDoPapel,
-  TODAS_AS_AREAS,
 } from '../comum/dominio/papeis';
+import { nomeDoSetor } from '../comum/dominio/setores';
 import {
   NaoEncontradoException,
   RegraVioladaException,
@@ -44,6 +42,10 @@ import type {
   MembroDaEquipeDto,
 } from './dto/equipe.dto';
 import type { FiltroUsuariosDto } from './dto/filtro-usuarios.dto';
+import {
+  type FiltroOpcoesDePessoasDto,
+  OpcaoDePessoaDto,
+} from './dto/opcoes-de-pessoas.dto';
 import type { DefinirSenhaTemporariaDto } from './dto/senha-temporaria.dto';
 import {
   type ConviteDto,
@@ -59,6 +61,7 @@ import {
   exigirEmailLivre,
   exigirLiderValido,
   exigirOutroAdminAtivo,
+  exigirSetorDoPapel,
   lerIdentificadorDeIntegracao,
   lerTelefone,
   lideradosAtivos,
@@ -70,17 +73,15 @@ const CAMPOS_EDITAVEIS = [
   'nome',
   'email',
   'papel',
+  'area',
   'liderId',
   'telefone',
   'identificadorIntegracao',
   'avatarUrl',
 ] as const;
 
-/** Papéis que encabeçam equipes: C-level (com os líderes) e os líderes de área. */
-const PAPEIS_DE_CABECA: Papel[] = [
-  'C_LEVEL',
-  ...TODAS_AS_AREAS.map((area) => liderDaArea(area)),
-];
+/** Papéis que encabeçam equipes: C-level (com os líderes) e os líderes de setor. */
+const PAPEIS_DE_CABECA: Papel[] = ['C_LEVEL', 'LIDER'];
 
 /**
  * Usuários, papéis e hierarquia (R1), senha temporária e convite (R2.8) e a
@@ -97,6 +98,33 @@ export class UsuariosService {
     private readonly cripto: CriptografiaService,
     private readonly tempoReal: TempoRealService,
   ) {}
+
+  /**
+   * Pessoas ativas para os editores de acessos (R5.11): qualquer setor, por
+   * trecho do nome e/ou setor, só o resumo. Quem pode pedir (Admin, C-level e
+   * líderes) é conferido no controller.
+   */
+  async opcoes(filtro: FiltroOpcoesDePessoasDto): Promise<OpcaoDePessoaDto[]> {
+    const pessoas = await this.prisma.usuario.findMany({
+      where: {
+        ativo: true,
+        ...(filtro.busca
+          ? { nome: { contains: filtro.busca, mode: 'insensitive' } }
+          : {}),
+        ...(filtro.area ? { area: filtro.area } : {}),
+      },
+      select: {
+        id: true,
+        nome: true,
+        avatarUrl: true,
+        papel: true,
+        area: true,
+      },
+      orderBy: [{ nome: 'asc' }, { id: 'asc' }],
+      take: filtro.limite,
+    });
+    return pessoas.map((pessoa) => OpcaoDePessoaDto.de(pessoa));
+  }
 
   async listar(
     observador: UsuarioAutenticado,
@@ -117,7 +145,8 @@ export class UsuariosService {
       condicoes.push({ papel: filtro.papel });
     }
     if (filtro.area) {
-      condicoes.push({ papel: { in: [...papeisDaArea(filtro.area)] } });
+      // Só Líder e Membro têm setor (CHECK `usuarios_area_check`).
+      condicoes.push({ area: filtro.area });
     }
     if (filtro.ativo !== undefined) {
       condicoes.push({ ativo: filtro.ativo });
@@ -185,9 +214,10 @@ export class UsuariosService {
         tx,
         dto.identificadorIntegracao,
       );
+      const area = await exigirSetorDoPapel(tx, dto.papel, dto.area);
       const liderId = await exigirLiderValido(
         tx,
-        dto.papel,
+        { papel: dto.papel, area },
         dto.liderId ?? null,
       );
       const usuario = await tx.usuario.create({
@@ -195,6 +225,7 @@ export class UsuariosService {
           nome: dto.nome,
           email,
           papel: dto.papel,
+          area,
           liderId,
           telefone,
           identificadorIntegracao,
@@ -210,11 +241,11 @@ export class UsuariosService {
         entidade: 'usuario',
         entidadeId: usuario.id,
         resumo:
-          `Usuário ${usuario.nome} (${usuario.email}) criado como ${rotuloDoPapel(usuario.papel)}` +
+          `Usuário ${usuario.nome} (${usuario.email}) criado como ${rotuloDoPapel(usuario.papel, usuario.area)}` +
           (usuario.lider ? `, respondendo a ${usuario.lider.nome}` : ''),
         dados: {
           papel: usuario.papel,
-          area: areaDoPapel(usuario.papel),
+          area: usuario.area,
           liderId: usuario.liderId,
           acesso: senhaHash ? 'senha_temporaria' : 'convite_por_email',
         },
@@ -244,8 +275,9 @@ export class UsuariosService {
   }
 
   /**
-   * Edita um usuário (só Admin). Mudar o papel revalida a hierarquia (R1.3): o
-   * líder do novo papel (R1.2), os liderados e o último Admin (R1.4).
+   * Edita um usuário (só Admin). Mudar o papel ou o setor revalida a hierarquia
+   * (R1.3): o líder do novo papel (R1.2), os liderados e o último Admin (R1.4);
+   * o novo setor precisa estar ativo (R1.9).
    */
   async atualizar(id: string, dto: AtualizarUsuarioDto): Promise<UsuarioDto> {
     const telefone =
@@ -261,17 +293,29 @@ export class UsuariosService {
         throw new NaoEncontradoException('Usuário não encontrado.');
       }
       const papel = dto.papel ?? antes.papel;
-      const mudouPapel = papel !== antes.papel;
+      // Admin e C-level não têm setor: o pedido é ignorado e a área fica nula.
+      const areaPedida = papelTemSetor(papel)
+        ? dto.area !== undefined
+          ? dto.area
+          : antes.area
+        : null;
+      const area = await exigirSetorDoPapel(
+        tx,
+        papel,
+        areaPedida,
+        areaPedida !== antes.area,
+      );
+      const mudouPapel = papel !== antes.papel || area !== antes.area;
 
       let liderId: string | null | undefined;
       if (mudouPapel || dto.liderId !== undefined) {
-        if (mudouPapel && antes.papel === 'ADMIN' && antes.ativo) {
+        if (papel !== antes.papel && antes.papel === 'ADMIN' && antes.ativo) {
           await exigirOutroAdminAtivo(tx, antes, 'rebaixar');
         }
         if (mudouPapel) {
           const problema = problemaDeMudancaDePapel(
             antes,
-            papel,
+            { papel, area },
             await lideradosAtivos(tx, antes.id),
           );
           if (problema) {
@@ -283,10 +327,15 @@ export class UsuariosService {
         const pedido =
           dto.liderId !== undefined
             ? dto.liderId
-            : liderEsperado(papel) === null
+            : liderEsperado({ papel, area }) === null
               ? null
               : antes.liderId;
-        liderId = await exigirLiderValido(tx, papel, pedido, antes.id);
+        liderId = await exigirLiderValido(
+          tx,
+          { papel, area },
+          pedido,
+          antes.id,
+        );
       }
       const email =
         dto.email === undefined ? undefined : normalizarEmail(dto.email);
@@ -304,7 +353,8 @@ export class UsuariosService {
         data: {
           nome: dto.nome,
           email,
-          papel: mudouPapel ? papel : undefined,
+          papel: papel !== antes.papel ? papel : undefined,
+          area: area !== antes.area ? area : undefined,
           liderId,
           telefone,
           identificadorIntegracao,
@@ -326,8 +376,8 @@ export class UsuariosService {
       }
       return UsuarioDto.completo(depois);
     });
-    // As salas do socket (papel, área) são fixadas no handshake: quem mudou de
-    // papel ou de líder reconecta e entra nas salas certas (R12.5). Só depois
+    // As salas do socket (papel, setor) são fixadas no handshake: quem mudou de
+    // papel, setor ou líder reconecta e entra nas salas certas (R12.5). Só depois
     // do commit, para o novo handshake já ler o perfil novo.
     if (mudouAcesso) {
       this.tempoReal.desconectarUsuario(id);
@@ -414,7 +464,7 @@ export class UsuariosService {
             },
       );
       if (filtro.area) {
-        condicoes.push({ papel: liderDaArea(filtro.area) });
+        condicoes.push({ papel: 'LIDER', area: filtro.area });
       }
     } else {
       throw new SemPermissaoException(
@@ -427,14 +477,19 @@ export class UsuariosService {
       where: { AND: condicoes },
       select: {
         ...SELECAO_RESUMO,
-        lider: { select: { papel: true, ativo: true } },
+        lider: { select: { papel: true, area: true, ativo: true } },
         liderados: {
           where: { ativo: true },
           select: SELECAO_RESUMO,
           orderBy: [{ nome: 'asc' }, { id: 'asc' }],
         },
       },
-      orderBy: [{ papel: 'asc' }, { nome: 'asc' }, { id: 'asc' }],
+      orderBy: [
+        { papel: 'asc' },
+        { setor: { ordem: 'asc' } },
+        { nome: 'asc' },
+        { id: 'asc' },
+      ],
     });
     if (filtro.liderId && cabecas.length === 0) {
       throw new NaoEncontradoException('Líder não encontrado.');
@@ -460,15 +515,17 @@ export class UsuariosService {
       const lider: MembroDaEquipeDto = {
         usuario: UsuarioResumoDto.de(cabeca),
         indicadores: indicadores.get(cabeca.id) ?? vazio,
-        aguardandoNovoLider: !temLiderEsperado(cabeca.papel, cabeca.lider),
+        aguardandoNovoLider: !temLiderEsperado(cabeca, cabeca.lider),
       };
+      const area = papelTemSetor(cabeca.papel) ? cabeca.area : null;
       return {
         lider,
-        area: areaDoPapel(cabeca.papel),
+        area,
+        nomeSetor: area ? nomeDoSetor(area) : null,
         membros: cabeca.liderados.map((liderado) => ({
           usuario: UsuarioResumoDto.de(liderado),
           indicadores: indicadores.get(liderado.id) ?? vazio,
-          aguardandoNovoLider: !temLiderEsperado(liderado.papel, cabeca),
+          aguardandoNovoLider: !temLiderEsperado(liderado, cabeca),
         })),
       };
     });

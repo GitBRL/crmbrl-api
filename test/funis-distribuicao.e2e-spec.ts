@@ -1,8 +1,5 @@
 import { DistribuicaoService } from '../src/funis/distribuicao.service';
-import type {
-  Area,
-  EstrategiaDistribuicao,
-} from '../src/generated/prisma/client';
+import type { EstrategiaDistribuicao } from '../src/generated/prisma/client';
 import { mover } from './funis-apoio';
 import {
   type AppTeste,
@@ -16,6 +13,7 @@ import {
   etapaDoFunilBase,
   SENHA_DE_TESTE,
 } from './utils';
+import type { Area } from '../src/comum/dominio/setores';
 
 describe('Distribuição por rodízio (e2e)', () => {
   let t: AppTeste;
@@ -163,7 +161,7 @@ describe('Distribuição por rodízio (e2e)', () => {
     expect(regra.body.aguardandoAcesso).toEqual([
       expect.objectContaining({
         id: convidado.id,
-        papel: 'COMERCIAL',
+        papel: 'MEMBRO',
         motivo: 'CONVITE_PENDENTE',
       }),
       expect.objectContaining({
@@ -377,7 +375,7 @@ describe('Distribuição por rodízio (e2e)', () => {
       'COMERCIAL',
     ]);
     await comoLider.get('/api/v1/regras-distribuicao/cs').expect(403);
-    await comoLider.get('/api/v1/regras-distribuicao/vendas').expect(400);
+    await comoLider.get('/api/v1/regras-distribuicao/ven-das').expect(400);
     await (
       await entrarComo(t, ana)
     )

@@ -1,9 +1,9 @@
+import type { Area } from '../comum/dominio/setores';
 /**
  * Modelos prontos de automação (o front oferece como ponto de partida):
  * `POST /automacoes/modelos-prontos/:chave` cria uma automação pausada a partir
  * deles. O que depende da conta (etapa, funil, pessoas) fica em `pendencias`.
  */
-import type { Area } from '../generated/prisma/client';
 
 export interface ModeloPronto {
   chave: string;

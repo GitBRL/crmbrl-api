@@ -54,7 +54,7 @@ describe('Tempo real (e2e)', () => {
 
       for (const sala of [
         salas.usuario(usuario.id),
-        salas.papel('COMERCIAL'),
+        salas.papel('MEMBRO'),
         salas.area('COMERCIAL'),
       ]) {
         const chegou = esperarEvento(socket, 'nao-lidas');
@@ -123,7 +123,7 @@ describe('Tempo real (e2e)', () => {
       const caiu = esperarDesconexao(socket);
       await admin
         .patch(`/api/v1/usuarios/${usuario.id}`, {
-          papel: 'MARKETING',
+          area: 'MARKETING',
           liderId: liderMarketing.id,
         })
         .expect(200);

@@ -15,13 +15,8 @@
  * também as `partes` já resolvidas (nome de quem foi mencionado, título do
  * negócio…), para a tela montar a bolha sem interpretar nada.
  */
-import {
-  areaDoPapel,
-  ROTULO_DA_AREA,
-  TODAS_AS_AREAS,
-  TODOS_OS_PAPEIS,
-} from '../comum/dominio/papeis';
-import type { Area, Papel } from '../generated/prisma/client';
+import { type ComPapel, setorDaPessoa } from '../comum/dominio/papeis';
+import type { Area } from '../comum/dominio/setores';
 
 // ---------------------------------------------------------------------------
 // Canais do sistema
@@ -30,7 +25,7 @@ import type { Area, Papel } from '../generated/prisma/client';
 /** `chave` do canal "Geral". */
 export const CHAVE_DO_GERAL = 'geral';
 
-/** `chave` do canal de uma área: `area:COMERCIAL`. */
+/** `chave` do canal de um setor: `area:COMERCIAL`. */
 export function chaveDaArea(area: Area): string {
   return `area:${area}`;
 }
@@ -44,7 +39,7 @@ export function chaveDaDireta(usuarioA: string, usuarioB: string): string {
   return `direto:${menor}:${maior}`;
 }
 
-/** Um canal que o sistema cria e mantém (Geral e um por área). */
+/** Um canal que o sistema cria e mantém (Geral e um por setor ativo). */
 export interface CanalDoSistema {
   readonly chave: string;
   readonly tipo: 'GERAL' | 'AREA';
@@ -53,49 +48,53 @@ export interface CanalDoSistema {
   readonly area: Area | null;
 }
 
-/** Os canais padrão (R15.1): "Geral" e um por área, nesta ordem. */
-export const CANAIS_DO_SISTEMA: readonly CanalDoSistema[] = [
-  {
-    chave: CHAVE_DO_GERAL,
-    tipo: 'GERAL',
-    nome: 'Geral',
-    descricao: 'Avisos e conversas de toda a equipe.',
-    area: null,
-  },
-  ...TODAS_AS_AREAS.map((area): CanalDoSistema => ({
-    chave: chaveDaArea(area),
-    tipo: 'AREA',
-    nome: ROTULO_DA_AREA[area],
-    descricao: `Canal da equipe de ${ROTULO_DA_AREA[area]}.`,
-    area,
-  })),
-];
+/** O canal "Geral" (R15.1): todos os usuários ativos. */
+export const CANAL_GERAL: CanalDoSistema = {
+  chave: CHAVE_DO_GERAL,
+  tipo: 'GERAL',
+  nome: 'Geral',
+  descricao: 'Avisos e conversas de toda a equipe.',
+  area: null,
+};
 
-/**
- * Pares (papel, chave do canal) dos membros automáticos: todo papel no
- * "Geral" e cada papel nos canais das suas áreas (`areasDoChat`). É a base da
- * sincronização (SQL) — mudou aqui, muda a regra.
- */
-export function canaisAutomaticosPorPapel(): ReadonlyArray<
-  readonly [Papel, string]
-> {
-  return TODOS_OS_PAPEIS.flatMap((papel) => [
-    [papel, CHAVE_DO_GERAL] as const,
-    ...areasDoChat(papel).map((area) => [papel, chaveDaArea(area)] as const),
-  ]);
+/** O canal de um setor (R15.1): as pessoas do setor e o C-level. */
+export function canalDoSetor(setor: {
+  readonly chave: Area;
+  readonly nome: string;
+}): CanalDoSistema {
+  return {
+    chave: chaveDaArea(setor.chave),
+    tipo: 'AREA',
+    nome: setor.nome,
+    descricao: `Canal da equipe de ${setor.nome}.`,
+    area: setor.chave,
+  };
 }
 
 /**
- * Áreas cujo canal a pessoa integra automaticamente (R15.1): as pessoas da
- * área (líder e membros) e o C-level, que acompanha todas. O Admin fica só no
- * "Geral" (pode criar grupos e diretas como qualquer um).
+ * Os canais padrão (R15.1): "Geral" e um por setor ativo, nesta ordem
+ * (`setoresAtivos` já ordenados).
  */
-export function areasDoChat(papel: Papel): readonly Area[] {
-  if (papel === 'C_LEVEL') {
-    return TODAS_AS_AREAS;
+export function canaisDoSistema(
+  setoresAtivos: readonly { readonly chave: Area; readonly nome: string }[],
+): CanalDoSistema[] {
+  return [CANAL_GERAL, ...setoresAtivos.map(canalDoSetor)];
+}
+
+/**
+ * Setores cujo canal a pessoa integra automaticamente (R15.1): as pessoas do
+ * setor (líder e membros) e o C-level, que acompanha todos os setores ativos.
+ * O Admin fica só no "Geral" (pode criar grupos e diretas como qualquer um).
+ */
+export function areasDoChat(
+  pessoa: ComPapel,
+  setoresAtivos: readonly Area[],
+): readonly Area[] {
+  if (pessoa.papel === 'C_LEVEL') {
+    return setoresAtivos;
   }
-  const area = areaDoPapel(papel);
-  return area ? [area] : [];
+  const area = setorDaPessoa(pessoa);
+  return area && setoresAtivos.includes(area) ? [area] : [];
 }
 
 // ---------------------------------------------------------------------------

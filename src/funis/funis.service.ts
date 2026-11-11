@@ -18,10 +18,26 @@ import type {
 } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import {
-  areasVisiveis,
+  type AlcanceNoFunil,
+  type NivelNoFunil,
   podeConfigurarFunis,
-  podeVerArea,
 } from './acesso-funis';
+import {
+  chaveDoAlvo,
+  mudancaDeAcessos,
+  resumoDosAcessos,
+  validarAcessosPedidos,
+} from './acessos-extras';
+import {
+  esquecerAcessosDaRequisicao,
+  funisAcessiveis,
+} from './acessos-no-banco';
+import {
+  AcessoDto,
+  type AcessosDoFunilDto,
+  INCLUIR_ALVO_DO_ACESSO,
+  type SubstituirAcessosDto,
+} from './dto/acessos.dto';
 import {
   type AtualizarEtapaDto,
   type AtualizarFunilDto,
@@ -31,10 +47,12 @@ import {
   EtapaDto,
   type FiltroFunisDto,
   FunilDto,
+  type FunilParaDto,
   type ReordenarEtapasDto,
 } from './dto/funis.dto';
+import { garantirSetorAtivo } from '../setores/setores-no-banco';
 
-type FunilComEtapas = Funil & { etapas: Etapa[] };
+type FunilComEtapas = FunilParaDto;
 
 /** Etapas de um funil novo quando a lista não vem (R5.2). */
 const ETAPAS_PADRAO: readonly { nome: string; tipo: TipoEtapa }[] = [
@@ -47,6 +65,12 @@ const ETAPAS_PADRAO: readonly { nome: string; tipo: TipoEtapa }[] = [
 const ETAPAS_EM_ORDEM = {
   orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }],
 } satisfies Prisma.Funil$etapasArgs;
+
+/** O funil como o `FunilDto` mostra: etapas em ordem e o nome do setor dono. */
+const INCLUIR_FUNIL = {
+  etapas: ETAPAS_EM_ORDEM,
+  setor: { select: { nome: true } },
+} satisfies Prisma.FunilInclude;
 
 /** Mesmo nome, sem diferenciar maiúsculas nem espaços nas pontas. */
 function mesmoNome(a: string, b: string): boolean {
@@ -85,28 +109,39 @@ export class FunisService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  /** Funis das áreas que o usuário vê (R5.9), em ordem. */
+  /**
+   * Funis que o usuário vê (R5.9, R5.11), em ordem: os do seu setor que a
+   * visibilidade deixa e os de outros setores por acesso — cada um com o nível
+   * dele (R5.12). Admin e C-level veem todos.
+   */
   async listar(
     usuario: UsuarioAutenticado,
     filtro: FiltroFunisDto,
   ): Promise<FunilDto[]> {
-    const areas = areasVisiveis(usuario).filter(
-      (area) => !filtro.area || area === filtro.area,
-    );
+    const acesso = await funisAcessiveis(this.prisma, usuario);
     const funis = await this.prisma.funil.findMany({
       where: {
-        area: { in: [...areas] },
+        ...(acesso.todos ? {} : { id: { in: acesso.idsVisiveis() } }),
+        ...(filtro.area ? { area: filtro.area } : {}),
         excluidoEm: null,
         ...(filtro.incluirArquivados ? {} : { ativo: true }),
       },
-      include: { etapas: ETAPAS_EM_ORDEM },
+      include: INCLUIR_FUNIL,
       orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
     });
-    return funis.map((funil) => FunilDto.de(funil));
+    return funis.map((funil) => {
+      const alcance = acesso.alcance(funil.id) as AlcanceNoFunil;
+      return FunilDto.de(funil, alcance.nivel, alcance.veTodos);
+    });
   }
 
   async detalhar(usuario: UsuarioAutenticado, id: string): Promise<FunilDto> {
-    return FunilDto.de(await this.carregarVisivel(this.prisma, usuario, id));
+    const { funil, nivel, veTodos } = await this.carregarVisivel(
+      this.prisma,
+      usuario,
+      id,
+    );
+    return FunilDto.de(funil, nivel, veTodos);
   }
 
   /** Cria um funil extra (nunca um funil-base: esses vêm da configuração inicial). */
@@ -130,12 +165,14 @@ export class FunisService {
     validarTiposDasEtapas(etapas.map((etapa) => etapa.tipo));
     this.exigirNomesUnicos(etapas.map((etapa) => etapa.nome));
     const funil = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivo(tx, dto.area);
       await this.exigirNomeLivre(tx, dto.area, dto.nome);
       const { _max } = await tx.funil.aggregate({ _max: { ordem: true } });
       const criado = await tx.funil.create({
         data: {
           nome: dto.nome,
           area: dto.area,
+          visibilidade: dto.visibilidade ?? 'SETOR',
           base: false,
           ordem: (_max.ordem ?? 0) + 1,
           descricao: dto.descricao || null,
@@ -146,15 +183,16 @@ export class FunisService {
             })),
           },
         },
-        include: { etapas: ETAPAS_EM_ORDEM },
+        include: INCLUIR_FUNIL,
       });
       await this.auditoria.registrar(tx, {
         acao: 'funil.criado',
         entidade: 'funil',
         entidadeId: criado.id,
-        resumo: `Funil ${criado.nome} criado na área ${rotuloDaArea(criado.area)}`,
+        resumo: `Funil ${criado.nome} criado no setor ${rotuloDaArea(criado.area)}`,
         dados: {
           area: criado.area,
+          visibilidade: criado.visibilidade,
           etapas: criado.etapas.map((etapa) => ({
             nome: etapa.nome,
             tipo: etapa.tipo,
@@ -163,7 +201,8 @@ export class FunisService {
       });
       return criado;
     });
-    return FunilDto.de(funil);
+    esquecerAcessosDaRequisicao();
+    return FunilDto.de(funil, 'CONFIGURAR');
   }
 
   /** Renomeia, descreve, reordena, arquiva (`ativo: false`) ou reativa o funil. */
@@ -180,6 +219,10 @@ export class FunisService {
       if (dto.ativo === false && antes.ativo) {
         await this.exigirSemDependenciasDeEntrada(tx, antes, 'arquivar');
       }
+      if (dto.ativo === true && !antes.ativo) {
+        // R1.9: funil de setor desativado não volta a ficar ativo.
+        await garantirSetorAtivo(tx, antes.area);
+      }
       const depois = await tx.funil.update({
         where: { id },
         data: {
@@ -189,14 +232,18 @@ export class FunisService {
             : {}),
           ...(dto.ordem !== undefined ? { ordem: dto.ordem } : {}),
           ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+          ...(dto.visibilidade !== undefined
+            ? { visibilidade: dto.visibilidade }
+            : {}),
         },
-        include: { etapas: ETAPAS_EM_ORDEM },
+        include: INCLUIR_FUNIL,
       });
       const alteracoes = calcularAlteracoes(antes, depois, [
         'nome',
         'descricao',
         'ordem',
         'ativo',
+        'visibilidade',
       ]);
       if (Object.keys(alteracoes).length > 0) {
         const arquivamento = 'ativo' in alteracoes;
@@ -211,12 +258,13 @@ export class FunisService {
           resumo: arquivamento
             ? `Funil ${depois.nome} ${depois.ativo ? 'reativado' : 'arquivado'}`
             : `Funil ${depois.nome} atualizado (${Object.keys(alteracoes).join(', ')})`,
-          dados: { alteracoes },
+          dados: { alteracoes, visibilidade: depois.visibilidade },
         });
       }
       return depois;
     });
-    return FunilDto.de(funil);
+    esquecerAcessosDaRequisicao();
+    return FunilDto.de(funil, 'CONFIGURAR');
   }
 
   /** Exclusão lógica de um funil extra (R5.1: os funis-base não são excluídos). */
@@ -312,7 +360,7 @@ export class FunisService {
       });
       return this.recarregar(tx, atual.id);
     });
-    return FunilDto.de(funil);
+    return FunilDto.de(funil, 'CONFIGURAR');
   }
 
   /** Renomeia a etapa ou muda prazo-alvo e probabilidade (o tipo não muda). */
@@ -491,7 +539,112 @@ export class FunisService {
       });
       return depois;
     });
-    return FunilDto.de(funil);
+    return FunilDto.de(funil, 'CONFIGURAR');
+  }
+
+  // -------------------------------------------------------------------------
+  // Acessos extras do funil (R5.11)
+  // -------------------------------------------------------------------------
+
+  /** A lista de acessos do funil, para quem o configura (R5.1, R5.11). */
+  async listarAcessos(
+    usuario: UsuarioAutenticado,
+    funilId: string,
+  ): Promise<AcessosDoFunilDto> {
+    const funil = await this.prisma.$transaction((tx) =>
+      this.carregarParaConfigurar(tx, usuario, funilId),
+    );
+    return this.acessosDoFunil(this.prisma, funil);
+  }
+
+  /**
+   * Troca a lista de acessos do funil pela enviada (R5.11): valida os alvos
+   * (existem; os novos ativos; o setor dono não entra), grava só o que mudou e
+   * audita a lista antes e depois (`funil.acessos_alterados`).
+   */
+  async substituirAcessos(
+    usuario: UsuarioAutenticado,
+    funilId: string,
+    dto: SubstituirAcessosDto,
+  ): Promise<AcessosDoFunilDto> {
+    const resposta = await this.prisma.$transaction(async (tx) => {
+      const funil = await this.carregarParaConfigurar(tx, usuario, funilId);
+      const gravados = await tx.acessoFunil.findMany({
+        where: { funilId: funil.id },
+        select: { id: true, area: true, usuarioId: true, nivel: true },
+      });
+      const pedidos = await validarAcessosPedidos(
+        tx,
+        funil.area,
+        dto.acessos,
+        gravados,
+      );
+      const mudanca = mudancaDeAcessos(gravados, pedidos);
+      if (mudanca.remover.length > 0) {
+        await tx.acessoFunil.deleteMany({
+          where: { id: { in: mudanca.remover } },
+        });
+      }
+      for (const { id, nivel } of mudanca.atualizar) {
+        await tx.acessoFunil.update({ where: { id }, data: { nivel } });
+      }
+      if (mudanca.criar.length > 0) {
+        await tx.acessoFunil.createMany({
+          data: mudanca.criar.map((acesso) => ({
+            funilId: funil.id,
+            area: acesso.area,
+            usuarioId: acesso.usuarioId,
+            nivel: acesso.nivel,
+          })),
+        });
+      }
+      const antes = resumoDosAcessos(gravados);
+      const depois = resumoDosAcessos(pedidos);
+      if (JSON.stringify(antes) !== JSON.stringify(depois)) {
+        await this.auditoria.registrar(tx, {
+          acao: 'funil.acessos_alterados',
+          entidade: 'funil',
+          entidadeId: funil.id,
+          resumo: `Acessos do funil ${funil.nome} alterados (${depois.length} na lista)`,
+          dados: {
+            visibilidade: funil.visibilidade,
+            alteracoes: { acessos: { antes, depois } },
+            incluidos: mudanca.criar.map(chaveDoAlvo),
+            removidos: gravados
+              .filter(({ id }) => mudanca.remover.includes(id))
+              .map(chaveDoAlvo),
+          },
+        });
+      }
+      return this.acessosDoFunil(tx, funil);
+    });
+    esquecerAcessosDaRequisicao();
+    return resposta;
+  }
+
+  private async acessosDoFunil(
+    db: Tx,
+    funil: FunilComEtapas,
+  ): Promise<AcessosDoFunilDto> {
+    const acessos = await db.acessoFunil.findMany({
+      where: { funilId: funil.id },
+      include: INCLUIR_ALVO_DO_ACESSO,
+      // Estável: as linhas gravadas juntas (mesmo PUT) têm o mesmo `criadoEm`.
+      orderBy: [
+        { criadoEm: 'asc' },
+        { area: { sort: 'asc', nulls: 'last' } },
+        { usuario: { nome: 'asc' } },
+        { id: 'asc' },
+      ],
+    });
+    return {
+      funilId: funil.id,
+      nome: funil.nome,
+      area: funil.area,
+      nomeSetor: funil.setor.nome,
+      visibilidade: funil.visibilidade,
+      acessos: acessos.map((acesso) => AcessoDto.de(acesso)),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -510,37 +663,54 @@ export class FunisService {
     }
   }
 
+  /** O funil, se a pessoa o vê (R5.9, R5.11), com o nível dela — senão 404. */
   private async carregarVisivel(
     tx: Tx,
     usuario: UsuarioAutenticado,
     id: string,
-  ): Promise<FunilComEtapas> {
+  ): Promise<{
+    funil: FunilComEtapas;
+    nivel: NivelNoFunil;
+    veTodos: boolean;
+  }> {
     const funil = await tx.funil.findFirst({
       where: { id, excluidoEm: null },
-      include: { etapas: ETAPAS_EM_ORDEM },
+      include: INCLUIR_FUNIL,
     });
-    if (!funil || !podeVerArea(usuario, funil.area)) {
+    const alcance = funil
+      ? (await funisAcessiveis(tx, usuario)).alcance(funil.id)
+      : null;
+    if (!funil || !alcance) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
-    return funil;
+    return { funil, nivel: alcance.nivel, veTodos: alcance.veTodos };
   }
 
-  /** Funil visível e configurável pelo usuário, travado até o fim da transação. */
+  /**
+   * Funil visível e configurável pelo usuário (R5.1: líder do setor dono,
+   * C-level e Admin — os acessos extras não configuram), travado até o fim da
+   * transação.
+   */
   private async carregarParaConfigurar(
     tx: Tx,
     usuario: UsuarioAutenticado,
     id: string,
   ): Promise<FunilComEtapas> {
     await tx.$queryRaw`SELECT id FROM funis WHERE id = ${id}::uuid FOR UPDATE`;
-    const funil = await this.carregarVisivel(tx, usuario, id);
-    this.exigirConfiguracao(usuario, funil.area);
+    const { funil, nivel } = await this.carregarVisivel(tx, usuario, id);
+    if (nivel !== 'CONFIGURAR') {
+      throw new SemPermissaoException(
+        `Só o Admin, o C-level e o líder de ${rotuloDaArea(funil.area)} configuram este funil.`,
+        { regra: 'R5.1' },
+      );
+    }
     return funil;
   }
 
   private recarregar(tx: Tx, id: string): Promise<FunilComEtapas> {
     return tx.funil.findUniqueOrThrow({
       where: { id },
-      include: { etapas: ETAPAS_EM_ORDEM },
+      include: INCLUIR_FUNIL,
     });
   }
 

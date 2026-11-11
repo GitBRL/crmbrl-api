@@ -97,7 +97,7 @@ export class ParcelasService {
   // ---- acesso ------------------------------------------------------------
 
   exigirAcesso(usuario: UsuarioAutenticado): void {
-    if (!temAcessoAoFinanceiro(usuario.papel)) {
+    if (!temAcessoAoFinanceiro(usuario)) {
       throw new SemPermissaoException('Você não tem acesso ao Financeiro.', {
         regra: 'R22.1',
       });
@@ -106,7 +106,7 @@ export class ParcelasService {
 
   exigirAtuacao(usuario: UsuarioAutenticado): void {
     this.exigirAcesso(usuario);
-    if (!podeAtuarNoFinanceiro(usuario.papel)) {
+    if (!podeAtuarNoFinanceiro(usuario)) {
       throw new SemPermissaoException('O Comercial só consulta o Financeiro.', {
         regra: 'R22.1',
       });
@@ -269,7 +269,7 @@ export class ParcelasService {
     usuario: UsuarioAutenticado,
     _p: Pick<Parcela, 'id'>,
   ): boolean {
-    return podeAtuarNoFinanceiro(usuario.papel);
+    return podeAtuarNoFinanceiro(usuario);
   }
 
   /** Linha do tempo: envios da régua e eventos de auditoria do título. */

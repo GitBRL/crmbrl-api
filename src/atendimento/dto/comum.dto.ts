@@ -5,7 +5,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { TransformFnParams } from 'class-transformer';
 import { ValidateIf, type ValidationOptions } from 'class-validator';
-import { Area, TipoCanal } from '../../generated/prisma/client';
+import { TipoCanal } from '../../generated/prisma/client';
+import type { Area } from '../../comum/dominio/setores';
 
 export const MENSAGEM_UUID = 'deve ser um identificador (UUID) válido';
 
@@ -127,7 +128,7 @@ export class ResumoFilaDto {
   @ApiProperty({ example: 'Comercial — WhatsApp' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 
   static ouNulo(

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { liderDaArea } from '../comum/dominio/papeis';
 import {
   NaoEncontradoException,
   RegraVioladaException,
@@ -76,7 +75,9 @@ export class CicloDaCampanha {
             OR: [
               { papel: 'ADMIN' },
               { papel: 'C_LEVEL' },
-              ...(campanha.area ? [{ papel: liderDaArea(campanha.area) }] : []),
+              ...(campanha.area
+                ? [{ papel: 'LIDER' as const, area: campanha.area }]
+                : []),
             ],
             NOT: { id: campanha.criadoPorId ?? undefined },
           },

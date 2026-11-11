@@ -22,7 +22,6 @@ import { FORMATO_VALOR, formatarValor } from '../../comum/dominio/dinheiro';
 import type { Utm } from '../../comum/dominio/utm';
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
 import {
-  Area,
   OrigemContato,
   SituacaoSdr,
   StatusNegocio,
@@ -47,6 +46,7 @@ import {
   ResumoUsuarioDto,
   UtmDto,
 } from './comum.dto';
+import type { Area } from '../../comum/dominio/setores';
 
 const MENSAGEM_VALOR =
   'deve ser um valor em reais com até 2 casas, com ponto (ex.: 1500.00)';
@@ -281,8 +281,8 @@ export class NegocioDaJornadaDto {
   id: string;
 
   @ApiProperty({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     description: 'Área do funil desse negócio.',
   })
   area: Area;

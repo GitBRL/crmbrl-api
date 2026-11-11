@@ -9,7 +9,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { executarComoAtor } from '../comum/contexto/contexto-requisicao';
 import { CriptografiaService } from '../comum/criptografia/criptografia.service';
 import { AMBIENTE, type Ambiente } from '../config/ambiente';
-import type { Area, Etapa, Funil } from '../generated/prisma/client';
+import type { Etapa, Funil } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
 import {
@@ -17,7 +17,9 @@ import {
   FUNIS_BASE,
   type FunilInicial,
   PASSAGENS_INICIAIS,
+  SETORES_INICIAIS,
 } from './dados-iniciais';
+import { type Area, registrarNomesDosSetores } from '../comum/dominio/setores';
 
 export interface ResumoDaConfiguracaoInicial {
   funisCriados: number;
@@ -36,6 +38,8 @@ const TENTATIVAS_NA_SUBIDA = 20;
  * `limparBanco()` dos testes): cria só o que falta — nunca altera o que o Admin
  * já configurou.
  *
+ * - os três setores de base (R1.6), se faltarem (a migration os cria; os
+ *   testes apagam tudo);
  * - funis-base e etapas (R5.1, R5.2);
  * - passagens Marketing → Comercial e Comercial → CS (R5.7);
  * - uma regra de distribuição (rodízio) por área (R5.8);
@@ -70,6 +74,7 @@ export class SeedsService implements OnApplicationBootstrap, OnModuleDestroy {
       () =>
         this.prisma.$transaction(async (tx) => {
           await travarChave(tx, 'configuracao-inicial');
+          await this.garantirSetoresBase(tx);
           const funis: FunilComEtapas[] = [];
           let funisCriados = 0;
           for (const definicao of FUNIS_BASE) {
@@ -133,6 +138,21 @@ export class SeedsService implements OnApplicationBootstrap, OnModuleDestroy {
       );
       this.temporizador.unref();
     }
+  }
+
+  /** Os setores de base que faltarem (nunca altera nome, cor ou ordem já definidos). */
+  private async garantirSetoresBase(tx: Tx): Promise<void> {
+    await tx.setor.createMany({
+      data: SETORES_INICIAIS.map((setor) => ({
+        ...setor,
+        base: true,
+        ativo: true,
+      })),
+      skipDuplicates: true,
+    });
+    registrarNomesDosSetores(
+      await tx.setor.findMany({ select: { chave: true, nome: true } }),
+    );
   }
 
   private async garantirFunilBase(

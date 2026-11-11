@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { liderDaArea } from '../comum/dominio/papeis';
+import type { Area } from '../comum/dominio/setores';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR, salas } from '../tempo-real/catalogo';
 import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
@@ -172,7 +172,7 @@ export class ProgressoDaCampanha {
     campanha: {
       id: string;
       status: string;
-      area: Parameters<typeof liderDaArea>[0] | null;
+      area: Area | null;
       criadoPorId: string | null;
       proximoEnvioEm: Date | null;
       pausaMotivo: string | null;
@@ -181,7 +181,7 @@ export class ProgressoDaCampanha {
   ): Promise<void> {
     const destino = [salas.papel('ADMIN'), salas.papel('C_LEVEL')];
     if (campanha.area) {
-      destino.push(salas.papel(liderDaArea(campanha.area)));
+      destino.push(salas.lideres(campanha.area));
     }
     if (campanha.criadoPorId) {
       destino.push(salas.usuario(campanha.criadoPorId));

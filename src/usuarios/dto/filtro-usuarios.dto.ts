@@ -8,13 +8,12 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { TODAS_AS_AREAS } from '../../comum/dominio/papeis';
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
-import { Area, Papel } from '../../generated/prisma/client';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
+import { Papel } from '../../generated/prisma/client';
 import { MENSAGEM_PAPEL, MENSAGEM_UUID } from './criar-usuario.dto';
 import { aparar, booleanoDaQuery, idEmMinusculas } from './transformacoes';
-
-export const MENSAGEM_AREA = `deve ser um destes valores: ${TODAS_AS_AREAS.join(', ')}`;
+import type { Area } from '../../comum/dominio/setores';
 
 /**
  * Filtros da lista de usuários. O recorte de visibilidade (R1.5) vale sempre:
@@ -37,12 +36,12 @@ export class FiltroUsuariosDto extends PaginacaoDto {
   papel?: Papel;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
-    description: 'Líderes e membros da área.',
+    type: String,
+    example: 'COMERCIAL',
+    description: 'Líderes e membros do setor (chave).',
   })
   @IsOptional()
-  @IsEnum(Area, { message: MENSAGEM_AREA })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({

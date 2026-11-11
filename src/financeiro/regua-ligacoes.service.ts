@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SETOR_CS } from '../comum/dominio/setores';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { executarComoAtor } from '../comum/contexto/contexto-requisicao';
@@ -112,7 +113,7 @@ export class ReguaLigacoesService {
     }
     const lider =
       (await this.prisma.usuario.findFirst({
-        where: { papel: 'LIDER_CS', ativo: true },
+        where: { papel: 'LIDER', area: SETOR_CS, ativo: true },
         orderBy: { criadoEm: 'asc' },
         select: { id: true },
       })) ??

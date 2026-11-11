@@ -203,7 +203,7 @@ export class PainelCsService {
     usuario: UsuarioAutenticado,
     filtro: FiltroResolvido,
   ): Prisma.Sql {
-    return Prisma.sql`f.area = 'CS'::area AND n.excluido_em IS NULL
+    return Prisma.sql`f.area = 'CS' AND n.excluido_em IS NULL
       AND ${sqlNegociosVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`n.responsavel_id`, filtro.pessoas)}
       AND ${filtro.funilId ? Prisma.sql`n.funil_id = ${filtro.funilId}::uuid` : VERDADEIRO}`;
@@ -214,7 +214,7 @@ export class PainelCsService {
     usuario: UsuarioAutenticado,
     filtro: FiltroResolvido,
   ): Prisma.Sql {
-    return Prisma.sql`f.area = 'CS'::area
+    return Prisma.sql`f.area = 'CS'
       AND ${sqlConversasVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`c.responsavel_id`, filtro.pessoas)}`;
   }

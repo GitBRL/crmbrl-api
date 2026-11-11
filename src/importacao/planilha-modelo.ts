@@ -31,6 +31,7 @@ const CHAVES_DE_TEXTO = new Set([
   'contrato',
   'pix',
   'uf',
+  'negocio.idExterno',
 ]);
 const CHAVES_DE_DATA = new Set(['vencimento', 'pagoEm']);
 const CHAVES_DE_VALOR = new Set(['valor', 'valorPago']);
@@ -70,6 +71,59 @@ const ORIENTACOES: Record<TipoImportacao, Record<string, Orientacao>> = {
     'utm.content': {
       oQueColocar: 'Variação do anúncio ou do link.',
       exemplo: 'banner-azul',
+    },
+    responsavel: {
+      oQueColocar:
+        'E-mail ou nome de um usuário ativo do CRM, dono do contato e do negócio.',
+      exemplo: 'ana@exemplo.com.br',
+    },
+    'negocio.funil': {
+      oQueColocar: 'Nome do funil em que o negócio entra.',
+      exemplo: 'Vendas',
+    },
+    'negocio.etapa': {
+      oQueColocar:
+        'Nome da etapa do funil (sem a coluna, entra na primeira etapa aberta).',
+      exemplo: 'Novo lead',
+    },
+    'negocio.titulo': {
+      oQueColocar: 'Título do negócio (sem a coluna, vale o nome do contato).',
+      exemplo: 'Proposta de implantação',
+    },
+    'negocio.valor': {
+      oQueColocar: 'Valor do negócio em reais.',
+      exemplo: '1.500,00',
+    },
+    'negocio.valorRecorrente': {
+      oQueColocar: 'Valor recorrente (mensal) do negócio em reais.',
+      exemplo: '300,00',
+    },
+    'negocio.status': {
+      oQueColocar:
+        'Aberto, Ganho ou Perdido. Ganho e Perdido criam o negócio já fechado, na etapa de ganho ou de perda do funil (sem a coluna, entra aberto).',
+      exemplo: 'Ganho',
+    },
+    'negocio.motivoPerda': {
+      oQueColocar: 'Motivo da perda, para negócios perdidos.',
+      exemplo: 'Sem interesse',
+    },
+    'negocio.ganhoEm': {
+      oQueColocar: 'Data do ganho (dd/mm/aaaa, com hora opcional).',
+      exemplo: '05/11/2026 13:08',
+    },
+    'negocio.perdidoEm': {
+      oQueColocar: 'Data da perda (dd/mm/aaaa, com hora opcional).',
+      exemplo: '05/11/2026 13:08',
+    },
+    'negocio.criadoEm': {
+      oQueColocar:
+        'Data de criação do negócio na origem (dd/mm/aaaa, com hora opcional).',
+      exemplo: '01/11/2026 09:30',
+    },
+    'negocio.idExterno': {
+      oQueColocar:
+        'ID do negócio no sistema de origem. Reimportar o mesmo ID não cria outro negócio.',
+      exemplo: 'db95b47c-0000-4000-8000-000000000000',
     },
   },
   EMPRESAS: {

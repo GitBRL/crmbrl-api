@@ -3,7 +3,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { executarComoAtor } from '../comum/contexto/contexto-requisicao';
 import { formatarValor, lerValor } from '../comum/dominio/dinheiro';
-import { areaDoPapel } from '../comum/dominio/papeis';
+import { ehLiderDoSetor } from '../comum/dominio/papeis';
 import {
   ConflitoException,
   DadosInvalidosException,
@@ -17,6 +17,7 @@ import {
   paraSkipTake,
 } from '../comum/paginacao/paginacao';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import {
   type Contrato,
   type PeriodicidadeContrato,
@@ -49,6 +50,7 @@ import {
   type ResumoDasParcelas,
 } from './financeiro.mapas';
 import {
+  ehCsDaCarteira,
   ehGestorFinanceiro,
   filtroDeContratosVisiveis,
   podeAtuarNoFinanceiro,
@@ -112,9 +114,7 @@ export class ContratosService {
       this.prisma.contrato.count({ where }),
     ]);
     return montarPagina(
-      itens.map((c) =>
-        contratoParaDto(c, podeAtuarNoFinanceiro(usuario.papel)),
-      ),
+      itens.map((c) => contratoParaDto(c, podeAtuarNoFinanceiro(usuario))),
       total,
       f,
     );
@@ -125,7 +125,7 @@ export class ContratosService {
     id: string,
   ): Promise<ContratoDto> {
     const c = await this.obterVisivel(usuario, id);
-    const dto = contratoParaDto(c, podeAtuarNoFinanceiro(usuario.papel));
+    const dto = contratoParaDto(c, podeAtuarNoFinanceiro(usuario));
     dto.resumoParcelas = await this.resumoDasParcelas(id);
     return dto;
   }
@@ -186,7 +186,10 @@ export class ContratosService {
     };
   }
 
-  /** R22.6 — dados para pré-preencher o contrato de um negócio ganho. */
+  /**
+   * R22.6 — dados para pré-preencher o contrato de um negócio ganho (só de funil
+   * que a pessoa vê: senão 404).
+   */
   async sugestaoDoNegocio(usuario: UsuarioAutenticado, negocioId: string) {
     this.exigirAtuacao(usuario);
     const negocio = await this.prisma.negocio.findFirst({
@@ -211,15 +214,18 @@ export class ContratosService {
         valor: formatarValor(negocio.valorRecorrente ?? negocio.valor),
         periodicidade: negocio.valorRecorrente ? 'MENSAL' : 'UNICO',
         inicioEm: hojeLocal(),
-        responsavelCsId: usuario.papel === 'CS' ? usuario.id : null,
+        responsavelCsId: ehCsDaCarteira(usuario) ? usuario.id : null,
       },
     };
   }
 
-  /** Negócios ganhos, visíveis ao usuário, que ainda não têm contrato (R22.6). */
+  /**
+   * Negócios ganhos, visíveis ao usuário, que ainda não têm contrato (R22.6): só
+   * de funis que ele vê (R5.9) — e, para o membro de CS, os da carteira.
+   */
   async negociosSemContrato(usuario: UsuarioAutenticado, limite = 50) {
     this.exigirAtuacao(usuario);
-    const visiveis: Prisma.NegocioWhereInput = ehGestorFinanceiro(usuario.papel)
+    const visiveis: Prisma.NegocioWhereInput = ehGestorFinanceiro(usuario)
       ? {}
       : {
           OR: [
@@ -227,11 +233,16 @@ export class ContratosService {
             { contato: { responsavelId: usuario.id } },
           ],
         };
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const dosFunisQueVe: Prisma.NegocioWhereInput = acesso.todos
+      ? {}
+      : { funilId: { in: acesso.idsVisiveis() } };
     const negocios = await this.prisma.negocio.findMany({
       where: {
         AND: [
           { status: 'GANHO', excluidoEm: null, contratos: { none: {} } },
           visiveis,
+          dosFunisQueVe,
         ],
       },
       include: {
@@ -252,26 +263,29 @@ export class ContratosService {
     }));
   }
 
+  /**
+   * O negócio de origem de um contrato (sugestão e criação, R22.6): só de funil
+   * que a pessoa vê (R5.9); dentro dele, o gestor do Financeiro vê todos e o
+   * membro de CS, os da carteira.
+   */
   private async negocioVisivel(
     usuario: UsuarioAutenticado,
     negocio: {
+      funilId: string;
       responsavelId: string | null;
       contatoId: string;
       funil: { area: string };
     },
   ): Promise<boolean> {
     if (
-      ehGestorFinanceiro(usuario.papel) ||
-      negocio.responsavelId === usuario.id
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerFunil(
+        negocio.funilId,
+      )
     )
+      return false;
+    if (ehGestorFinanceiro(usuario) || negocio.responsavelId === usuario.id)
       return true;
-    const area = areaDoPapel(usuario.papel);
-    if (
-      area &&
-      area === negocio.funil.area &&
-      usuario.papel.startsWith('LIDER')
-    )
-      return true;
+    if (ehLiderDoSetor(usuario, negocio.funil.area)) return true;
     const contato = await this.prisma.contato.findUnique({
       where: { id: negocio.contatoId },
       select: { responsavelId: true },
@@ -333,7 +347,7 @@ export class ContratosService {
         );
       }
       await this.conferirCliente(tx, empresaId, contatoId);
-      if (usuario.papel === 'CS') {
+      if (ehCsDaCarteira(usuario)) {
         responsavelCsId = usuario.id;
       }
       if (responsavelCsId) await this.conferirResponsavel(tx, responsavelCsId);
@@ -581,7 +595,7 @@ export class ContratosService {
         dto.responsavelCsId !== undefined &&
         dto.responsavelCsId !== atual.responsavelCsId
       ) {
-        if (usuario.papel === 'CS') {
+        if (ehCsDaCarteira(usuario)) {
           throw new SemPermissaoException(
             'Só a gestão troca o responsável de CS.',
             { regra: 'R22.1' },
@@ -672,7 +686,7 @@ export class ContratosService {
       }
       const voltando =
         atual.status === 'CANCELADO' || atual.status === 'ENCERRADO';
-      if (voltando && !ehGestorFinanceiro(usuario.papel)) {
+      if (voltando && !ehGestorFinanceiro(usuario)) {
         throw new SemPermissaoException(
           'Só a gestão reativa um contrato cancelado ou encerrado.',
           { regra: 'R22.1' },

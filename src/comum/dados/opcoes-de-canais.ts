@@ -1,5 +1,6 @@
-import type { Area, TipoCanal } from '../../generated/prisma/client';
+import type { TipoCanal } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { Area } from '../dominio/setores';
 
 /**
  * Listas enxutas de canais e filas para os seletores de Disparos, Chatbot e
@@ -55,7 +56,7 @@ export async function listarFilasDeOpcao(
 ): Promise<FilaDeOpcao[]> {
   const filas = await prisma.filaAtendimento.findMany({
     where: { excluidoEm: null },
-    orderBy: [{ area: 'asc' }, { nome: 'asc' }],
+    orderBy: [{ setor: { ordem: 'asc' } }, { nome: 'asc' }],
   });
   return filas.map((f) => ({
     id: f.id,

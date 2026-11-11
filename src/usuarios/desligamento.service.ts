@@ -4,9 +4,10 @@ import { SessoesService } from '../auth/sessoes.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import {
-  areaDoPapel,
   liderEsperado,
   nivelDoPapel,
+  papelTemSetor,
+  rotuloDoLiderEsperado,
   rotuloDoPapel,
 } from '../comum/dominio/papeis';
 import {
@@ -27,22 +28,29 @@ import {
   type UsuarioDaHierarquia,
 } from './dominio/destinatario';
 import {
+  dividirNegocios,
+  type ParteDosNegocios,
+} from './dominio/divisao-de-negocios';
+import { acessosDoFunil, podeSerResponsavel } from '../funis/acessos-no-banco';
+import {
   alertaDeEquipeSemLider,
   type ContagensDeEncaminhamento,
   descreverItens,
   notificacaoDeItensRecebidos,
   quantidade,
 } from './dominio/encaminhamento';
-import type {
-  DesligarUsuarioDto,
-  PreviaDesligamentoDto,
-  ReativarUsuarioDto,
-  ResultadoDesligamentoDto,
+import {
+  type DesligarUsuarioDto,
+  ParteDosNegociosDto,
+  type PreviaDesligamentoDto,
+  type ReativarUsuarioDto,
+  type ResultadoDesligamentoDto,
 } from './dto/desligamento.dto';
 import { INCLUIR_LIDER, UsuarioDto, UsuarioResumoDto } from './dto/usuario.dto';
 import {
   exigirLiderValido,
   exigirOutroAdminAtivo,
+  exigirSetorDoPapel,
   travarHierarquia,
 } from './hierarquia-no-banco';
 import { repetirEmConflito } from './repeticao';
@@ -67,6 +75,36 @@ interface PlanoDeDesligamento {
   >;
   readonly liderados: readonly UsuarioDoDesligamento[];
   readonly contagens: ContagensDeEncaminhamento;
+  /**
+   * Para quem vai cada negócio aberto (ajuste da R7.3, R5.13); vazia enquanto
+   * o destinatário não está definido.
+   */
+  readonly divisao: readonly ParteDosNegocios<UsuarioDoDesligamento>[];
+  /** O Admin que executa e todos os usuários (para dividir o que chegar depois). */
+  readonly executor: UsuarioDoDesligamento;
+  readonly usuarios: readonly UsuarioDoDesligamento[];
+}
+
+/** Junta as partes da mesma pessoa (a divisão e a varredura final). */
+function juntarPartes(
+  partes: readonly ParteDosNegocios<UsuarioDoDesligamento>[],
+): ParteDosNegocios<UsuarioDoDesligamento>[] {
+  const juntas = new Map<string, ParteDosNegocios<UsuarioDoDesligamento>>();
+  for (const parte of partes) {
+    const anterior = juntas.get(parte.destinatario.id);
+    if (!anterior) {
+      juntas.set(parte.destinatario.id, parte);
+      continue;
+    }
+    const funis = new Map(anterior.funis.map((funil) => [funil.id, funil]));
+    for (const funil of parte.funis) funis.set(funil.id, funil);
+    juntas.set(parte.destinatario.id, {
+      ...anterior,
+      negocioIds: [...anterior.negocioIds, ...parte.negocioIds],
+      funis: [...funis.values()],
+    });
+  }
+  return [...juntas.values()];
 }
 
 /**
@@ -118,6 +156,9 @@ export class DesligamentoService {
         UsuarioResumoDto.de(ignorado),
       ),
       contagens: { ...plano.contagens },
+      divisaoDosNegocios: plano.divisao.map((parte) =>
+        ParteDosNegociosDto.de(parte),
+      ),
       liderados: plano.liderados.map((liderado) =>
         UsuarioResumoDto.de(liderado),
       ),
@@ -152,7 +193,7 @@ export class DesligamentoService {
             },
           );
         }
-        return this.executar(tx, plano.usuario, plano.escolha);
+        return this.executar(tx, plano, plano.escolha);
       }),
     );
     const usuario = await this.prisma.usuario.findUniqueOrThrow({
@@ -164,6 +205,9 @@ export class DesligamentoService {
       destinatario: UsuarioResumoDto.de(resultado.destinatario),
       motivoDestinatario: resultado.motivo,
       contagens: resultado.contagens,
+      divisaoDosNegocios: resultado.divisao.map((parte) =>
+        ParteDosNegociosDto.de(parte),
+      ),
     };
   }
 
@@ -188,23 +232,33 @@ export class DesligamentoService {
         });
       }
       const papel = dto.papel ?? antes.papel;
-      const esperado = liderEsperado(papel);
+      // Volta a um setor ativo (R1.9): o de antes ou o pedido.
+      const area = await exigirSetorDoPapel(
+        tx,
+        papel,
+        papelTemSetor(papel)
+          ? dto.area !== undefined
+            ? dto.area
+            : antes.area
+          : null,
+      );
+      const esperado = liderEsperado({ papel, area });
       if (esperado && !dto.liderId) {
         throw new RegraVioladaException(
           'R7.5',
-          `Para reativar ${antes.nome} como ${rotuloDoPapel(papel)}, defina um líder válido: um ${rotuloDoPapel(esperado)} ativo.`,
-          { papel, liderEsperado: esperado },
+          `Para reativar ${antes.nome} como ${rotuloDoPapel(papel, area)}, defina um líder válido: um ${rotuloDoLiderEsperado(esperado)} ativo.`,
+          { papel, area, liderEsperado: esperado },
         );
       }
       const liderId = await exigirLiderValido(
         tx,
-        papel,
+        { papel, area },
         dto.liderId ?? null,
         antes.id,
       );
       const depois = await tx.usuario.update({
         where: { id },
-        data: { ativo: true, desligadoEm: null, papel, liderId },
+        data: { ativo: true, desligadoEm: null, papel, area, liderId },
         include: INCLUIR_LIDER,
       });
       // De volta à regra padrão dos rodízios (o desligamento o tirou de todos).
@@ -217,13 +271,14 @@ export class DesligamentoService {
         entidade: 'usuario',
         entidadeId: id,
         resumo:
-          `Reativação de ${depois.nome} como ${rotuloDoPapel(depois.papel)}` +
+          `Reativação de ${depois.nome} como ${rotuloDoPapel(depois.papel, depois.area)}` +
           (depois.lider ? `, respondendo a ${depois.lider.nome}` : ''),
         dados: {
           alteracoes: calcularAlteracoes(antes, depois, [
             'ativo',
             'desligadoEm',
             'papel',
+            'area',
             'liderId',
           ]),
           desligadoDesde: antes.desligadoEm,
@@ -253,6 +308,7 @@ export class DesligamentoService {
         nome: true,
         email: true,
         papel: true,
+        area: true,
         ativo: true,
         liderId: true,
         desligadoEm: true,
@@ -333,10 +389,23 @@ export class DesligamentoService {
         }),
         db.passagem.count({ where: { responsavelFixoId: id } }),
       ]);
+    const divisao =
+      escolha.tipo === 'definido' && negocios > 0
+        ? await this.dividirNegocios(
+            db,
+            usuario,
+            escolha.destinatario,
+            executor,
+            usuarios,
+          )
+        : [];
     return {
       usuario,
       escolha,
       liderados,
+      divisao,
+      executor,
+      usuarios,
       contagens: {
         atividades,
         negocios,
@@ -348,10 +417,51 @@ export class DesligamentoService {
     };
   }
 
+  /**
+   * Ajuste da R7.3 (R5.13): cada negócio aberto vai para o destinatário se ele
+   * pode ser responsável naquele funil; senão, para o líder ativo do setor dono
+   * do funil, um C-level ativo ou, no fim, o Admin que executa.
+   */
+  private async dividirNegocios(
+    db: Tx,
+    usuario: UsuarioDoDesligamento,
+    destinatario: UsuarioDoDesligamento,
+    executor: UsuarioDoDesligamento,
+    usuarios: readonly UsuarioDoDesligamento[],
+  ): Promise<ParteDosNegocios<UsuarioDoDesligamento>[]> {
+    const negocios = await db.negocio.findMany({
+      where: { responsavelId: usuario.id, status: 'ABERTO', excluidoEm: null },
+      select: {
+        id: true,
+        funil: {
+          select: { id: true, nome: true, area: true, visibilidade: true },
+        },
+      },
+      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+    });
+    const atua = new Map<string, boolean>();
+    for (const { funil } of negocios) {
+      if (!atua.has(funil.id)) {
+        atua.set(
+          funil.id,
+          podeSerResponsavel(await acessosDoFunil(db, funil), destinatario),
+        );
+      }
+    }
+    return dividirNegocios({
+      negocios,
+      destinatario,
+      desligadoId: usuario.id,
+      executor,
+      usuarios,
+      destinatarioAtua: (funil) => atua.get(funil.id) ?? false,
+    });
+  }
+
   /** Aplica o desligamento dentro da transação `tx`. */
   private async executar(
     tx: Tx,
-    usuario: UsuarioDoDesligamento,
+    plano: PlanoDeDesligamento,
     escolha: Extract<
       ResultadoDestinatario<UsuarioDoDesligamento>,
       { tipo: 'definido' }
@@ -360,7 +470,9 @@ export class DesligamentoService {
     destinatario: UsuarioDoDesligamento;
     motivo: MotivoDestinatario;
     contagens: ContagensDoDesligamento;
+    divisao: readonly ParteDosNegocios<UsuarioDoDesligamento>[];
   }> {
+    const { usuario } = plano;
     const { destinatario, motivo } = escolha;
     const agora = new Date();
     const de = { id: usuario.id, nome: usuario.nome };
@@ -414,11 +526,50 @@ export class DesligamentoService {
         negocioId: true,
       },
     });
-    const negocios = await tx.negocio.updateManyAndReturn({
-      where: { responsavelId: usuario.id, status: 'ABERTO', excluidoEm: null },
-      data: { responsavelId: destinatario.id },
-      select: { id: true, titulo: true, contatoId: true, empresaId: true },
-    });
+    // Negócios abertos: cada parte para quem pode ser responsável no funil (ajuste da R7.3, R5.13).
+    const negocios: {
+      id: string;
+      titulo: string;
+      contatoId: string;
+      empresaId: string | null;
+      para: UsuarioDoDesligamento;
+      motivo: ParteDosNegocios<UsuarioDoDesligamento>['motivo'];
+    }[] = [];
+    const mover = async (
+      partes: readonly ParteDosNegocios<UsuarioDoDesligamento>[],
+    ): Promise<void> => {
+      for (const parte of partes) {
+        const movidos = await tx.negocio.updateManyAndReturn({
+          where: {
+            id: { in: [...parte.negocioIds] },
+            responsavelId: usuario.id,
+            status: 'ABERTO',
+            excluidoEm: null,
+          },
+          data: { responsavelId: parte.destinatario.id },
+          select: { id: true, titulo: true, contatoId: true, empresaId: true },
+        });
+        negocios.push(
+          ...movidos.map((negocio) => ({
+            ...negocio,
+            para: parte.destinatario,
+            motivo: parte.motivo,
+          })),
+        );
+      }
+    };
+    await mover(plano.divisao);
+    // O que tiver chegado depois da divisão (outra transação) segue a mesma
+    // regra (R5.13): uma segunda divisão, só com os que restaram.
+    const tardios = await this.dividirNegocios(
+      tx,
+      usuario,
+      destinatario,
+      plano.executor,
+      plano.usuarios,
+    );
+    await mover(tardios);
+    const divisao = juntarPartes([...plano.divisao, ...tardios]);
     const contatos = await tx.contato.updateManyAndReturn({
       where: { responsavelId: usuario.id, excluidoEm: null },
       data: { responsavelId: destinatario.id },
@@ -480,15 +631,22 @@ export class DesligamentoService {
       });
     }
     for (const negocio of negocios) {
+      const desviado = negocio.para.id !== destinatario.id;
       await this.auditoria.registrar(tx, {
         acao: 'negocio.encaminhado',
         entidade: 'negocio',
         entidadeId: negocio.id,
-        resumo: `Negócio "${negocio.titulo}" encaminhado ${sufixo}`,
+        resumo: desviado
+          ? `Negócio "${negocio.titulo}" encaminhado de ${usuario.nome} para ${negocio.para.nome} (desligamento; ${destinatario.nome} não atua no funil)`
+          : `Negócio "${negocio.titulo}" encaminhado ${sufixo}`,
         dados: {
           ...detalhe,
+          para: { id: negocio.para.id, nome: negocio.para.nome },
+          ...(desviado
+            ? { motivoDaParte: negocio.motivo, regra: 'R5.13' }
+            : {}),
           alteracoes: {
-            responsavelId: { antes: usuario.id, depois: destinatario.id },
+            responsavelId: { antes: usuario.id, depois: negocio.para.id },
           },
         },
         relacionados: {
@@ -560,10 +718,13 @@ export class DesligamentoService {
       });
     }
 
-    // R7.4: o destinatário é notificado.
+    // R7.4: o destinatário é notificado (com os negócios que ficaram com ele).
+    const negociosDoDestinatario = negocios.filter(
+      ({ para }) => para.id === destinatario.id,
+    ).length;
     const aviso = notificacaoDeItensRecebidos(
       usuario.nome,
-      contagens,
+      { ...contagens, negocios: negociosDoDestinatario },
       liderados.map(({ nome }) => nome),
     );
     if (aviso) {
@@ -575,8 +736,38 @@ export class DesligamentoService {
         dados: { desligadoId: usuario.id, contagens },
       });
     }
+    // Quem recebeu negócios de funis em que o destinatário não atua também é avisado.
+    for (const parte of divisao) {
+      const recebidos = negocios.filter(
+        ({ para }) => para.id === parte.destinatario.id,
+      ).length;
+      if (parte.destinatario.id === destinatario.id || recebidos === 0) {
+        continue;
+      }
+      const avisoDaParte = notificacaoDeItensRecebidos(usuario.nome, {
+        atividades: 0,
+        negocios: recebidos,
+        contatos: 0,
+        empresas: 0,
+        liderados: 0,
+        responsavelFixo: 0,
+      });
+      if (avisoDaParte) {
+        await this.notificacoes.notificar(tx, parte.destinatario.id, {
+          tipo: TIPOS_NOTIFICACAO.ITENS_ENCAMINHADOS,
+          titulo: avisoDaParte.titulo,
+          texto: avisoDaParte.texto,
+          link: '/funis',
+          dados: {
+            desligadoId: usuario.id,
+            contagens: { negocios: recebidos },
+            regra: 'R5.13',
+          },
+        });
+      }
+    }
     // R7.3: líder desligado → os Admins recebem "equipe sem líder".
-    const area = areaDoPapel(usuario.papel);
+    const area = papelTemSetor(usuario.papel) ? usuario.area : null;
     if (nivelDoPapel(usuario.papel) === 'LIDER' && area) {
       const alerta = alertaDeEquipeSemLider(
         { nome: usuario.nome, papel: usuario.papel, area },
@@ -604,7 +795,7 @@ export class DesligamentoService {
       entidade: 'usuario',
       entidadeId: usuario.id,
       resumo:
-        `Desligamento de ${usuario.nome} (${rotuloDoPapel(usuario.papel)})` +
+        `Desligamento de ${usuario.nome} (${rotuloDoPapel(usuario.papel, usuario.area)})` +
         (itens ? ` — para ${destinatario.nome}: ${itens}` : '') +
         (liderados.length > 0
           ? `; ${quantidade(liderados.length, 'liderado passou', 'liderados passaram')} a responder a ${destinatario.nome}`
@@ -612,7 +803,11 @@ export class DesligamentoService {
       dados: {
         papel: usuario.papel,
         area,
-        destinatario: { ...para, papel: destinatario.papel },
+        destinatario: {
+          ...para,
+          papel: destinatario.papel,
+          area: destinatario.area,
+        },
         motivoDestinatario: motivo,
         lideresIgnorados: escolha.ignorados.map(({ id, nome }) => ({
           id,
@@ -624,6 +819,11 @@ export class DesligamentoService {
           rodizios,
         },
         liderados: liderados.map(({ id }) => id),
+        divisaoDosNegocios: divisao.map((parte) => ({
+          para: { id: parte.destinatario.id, nome: parte.destinatario.nome },
+          motivo: parte.motivo,
+          negocios: parte.negocioIds.length,
+        })),
       },
       relacionados: { usuario: destinatario.id },
     });
@@ -642,13 +842,14 @@ export class DesligamentoService {
         nome: destinatario.nome,
         email: destinatario.email,
         papel: destinatario.papel,
+        area: destinatario.area,
       },
       motivoDestinatario: motivo,
       desligadoEm: agora,
       contagens,
     });
 
-    return { destinatario, motivo, contagens };
+    return { destinatario, motivo, contagens, divisao };
   }
 
   /**

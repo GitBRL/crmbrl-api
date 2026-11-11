@@ -21,6 +21,8 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { UsuarioAtual } from '../../auth/decorators';
+import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
 import { ApiRespostasDeErro } from '../erros/documentacao-erros';
 import { analisarModelo } from './modelos';
 import { ModelosService } from './modelos.service';
@@ -113,8 +115,13 @@ export class ModelosController {
   @ApiOkResponse({ type: PreviaDeModeloRespostaDto })
   @ApiRespostasDeErro(400, 404)
   async previa(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
     @Body() dto: PreviaDeModeloDto,
   ): Promise<PreviaDeModeloRespostaDto> {
+    if (dto.negocioId) {
+      // R5.9: a prévia não mostra dados de negócio de funil que a pessoa não vê (404).
+      await this.modelos.exigirNegocioVisivel(usuario, dto.negocioId);
+    }
     const { texto, erros } = await this.modelos.renderizarPara(
       dto.texto,
       {

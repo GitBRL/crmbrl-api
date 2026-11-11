@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -33,6 +34,7 @@ import {
   ReordenarEtapasDto,
 } from './dto/funis.dto';
 import { FiltroMetricasDto, MetricasDoFunilDto } from './dto/metricas.dto';
+import { AcessosDoFunilDto, SubstituirAcessosDto } from './dto/acessos.dto';
 import { FiltroQuadroDto, QuadroDto } from './dto/quadro.dto';
 import { FunisService } from './funis.service';
 import { MetricasService } from './metricas.service';
@@ -54,7 +56,7 @@ export class FunisController {
   @ApiOperation({
     summary: 'Lista os funis que o usuário vê, com as etapas em ordem',
     description:
-      'Admin e C-level veem todos; as demais pessoas, os da sua área (R5.9). Arquivados só com `incluirArquivados`.',
+      'Admin e C-level veem todos; as demais pessoas, os do seu setor que a visibilidade deixa (R5.9: no `RESTRITA`, só os líderes) e os de outros setores por acesso (R5.11). Cada funil vem com `area`, `nomeSetor`, `visibilidade` e o `nivel` de quem consulta (`CONFIGURAR`, `GESTOR`, `MEMBRO`, `VER`, R5.12). Arquivados só com `incluirArquivados`.',
   })
   @ApiOkResponse({ type: [FunilDto] })
   @ApiRespostasDeErro(400)
@@ -93,7 +95,10 @@ export class FunisController {
 
   @Patch(':id')
   @ApiOperation({
-    summary: 'Renomeia, reordena, arquiva ou reativa um funil (R5.1)',
+    summary:
+      'Renomeia, reordena, arquiva, reativa ou muda a visibilidade de um funil (R5.1, R5.9)',
+    description:
+      'Só quem configura o funil: o líder do setor dono, o C-level e o Admin (acessos extras não configuram).',
   })
   @ApiOkResponse({ type: FunilDto })
   @ApiRespostasDeErro(400, 403, 404, 409, 422)
@@ -103,6 +108,37 @@ export class FunisController {
     @Body() dto: AtualizarFunilDto,
   ): Promise<FunilDto> {
     return this.funis.atualizar(usuario, id, dto);
+  }
+
+  @Get(':id/acessos')
+  @ApiOperation({
+    summary: 'Lista os acessos extras do funil (R5.11)',
+    description:
+      'Só quem configura o funil (líder do setor dono, C-level, Admin): 403 para quem só vê; 404 para quem não vê.',
+  })
+  @ApiOkResponse({ type: AcessosDoFunilDto })
+  @ApiRespostasDeErro(400, 403, 404)
+  listarAcessos(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<AcessosDoFunilDto> {
+    return this.funis.listarAcessos(usuario, id);
+  }
+
+  @Put(':id/acessos')
+  @ApiOperation({
+    summary: 'Troca a lista de acessos extras do funil (R5.11)',
+    description:
+      'A lista enviada substitui a atual (vazia remove todos). Cada linha: `area` (um setor inteiro) **ou** `usuarioId` (uma pessoa) e o `nivel` (`VER`, `MEMBRO`, `GESTOR`). Linha sem alvo, com os dois ou repetida → 400; setor ou pessoa inexistente, setor dono como alvo, setor desativado ou pessoa desligada novos na lista → 422 (`R5.11`). Auditado (`funil.acessos_alterados`).',
+  })
+  @ApiOkResponse({ type: AcessosDoFunilDto })
+  @ApiRespostasDeErro(400, 403, 404, 422)
+  substituirAcessos(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+    @Body() dto: SubstituirAcessosDto,
+  ): Promise<AcessosDoFunilDto> {
+    return this.funis.substituirAcessos(usuario, id, dto);
   }
 
   @Delete(':id')

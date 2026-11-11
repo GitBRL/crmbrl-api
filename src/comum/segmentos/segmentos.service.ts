@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
-import type { Area, Prisma } from '../../generated/prisma/client';
-import { areaDoPapel, ehDiretoria } from '../dominio/papeis';
+import type { Prisma } from '../../generated/prisma/client';
+import { ehDiretoria } from '../dominio/papeis';
+import { funisAcessiveis } from '../../funis/acessos-no-banco';
 import { DadosInvalidosException } from '../erros/excecoes';
 import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import {
@@ -50,30 +51,42 @@ export class SegmentosService {
    */
   async validarParaUsuario(
     entrada: unknown,
-    usuario: Pick<UsuarioAutenticado, 'papel'>,
+    usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
   ): Promise<Segmento> {
     const segmento = validarSegmento(entrada);
     if (ehDiretoria(usuario.papel)) {
       return segmento;
     }
-    const area = areaDoPapel(usuario.papel);
     const filtros: FiltroDeNegocio[] = [];
     coletarFiltrosDeNegocio(segmento.condicoes, filtros);
+    if (filtros.length === 0) {
+      return segmento;
+    }
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const visiveis = await this.prisma.funil.findMany({
+      where: { id: { in: acesso.idsVisiveis() }, excluidoEm: null },
+      select: { id: true, area: true },
+    });
+    const idsVisiveis = new Set(visiveis.map(({ id }) => id));
+    const areasVisiveis = new Set([
+      ...visiveis.map(({ area }) => area),
+      ...(usuario.area ? [usuario.area] : []),
+    ]);
     for (const filtro of filtros) {
-      const funilIds = new Set<string>(filtro.funilId ? [filtro.funilId] : []);
-      let proibido = filtro.area !== undefined && filtro.area !== area;
-      if (funilIds.size > 0 || filtro.etapaIds?.length) {
+      let proibido =
+        filtro.area !== undefined && !areasVisiveis.has(filtro.area);
+      if (filtro.funilId || filtro.etapaIds?.length) {
         const funis = await this.prisma.funil.findMany({
           where: {
             excluidoEm: null,
             OR: [
-              { id: { in: [...funilIds] } },
+              { id: { in: filtro.funilId ? [filtro.funilId] : [] } },
               { etapas: { some: { id: { in: filtro.etapaIds ?? [] } } } },
             ],
           },
-          select: { area: true },
+          select: { id: true },
         });
-        proibido = proibido || funis.some((f) => f.area !== area);
+        proibido = proibido || funis.some(({ id }) => !idsVisiveis.has(id));
       }
       if (proibido) {
         throw new DadosInvalidosException(
@@ -95,12 +108,40 @@ export class SegmentosService {
     return segmento;
   }
 
-  /** Opções para contar/listar contatos de um segmento montado por uma pessoa. */
-  opcoesDoUsuario(usuario: Pick<UsuarioAutenticado, 'papel'>): {
-    areaDosNegocios?: Area;
-  } {
-    const area = areaDoPapel(usuario.papel);
-    return ehDiretoria(usuario.papel) || !area ? {} : { areaDosNegocios: area };
+  /**
+   * Opções para contar/listar contatos de um segmento montado por uma pessoa:
+   * as condições de negócio olham só os funis que ela vê (R5.9, R5.11).
+   */
+  async opcoesDoUsuario(
+    usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
+  ): Promise<{ funisDosNegocios?: string[] }> {
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    return acesso.todos ? {} : { funisDosNegocios: acesso.idsVisiveis() };
+  }
+
+  /**
+   * Opções do público de uma campanha ou automação (R5.14): as condições de
+   * negócio contam os funis que **quem a criou** vê agora (o acesso atual dele,
+   * na hora da prévia, da revisão, do envio ou da execução). Desligado — ou sem
+   * autor conhecido —, nenhum negócio de funil `RESTRITA` conta.
+   */
+  async opcoesDoAutor(
+    autorId: string | null,
+  ): Promise<{ funisDosNegocios?: string[] }> {
+    const autor = autorId
+      ? await this.prisma.usuario.findUnique({
+          where: { id: autorId },
+          select: { id: true, papel: true, area: true, ativo: true },
+        })
+      : null;
+    if (autor?.ativo) {
+      return this.opcoesDoUsuario(autor);
+    }
+    const abertos = await this.prisma.funil.findMany({
+      where: { visibilidade: 'SETOR' },
+      select: { id: true },
+    });
+    return { funisDosNegocios: abertos.map(({ id }) => id) };
   }
 
   where(

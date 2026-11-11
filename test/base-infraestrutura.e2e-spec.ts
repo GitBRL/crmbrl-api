@@ -209,7 +209,7 @@ describe('Base — infraestrutura (e2e)', () => {
         userAgent: 'navegador-de-teste',
         tipoAtor: 'USUARIO',
         atorDescricao: 'Carla CS',
-        usuario: { id: usuario.id, papel: 'CS', nome: 'Carla CS' },
+        usuario: { id: usuario.id, papel: 'MEMBRO', nome: 'Carla CS' },
       });
     });
   });
@@ -602,7 +602,7 @@ describe('Base — infraestrutura (e2e)', () => {
         },
       ]);
       const regras = await t.prisma.regraDistribuicao.findMany({
-        orderBy: { area: 'asc' },
+        orderBy: { setor: { ordem: 'asc' } },
       });
       expect(
         regras.map(({ area, incluirLideres }) => [area, incluirLideres]),

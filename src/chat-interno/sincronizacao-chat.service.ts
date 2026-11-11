@@ -13,15 +13,27 @@ import { FilaService } from '../fila/fila.service';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
+import { chavesDosSetoresAtivos } from '../setores/setores-no-banco';
 import { PublicacaoChatService } from './publicacao-chat.service';
 import {
   areasDoChat,
-  CANAIS_DO_SISTEMA,
   CHAVE_DO_GERAL,
-  canaisAutomaticosPorPapel,
+  canaisDoSistema,
   chaveDaArea,
   marcarMencao,
 } from './regras-chat';
+
+/**
+ * A pessoa `u` é membro automático do canal padrão `c` (R15.1)? Geral: todos;
+ * canal de setor (ativo): as pessoas do setor e o C-level. Nunca nulo (o
+ * `NOT (...)` da saída precisa de um booleano).
+ */
+const PERTENCE_AO_CANAL_PADRAO = Prisma.sql`(
+  c.tipo = 'GERAL'
+  OR (c.tipo = 'AREA'
+      AND (u.papel = 'C_LEVEL' OR COALESCE(u.area = c.area, false))
+      AND EXISTS (SELECT 1 FROM setores s WHERE s.chave = c.area AND s.ativo))
+)`;
 
 /** Fila do job que confere os membros automáticos (R15.1). */
 export const FILA_SINCRONIZAR_CHAT = 'chat-interno.sincronizar';
@@ -54,12 +66,13 @@ interface SaidaDeGrupo extends MudancaDeMembro {
 
 /**
  * Canais padrão e membros automáticos (R15.1): o "Geral" (todos os usuários
- * ativos) e um canal por área (as pessoas da área e o C-level), criados e
- * mantidos pelo sistema.
+ * ativos) e um canal por setor ativo (as pessoas do setor e o C-level),
+ * criados e mantidos pelo sistema.
  *
  * O módulo de usuários não publica eventos de criação nem de mudança de papel
  * (só `usuario.desligado`), então a sincronização é feita por um SQL
- * idempotente, que compara os membros automáticos com os papéis atuais:
+ * idempotente, que compara os membros automáticos com os papéis e setores
+ * atuais:
  *
  * - na subida da API (com `PROCESSAR_FILAS=true`) e a cada minuto (job
  *   `chat-interno.sincronizar`);
@@ -139,11 +152,6 @@ export class SincronizacaoChatService
     return this.prisma.$transaction(async (tx) => {
       await travarChave(tx, 'chat-interno', 'sincronizacao');
       await this.garantirCanaisDoSistema(tx);
-      const automaticos = Prisma.join(
-        canaisAutomaticosPorPapel().map(
-          ([papel, chave]) => Prisma.sql`(${papel}::papel, ${chave}::text)`,
-        ),
-      );
       const ids = opcoes.usuarioIds ? [...new Set(opcoes.usuarioIds)] : null;
       const soDosUsuarios = (coluna: string) =>
         ids
@@ -154,9 +162,10 @@ export class SincronizacaoChatService
         INSERT INTO chat_membros (id, canal_id, usuario_id, automatico, criado_em, atualizado_em)
         SELECT gen_random_uuid(), c.id, u.id, true, now(), now()
           FROM usuarios u
-          JOIN (VALUES ${automaticos}) AS automaticos(papel, chave)
-            ON automaticos.papel = u.papel
-          JOIN chat_canais c ON c.chave = automaticos.chave
+          JOIN chat_canais c
+            ON c.chave IS NOT NULL
+           AND c.tipo IN ('GERAL', 'AREA')
+           AND ${PERTENCE_AO_CANAL_PADRAO}
          WHERE u.ativo ${soDosUsuarios('u.id')}
         ON CONFLICT (canal_id, usuario_id) DO NOTHING
         RETURNING canal_id AS "canalId", usuario_id AS "usuarioId"`;
@@ -169,7 +178,7 @@ export class SincronizacaoChatService
            AND c.tipo IN ('GERAL', 'AREA')
            AND c.chave IS NOT NULL
            ${soDosUsuarios('mb.usuario_id')}
-           AND NOT (u.ativo AND (u.papel, c.chave) IN (VALUES ${automaticos}))
+           AND NOT (u.ativo AND ${PERTENCE_AO_CANAL_PADRAO})
         RETURNING mb.canal_id AS "canalId", mb.usuario_id AS "usuarioId"`;
 
       // Trava os grupos afetados antes de mexer nos membros (na mesma ordem
@@ -233,10 +242,10 @@ export class SincronizacaoChatService
     if (unicos.length === 0) {
       return;
     }
-    const [usuarios, membros] = await Promise.all([
+    const [usuarios, membros, setoresAtivos] = await Promise.all([
       this.prisma.usuario.findMany({
         where: { id: { in: unicos } },
-        select: { id: true, papel: true, ativo: true },
+        select: { id: true, papel: true, area: true, ativo: true },
       }),
       this.prisma.chatMembro.findMany({
         where: {
@@ -245,6 +254,7 @@ export class SincronizacaoChatService
         },
         select: { usuarioId: true, canal: { select: { chave: true } } },
       }),
+      chavesDosSetoresAtivos(this.prisma),
     ]);
     const atuais = new Map<string, Set<string>>();
     for (const membro of membros) {
@@ -256,7 +266,10 @@ export class SincronizacaoChatService
     }
     const divergentes = usuarios.filter((usuario) => {
       const esperadas = usuario.ativo
-        ? [CHAVE_DO_GERAL, ...areasDoChat(usuario.papel).map(chaveDaArea)]
+        ? [
+            CHAVE_DO_GERAL,
+            ...areasDoChat(usuario, setoresAtivos).map(chaveDaArea),
+          ]
         : [];
       const tem = atuais.get(usuario.id) ?? new Set<string>();
       return (
@@ -269,10 +282,15 @@ export class SincronizacaoChatService
     }
   }
 
-  /** Cria o "Geral" e os canais das áreas que ainda não existem. */
+  /** Cria o "Geral" e os canais dos setores ativos que ainda não existem. */
   private async garantirCanaisDoSistema(tx: Tx): Promise<void> {
+    const setores = await tx.setor.findMany({
+      where: { ativo: true },
+      select: { chave: true, nome: true },
+      orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
+    });
     await tx.chatCanal.createMany({
-      data: CANAIS_DO_SISTEMA.map((canal) => ({
+      data: canaisDoSistema(setores).map((canal) => ({
         tipo: canal.tipo,
         chave: canal.chave,
         nome: canal.nome,

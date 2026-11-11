@@ -1,3 +1,4 @@
+import { papelESetor as comPapel } from '../../comum/dominio/papeis-antigos.apoio-spec';
 import {
   alertaDeEquipeSemLider,
   type ContagensDeEncaminhamento,
@@ -77,7 +78,7 @@ describe('textos do encaminhamento (R7.4)', () => {
   it('R7.3 — alerta "equipe sem líder" para o Admin', () => {
     expect(
       alertaDeEquipeSemLider(
-        { nome: 'Pedro', papel: 'LIDER_COMERCIAL', area: 'COMERCIAL' },
+        { nome: 'Pedro', ...comPapel('LIDER_COMERCIAL'), area: 'COMERCIAL' },
         'Carla',
         3,
       ),
@@ -88,12 +89,12 @@ describe('textos do encaminhamento (R7.4)', () => {
     });
     expect(
       alertaDeEquipeSemLider(
-        { nome: 'Léo', papel: 'LIDER_CS', area: 'CS' },
+        { nome: 'Léo', ...comPapel('LIDER_CS'), area: 'CS' },
         'Carla',
         0,
       ).texto,
     ).toBe(
-      'Com o desligamento de Léo (Líder CS), a equipe de Customer Success ficou sem líder. Defina um novo líder.',
+      'Com o desligamento de Léo (Líder Customer Success), a equipe de Customer Success ficou sem líder. Defina um novo líder.',
     );
   });
 });

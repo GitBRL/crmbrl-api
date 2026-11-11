@@ -147,7 +147,7 @@ describe('Negócios (e2e)', () => {
       const deOutraArea = await comoLider
         .post('/api/v1/negocios', { ...base, responsavelId: marketing.id })
         .expect(422);
-      expect(deOutraArea.body.detalhes.regra).toBe('R5.9');
+      expect(deOutraArea.body.detalhes.regra).toBe('R5.13');
 
       const paraAna = await comoLider
         .post('/api/v1/negocios', {

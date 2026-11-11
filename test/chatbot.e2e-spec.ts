@@ -265,6 +265,103 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       await lider.post(`/api/v1/chatbot/fluxos/${id}/ativar`).expect(422);
     });
 
+    it('R5.12/R5.9 — o passo "Criar negócio" só usa funil e etapa em que quem salva ou publica cria negócios (422)', async () => {
+      const comercial = await funilBase(t, 'COMERCIAL');
+      const cs = await funilBase(t, 'CS');
+      const { body } = await lider
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'Negócios',
+          gatilho: 'NOVA_CONVERSA',
+          canalIds: [cenario.canal.id],
+        })
+        .expect(201);
+      const id = body.id as string;
+      const comNegocio = (config: Record<string, unknown>) => ({
+        definicao: {
+          passos: [
+            {
+              id: 'p',
+              tipo: 'pergunta.opcoes',
+              config: { texto: 'Oi?', opcoes: [{ id: 'x', rotulo: 'X' }] },
+              ramos: [
+                {
+                  id: 'x',
+                  passos: [{ id: 'neg', tipo: 'acao.criar_negocio', config }],
+                },
+              ],
+            },
+          ],
+        },
+      });
+      // Funil de outro setor que o líder não vê (também pela etapa, num ramo).
+      for (const config of [{ funilId: cs.id }, { etapaId: cs.etapas[0].id }]) {
+        const recusado = await lider
+          .put(`/api/v1/chatbot/fluxos/${id}/rascunho`)
+          .send(comNegocio(config))
+          .expect(422);
+        expect(recusado.body.detalhes).toMatchObject({
+          regra: 'R5.9',
+          passos: ['neg'],
+        });
+        expect(JSON.stringify(recusado.body)).not.toContain(cs.nome);
+      }
+      const criadoComCs = await lider
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'Outro',
+          gatilho: 'NOVA_CONVERSA',
+          canalIds: [cenario.canal.id],
+          definicao: comNegocio({ funilId: cs.id }).definicao,
+        })
+        .expect(422);
+      expect(criadoComCs.body.detalhes.regra).toBe('R5.9');
+
+      // Visto só com VER: não cria → 422 R5.12.
+      await admin
+        .put(`/api/v1/funis/${cs.id}/acessos`, {
+          acessos: [{ usuarioId: cenario.comercial.lider.id, nivel: 'VER' }],
+        })
+        .expect(200);
+      const soVer = await lider
+        .put(`/api/v1/chatbot/fluxos/${id}/rascunho`)
+        .send(comNegocio({ funilId: cs.id }))
+        .expect(422);
+      expect(soVer.body.detalhes.regra).toBe('R5.12');
+
+      // O próprio funil: aceito.
+      await lider
+        .put(`/api/v1/chatbot/fluxos/${id}/rascunho`)
+        .send(comNegocio({ funilId: comercial.id }))
+        .expect(200);
+
+      // O Admin salva com o funil de CS; o líder não publica esse rascunho.
+      await admin
+        .put(`/api/v1/chatbot/fluxos/${id}/rascunho`)
+        .send({
+          definicao: {
+            passos: [
+              {
+                id: 'neg',
+                tipo: 'acao.criar_negocio',
+                config: { funilId: cs.id, etapaId: cs.etapas[0].id },
+              },
+              { id: 'fim', tipo: 'encerrar' },
+            ],
+          },
+        })
+        .expect(200);
+      const publicar = await lider
+        .post(`/api/v1/chatbot/fluxos/${id}/publicar`)
+        .send({})
+        .expect(422);
+      expect(publicar.body.detalhes.regra).toBe('R5.12');
+      await admin
+        .post(`/api/v1/chatbot/fluxos/${id}/publicar`)
+        .send({})
+        .expect(200);
+    });
+
     it('R18.1 — palavra-chave exige palavras; canal inexistente é recusado', async () => {
       await lider
         .post('/api/v1/chatbot/fluxos')

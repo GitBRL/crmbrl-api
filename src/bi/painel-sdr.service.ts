@@ -215,7 +215,7 @@ export class PainelSdrService {
     filtro: FiltroResolvido,
   ): Prisma.Sql {
     return Prisma.sql`${sqlConversasVisiveis(usuario)}
-      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}::area` : VERDADEIRO}
+      AND ${filtro.area ? Prisma.sql`f.area = ${filtro.area}` : VERDADEIRO}
       AND ${sqlPessoas(Prisma.sql`c.responsavel_id`, filtro.pessoas)}
       AND ${filtro.canalId ? Prisma.sql`c.canal_id = ${filtro.canalId}::uuid` : VERDADEIRO}
       AND ${filtro.filaId ? Prisma.sql`c.fila_id = ${filtro.filaId}::uuid` : VERDADEIRO}`;

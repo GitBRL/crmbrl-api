@@ -42,7 +42,7 @@ export class AcessoAtendimentoService implements OnModuleInit {
     usuario: UsuarioDoAtendimento,
     conversaId: string,
   ): Promise<boolean> {
-    if (!podeUsarAtendimento(usuario.papel)) {
+    if (!podeUsarAtendimento(usuario)) {
       return false;
     }
     const conversa = await this.prisma.conversa.findUnique({

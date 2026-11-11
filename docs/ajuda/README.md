@@ -23,6 +23,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 
 ## funis
 - [Configurar as etapas de um funil](funis-configurar-etapas.md)
+- [Criar, configurar, arquivar e excluir funis (visibilidade e acessos)](funis-gerenciar-funis.md)
 - [Detalhe do negócio: editar, atividades, perder e reabrir](funis-detalhe-do-negocio.md)
 - [Criar um novo negócio](funis-novo-negocio.md)
 - [Passagens entre funis e rodízio de leads](funis-passagens-e-rodizio.md)

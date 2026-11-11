@@ -10,7 +10,7 @@ import {
   sqlParcelasVisiveis,
 } from './permissoes-financeiro-sql';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 const NENHUM_ID = '00000000-0000-0000-0000-000000000000';
 

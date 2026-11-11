@@ -2,10 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { ArquivosService } from '../../src/arquivos/arquivos.service';
 import { CriptografiaService } from '../../src/comum/criptografia/criptografia.service';
 import { normalizarEmail } from '../../src/comum/dominio/email';
-import { liderDaArea, membroDaArea } from '../../src/comum/dominio/papeis';
 import { normalizarTelefone } from '../../src/comum/dominio/telefone';
 import {
-  type Area,
   type Arquivo,
   type Atividade,
   type Canal,
@@ -24,7 +22,6 @@ import {
   type Mensagem,
   type Negocio,
   type OrigemContato,
-  type Papel,
   Prisma,
   type PrioridadeAtividade,
   type PrioridadeConversa,
@@ -43,6 +40,11 @@ import {
   type WhatsappNumero,
 } from '../../src/generated/prisma/client';
 import type { AppTeste } from './app-teste';
+import {
+  type PapelDeTeste,
+  papelESetor,
+} from '../../src/comum/dominio/papeis-antigos.apoio-spec';
+import type { Area } from '../../src/comum/dominio/setores';
 
 /**
  * Fábricas de dados para os testes. Gravam direto no banco (sem auditoria, sem
@@ -76,8 +78,18 @@ function idDe(
   return typeof valor === 'object' && valor !== null ? valor.id : valor;
 }
 
+export {
+  PAPEIS_ANTIGOS,
+  type PapelAntigo,
+  type PapelDeTeste,
+  papelESetor,
+} from '../../src/comum/dominio/papeis-antigos.apoio-spec';
+
 export interface DadosDeUsuario {
-  papel?: Papel;
+  /** O papel novo (com `area` para LIDER/MEMBRO) ou o atalho dos papéis antigos. */
+  papel?: PapelDeTeste;
+  /** Setor de LIDER/MEMBRO (com o atalho, vem do próprio papel). */
+  area?: Area | null;
   nome?: string;
   email?: string;
   /** `null` = usuário sem senha (convidado). Padrão: `SENHA_DE_TESTE`. */
@@ -106,13 +118,15 @@ export async function criarUsuario(
   dados: DadosDeUsuario = {},
 ): Promise<Usuario> {
   const id = proximo();
-  const papel = dados.papel ?? 'ADMIN';
+  const pedido: PapelDeTeste = dados.papel ?? 'ADMIN';
+  const { papel, area } = papelESetor(pedido, dados.area);
   const senha = dados.senha === undefined ? SENHA_DE_TESTE : dados.senha;
   return t.prisma.usuario.create({
     data: {
-      nome: dados.nome ?? `${papel} ${id}`,
+      nome: dados.nome ?? `${pedido} ${id}`,
       email: normalizarEmail(dados.email ?? `usuario-${id}@teste.local`),
       papel,
+      area,
       liderId: idDe(dados.lider) ?? null,
       ativo: dados.ativo ?? true,
       desligadoEm: dados.ativo === false ? new Date() : null,
@@ -130,7 +144,7 @@ export interface Equipe {
   membros: Usuario[];
 }
 
-/** Uma equipe com hierarquia válida (R1.2): C-level → líder da área → membros. */
+/** Uma equipe com hierarquia válida (R1.2): C-level → líder do setor → membros. */
 export async function criarEquipe(
   t: AppTeste,
   area: Area = 'COMERCIAL',
@@ -138,12 +152,13 @@ export async function criarEquipe(
 ): Promise<Equipe> {
   const cLevel = opcoes.cLevel ?? (await criarUsuario(t, { papel: 'C_LEVEL' }));
   const lider = await criarUsuario(t, {
-    papel: liderDaArea(area),
+    papel: 'LIDER',
+    area,
     lider: cLevel,
   });
   const membros: Usuario[] = [];
   for (let indice = 0; indice < (opcoes.membros ?? 2); indice++) {
-    membros.push(await criarUsuario(t, { papel: membroDaArea(area), lider }));
+    membros.push(await criarUsuario(t, { papel: 'MEMBRO', area, lider }));
   }
   return { cLevel, lider, membros };
 }
