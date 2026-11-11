@@ -726,6 +726,16 @@ export function aplicarMapeamento(
     }
   }
 
+  // Cargo sem regra no mapeamento (R8.8): os nomes comuns do corpo, como na importação.
+  if (!caminhosPorDestino.has('cargo')) {
+    const usados = new Set(mapeamento.campos.map((regra) => regra.caminho));
+    const achado = reconhecerCargo(corpo, usados);
+    if (achado) {
+      textos.set('cargo', achado.texto);
+      registrar('cargo', achado.caminho);
+    }
+  }
+
   const email = escolherEmail(candidatosDeEmail);
   const telefone = escolherTelefone(candidatosDeTelefone);
   if (email.escolhido) {
@@ -804,6 +814,84 @@ export function aplicarMapeamento(
     },
     encontrados,
   };
+}
+
+/**
+ * Nomes de campo que são o cargo do contato (sem acento, caixa nem separadores): `cargo`,
+ * `role` (o do Clint), `job_title`, `jobTitle`, `position`, `função`… (R8.8).
+ */
+const NOMES_DE_CARGO = new Set([
+  'cargo',
+  'role',
+  'jobtitle',
+  'position',
+  'funcao',
+  'cargodocontato',
+  'contactrole',
+  'contactcargo',
+  'contactjobtitle',
+  'contactposition',
+]);
+
+/** Objetos do corpo onde costumam vir os dados da pessoa (além da raiz). */
+const OBJETOS_DA_PESSOA = ['contact', 'contato', 'lead', 'person', 'pessoa'];
+
+function nomeComparavel(chave: string): string {
+  return chave
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * O cargo do contato num corpo cujo mapeamento não tem regra para ele (R8.8): o primeiro
+ * campo de texto com um dos `NOMES_DE_CARGO`, na raiz ou dentro de `contact`, `contato`,
+ * `lead`, `person` ou `pessoa`. Caminhos que o mapeamento já usa ficam de fora (quem levou
+ * `role` a um campo personalizado continua só com ele).
+ */
+export function reconhecerCargo(
+  corpo: Readonly<Record<string, unknown>>,
+  usados: ReadonlySet<string> = new Set(),
+): { caminho: string; texto: string } | null {
+  const procurar = (
+    objeto: Readonly<Record<string, unknown>>,
+    prefixo: string,
+  ): { caminho: string; texto: string } | null => {
+    for (const [chave, valor] of Object.entries(objeto)) {
+      const caminho = `${prefixo}${chave}`;
+      if (!NOMES_DE_CARGO.has(nomeComparavel(chave)) || usados.has(caminho)) {
+        continue;
+      }
+      // Só texto: `position: 3` (uma ordem) não é cargo.
+      if (typeof valor !== 'string') {
+        continue;
+      }
+      const texto = comoTexto(valor, LIMITE_DE_TEXTO.cargo);
+      if (texto) {
+        return { caminho, texto };
+      }
+    }
+    return null;
+  };
+  const naRaiz = procurar(corpo, '');
+  if (naRaiz) {
+    return naRaiz;
+  }
+  for (const [chave, valor] of Object.entries(corpo)) {
+    if (
+      OBJETOS_DA_PESSOA.includes(nomeComparavel(chave)) &&
+      valor &&
+      typeof valor === 'object' &&
+      !Array.isArray(valor)
+    ) {
+      const dentro = procurar(valor as Record<string, unknown>, `${chave}.`);
+      if (dentro) {
+        return dentro;
+      }
+    }
+  }
+  return null;
 }
 
 function leadVazio(etiquetasFixas: readonly string[]): LeadMapeado {

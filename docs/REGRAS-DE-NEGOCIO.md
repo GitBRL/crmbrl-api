@@ -120,6 +120,13 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
 - **R2.9** Proteção CSRF: requisições que alteram dados precisam vir de uma origem
   permitida (`Origin`/`Referer` em `ORIGENS_PERMITIDAS`). Webhooks de entrada são isentos,
   porque se autenticam pelo token da URL.
+- **R2.10** Foto de perfil: toda pessoa logada troca ou remove a própria foto no Meu perfil.
+  A imagem é enviada antes como arquivo `AVATAR` (JPG, PNG, GIF ou WebP, até 5 MB, R11) e
+  depois ligada ao perfil (`PUT /usuarios/eu/foto`); só vale um arquivo enviado pela própria
+  pessoa (o de outra é 404) e no contexto `AVATAR` (senão 422). A foto fica em
+  `/api/v1/arquivos/<id>`, que qualquer usuário logado abre; a anterior enviada pelo CRM é
+  removida. Trocar e remover (`DELETE /usuarios/eu/foto`) auditam `usuario.atualizado`. O
+  Admin continua podendo pôr um endereço externo (`avatarUrl`) no cadastro do usuário.
 
 ## 3. Auditoria e logs técnicos
 
@@ -443,6 +450,12 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
   minuto no mesmo ponto, 429.
   **Ajuste da implementação (2026-10-20):** ponto excluído responde 404 (como token
   inexistente); a janela de 60 s conta todo recebimento gravado, inclusive os com erro.
+- **R8.8** Cargo sem regra no mapeamento: quando nenhuma regra do mapeamento leva ao
+  `cargo`, o recebimento procura o cargo pelos nomes comuns — `cargo`, `role` (o do Clint),
+  `job_title`/`jobTitle`, `position`, `função`, `contact_role`… (sem acento, caixa nem
+  separadores) —, na raiz do corpo ou dentro de `contact`, `contato`, `lead`, `person` ou
+  `pessoa`; só valor de texto. Um caminho que o mapeamento já usa (ex.: `role` levado a um
+  campo personalizado) fica de fora. Contato que volta com o cargo vazio ganha o cargo (R4.2).
 
 ## 9. Webhooks de saída (eventos)
 
