@@ -1,3 +1,4 @@
+import { papelESetor as comPapel } from '../comum/dominio/papeis-antigos.apoio-spec';
 import {
   CONFIGURACAO_PADRAO_DISPAROS,
   lerConfiguracaoDisparos,
@@ -37,10 +38,10 @@ describe('R17 — configuração dos disparos', () => {
 });
 
 describe('R17 — permissões dos disparos', () => {
-  const membro = { id: 'm1', papel: 'MARKETING' as const };
-  const lider = { id: 'l1', papel: 'LIDER_MARKETING' as const };
-  const comercial = { id: 'c1', papel: 'COMERCIAL' as const };
-  const admin = { id: 'a1', papel: 'ADMIN' as const };
+  const membro = { id: 'm1', ...comPapel('MARKETING') };
+  const lider = { id: 'l1', ...comPapel('LIDER_MARKETING') };
+  const comercial = { id: 'c1', ...comPapel('COMERCIAL') };
+  const admin = { id: 'a1', ...comPapel('ADMIN') };
 
   it('R17.1 — membro vê só as próprias; líder as da área; Admin todas', () => {
     expect(

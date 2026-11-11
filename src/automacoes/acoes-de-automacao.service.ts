@@ -220,6 +220,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
       if (
         segmento &&
         !(await this.segmentos.contem(segmento, alvo.contatoId, {
+          ...(await this.segmentos.opcoesDoAutor(automacao.criadoPorId)),
           excluirOptOut: automacao.marketing,
           ...(alvo.negocioId ? { negocioId: alvo.negocioId } : {}),
         }))
@@ -249,6 +250,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
       email: admin.email,
       papel: admin.papel,
       area: null,
+      nomeSetor: null,
       liderId: null,
       deveTrocarSenha: false,
       sessaoId: 'automacao',
@@ -326,13 +328,16 @@ export class AcoesDeAutomacao implements OnModuleInit {
     const automacao = await this.automacaoDaExecucao(ctx);
     const dentro = ctx.execucao.contatoId
       ? await this.segmentos.contem(segmento, ctx.execucao.contatoId, {
+          // R5.14: as condições de negócio contam os funis que quem criou vê agora.
+          ...(await this.segmentos.opcoesDoAutor(
+            automacao?.criadoPorId ?? null,
+          )),
           excluirOptOut: false,
           ...(ctx.execucao.negocioId
             ? { negocioId: ctx.execucao.negocioId }
             : {}),
         })
       : false;
-    void automacao;
     const ramo = dentro ? 'sim' : 'nao';
     const existe = (ctx.passo.ramos ?? []).some((r) => r.id === ramo);
     return existe
@@ -435,7 +440,10 @@ export class AcoesDeAutomacao implements OnModuleInit {
     const negocio = ctx.execucao.negocioId
       ? await this.prisma.negocio.findFirst({
           where: { id: ctx.execucao.negocioId, excluidoEm: null },
-          select: { responsavelId: true, funil: { select: { area: true } } },
+          select: {
+            responsavelId: true,
+            funil: { select: { id: true, area: true, visibilidade: true } },
+          },
         })
       : null;
     if (!negocio && !ctx.execucao.contatoId) {
@@ -443,7 +451,7 @@ export class AcoesDeAutomacao implements OnModuleInit {
     }
     const automacao = await this.automacaoDaExecucao(ctx);
     const area =
-      (c.area as 'MARKETING' | 'COMERCIAL' | 'CS' | undefined) ??
+      (c.area as string | undefined) ??
       negocio?.funil.area ??
       automacao?.area ??
       null;
@@ -457,8 +465,11 @@ export class AcoesDeAutomacao implements OnModuleInit {
       if (!area) {
         throw new Error('Informe a área do rodízio ou do líder.');
       }
+      // No negócio, o rodízio do setor do funil respeita quem atua nele (R5.13).
+      const destino =
+        negocio && negocio.funil.area === area ? negocio.funil : area;
       responsavelId = await this.prisma.$transaction((tx) =>
-        this.distribuicao.escolherResponsavel(tx, area, estrategia),
+        this.distribuicao.escolherResponsavel(tx, destino, estrategia),
       );
       if (!responsavelId) {
         throw new Error(

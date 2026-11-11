@@ -166,7 +166,7 @@ export class ReguaConfiguracaoService {
     return {
       ...(await this.configuracao()),
       variaveis: VARIAVEIS_DO_TITULO,
-      podeEditar: podeGerenciarARegua(usuario.papel),
+      podeEditar: podeGerenciarARegua(usuario),
     };
   }
 
@@ -354,7 +354,7 @@ export class ReguaConfiguracaoService {
 
   /** A régua é da gestão e do CS; o Comercial e o Marketing não a acessam. */
   private exigirVer(usuario: UsuarioAutenticado): void {
-    if (!podeAtuarNoFinanceiro(usuario.papel)) {
+    if (!podeAtuarNoFinanceiro(usuario)) {
       throw new SemPermissaoException(
         'Você não tem acesso à régua de cobrança.',
         { regra: 'R22.1' },
@@ -363,7 +363,7 @@ export class ReguaConfiguracaoService {
   }
 
   private exigirGestao(usuario: UsuarioAutenticado): void {
-    if (!podeGerenciarARegua(usuario.papel)) {
+    if (!podeGerenciarARegua(usuario)) {
       throw new SemPermissaoException(
         'Só Admin, C-level e Líder de CS alteram a régua.',
         { regra: 'R22.1' },

@@ -1444,7 +1444,7 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
       email: 'beto@x.com',
       vendedor: outraArea.membros[0].email,
     });
-    expect(deOutraArea?.avisos[0]).toMatch(/não é da área do funil Comercial/);
+    expect(deOutraArea?.avisos[0]).toMatch(/não atua no funil Comercial/);
     // Nome da etapa sem acento e sem diferenciar maiúsculas; status "won".
     await enviar(integracao, {
       nome: 'Ana',
@@ -1539,7 +1539,8 @@ describe('Integrações por aplicativo (e2e, R32)', () => {
       .post('/api/v1/usuarios', {
         nome: 'Nova',
         email: 'nova@brl.com.br',
-        papel: 'COMERCIAL',
+        papel: 'MEMBRO',
+        area: 'COMERCIAL',
         liderId: membros[0].liderId,
         senhaTemporaria: 'Senha@Temporaria1',
         identificadorIntegracao: 'nova-1',

@@ -18,7 +18,7 @@ import {
   type Pagina,
   paraSkipTake,
 } from '../comum/paginacao/paginacao';
-import { podeVerNegocio } from '../funis/acesso-funis';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { type ChatCanal, Prisma } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
@@ -553,14 +553,11 @@ export class MensagensChatService {
     if (negocios.length > 0) {
       const encontrados = await tx.negocio.findMany({
         where: { id: { in: negocios }, excluidoEm: null },
-        select: {
-          id: true,
-          responsavelId: true,
-          funil: { select: { area: true } },
-        },
+        select: { id: true, responsavelId: true, funilId: true },
       });
+      const acesso = await funisAcessiveis(tx, usuario);
       for (const negocio of encontrados) {
-        if (podeVerNegocio(usuario, negocio)) {
+        if (acesso.podeVerNegocio(negocio)) {
           validos.add(`negocio:${negocio.id}`);
         }
       }

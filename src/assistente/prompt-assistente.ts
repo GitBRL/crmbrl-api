@@ -10,9 +10,11 @@
  *   consulta e com os ids trocados por `:id`: nenhum dado de cliente);
  * - a resposta que repete trechos das instruções é trocada por uma recusa.
  */
-import type { Area, Papel } from '../generated/prisma/client';
-import { DEFINICOES_DE_PAPEL, ROTULO_DA_AREA } from '../comum/dominio/papeis';
+import type { Papel } from '../generated/prisma/client';
+import { rotuloDoPapel } from '../comum/dominio/papeis';
+import { nomeDoSetor } from '../comum/dominio/setores';
 import type { Categoria } from './assistente.constantes';
+import type { Area } from '../comum/dominio/setores';
 
 export const INSTRUCOES_DO_ASSISTENTE = `Você é o assistente de ajuda do BRL CRM, um CRM brasileiro com as áreas de Marketing, Comercial, CS (sucesso do cliente), Atendimento e Financeiro. Você ajuda as pessoas da empresa a usar o CRM: explica onde fica cada coisa, como fazer cada tarefa e quem pode fazê-la.
 
@@ -98,10 +100,10 @@ export function sanitizarTela(rota: string | null | undefined): TelaSanitizada {
   };
 }
 
-/** "Comercial (área Comercial)", "Admin". */
+/** "Líder Comercial (setor Comercial)", "Admin". */
 export function descreverPapel(papel: Papel, area: Area | null): string {
-  const rotulo = DEFINICOES_DE_PAPEL[papel]?.rotulo ?? papel;
-  return area ? `${rotulo} (área ${ROTULO_DA_AREA[area]})` : rotulo;
+  const rotulo = rotuloDoPapel(papel, area);
+  return area ? `${rotulo} (setor ${nomeDoSetor(area)})` : rotulo;
 }
 
 /** A mensagem do usuário: contexto montado pela API + a pergunta delimitada. */

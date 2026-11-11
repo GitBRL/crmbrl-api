@@ -7,7 +7,7 @@ import {
 import { HttpAdapterHost, Reflector } from '@nestjs/core';
 import type { Response } from 'express';
 import { definirUsuarioDoContexto } from '../../comum/contexto/contexto-requisicao';
-import { areaDoPapel } from '../../comum/dominio/papeis';
+import { setorDaPessoa } from '../../comum/dominio/papeis';
 import {
   NaoAutenticadoException,
   SemPermissaoException,
@@ -84,7 +84,8 @@ export class SessaoGuard implements CanActivate {
       nome: usuario.nome,
       email: usuario.email,
       papel: usuario.papel,
-      area: areaDoPapel(usuario.papel),
+      area: setorDaPessoa(usuario),
+      nomeSetor: usuario.setor?.nome ?? null,
       liderId: usuario.liderId,
       deveTrocarSenha: usuario.deveTrocarSenha,
       sessaoId: sessao.id,

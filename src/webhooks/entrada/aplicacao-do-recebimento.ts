@@ -8,7 +8,7 @@ import {
   instantaneoDoContato,
 } from '../../contatos/instantaneos';
 import { EventosDominioService } from '../../eventos/eventos-dominio.service';
-import { podeSerResponsavelNaArea } from '../../funis/acesso-funis';
+import { podeSerResponsavelNoFunil } from '../../funis/acessos-no-banco';
 import {
   dadosDoEventoDeNegocio,
   linkDoNegocio,
@@ -792,7 +792,7 @@ export class AplicacaoDoRecebimento {
     return status;
   }
 
-  /** O dono pelo e-mail ou pelo identificador nas integrações (R32.4); precisa ser ativo e da área do funil. */
+  /** O dono pelo e-mail ou pelo identificador nas integrações (R32.4); precisa ser ativo e atuar no funil (R5.13). */
   private async resolverDono(
     tx: Tx,
     texto: string,
@@ -810,7 +810,7 @@ export class AplicacaoDoRecebimento {
           },
         ],
       },
-      select: { id: true, nome: true, papel: true },
+      select: { id: true, nome: true, papel: true, area: true },
     });
     if (!usuario) {
       avisos.push(
@@ -818,9 +818,11 @@ export class AplicacaoDoRecebimento {
       );
       return null;
     }
-    if (!podeSerResponsavelNaArea(usuario.papel, funil.area)) {
+    if (
+      !(await podeSerResponsavelNoFunil(tx, funil, { ...usuario, ativo: true }))
+    ) {
       avisos.push(
-        `Dono "${texto}" (${usuario.nome}) não é da área do funil ${funil.nome}: ignorado.`,
+        `Dono "${texto}" (${usuario.nome}) não atua no funil ${funil.nome}: ignorado.`,
       );
       return null;
     }

@@ -20,7 +20,7 @@ import {
   sqlParcelasVisiveis,
 } from './permissoes-financeiro-sql';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 /** Restringe aos contratos de certas pessoas de CS (filtro de equipe/pessoa do BI); `null` = todos. */
 export type PessoasDoRecorte = readonly string[] | null | undefined;

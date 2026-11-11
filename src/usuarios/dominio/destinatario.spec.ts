@@ -1,4 +1,7 @@
-import type { Papel } from '../../generated/prisma/client';
+import {
+  type PapelDeTeste,
+  papelESetor,
+} from '../../comum/dominio/papeis-antigos.apoio-spec';
 import {
   escolherDestinatario,
   explicarDestinatario,
@@ -8,11 +11,11 @@ import {
 
 function usuario(
   id: string,
-  papel: Papel,
+  papel: PapelDeTeste,
   liderId: string | null = null,
   ativo = true,
 ): UsuarioDaHierarquia {
-  return { id, nome: id.toUpperCase(), papel, ativo, liderId };
+  return { id, nome: id.toUpperCase(), ...papelESetor(papel), ativo, liderId };
 }
 
 /**

@@ -4,10 +4,11 @@
  * não têm acesso à configuração do chatbot.
  */
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
-import type { Area, Prisma } from '../generated/prisma/client';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
+import type { Prisma } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
-type Usuario = Pick<UsuarioAutenticado, 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'papel' | 'area'>;
 
 export interface DonoDeFluxo {
   area: Area | null;
@@ -36,7 +37,7 @@ export function podeGerenciarFluxo(
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   return ehLider(usuario.papel) && area !== null && fluxo.area === area;
 }
 
@@ -45,7 +46,5 @@ export function areaDoNovoFluxo(
   usuario: Usuario,
   pedida: Area | null | undefined,
 ): Area | null {
-  return ehDiretoria(usuario.papel)
-    ? (pedida ?? null)
-    : areaDoPapel(usuario.papel);
+  return ehDiretoria(usuario.papel) ? (pedida ?? null) : setorDaPessoa(usuario);
 }

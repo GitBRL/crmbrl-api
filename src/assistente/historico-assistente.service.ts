@@ -9,7 +9,8 @@ import { ArquivoDto } from '../arquivos/arquivos.dto';
 import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { DEFINICOES_DE_PAPEL, ROTULO_DA_AREA } from '../comum/dominio/papeis';
+import { rotuloDoPapel } from '../comum/dominio/papeis';
+import { nomeDoSetor } from '../comum/dominio/setores';
 import {
   montarPagina,
   type Pagina,
@@ -290,7 +291,11 @@ export class HistoricoAssistenteService {
       include: {
         chamado: true,
         conversa: {
-          select: { papel: true, usuario: { select: { nome: true } } },
+          select: {
+            papel: true,
+            area: true,
+            usuario: { select: { nome: true } },
+          },
         },
       },
     });
@@ -319,8 +324,8 @@ export class HistoricoAssistenteService {
       linhas: linhas.map((p) => [
         dataHora(p.criadoEm),
         p.conversa.usuario.nome,
-        DEFINICOES_DE_PAPEL[p.conversa.papel]?.rotulo ?? p.conversa.papel,
-        p.area ? ROTULO_DA_AREA[p.area] : '',
+        rotuloDoPapel(p.conversa.papel, p.conversa.area),
+        p.area ? nomeDoSetor(p.area) : '',
         p.tela,
         p.pergunta,
         p.resposta ?? '',

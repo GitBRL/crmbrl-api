@@ -134,7 +134,7 @@ export class SegmentosController {
       usuario,
     );
     const opcoes = {
-      ...this.segmentos.opcoesDoUsuario(usuario),
+      ...(await this.segmentos.opcoesDoUsuario(usuario)),
       excluirOptOut: dto.excluirOptOut ?? true,
     };
     const limite = dto.amostra ?? 10;

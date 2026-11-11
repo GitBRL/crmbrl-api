@@ -1,9 +1,11 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { SETOR_CS } from '../comum/dominio/setores';
 import {
   type GatilhoDisparado,
   GatilhosService,
 } from '../comum/gatilhos/gatilhos.service';
 import { formatarValor } from '../comum/dominio/dinheiro';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,7 +14,8 @@ export const TIPO_NOTIFICACAO_SUGESTAO_CONTRATO = 'contrato.sugerido';
 /**
  * R22.6 — ao ganhar um negócio, o CRM sugere criar o contrato: notifica o
  * responsável do negócio e os líderes de CS, com o link da tela de novo contrato
- * já preenchida (`GET /financeiro/negocios/:id/sugestao-de-contrato`).
+ * já preenchida (`GET /financeiro/negocios/:id/sugestao-de-contrato`). Só quem vê
+ * o funil do negócio é notificado (R22.6, R5.9).
  */
 @Injectable()
 export class SugestaoDeContratoService implements OnModuleInit {
@@ -44,14 +47,26 @@ export class SugestaoDeContratoService implements OnModuleInit {
     if (!negocio) return;
     if ((await this.prisma.contrato.count({ where: { negocioId } })) > 0)
       return;
-    const lideres = await this.prisma.usuario.findMany({
-      where: { papel: 'LIDER_CS', ativo: true },
-      select: { id: true },
+    const candidatos = await this.prisma.usuario.findMany({
+      where: {
+        OR: [
+          ...(negocio.responsavelId ? [{ id: negocio.responsavelId }] : []),
+          { papel: 'LIDER', area: SETOR_CS, ativo: true },
+        ],
+      },
+      select: { id: true, papel: true, area: true },
     });
-    const destinos = [
-      ...(negocio.responsavelId ? [negocio.responsavelId] : []),
-      ...lideres.map((l) => l.id),
-    ];
+    // R22.6/R5.9: o negócio de um funil que a pessoa não vê não chega a ela.
+    const destinos: string[] = [];
+    for (const pessoa of candidatos) {
+      if (
+        (await funisAcessiveis(this.prisma, pessoa)).podeVerFunil(
+          negocio.funilId,
+        )
+      ) {
+        destinos.push(pessoa.id);
+      }
+    }
     if (destinos.length === 0) return;
     const cliente = negocio.empresa?.nome ?? negocio.contato.nome;
     await this.prisma.$transaction(async (tx) => {

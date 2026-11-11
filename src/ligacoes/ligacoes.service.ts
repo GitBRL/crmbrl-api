@@ -773,9 +773,9 @@ export class LigacoesService implements OnModuleInit {
       if (!candidato) continue;
       const usuario = await tx.usuario.findFirst({
         where: { id: candidato, ativo: true },
-        select: { id: true, papel: true },
+        select: { id: true, papel: true, area: true },
       });
-      if (usuario && podeUsarAtendimento(usuario.papel)) {
+      if (usuario && podeUsarAtendimento(usuario)) {
         return { responsavelId: usuario.id, avisar: [usuario.id] };
       }
     }

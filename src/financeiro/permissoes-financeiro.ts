@@ -5,53 +5,61 @@
  * Marketing não acessa.
  */
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
-import type { Papel, Prisma } from '../generated/prisma/client';
+import {
+  type ComPapel,
+  ehDiretoria,
+  ehDoSetor,
+  ehLider,
+  ehLiderDoSetor,
+  ehMembroDoSetor,
+} from '../comum/dominio/papeis';
+import { SETOR_COMERCIAL, SETOR_CS } from '../comum/dominio/setores';
+import type { Prisma } from '../generated/prisma/client';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
-/** Gerencia tudo: Admin, C-level e Líder de CS. */
-export function ehGestorFinanceiro(papel: Papel): boolean {
-  return ehDiretoria(papel) || papel === 'LIDER_CS';
+/** Gerencia tudo: Admin, C-level e Líder de CS (preso ao setor-base CS). */
+export function ehGestorFinanceiro(pessoa: ComPapel): boolean {
+  return ehDiretoria(pessoa.papel) || ehLiderDoSetor(pessoa, SETOR_CS);
 }
 
 /** Membro de CS (atua na própria carteira). */
-export function ehCsDaCarteira(papel: Papel): boolean {
-  return papel === 'CS';
+export function ehCsDaCarteira(pessoa: ComPapel): boolean {
+  return ehMembroDoSetor(pessoa, SETOR_CS);
 }
 
 /** Comercial (membro ou líder): só leitura dos contratos que ganhou. */
-export function ehComercialSomenteLeitura(papel: Papel): boolean {
-  return papel === 'COMERCIAL' || papel === 'LIDER_COMERCIAL';
+export function ehComercialSomenteLeitura(pessoa: ComPapel): boolean {
+  return ehDoSetor(pessoa, SETOR_COMERCIAL);
 }
 
 /** Quem entra no módulo. */
-export function temAcessoAoFinanceiro(papel: Papel): boolean {
+export function temAcessoAoFinanceiro(pessoa: ComPapel): boolean {
   return (
-    ehGestorFinanceiro(papel) ||
-    ehCsDaCarteira(papel) ||
-    ehComercialSomenteLeitura(papel)
+    ehGestorFinanceiro(pessoa) ||
+    ehCsDaCarteira(pessoa) ||
+    ehComercialSomenteLeitura(pessoa)
   );
 }
 
 /** Quem altera algo (dentro do que vê). */
-export function podeAtuarNoFinanceiro(papel: Papel): boolean {
-  return ehGestorFinanceiro(papel) || ehCsDaCarteira(papel);
+export function podeAtuarNoFinanceiro(pessoa: ComPapel): boolean {
+  return ehGestorFinanceiro(pessoa) || ehCsDaCarteira(pessoa);
 }
 
 /** Régua (etapas, configuração, "Executar agora"), importação e reenvios em massa. */
-export function podeGerenciarARegua(papel: Papel): boolean {
-  return ehGestorFinanceiro(papel);
+export function podeGerenciarARegua(pessoa: ComPapel): boolean {
+  return ehGestorFinanceiro(pessoa);
 }
 
 /** Contratos que o usuário vê. */
 export function filtroDeContratosVisiveis(
   usuario: Usuario,
 ): Prisma.ContratoWhereInput {
-  if (ehGestorFinanceiro(usuario.papel)) {
+  if (ehGestorFinanceiro(usuario)) {
     return {};
   }
-  if (ehCsDaCarteira(usuario.papel)) {
+  if (ehCsDaCarteira(usuario)) {
     return {
       OR: [
         { responsavelCsId: usuario.id },
@@ -60,8 +68,8 @@ export function filtroDeContratosVisiveis(
       ],
     };
   }
-  if (ehComercialSomenteLeitura(usuario.papel)) {
-    const area = areaDoPapel(usuario.papel);
+  if (ehComercialSomenteLeitura(usuario)) {
+    const area = usuario.area;
     return ehLider(usuario.papel) && area
       ? { negocio: { status: 'GANHO', funil: { area } } }
       : { negocio: { status: 'GANHO', responsavelId: usuario.id } };
@@ -73,13 +81,13 @@ export function filtroDeContratosVisiveis(
 export function filtroDeParcelasVisiveis(
   usuario: Usuario,
 ): Prisma.ParcelaWhereInput {
-  if (ehGestorFinanceiro(usuario.papel)) {
+  if (ehGestorFinanceiro(usuario)) {
     return {};
   }
   const doContrato: Prisma.ParcelaWhereInput = {
     contrato: filtroDeContratosVisiveis(usuario),
   };
-  if (ehCsDaCarteira(usuario.papel)) {
+  if (ehCsDaCarteira(usuario)) {
     return {
       OR: [
         doContrato,
@@ -93,7 +101,5 @@ export function filtroDeParcelasVisiveis(
       ],
     };
   }
-  return ehComercialSomenteLeitura(usuario.papel)
-    ? doContrato
-    : { id: { in: [] } };
+  return ehComercialSomenteLeitura(usuario) ? doContrato : { id: { in: [] } };
 }

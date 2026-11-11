@@ -63,6 +63,7 @@ import {
 import { ProgressoDaCampanha } from './progresso-da-campanha.service';
 import { type Estimativa, estimarDuracao, situacaoDaJanela } from './ritmo';
 import { type PreviaDoPublico, PublicoDaCampanha } from './publico.service';
+import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
 
 const INCLUIR = {
   canais: {
@@ -321,6 +322,7 @@ export class CampanhasService {
     const area = areaDaNovaCampanha(usuario, dto.area);
 
     const id = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorAtivoSeHouver(tx, area);
       const criada = await tx.campanha.create({
         data: {
           nome: dto.nome,

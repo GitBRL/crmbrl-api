@@ -4,7 +4,7 @@ import { lerCookie, NOME_COOKIE_SESSAO } from '../auth/cookies';
 import { origemDaRequisicao } from '../auth/guards/origem.guard';
 import type { SessoesService } from '../auth/sessoes.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel } from '../comum/dominio/papeis';
+import { setorDaPessoa } from '../comum/dominio/papeis';
 import type { RequisicaoHttp } from '../comum/http/requisicao-http';
 
 /** Por que a conexão foi recusada — vai em `connect_error` (`erro.message` e `erro.data.erro`). */
@@ -71,7 +71,8 @@ export async function autenticarHandshake(
       nome: usuario.nome,
       email: usuario.email,
       papel: usuario.papel,
-      area: areaDoPapel(usuario.papel),
+      area: setorDaPessoa(usuario),
+      nomeSetor: usuario.setor?.nome ?? null,
       liderId: usuario.liderId,
       deveTrocarSenha: usuario.deveTrocarSenha,
       sessaoId: sessao.id,

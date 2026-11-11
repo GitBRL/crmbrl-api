@@ -3,8 +3,9 @@
  * regras). Vão no `GET /api/v1/auth/eu` para o front mostrar só o que cabe a
  * cada um; a API continua conferindo cada operação nos serviços.
  */
-import type { Area, Papel } from '../../generated/prisma/client';
-import { areaDoPapel, ehDiretoria, ehLider, TODAS_AS_AREAS } from './papeis';
+import type { Papel } from '../../generated/prisma/client';
+import { type ComPapel, ehDiretoria, ehLider, setorDaPessoa } from './papeis';
+import type { Area } from './setores';
 
 /**
  * Alcance de uma permissão:
@@ -50,15 +51,13 @@ export interface Permissoes {
   readonly verLogsTecnicos: boolean;
   /** Documentação da API em produção (`/api/docs`). */
   readonly verDocumentacaoApi: boolean;
-  /** Áreas cujos funis o usuário vê (Admin e C-level: todas). */
-  readonly areasVisiveis: readonly Area[];
 }
 
+/** A matriz depende só do nível do papel; o setor entra no alcance `AREA` (ver `areasVisiveis`). */
 export function permissoesDoPapel(papel: Papel): Permissoes {
   const admin = papel === 'ADMIN';
   const diretoria = ehDiretoria(papel);
   const lider = ehLider(papel);
-  const area = areaDoPapel(papel);
   return {
     gerenciarUsuarios: admin,
     verUsuarios: diretoria ? 'TODOS' : lider ? 'EQUIPE' : 'PROPRIOS',
@@ -76,6 +75,20 @@ export function permissoesDoPapel(papel: Papel): Permissoes {
     verAuditoria: diretoria,
     verLogsTecnicos: admin,
     verDocumentacaoApi: admin,
-    areasVisiveis: diretoria ? TODAS_AS_AREAS : area ? [area] : [],
   };
+}
+
+/**
+ * Setores cujos funis a pessoa vê (R5.9): Admin e C-level, todos os
+ * `setoresAtivos` (na ordem recebida); Líder e Membro, o próprio setor.
+ */
+export function areasVisiveis(
+  pessoa: ComPapel,
+  setoresAtivos: readonly Area[],
+): readonly Area[] {
+  if (ehDiretoria(pessoa.papel)) {
+    return setoresAtivos;
+  }
+  const area = setorDaPessoa(pessoa);
+  return area ? [area] : [];
 }

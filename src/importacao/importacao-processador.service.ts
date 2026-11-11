@@ -7,13 +7,16 @@ import {
   juntarEtiquetas,
   normalizarEtiquetas,
 } from '../comum/dominio/etiquetas';
-import { areaDoPapel } from '../comum/dominio/papeis';
-import { normalizarTelefone } from '../comum/dominio/telefone';
-import { ErroApi } from '../comum/erros/excecoes';
+import { setorDaPessoa } from '../comum/dominio/papeis';
+import { ErroApi, RegraVioladaException } from '../comum/erros/excecoes';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ArquivosService } from '../arquivos/arquivos.service';
 import { UFS } from '../contatos/contatos.constantes';
 import { ContatosService } from '../contatos/contatos.service';
+import {
+  type AlcanceDeEdicao,
+  PermissoesContatosService,
+} from '../contatos/permissoes-contatos.service';
 import type { AtualizarContatoDto } from '../contatos/dto/contato.dto';
 import type {
   AtualizarEmpresaDto,
@@ -21,7 +24,16 @@ import type {
 } from '../contatos/dto/empresa.dto';
 import { EmpresasService } from '../contatos/empresas.service';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
+import {
+  type AcessosCarregados,
+  acessosDoFunil,
+  funisAcessiveis,
+  podeSerResponsavel,
+} from '../funis/acessos-no-banco';
 import { DistribuicaoService } from '../funis/distribuicao.service';
+import { NegociosService } from '../funis/negocios.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TIPOS_NOTIFICACAO } from '../notificacoes/tipos-notificacao';
 import {
   type Contato,
   type Empresa,
@@ -35,6 +47,21 @@ import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
 import { ImportacaoDeParcelasService } from '../financeiro/importacao-de-parcelas.service';
 import { PREFIXO_CAMPO_PERSONALIZADO } from './campos';
+import { normalizarTelefoneComDdi } from './ddi';
+import {
+  lerDataDoNegocio,
+  lerStatusDoNegocio,
+  type StatusDoNegocioImportado,
+} from './dados-do-negocio';
+import { compilarFiltro, valorEmReais } from './filtro-de-linhas';
+import {
+  type DestinoDoNegocio,
+  type FunilDoCache,
+  resolverDestino,
+  resolverResponsavel,
+  type UsuarioDoCache,
+} from './negocio-da-importacao';
+import { lerOpcoes, type OpcoesDaImportacao } from './opcoes';
 import { FILA_IMPORTACAO } from './importacao.constantes';
 import {
   lerPlanilha,
@@ -56,6 +83,47 @@ interface ResultadoDaLinha {
 }
 
 type Valores = Record<string, string>;
+
+/** Chave de `Importacao.opcoes` com as contagens de negócios por responsável (a notificação final). */
+const CHAVE_NOTIFICACOES = 'notificacoes';
+type NegociosPorResponsavel = Record<
+  string,
+  { criados: number; reconvertidos: number }
+>;
+
+/** O que vale para a execução inteira: opções, alcance de quem importa e caches (R16.12). */
+interface ContextoDaExecucao {
+  opcoes: OpcoesDaImportacao;
+  alcance: AlcanceDeEdicao;
+  funis: FunilDoCache[] | null;
+  usuarios: UsuarioDoCache[] | null;
+  /** Acessos de cada funil de destino, para o responsável válido (R5.13). */
+  acessosDosFunis?: Map<string, AcessosCarregados>;
+  responsaveis: Map<string, { usuario: UsuarioDoCache } | { aviso: string }>;
+}
+
+/** Como o negócio de uma linha será criado, decidido antes da transação. */
+interface PlanoDoNegocio {
+  destino?: DestinoDoNegocio;
+  /** Avisos para o `motivo` da linha (já com o texto final). */
+  avisos: string[];
+  responsavelDaColunaId?: string;
+  estrategia: 'RESPONSAVEL_FIXO' | 'RODIZIO' | 'LIDER_DA_AREA';
+  responsavelFixoId?: string;
+  titulo?: string;
+  valor?: string;
+  valorRecorrente?: string;
+  /** Negócio fechado na importação (R16.14): ganho ou perdido, direto na etapa de fechamento. */
+  status: StatusDoNegocioImportado;
+  motivoPerda?: string;
+  criadoEm?: Date;
+  fechadoEm?: Date;
+  idExterno?: string;
+  /** Etapa da planilha (vai para a auditoria do negócio fechado). */
+  etapaOriginal?: string;
+  /** Negócio que já tem este `idExterno`: ele é atualizado, não criado. */
+  negocioExistente?: { id: string };
+}
 
 /**
  * Processa uma importação na fila (R16.4–R16.8): lê a planilha, trata linha a
@@ -80,13 +148,18 @@ export class ImportacaoProcessadorService {
     private readonly publicador: TempoRealPublicador,
     private readonly tempoReal: TempoRealService,
     private readonly parcelas: ImportacaoDeParcelasService,
+    private readonly negocios: NegociosService,
+    private readonly notificacoes: NotificacoesService,
+    private readonly permissoes: PermissoesContatosService,
   ) {}
 
   /** Manipulador da fila `importacao.processar`. */
   async processar(importacaoId: string): Promise<void> {
     const importacao = await this.prisma.importacao.findUnique({
       where: { id: importacaoId },
-      include: { criadoPor: true },
+      include: {
+        criadoPor: { include: { setor: { select: { nome: true } } } },
+      },
     });
     if (
       !importacao ||
@@ -107,7 +180,8 @@ export class ImportacaoProcessadorService {
       nome: criador.nome,
       email: criador.email,
       papel: criador.papel,
-      area: areaDoPapel(criador.papel),
+      area: setorDaPessoa(criador),
+      nomeSetor: criador.setor?.nome ?? null,
       liderId: criador.liderId,
       deveTrocarSenha: false,
       sessaoId: '',
@@ -171,11 +245,36 @@ export class ImportacaoProcessadorService {
           _max: { numero: true },
         })
       )._max.numero ?? 0;
-    const pendentes = planilha.linhas.filter((l) => l.numero > ultima);
+    // R16.11: linha fora do filtro não vira `ImportacaoLinha`. `filtradas` é o total do arquivo,
+    // calculado de novo (não somado) a cada execução, então retomar não conta nada em dobro;
+    // as linhas pendentes são as aprovadas depois da última gravada.
+    const opcoes = lerOpcoes(importacao.opcoes);
+    const passa = compilarFiltro(opcoes.filtro, planilha.colunas);
+    const aprovadas = opcoes.filtro
+      ? planilha.linhas.filter((l) => passa(l.valores))
+      : planilha.linhas;
+    await this.prisma.importacao.update({
+      where: { id: importacao.id },
+      data: { filtradas: planilha.linhas.length - aprovadas.length },
+    });
+    const pendentes = aprovadas.filter((l) => l.numero > ultima);
+    const contexto: ContextoDaExecucao = {
+      opcoes,
+      alcance: await this.permissoes.alcance(usuario),
+      funis: null,
+      usuarios: null,
+      responsaveis: new Map(),
+    };
 
     for (let i = 0; i < pendentes.length; i += LINHAS_POR_LOTE) {
       for (const linha of pendentes.slice(i, i + LINHAS_POR_LOTE)) {
-        await this.tratarLinha(importacao, usuario, planilha.colunas, linha);
+        await this.tratarLinha(
+          importacao,
+          usuario,
+          contexto,
+          planilha.colunas,
+          linha,
+        );
       }
       await this.gravarContadores(importacao.id);
       await this.emitirProgresso(importacao.id);
@@ -199,6 +298,7 @@ export class ImportacaoProcessadorService {
   private async tratarLinha(
     importacao: Importacao,
     usuario: UsuarioAutenticado,
+    contexto: ContextoDaExecucao,
     colunas: readonly string[],
     linha: LinhaLida,
   ): Promise<void> {
@@ -224,6 +324,7 @@ export class ImportacaoProcessadorService {
               ? await this.tratarContato(
                   importacao,
                   usuario,
+                  contexto,
                   linha.numero,
                   original,
                   valores,
@@ -296,6 +397,7 @@ export class ImportacaoProcessadorService {
   private async tratarContato(
     importacao: Importacao,
     usuario: UsuarioAutenticado,
+    contexto: ContextoDaExecucao,
     numero: number,
     original: Valores,
     v: Valores,
@@ -314,7 +416,10 @@ export class ImportacaoProcessadorService {
       }
     }
     if (v.telefone) {
-      const lido = normalizarTelefone(v.telefone);
+      const lido = normalizarTelefoneComDdi(
+        v.telefone,
+        contexto.opcoes.ddiPadrao,
+      );
       if (lido.valido) {
         telefone = lido.telefone;
       } else {
@@ -340,42 +445,92 @@ export class ImportacaoProcessadorService {
     const existente = await this.contatoExistente(email, telefone);
     const sufixo = notas.length > 0 ? ` (${notas.join('; ')})` : '';
 
-    if (existente) {
-      if (importacao.duplicados === 'IGNORAR') {
-        return {
-          resultado: 'IGNORADO',
-          entidadeId: existente.id,
-          motivo: 'Contato já cadastrado.',
+    // R16.14: o mesmo id do negócio na origem não cria outro negócio.
+    const idExterno = v['negocio.idExterno']?.trim();
+    const negocioJa = idExterno
+      ? await this.prisma.negocio.findFirst({
+          where: { idExterno, excluidoEm: null },
+          select: { id: true, contatoId: true },
+        })
+      : null;
+    if (negocioJa && importacao.duplicados === 'IGNORAR') {
+      return {
+        resultado: 'IGNORADO',
+        entidadeId: negocioJa.contatoId,
+        motivo: 'Negócio já importado (mesmo ID do negócio na origem).',
+      };
+    }
+    if (existente && importacao.duplicados === 'IGNORAR') {
+      // R16.5: o existente não é tocado e não ganha negócio.
+      return {
+        resultado: 'IGNORADO',
+        entidadeId: existente.id,
+        motivo: 'Contato já cadastrado.',
+      };
+    }
+    const plano = await this.planejarNegocio(
+      importacao,
+      usuario,
+      contexto,
+      v,
+      existente !== null,
+    );
+    if (negocioJa) {
+      plano.negocioExistente = { id: negocioJa.id };
+    }
+    const motivoCom = (base: string | null): string | null =>
+      [base, ...plano.avisos].filter(Boolean).join(' ') || null;
+
+    if (existente && importacao.duplicados === 'SOBRESCREVER') {
+      const alterou = await this.sobrescreverContato(usuario, existente, {
+        nome: v.nome,
+        email,
+        telefone,
+        cargo: v.cargo,
+        empresaNome: v.empresa,
+        etiquetas,
+        camposPersonalizados,
+      });
+      const base: ResultadoDaLinha = alterou
+        ? {
+            resultado: 'ATUALIZADO',
+            entidadeId: existente.id,
+            motivo: sufixo.trim() || null,
+          }
+        : {
+            resultado: 'IGNORADO',
+            entidadeId: existente.id,
+            motivo: 'Contato já cadastrado, sem diferenças.',
+          };
+      if (!plano.destino) {
+        return { ...base, motivo: motivoCom(base.motivo ?? null) };
+      }
+      return this.prisma.$transaction(async (tx) => {
+        await this.criarNegocioDaLinha(
+          tx,
+          importacao,
+          usuario,
+          existente.id,
+          plano,
+          detalhe,
+        );
+        const r: ResultadoDaLinha = {
+          ...base,
+          motivo: motivoCom(base.motivo ?? null),
+          gravada: true,
         };
-      }
-      if (importacao.duplicados === 'SOBRESCREVER') {
-        const alterou = await this.sobrescreverContato(usuario, existente, {
-          nome: v.nome,
-          email,
-          telefone,
-          cargo: v.cargo,
-          empresaNome: v.empresa,
-          etiquetas,
-          camposPersonalizados,
-        });
-        return alterou
-          ? {
-              resultado: 'ATUALIZADO',
-              entidadeId: existente.id,
-              motivo: sufixo.trim() || null,
-            }
-          : {
-              resultado: 'IGNORADO',
-              entidadeId: existente.id,
-              motivo: 'Contato já cadastrado, sem diferenças.',
-            };
-      }
+        await this.gravarLinha(tx, importacao, numero, r, original);
+        return r;
+      });
     }
 
-    const retorno = await this.prisma.$transaction(async (tx) => {
+    // Contato (criado, atualizado ou só encontrado), negócio e linha na mesma transação:
+    // se o negócio falhar, a linha inteira é desfeita e vira erro (nada pela metade).
+    return this.prisma.$transaction(async (tx) => {
       const responsavelId = existente
         ? undefined
-        : await this.responsavelDaLinha(tx, importacao);
+        : (plano.responsavelDaColunaId ??
+          (await this.responsavelDaLinha(tx, importacao)));
       const { contato, criado } = await this.contatos.encontrarOuCriar(tx, {
         nome: v.nome,
         email,
@@ -389,16 +544,411 @@ export class ImportacaoProcessadorService {
         camposPersonalizados,
         responsavelId,
       });
+      if (plano.destino) {
+        await this.criarNegocioDaLinha(
+          tx,
+          importacao,
+          usuario,
+          contato.id,
+          plano,
+          detalhe,
+        );
+      }
       const r: ResultadoDaLinha = {
         resultado: criado ? 'CRIADO' : 'ATUALIZADO',
         entidadeId: contato.id,
-        motivo: notas.length > 0 ? `${notas.join('; ')}.` : null,
+        motivo: motivoCom(notas.length > 0 ? `${notas.join('; ')}.` : null),
         gravada: true,
       };
       await this.gravarLinha(tx, importacao, numero, r, original);
       return r;
     });
-    return retorno;
+  }
+
+  // ----- negócio da linha (R16.12) ----------------------------------------
+
+  private async funisDoContexto(
+    contexto: ContextoDaExecucao,
+  ): Promise<FunilDoCache[]> {
+    if (!contexto.funis) {
+      const funis = await this.prisma.funil.findMany({
+        where: { excluidoEm: null },
+        orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+        include: {
+          etapas: { orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }] },
+        },
+      });
+      contexto.funis = funis.map((f) => ({
+        id: f.id,
+        nome: f.nome,
+        ativo: f.ativo,
+        area: f.area,
+        visibilidade: f.visibilidade,
+        etapas: f.etapas.map((e) => ({
+          id: e.id,
+          nome: e.nome,
+          tipo: e.tipo,
+        })),
+      }));
+    }
+    return contexto.funis;
+  }
+
+  /** Usuários ativos (id, nome, e-mail e papel), lidos uma vez por execução. */
+  private async usuariosDoContexto(
+    contexto: ContextoDaExecucao,
+  ): Promise<UsuarioDoCache[]> {
+    if (!contexto.usuarios) {
+      contexto.usuarios = await this.prisma.usuario.findMany({
+        where: { ativo: true },
+        select: { id: true, nome: true, email: true, papel: true, area: true },
+      });
+    }
+    return contexto.usuarios;
+  }
+
+  /** A pessoa está ativa e pode ser responsável de negócio no funil (R5.13)? */
+  private async atuaNoFunil(
+    contexto: ContextoDaExecucao,
+    usuarioId: string,
+    funil: FunilDoCache,
+  ): Promise<boolean> {
+    const pessoa = (await this.usuariosDoContexto(contexto)).find(
+      (u) => u.id === usuarioId,
+    );
+    if (!pessoa) {
+      return false;
+    }
+    contexto.acessosDosFunis ??= new Map();
+    let acessos = contexto.acessosDosFunis.get(funil.id);
+    if (!acessos) {
+      acessos = await acessosDoFunil(this.prisma, funil);
+      contexto.acessosDosFunis.set(funil.id, acessos);
+    }
+    return podeSerResponsavel(acessos, { ...pessoa, ativo: true });
+  }
+
+  /** Responsável da coluna: usuário ativo, ao alcance de quem importa (R16.6); `aviso` quando não serve. */
+  private async responsavelDaColuna(
+    contexto: ContextoDaExecucao,
+    texto: string,
+  ): Promise<{ usuario: UsuarioDoCache } | { aviso: string }> {
+    const chave = texto.trim().toLowerCase();
+    const guardado = contexto.responsaveis.get(chave);
+    if (guardado) {
+      return guardado;
+    }
+    const achado = resolverResponsavel(
+      texto,
+      await this.usuariosDoContexto(contexto),
+    );
+    const resultado =
+      achado.usuario && !contexto.alcance.permite(achado.usuario.id)
+        ? {
+            aviso: `Responsável "${texto.trim()}" fora do seu alcance; usada a estratégia da importação.`,
+          }
+        : achado.usuario
+          ? { usuario: achado.usuario }
+          : { aviso: achado.aviso as string };
+    contexto.responsaveis.set(chave, resultado);
+    return resultado;
+  }
+
+  /**
+   * Decide, antes de abrir a transação da linha, se há negócio e como criá-lo:
+   * destino (colunas > cartão), responsável (coluna > estratégia da importação),
+   * título e valores. O que não dá para criar vira aviso no `motivo` e o contato importa.
+   */
+  private async planejarNegocio(
+    importacao: Importacao,
+    usuario: UsuarioAutenticado,
+    contexto: ContextoDaExecucao,
+    v: Valores,
+    contatoExistente: boolean,
+  ): Promise<PlanoDoNegocio> {
+    const plano: PlanoDoNegocio = {
+      avisos: [],
+      estrategia: 'RESPONSAVEL_FIXO',
+      responsavelFixoId: usuario.id,
+      status: 'ABERTO',
+    };
+    if (importacao.tipo !== 'CONTATOS') {
+      return plano;
+    }
+    const cartao = contexto.opcoes.negocio;
+    const colunaFunil = v['negocio.funil'];
+    const colunaEtapa = v['negocio.etapa'];
+    const lido = lerStatusDoNegocio(v['negocio.status']);
+    plano.status = lido.status;
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const resolucao = resolverDestino({
+      // R5.9: funil que quem importa não vê é como se não existisse.
+      funis: (await this.funisDoContexto(contexto)).filter((f) =>
+        acesso.podeVerFunil(f.id),
+      ),
+      cartao,
+      funilTexto: colunaFunil,
+      etapaTexto: colunaEtapa,
+      podeCriarNoFunil: (f) => acesso.podeCriarNoFunil(f.id),
+      status: lido.status,
+      traducaoFunis: contexto.opcoes.traducaoFunis,
+      traducaoEtapas: contexto.opcoes.traducaoEtapas,
+    });
+    if (resolucao.aviso) {
+      plano.avisos.push(`Negócio não criado: ${resolucao.aviso}`);
+    }
+    plano.destino = resolucao.destino;
+    if (plano.destino && lido.aviso) {
+      plano.avisos.push(lido.aviso);
+    }
+    if (plano.destino) {
+      const agora = new Date();
+      const data = (rotulo: string, chave: string): Date | undefined => {
+        if (!v[chave]) {
+          return undefined;
+        }
+        const r = lerDataDoNegocio(rotulo, v[chave], agora);
+        if (r.aviso) {
+          plano.avisos.push(r.aviso);
+        }
+        return r.data;
+      };
+      plano.criadoEm = data('Data de criação do negócio', 'negocio.criadoEm');
+      if (plano.status === 'GANHO') {
+        plano.fechadoEm =
+          data('Data do ganho', 'negocio.ganhoEm') ?? plano.criadoEm ?? agora;
+      } else if (plano.status === 'PERDIDO') {
+        plano.fechadoEm =
+          data('Data da perda', 'negocio.perdidoEm') ?? plano.criadoEm ?? agora;
+        plano.motivoPerda =
+          v['negocio.motivoPerda']?.trim() || 'Importado como perdido';
+      }
+      plano.idExterno = v['negocio.idExterno']?.trim() || undefined;
+      plano.etapaOriginal = colunaEtapa?.trim() || undefined;
+    }
+
+    let responsavelDaColuna: UsuarioDoCache | undefined;
+    if (v.responsavel && (plano.destino || !contatoExistente)) {
+      const r = await this.responsavelDaColuna(contexto, v.responsavel);
+      if ('usuario' in r) {
+        responsavelDaColuna = r.usuario;
+        plano.responsavelDaColunaId = r.usuario.id;
+      } else {
+        plano.avisos.push(r.aviso);
+      }
+    }
+    if (!plano.destino) {
+      return plano;
+    }
+    if (
+      responsavelDaColuna &&
+      (await this.atuaNoFunil(
+        contexto,
+        responsavelDaColuna.id,
+        plano.destino.funil,
+      ))
+    ) {
+      plano.estrategia = 'RESPONSAVEL_FIXO';
+      plano.responsavelFixoId = responsavelDaColuna.id;
+    } else {
+      if (responsavelDaColuna) {
+        plano.avisos.push(
+          `Responsável "${responsavelDaColuna.nome}" não atua no funil "${plano.destino.funil.nome}"; negócio atribuído pela estratégia da importação.`,
+        );
+      }
+      if (
+        importacao.estrategiaResponsavel === 'RESPONSAVEL_FIXO' &&
+        importacao.responsavelId
+      ) {
+        plano.estrategia = 'RESPONSAVEL_FIXO';
+        plano.responsavelFixoId = importacao.responsavelId;
+      } else if (importacao.estrategiaResponsavel === 'RODIZIO') {
+        // O rodízio do negócio é o da área do funil.
+        plano.estrategia = 'RODIZIO';
+        plano.responsavelFixoId = undefined;
+      }
+      // Sem estratégia: quem importou (valor padrão do plano).
+      if (
+        plano.estrategia === 'RESPONSAVEL_FIXO' &&
+        plano.responsavelFixoId &&
+        !(await this.atuaNoFunil(
+          contexto,
+          plano.responsavelFixoId,
+          plano.destino.funil,
+        ))
+      ) {
+        // A pessoa fixa (ou quem importou) não atua na área do funil: vai direto para o
+        // líder da área (R5.8), sem um aviso no log técnico a cada linha.
+        plano.estrategia = 'LIDER_DA_AREA';
+        plano.responsavelFixoId = undefined;
+      }
+    }
+
+    plano.titulo = v['negocio.titulo'] || cartao?.titulo || undefined;
+    plano.valor = cartao?.valor || undefined;
+    if (v['negocio.valor']) {
+      const valor = valorEmReais(v['negocio.valor']);
+      if (valor === null) {
+        plano.avisos.push(
+          `Valor do negócio inválido ("${v['negocio.valor']}"); ${plano.valor ? 'usado o valor do cartão' : 'valor zero'}.`,
+        );
+      } else {
+        plano.valor = valor;
+      }
+    }
+    if (v['negocio.valorRecorrente']) {
+      const valor = valorEmReais(v['negocio.valorRecorrente']);
+      if (valor === null) {
+        plano.avisos.push(
+          `Valor recorrente do negócio inválido ("${v['negocio.valorRecorrente']}"); ignorado.`,
+        );
+      } else {
+        plano.valorRecorrente = valor;
+      }
+    }
+    return plano;
+  }
+
+  /**
+   * Cria (ou reconverte, R5.6) o negócio da linha dentro da transação da linha, sem notificar
+   * cada um: as contagens por responsável ficam em `opcoes` para a notificação única do fim.
+   * Linha fechada (R16.14) nasce direto na etapa de ganho ou de perda, sem reconversão nem
+   * passagens; negócio com `idExterno` já existente é atualizado (`negociosAtualizados`).
+   */
+  private async criarNegocioDaLinha(
+    tx: Tx,
+    importacao: Importacao,
+    usuario: UsuarioAutenticado,
+    contatoId: string,
+    plano: PlanoDoNegocio,
+    detalhe: string,
+  ): Promise<void> {
+    const { funil, etapa } = plano.destino as DestinoDoNegocio;
+    const fechado = plano.status !== 'ABERTO';
+    if (plano.negocioExistente) {
+      await this.atualizarNegocioDaLinha(tx, importacao, usuario, plano);
+      return;
+    }
+    let resultado;
+    try {
+      resultado = await this.negocios.criarAutomatico(tx, {
+        contatoId,
+        funilId: funil.id,
+        etapaId: etapa.id,
+        titulo: plano.titulo,
+        valor: plano.valor,
+        valorRecorrente: plano.valorRecorrente,
+        origem: 'IMPORTACAO',
+        origemDetalhe: detalhe,
+        estrategia: plano.estrategia,
+        responsavelFixoId: plano.responsavelFixoId,
+        notificar: false,
+        importado: {
+          ...(fechado
+            ? {
+                fechado: {
+                  motivoPerda: plano.motivoPerda ?? null,
+                  em: plano.fechadoEm as Date,
+                },
+              }
+            : {}),
+          criadoEm: plano.criadoEm,
+          idExterno: plano.idExterno,
+          detalhes: {
+            importacaoId: importacao.id,
+            ...(plano.etapaOriginal
+              ? { etapaOriginalNaPlanilha: plano.etapaOriginal }
+              : {}),
+            ...(plano.idExterno ? { idExterno: plano.idExterno } : {}),
+          },
+        },
+      });
+    } catch (erro) {
+      if (erro instanceof ErroApi) {
+        throw new RegraVioladaException(
+          'R16.12',
+          `Negócio não criado: ${motivoDoErro(erro)} A linha inteira foi desfeita.`,
+        );
+      }
+      throw erro;
+    }
+    const atual = await tx.importacao.findUniqueOrThrow({
+      where: { id: importacao.id },
+      select: { opcoes: true },
+    });
+    const opcoes = { ...((atual.opcoes ?? {}) as Record<string, unknown>) };
+    const porResponsavel = {
+      ...((opcoes[CHAVE_NOTIFICACOES] ?? {}) as NegociosPorResponsavel),
+    };
+    const dono = resultado.negocio.responsavelId;
+    // Negócio fechado é histórico: não entra na notificação de "negócios recebidos".
+    if (dono && dono !== usuario.id && !fechado) {
+      const n = porResponsavel[dono] ?? { criados: 0, reconvertidos: 0 };
+      porResponsavel[dono] = resultado.criado
+        ? { ...n, criados: n.criados + 1 }
+        : { ...n, reconvertidos: n.reconvertidos + 1 };
+      opcoes[CHAVE_NOTIFICACOES] = porResponsavel;
+    }
+    await tx.importacao.update({
+      where: { id: importacao.id },
+      data: {
+        ...(resultado.criado
+          ? { negociosCriados: { increment: 1 } }
+          : { negociosReconvertidos: { increment: 1 } }),
+        opcoes: opcoes as Prisma.InputJsonObject,
+      },
+    });
+  }
+
+  /** Negócio já importado (mesmo `idExterno`): aplica a opção de duplicados (R16.14). */
+  private async atualizarNegocioDaLinha(
+    tx: Tx,
+    importacao: Importacao,
+    usuario: UsuarioAutenticado,
+    plano: PlanoDoNegocio,
+  ): Promise<void> {
+    const { etapa } = plano.destino as DestinoDoNegocio;
+    let resultado;
+    try {
+      resultado = await this.negocios.atualizarImportado(
+        tx,
+        usuario,
+        (plano.negocioExistente as { id: string }).id,
+        {
+          modo:
+            importacao.duplicados === 'SOBRESCREVER'
+              ? 'SOBRESCREVER'
+              : 'COMPLETAR',
+          titulo: plano.titulo,
+          valor: plano.valor,
+          responsavelId:
+            plano.responsavelDaColunaId &&
+            plano.responsavelFixoId === plano.responsavelDaColunaId
+              ? plano.responsavelDaColunaId
+              : undefined,
+          motivoPerda: plano.motivoPerda,
+          etapaId: etapa.id,
+          fechadoEm: plano.fechadoEm,
+        },
+      );
+    } catch (erro) {
+      if (erro instanceof ErroApi) {
+        throw new RegraVioladaException(
+          'R16.14',
+          `Negócio não atualizado: ${motivoDoErro(erro)} A linha inteira foi desfeita.`,
+        );
+      }
+      throw erro;
+    }
+    if (resultado.aviso) {
+      plano.avisos.push(resultado.aviso);
+    }
+    if (resultado.alterou) {
+      await tx.importacao.update({
+        where: { id: importacao.id },
+        data: { negociosAtualizados: { increment: 1 } },
+      });
+    }
   }
 
   private async contatoExistente(
@@ -731,12 +1281,17 @@ export class ImportacaoProcessadorService {
         atualizados: final.atualizados,
         ignorados: final.ignorados,
         erros: final.erros,
+        filtradas: final.filtradas,
+        negociosCriados: final.negociosCriados,
+        negociosReconvertidos: final.negociosReconvertidos,
+        negociosAtualizados: final.negociosAtualizados,
       };
+      await this.notificarResponsaveis(tx, final);
       await this.auditoria.registrar(tx, {
         acao: 'importacao.concluida',
         entidade: 'importacao',
         entidadeId: final.id,
-        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : final.tipo === 'PARCELAS' ? 'parcelas' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro`,
+        resumo: `Importação de ${final.tipo === 'CONTATOS' ? 'contatos' : final.tipo === 'PARCELAS' ? 'parcelas' : 'empresas'} "${final.nome}" concluída: ${final.criados} criados, ${final.atualizados} atualizados, ${final.ignorados} ignorados, ${final.erros} com erro${final.filtradas > 0 ? `, ${final.filtradas} fora do filtro` : ''}${final.negociosCriados + final.negociosReconvertidos + final.negociosAtualizados > 0 ? `; negócios: ${final.negociosCriados} criados, ${final.negociosReconvertidos} reconvertidos, ${final.negociosAtualizados} atualizados` : ''}`,
         dados: {
           tipo: final.tipo,
           totalLinhas: final.totalLinhas,
@@ -758,6 +1313,43 @@ export class ImportacaoProcessadorService {
         });
       }
     });
+  }
+
+  /** Uma notificação por responsável com os negócios recebidos (R16.12), no lugar de uma por negócio. */
+  private async notificarResponsaveis(
+    tx: Tx,
+    importacao: Importacao,
+  ): Promise<void> {
+    const porResponsavel = (
+      (importacao.opcoes ?? {}) as Record<string, unknown>
+    )[CHAVE_NOTIFICACOES] as NegociosPorResponsavel | undefined;
+    for (const [responsavelId, n] of Object.entries(porResponsavel ?? {})) {
+      const partes: string[] = [];
+      if (n.criados > 0) {
+        partes.push(`${n.criados} ${n.criados === 1 ? 'negócio' : 'negócios'}`);
+      }
+      if (n.reconvertidos > 0) {
+        partes.push(
+          `${n.reconvertidos} ${n.reconvertidos === 1 ? 'reconversão' : 'reconversões'}`,
+        );
+      }
+      if (partes.length === 0) {
+        continue;
+      }
+      await this.notificacoes.notificar(tx, responsavelId, {
+        tipo: TIPOS_NOTIFICACAO.NEGOCIO_ATRIBUIDO,
+        titulo: 'Negócios novos da importação',
+        texto: `Você recebeu ${partes.join(' e ')} da importação ${importacao.nome}.`,
+        link: lerOpcoes(importacao.opcoes).negocio
+          ? `/funis/${lerOpcoes(importacao.opcoes).negocio?.funilId}`
+          : '/funis',
+        dados: {
+          importacaoId: importacao.id,
+          negociosCriados: n.criados,
+          negociosReconvertidos: n.reconvertidos,
+        },
+      });
+    }
   }
 
   /** A importação inteira falhou (arquivo ilegível…): status FALHOU, sem tentar de novo. */
@@ -798,6 +1390,10 @@ export function cargaDeProgresso(i: Importacao) {
     atualizados: i.atualizados,
     ignorados: i.ignorados,
     erros: i.erros,
+    filtradas: i.filtradas,
+    negociosCriados: i.negociosCriados,
+    negociosReconvertidos: i.negociosReconvertidos,
+    negociosAtualizados: i.negociosAtualizados,
     relatorioId: i.relatorioId,
   };
 }

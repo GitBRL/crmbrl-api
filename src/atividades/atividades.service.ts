@@ -40,6 +40,8 @@ import type {
   FiltroBaseAtividadesDto,
 } from './dto/filtro-atividades.dto';
 import { lerDataHora } from './dto/transformacoes';
+import type { AcessoAosFunis } from '../funis/acesso-funis';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { FUSO_HORARIO_DAS_ATIVIDADES } from './fuso-horario';
 import {
   condicaoAtrasada,
@@ -50,7 +52,6 @@ import {
   GRUPOS_DE_ATIVIDADES,
   marcadoresParaRearmar,
   ordemDoGrupo,
-  podeVerNegocio,
   type QuemConsulta,
   type ReferenciaDeTempo,
   referenciaDeTempo,
@@ -248,7 +249,7 @@ export class AtividadesService {
       }
       return atividade;
     });
-    return this.carregarResposta(criada.id);
+    return this.carregarResposta(criada.id, usuario);
   }
 
   /** Lista paginada do que o usuário pode ver (R6.4), com os filtros. */
@@ -257,7 +258,8 @@ export class AtividadesService {
     filtro: FiltroAtividadesDto,
   ): Promise<Pagina<AtividadeDto>> {
     const referencia = referenciaDeTempo(new Date(), filtro.fusoHorario);
-    const where = this.filtroDaLista(usuario, filtro, referencia);
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const where = this.filtroDaLista(usuario, filtro, referencia, acesso);
     const [itens, total] = await Promise.all([
       this.prisma.atividade.findMany({
         where,
@@ -268,7 +270,9 @@ export class AtividadesService {
       this.prisma.atividade.count({ where }),
     ]);
     return montarPagina(
-      itens.map((atividade) => AtividadeDto.de(atividade, referencia)),
+      itens.map((atividade) =>
+        AtividadeDto.de(semNegocioInvisivel(atividade, acesso), referencia),
+      ),
       total,
       filtro,
     );
@@ -285,7 +289,8 @@ export class AtividadesService {
     filtro: FiltroAgrupadasDto,
   ): Promise<AtividadesAgrupadasDto> {
     const referencia = referenciaDeTempo(new Date(), filtro.fusoHorario);
-    const comuns = this.condicoesComuns(usuario, filtro);
+    const acesso = await funisAcessiveis(this.prisma, usuario);
+    const comuns = this.condicoesComuns(usuario, filtro, acesso);
     const grupos: AtividadesAgrupadasDto['grupos'] = [];
     for (const grupo of GRUPOS_DE_ATIVIDADES) {
       const where: Prisma.AtividadeWhereInput = {
@@ -306,7 +311,9 @@ export class AtividadesService {
         grupo,
         rotulo: ROTULO_DO_GRUPO[grupo],
         total,
-        itens: itens.map((atividade) => AtividadeDto.de(atividade, referencia)),
+        itens: itens.map((atividade) =>
+          AtividadeDto.de(semNegocioInvisivel(atividade, acesso), referencia),
+        ),
       });
     }
     return { referencia: ReferenciaDosGruposDto.de(referencia), grupos };
@@ -324,7 +331,13 @@ export class AtividadesService {
     if (!atividade) {
       throw new NaoEncontradoException('Atividade não encontrada.');
     }
-    return AtividadeDto.de(atividade, this.referenciaPadrao());
+    return AtividadeDto.de(
+      semNegocioInvisivel(
+        atividade,
+        await funisAcessiveis(this.prisma, usuario),
+      ),
+      this.referenciaPadrao(),
+    );
   }
 
   /** Altera os campos enviados (R6.1, R6.2), auditando o antes/depois. */
@@ -424,7 +437,7 @@ export class AtividadesService {
         relacionados: relacionadosDe(atualizada),
       });
     });
-    return this.carregarResposta(id);
+    return this.carregarResposta(id, usuario);
   }
 
   /** R6.2 — conclui a pendente, gravando quando e quem concluiu. */
@@ -466,7 +479,7 @@ export class AtividadesService {
         dadosDoEvento(atualizada),
       );
     });
-    return this.carregarResposta(id);
+    return this.carregarResposta(id, usuario);
   }
 
   /** R6.2 — cancela a pendente. */
@@ -499,7 +512,7 @@ export class AtividadesService {
         'cancelad',
       );
     });
-    return this.carregarResposta(id);
+    return this.carregarResposta(id, usuario);
   }
 
   /** Volta uma concluída ou cancelada para pendente (os lembretes no futuro voltam a valer). */
@@ -535,7 +548,7 @@ export class AtividadesService {
         'reabert',
       );
     });
-    return this.carregarResposta(id);
+    return this.carregarResposta(id, usuario);
   }
 
   private referenciaPadrao(): ReferenciaDeTempo {
@@ -543,12 +556,21 @@ export class AtividadesService {
   }
 
   /** A resposta completa, lida depois que a alteração foi confirmada. */
-  private async carregarResposta(id: string): Promise<AtividadeDto> {
+  private async carregarResposta(
+    id: string,
+    usuario: QuemConsulta,
+  ): Promise<AtividadeDto> {
     const atividade = await this.prisma.atividade.findUniqueOrThrow({
       where: { id },
       include: INCLUSOES_DA_ATIVIDADE,
     });
-    return AtividadeDto.de(atividade, this.referenciaPadrao());
+    return AtividadeDto.de(
+      semNegocioInvisivel(
+        atividade,
+        await funisAcessiveis(this.prisma, usuario),
+      ),
+      this.referenciaPadrao(),
+    );
   }
 
   /**
@@ -608,15 +630,12 @@ export class AtividadesService {
           responsavelId: true,
           contatoId: true,
           empresaId: true,
-          funil: { select: { area: true } },
+          funilId: true,
         },
       });
       if (
         negocio &&
-        podeVerNegocio(usuario, {
-          responsavelId: negocio.responsavelId,
-          area: negocio.funil.area,
-        })
+        (await funisAcessiveis(tx, usuario)).podeVerNegocio(negocio)
       ) {
         encontrados.negocio = {
           contatoId: negocio.contatoId,
@@ -728,6 +747,7 @@ export class AtividadesService {
   private condicoesComuns(
     usuario: UsuarioAutenticado,
     filtro: FiltroBaseAtividadesDto,
+    acesso: AcessoAosFunis,
   ): Prisma.AtividadeWhereInput[] {
     const condicoes: Prisma.AtividadeWhereInput[] = [
       filtroDeVisibilidade(usuario),
@@ -763,7 +783,11 @@ export class AtividadesService {
       condicoes.push({ empresaId: filtro.empresaId });
     }
     if (filtro.negocioId) {
-      condicoes.push({ negocioId: filtro.negocioId });
+      // R5.9: pelas atividades não se descobre negócio de funil que a pessoa não vê.
+      condicoes.push({
+        negocioId: filtro.negocioId,
+        negocio: acesso.filtroDeNegocios(),
+      });
     }
     if (filtro.encaminhadas !== undefined) {
       condicoes.push(
@@ -787,8 +811,9 @@ export class AtividadesService {
     usuario: UsuarioAutenticado,
     filtro: FiltroAtividadesDto,
     referencia: ReferenciaDeTempo,
+    acesso: AcessoAosFunis,
   ): Prisma.AtividadeWhereInput {
-    const condicoes = this.condicoesComuns(usuario, filtro);
+    const condicoes = this.condicoesComuns(usuario, filtro, acesso);
     if (filtro.status && filtro.status.length > 0) {
       condicoes.push({ status: { in: filtro.status } });
     }
@@ -876,4 +901,18 @@ function resumoDaAlteracao(
         : ROTULO_DO_CAMPO[campo],
   );
   return `${rotuloDoTipo(atividade.tipo)} "${atividade.titulo}" ${flexionar(atividade.tipo, 'atualizad')}: ${campos.join(', ')}`;
+}
+
+/**
+ * R5.9: a atividade que a pessoa vê (R6.4) pode ser de um negócio que ela não
+ * vê — o resumo do negócio some da resposta.
+ */
+function semNegocioInvisivel<
+  T extends {
+    negocio: { funilId: string; responsavelId: string | null } | null;
+  },
+>(atividade: T, acesso: AcessoAosFunis): T {
+  return atividade.negocio && !acesso.podeVerNegocio(atividade.negocio)
+    ? { ...atividade, negocio: null }
+    : atividade;
 }

@@ -13,6 +13,8 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { TAMANHO_MAXIMO_EMAIL } from '../../comum/dominio/email';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 import { Papel } from '../../generated/prisma/client';
 import {
   MENSAGEM_PAPEL,
@@ -28,8 +30,8 @@ const informado = (_objeto: object, valor: unknown): boolean =>
 
 /**
  * Edição de um usuário pelo Admin (R1.5). Só os campos enviados mudam. Mudar o
- * papel ou o líder revalida a hierarquia (R1.2, R1.3); desligar e reativar têm
- * rotas próprias.
+ * papel, o setor ou o líder revalida a hierarquia (R1.2, R1.3); desligar e
+ * reativar têm rotas próprias.
  */
 export class AtualizarUsuarioDto {
   @ApiPropertyOptional({ example: 'Ana Souza', maxLength: TAMANHO_MAXIMO_NOME })
@@ -58,11 +60,23 @@ export class AtualizarUsuarioDto {
     enum: Papel,
     enumName: 'Papel',
     description:
-      'Revalida a hierarquia (R1.3). Para Admin e C-level o líder é retirado; o último Admin ativo não é rebaixado (R1.4).',
+      'Revalida a hierarquia (R1.3). Para Admin e C-level o líder e o setor são retirados; o último Admin ativo não é rebaixado (R1.4).',
   })
   @ValidateIf(informado)
   @IsEnum(Papel, { message: MENSAGEM_PAPEL })
   papel?: Papel;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'COMERCIAL',
+    description:
+      'Setor (chave): obrigatório quando o papel é Líder ou Membro; mudar revalida a hierarquia (R1.2, R1.3) ' +
+      'e o novo setor precisa estar ativo (R1.9). Ignorado (fica nulo) para Admin e C-level.',
+  })
+  @IsOptional()
+  @ChaveDeSetor()
+  area?: Area | null;
 
   @ApiPropertyOptional({
     format: 'uuid',

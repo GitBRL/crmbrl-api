@@ -3,11 +3,10 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import {
-  areaDoPapel,
   ehDiretoria,
-  ehLider,
+  ehDoSetor,
+  ehLiderDoSetor,
   ehMembro,
-  papeisDaArea,
   rotuloDaArea,
 } from '../comum/dominio/papeis';
 import {
@@ -15,7 +14,7 @@ import {
   RegraVioladaException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
-import type { Area, FilaAtendimento } from '../generated/prisma/client';
+import type { FilaAtendimento } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { REGRA_ATENDIMENTO } from './atendimento.constantes';
 import { exigirAtendimento } from './conversas.service';
@@ -28,20 +27,18 @@ import type {
   FilaDto,
   FiltroFilasDto,
 } from './dto/fila.dto';
+import { garantirSetorDoAtendimento } from './setor-do-atendimento';
+import type { Area } from '../comum/dominio/setores';
 
-/** Quem configura as filas de uma área: Admin, C-level e o líder da área. */
+/** Quem configura as filas de um setor: Admin, C-level e o líder do setor. */
 export function podeConfigurarArea(
-  usuario: Pick<UsuarioAutenticado, 'papel'>,
+  usuario: Pick<UsuarioAutenticado, 'papel' | 'area'>,
   area: Area | null,
 ): boolean {
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  return (
-    area !== null &&
-    ehLider(usuario.papel) &&
-    areaDoPapel(usuario.papel) === area
-  );
+  return area !== null && ehLiderDoSetor(usuario, area);
 }
 
 const CAMPOS_AUDITADOS = [
@@ -78,7 +75,7 @@ export class FilasService {
         ...(filtro.area ? { area: filtro.area } : {}),
         ...(filtro.incluirInativas ? {} : { ativa: true }),
       },
-      orderBy: [{ area: 'asc' }, { nome: 'asc' }, { id: 'asc' }],
+      orderBy: [{ setor: { ordem: 'asc' } }, { nome: 'asc' }, { id: 'asc' }],
     });
     return Promise.all(
       filas.map((fila) => this.montar(this.prisma, usuario, fila)),
@@ -97,6 +94,7 @@ export class FilasService {
   ): Promise<FilaDto> {
     this.exigirConfigurar(usuario, dto.area);
     const fila = await this.prisma.$transaction(async (tx) => {
+      await garantirSetorDoAtendimento(tx, dto.area);
       const participantes = dto.participantes?.length
         ? await this.validarParticipantes(tx, dto.area, dto.participantes)
         : [];
@@ -140,6 +138,7 @@ export class FilasService {
       const area = dto.area ?? antes.area;
       if (area !== antes.area) {
         this.exigirConfigurar(usuario, area);
+        await garantirSetorDoAtendimento(tx, area);
         const emAberto = await tx.conversa.count({
           where: { filaId: id, status: { not: 'RESOLVIDA' } },
         });
@@ -152,6 +151,9 @@ export class FilasService {
         }
         // A lista era da área antiga: começa vazia na nova.
         await tx.filaParticipante.deleteMany({ where: { filaId: id } });
+      } else if (dto.ativa === true && !antes.ativa) {
+        // R1.9: fila de setor desativado não volta a ficar ativa.
+        await garantirSetorDoAtendimento(tx, area);
       }
       const depois = await tx.filaAtendimento.update({
         where: { id },
@@ -349,15 +351,12 @@ export class FilasService {
   private async pessoaDaArea(tx: Tx, area: Area, usuarioId: string) {
     const pessoa = await tx.usuario.findUnique({
       where: { id: usuarioId },
-      select: { id: true, nome: true, papel: true, ativo: true },
+      select: { id: true, nome: true, papel: true, area: true, ativo: true },
     });
     if (!pessoa) {
       throw new NaoEncontradoException('Pessoa não encontrada.');
     }
-    if (
-      !pessoa.ativo ||
-      !(papeisDaArea(area) as readonly string[]).includes(pessoa.papel)
-    ) {
+    if (!pessoa.ativo || !ehDoSetor(pessoa, area)) {
       throw new RegraVioladaException(
         REGRA_ATENDIMENTO,
         `${pessoa.nome} não é uma pessoa ativa de ${rotuloDaArea(area)}.`,
@@ -381,7 +380,7 @@ export class FilasService {
       where: {
         id: { in: unicos },
         ativo: true,
-        papel: { in: [...papeisDaArea(area)] },
+        area,
       },
       select: { id: true },
     });

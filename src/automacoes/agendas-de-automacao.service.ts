@@ -260,7 +260,10 @@ export class AgendasDeAutomacao {
     if (!segmento) {
       return;
     }
+    // R5.14: as condições de negócio contam os funis que quem criou vê agora.
+    const restricao = await this.segmentos.opcoesDoAutor(automacao.criadoPorId);
     for await (const ids of this.segmentos.iterarIds(segmento, {
+      ...restricao,
       excluirOptOut: automacao.marketing,
       lote: LOTE_DA_VARREDURA,
     })) {

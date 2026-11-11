@@ -18,6 +18,8 @@ import {
 } from '../../comum/criptografia/criptografia.service';
 import { TAMANHO_MAXIMO_EMAIL } from '../../comum/dominio/email';
 import { TODOS_OS_PAPEIS } from '../../comum/dominio/papeis';
+import type { Area } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 import { Papel } from '../../generated/prisma/client';
 import { aparar, emailNormalizado, idEmMinusculas } from './transformacoes';
 
@@ -49,15 +51,32 @@ export class CriarUsuarioDto {
   })
   email: string;
 
-  @ApiProperty({ enum: Papel, enumName: 'Papel' })
+  @ApiProperty({
+    enum: Papel,
+    enumName: 'Papel',
+    description:
+      'O nível: `ADMIN`, `C_LEVEL`, `LIDER` ou `MEMBRO`. O setor vai em `area` (R1).',
+  })
   @IsEnum(Papel, { message: MENSAGEM_PAPEL })
   papel: Papel;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'COMERCIAL',
+    description:
+      'Setor da pessoa (chave, `GET /setores`): obrigatório para Líder e Membro, e precisa estar ativo (R1.9); ' +
+      'Admin e C-level não têm setor (R1.2: ignorado, fica nulo).',
+  })
+  @IsOptional()
+  @ChaveDeSetor()
+  area?: Area | null;
 
   @ApiPropertyOptional({
     format: 'uuid',
     nullable: true,
     description:
-      'Obrigatório para membro (um líder ativo da mesma área) e para líder (um C-level ativo); ' +
+      'Obrigatório para membro (um líder ativo do mesmo setor) e para líder (um C-level ativo); ' +
       'Admin e C-level não têm líder (R1.2).',
   })
   @IsOptional()

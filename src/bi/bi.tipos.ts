@@ -1,4 +1,4 @@
-import type { Area } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
 export type PainelBi =
   'marketing' | 'comercial' | 'cs' | 'atendimento' | 'sdr' | 'financeiro';

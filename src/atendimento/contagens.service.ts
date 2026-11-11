@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { areaDoPapel, papeisDaArea } from '../comum/dominio/papeis';
+import { type ComPapel, setorDaPessoa } from '../comum/dominio/papeis';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
-import type { Papel, Prisma } from '../generated/prisma/client';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
 import { EVENTO_CONTAGENS_ATENDIMENTO } from './atendimento.constantes';
@@ -36,14 +36,11 @@ export class ContagensDoAtendimento implements OnModuleInit {
   }
 
   /** Filtro das conversas que contam para a pessoa. */
-  filtro(usuario: {
-    id: string;
-    papel: Papel;
-  }): Prisma.ConversaWhereInput | null {
-    if (!podeUsarAtendimento(usuario.papel)) {
+  filtro(usuario: ComPapel & { id: string }): Prisma.ConversaWhereInput | null {
+    if (!podeUsarAtendimento(usuario)) {
       return null;
     }
-    const area = areaDoPapel(usuario.papel);
+    const area = setorDaPessoa(usuario);
     return {
       status: { not: 'RESOLVIDA' },
       naoLidas: { gt: 0 },
@@ -54,7 +51,7 @@ export class ContagensDoAtendimento implements OnModuleInit {
     };
   }
 
-  async contar(usuario: { id: string; papel: Papel }): Promise<number> {
+  async contar(usuario: ComPapel & { id: string }): Promise<number> {
     const filtro = this.filtro(usuario);
     return filtro ? this.prisma.conversa.count({ where: filtro }) : 0;
   }
@@ -71,19 +68,17 @@ export class ContagensDoAtendimento implements OnModuleInit {
     const ids = new Set(
       (afetados.usuarios ?? []).filter((id) => conectados.has(id)),
     );
-    const papeis = (afetados.areas ?? []).flatMap((area) => [
-      ...papeisDaArea(area),
-    ]);
+    const areas = afetados.areas ?? [];
     const usuarios = await this.prisma.usuario.findMany({
       where: {
         ativo: true,
         id: { in: [...conectados] },
         OR: [
           { id: { in: [...ids] } },
-          ...(papeis.length > 0 ? [{ papel: { in: papeis } }] : []),
+          ...(areas.length > 0 ? [{ area: { in: [...areas] } }] : []),
         ],
       },
-      select: { id: true, papel: true },
+      select: { id: true, papel: true, area: true },
     });
     for (const usuario of usuarios) {
       try {

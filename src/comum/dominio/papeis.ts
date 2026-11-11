@@ -1,118 +1,105 @@
 /**
- * Papéis, áreas e hierarquia (R1, tabela da seção 1 das regras).
+ * Papéis, setores e hierarquia (R1, tabela da seção 1 das regras).
  *
- * | Papel           | Área      | Nível         | Líder obrigatório       |
- * | --------------- | --------- | ------------- | ----------------------- |
- * | ADMIN           | —         | ADMINISTRADOR | não tem                 |
- * | C_LEVEL         | —         | DIRETORIA     | não tem                 |
- * | LIDER_COMERCIAL | COMERCIAL | LIDER         | um C_LEVEL ativo        |
- * | COMERCIAL       | COMERCIAL | MEMBRO        | um LIDER_COMERCIAL ativo|
- * | LIDER_MARKETING | MARKETING | LIDER         | um C_LEVEL ativo        |
- * | MARKETING       | MARKETING | MEMBRO        | um LIDER_MARKETING ativo|
- * | LIDER_CS        | CS        | LIDER         | um C_LEVEL ativo        |
- * | CS              | CS        | MEMBRO        | um LIDER_CS ativo       |
+ * O papel é só o nível; o setor da pessoa fica em `usuarios.area` (obrigatório
+ * para Líder e Membro, nulo para Admin e C-level — um CHECK no banco garante).
+ *
+ * | Papel   | Setor       | Nível         | Líder obrigatório                 |
+ * | ------- | ----------- | ------------- | --------------------------------- |
+ * | ADMIN   | —           | ADMINISTRADOR | não tem                           |
+ * | C_LEVEL | —           | DIRETORIA     | não tem                           |
+ * | LIDER   | obrigatório | LIDER         | um C_LEVEL ativo                  |
+ * | MEMBRO  | obrigatório | MEMBRO        | um LIDER ativo do mesmo setor     |
  */
-import { Area, Papel } from '../../generated/prisma/client';
+import { Papel } from '../../generated/prisma/client';
+import { type Area, nomeDoSetor } from './setores';
 
 export type NivelPapel = 'ADMINISTRADOR' | 'DIRETORIA' | 'LIDER' | 'MEMBRO';
 
+/** O papel e o setor de uma pessoa: o mínimo das regras de acesso (cabe um `UsuarioAutenticado`). */
+export interface ComPapel {
+  readonly papel: Papel;
+  /** Setor (chave); `null` para Admin e C-level. */
+  readonly area: Area | null;
+}
+
 export interface DefinicaoPapel {
   readonly papel: Papel;
+  /** Rótulo do nível ("Líder", "Membro"); o rótulo completo leva o setor (`rotuloDoPapel`). */
   readonly rotulo: string;
-  /** `null` para Admin e C-level (sem área). */
-  readonly area: Area | null;
   readonly nivel: NivelPapel;
+  /** Líder e Membro têm setor; Admin e C-level não. */
+  readonly temSetor: boolean;
 }
 
 export const DEFINICOES_DE_PAPEL: Readonly<Record<Papel, DefinicaoPapel>> = {
   ADMIN: {
     papel: 'ADMIN',
     rotulo: 'Admin',
-    area: null,
     nivel: 'ADMINISTRADOR',
+    temSetor: false,
   },
   C_LEVEL: {
     papel: 'C_LEVEL',
     rotulo: 'C-level',
-    area: null,
     nivel: 'DIRETORIA',
+    temSetor: false,
   },
-  LIDER_COMERCIAL: {
-    papel: 'LIDER_COMERCIAL',
-    rotulo: 'Líder Comercial',
-    area: 'COMERCIAL',
-    nivel: 'LIDER',
-  },
-  COMERCIAL: {
-    papel: 'COMERCIAL',
-    rotulo: 'Comercial',
-    area: 'COMERCIAL',
+  LIDER: { papel: 'LIDER', rotulo: 'Líder', nivel: 'LIDER', temSetor: true },
+  MEMBRO: {
+    papel: 'MEMBRO',
+    rotulo: 'Membro',
     nivel: 'MEMBRO',
+    temSetor: true,
   },
-  LIDER_MARKETING: {
-    papel: 'LIDER_MARKETING',
-    rotulo: 'Líder Marketing',
-    area: 'MARKETING',
-    nivel: 'LIDER',
-  },
-  MARKETING: {
-    papel: 'MARKETING',
-    rotulo: 'Marketing',
-    area: 'MARKETING',
-    nivel: 'MEMBRO',
-  },
-  LIDER_CS: {
-    papel: 'LIDER_CS',
-    rotulo: 'Líder CS',
-    area: 'CS',
-    nivel: 'LIDER',
-  },
-  CS: { papel: 'CS', rotulo: 'CS', area: 'CS', nivel: 'MEMBRO' },
-};
-
-export const ROTULO_DA_AREA: Readonly<Record<Area, string>> = {
-  MARKETING: 'Marketing',
-  COMERCIAL: 'Comercial',
-  CS: 'Customer Success',
 };
 
 /** Todos os papéis, na ordem do enum. */
 export const TODOS_OS_PAPEIS: readonly Papel[] = Object.values(Papel);
 
-/** Todas as áreas, na ordem do enum. */
-export const TODAS_AS_AREAS: readonly Area[] = Object.values(Area);
-
-const LIDER_DA_AREA: Readonly<Record<Area, Papel>> = {
-  MARKETING: 'LIDER_MARKETING',
-  COMERCIAL: 'LIDER_COMERCIAL',
-  CS: 'LIDER_CS',
-};
-
-const MEMBRO_DA_AREA: Readonly<Record<Area, Papel>> = {
-  MARKETING: 'MARKETING',
-  COMERCIAL: 'COMERCIAL',
-  CS: 'CS',
-};
-
 export function definicaoDoPapel(papel: Papel): DefinicaoPapel {
   return DEFINICOES_DE_PAPEL[papel];
-}
-
-/** Área do papel; `null` para Admin e C-level. */
-export function areaDoPapel(papel: Papel): Area | null {
-  return DEFINICOES_DE_PAPEL[papel].area;
 }
 
 export function nivelDoPapel(papel: Papel): NivelPapel {
   return DEFINICOES_DE_PAPEL[papel].nivel;
 }
 
-export function rotuloDoPapel(papel: Papel): string {
+/** Líder e Membro têm setor; Admin e C-level não (R1.2). */
+export function papelTemSetor(papel: Papel): boolean {
+  return DEFINICOES_DE_PAPEL[papel].temSetor;
+}
+
+/**
+ * Rótulo do papel com o setor (R1): "Admin", "C-level", "Líder Comercial",
+ * "Comercial" (o membro leva só o nome do setor).
+ */
+export function rotuloDoPapel(papel: Papel, area?: Area | null): string {
+  return rotuloComNomeDoSetor(papel, area ? nomeDoSetor(area) : null);
+}
+
+/** `rotuloDoPapel` com o nome do setor já em mãos (ex.: lido do banco junto com a pessoa). */
+export function rotuloComNomeDoSetor(
+  papel: Papel,
+  nomeSetor: string | null,
+): string {
+  if (papel === 'LIDER') {
+    return nomeSetor ? `Líder ${nomeSetor}` : 'Líder';
+  }
+  if (papel === 'MEMBRO') {
+    return nomeSetor ?? 'Membro';
+  }
   return DEFINICOES_DE_PAPEL[papel].rotulo;
 }
 
+/** Rótulo do papel de uma pessoa (`rotuloDoPapel(pessoa.papel, pessoa.area)`). */
+export function rotuloDaPessoa(pessoa: ComPapel): string {
+  return rotuloDoPapel(pessoa.papel, pessoa.area);
+}
+
+/** Nome do setor, para mensagens ("Comercial", "Customer Success"…). */
 export function rotuloDaArea(area: Area): string {
-  return ROTULO_DA_AREA[area];
+  return nomeDoSetor(area);
 }
 
 export function ehAdmin(papel: Papel): boolean {
@@ -128,50 +115,68 @@ export function ehDiretoria(papel: Papel): boolean {
   return papel === 'ADMIN' || papel === 'C_LEVEL';
 }
 
-/** Líder de área (Comercial, Marketing ou CS). */
+/** Líder de um setor. */
 export function ehLider(papel: Papel): boolean {
-  return DEFINICOES_DE_PAPEL[papel].nivel === 'LIDER';
+  return papel === 'LIDER';
 }
 
-/** Membro de área (Comercial, Marketing ou CS). */
+/** Membro de um setor. */
 export function ehMembro(papel: Papel): boolean {
-  return DEFINICOES_DE_PAPEL[papel].nivel === 'MEMBRO';
+  return papel === 'MEMBRO';
 }
 
-/** Papel do líder da área (`COMERCIAL` → `LIDER_COMERCIAL`). */
-export function liderDaArea(area: Area): Papel {
-  return LIDER_DA_AREA[area];
+/** A pessoa é do setor (líder ou membro)? */
+export function ehDoSetor(pessoa: ComPapel, area: Area): boolean {
+  return papelTemSetor(pessoa.papel) && pessoa.area === area;
 }
 
-/** Papel do membro da área (`COMERCIAL` → `COMERCIAL`). */
-export function membroDaArea(area: Area): Papel {
-  return MEMBRO_DA_AREA[area];
+/** A pessoa é líder do setor? */
+export function ehLiderDoSetor(pessoa: ComPapel, area: Area): boolean {
+  return pessoa.papel === 'LIDER' && pessoa.area === area;
 }
 
-/** Os dois papéis da área: `[líder, membro]`. */
-export function papeisDaArea(area: Area): readonly [Papel, Papel] {
-  return [LIDER_DA_AREA[area], MEMBRO_DA_AREA[area]];
+/** A pessoa é membro do setor? */
+export function ehMembroDoSetor(pessoa: ComPapel, area: Area): boolean {
+  return pessoa.papel === 'MEMBRO' && pessoa.area === area;
+}
+
+/** Setor da pessoa, se for Líder ou Membro (`null` para Admin e C-level). */
+export function setorDaPessoa(pessoa: ComPapel): Area | null {
+  return papelTemSetor(pessoa.papel) ? pessoa.area : null;
+}
+
+/** O papel e o setor que o líder de alguém precisa ter (R1.2). */
+export interface LiderEsperado {
+  readonly papel: Papel;
+  /** Setor do líder: o do membro; `null` quando o líder é um C-level. */
+  readonly area: Area | null;
 }
 
 /**
- * Papel que o líder de alguém com `papel` precisa ter (R1.2): membro → líder da
- * mesma área; líder → C-level; Admin e C-level → `null` (não têm líder).
+ * Quem pode liderar a pessoa (R1.2): membro → líder do mesmo setor; líder →
+ * C-level; Admin e C-level → `null` (não têm líder).
  */
-export function liderEsperado(papel: Papel): Papel | null {
-  const { area, nivel } = DEFINICOES_DE_PAPEL[papel];
-  if (nivel === 'MEMBRO' && area) {
-    return LIDER_DA_AREA[area];
+export function liderEsperado(pessoa: ComPapel): LiderEsperado | null {
+  if (pessoa.papel === 'MEMBRO' && pessoa.area) {
+    return { papel: 'LIDER', area: pessoa.area };
   }
-  if (nivel === 'LIDER') {
-    return 'C_LEVEL';
+  if (pessoa.papel === 'LIDER') {
+    return { papel: 'C_LEVEL', area: null };
   }
   return null;
 }
 
-/** `papelDoLider` pode liderar `papelDoLiderado`? (R1.2; a checagem de "ativo" fica com quem chama). */
-export function podeLiderar(
-  papelDoLider: Papel,
-  papelDoLiderado: Papel,
-): boolean {
-  return liderEsperado(papelDoLiderado) === papelDoLider;
+/** Rótulo de quem pode liderar ("Líder Comercial", "C-level"). */
+export function rotuloDoLiderEsperado(esperado: LiderEsperado): string {
+  return rotuloDoPapel(esperado.papel, esperado.area);
+}
+
+/** `lider` pode liderar `liderado`? (R1.2; a checagem de "ativo" fica com quem chama). */
+export function podeLiderar(lider: ComPapel, liderado: ComPapel): boolean {
+  const esperado = liderEsperado(liderado);
+  return (
+    esperado !== null &&
+    lider.papel === esperado.papel &&
+    (esperado.area === null || lider.area === esperado.area)
+  );
 }

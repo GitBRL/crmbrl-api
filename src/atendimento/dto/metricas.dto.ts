@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
-import { IsDateString, IsIn, IsOptional, IsUUID } from 'class-validator';
-import { AREAS_DO_ATENDIMENTO, type AreaDoAtendimento } from './fila.dto';
+import { IsDateString, IsNotIn, IsOptional, IsUUID } from 'class-validator';
+import { type Area, SETOR_MARKETING } from '../../comum/dominio/setores';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 import {
-  emMaiusculas,
+  DESCRICAO_SETOR_DO_ATENDIMENTO,
+  MENSAGEM_SETOR_SEM_ATENDIMENTO,
+} from './fila.dto';
+import {
   MENSAGEM_UUID,
   PessoaDto,
   ResumoCanalDto,
@@ -29,13 +32,14 @@ export class FiltroMetricasDoAtendimentoDto {
   ate?: string;
 
   @ApiPropertyOptional({
-    enum: AREAS_DO_ATENDIMENTO,
-    description: 'O líder vê sempre só a sua área.',
+    type: String,
+    example: 'COMERCIAL',
+    description: `${DESCRICAO_SETOR_DO_ATENDIMENTO} O líder vê sempre só o seu setor.`,
   })
   @IsOptional()
-  @Transform(emMaiusculas)
-  @IsIn(AREAS_DO_ATENDIMENTO, { message: 'deve ser COMERCIAL ou CS' })
-  area?: AreaDoAtendimento;
+  @ChaveDeSetor()
+  @IsNotIn([SETOR_MARKETING], { message: MENSAGEM_SETOR_SEM_ATENDIMENTO })
+  area?: Area;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()

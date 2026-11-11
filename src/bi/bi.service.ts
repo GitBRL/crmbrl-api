@@ -40,7 +40,7 @@ export class BiService {
 
   /** Abas que o papel do usuário vê. */
   paineis(usuario: UsuarioAutenticado): PainelBi[] {
-    return paineisDoPapel(usuario.papel);
+    return paineisDoPapel(usuario);
   }
 
   /** `semCache`: ignora o cache e recalcula (o cliente pediu `Cache-Control: no-cache`). */
@@ -51,7 +51,13 @@ export class BiService {
     semCache = false,
   ): Promise<PainelCalculado> {
     this.exigirPainel(usuario, painel);
-    const chave = JSON.stringify([usuario.id, usuario.papel, painel, dto]);
+    const chave = JSON.stringify([
+      usuario.id,
+      usuario.papel,
+      usuario.area,
+      painel,
+      dto,
+    ]);
     if (!semCache) {
       const guardado = this.cache.obter(chave);
       if (guardado) {
@@ -74,7 +80,7 @@ export class BiService {
   }
 
   private exigirPainel(usuario: UsuarioAutenticado, painel: PainelBi): void {
-    if (!podeVerPainel(usuario.papel, painel)) {
+    if (!podeVerPainel(usuario, painel)) {
       throw new SemPermissaoException(
         'Você não tem acesso a este painel do BI.',
         { regra: REGRA_BI },

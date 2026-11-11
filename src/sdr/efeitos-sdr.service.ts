@@ -36,11 +36,12 @@ import {
   MOTIVO_DO_AVISO,
   TransicoesSdrService,
 } from './transicoes-sdr.service';
+import type { Area } from '../comum/dominio/setores';
 
 export type ConversaDoSdr = Conversa & {
   canal: Canal;
   contato: Contato;
-  fila: { area: 'MARKETING' | 'COMERCIAL' | 'CS' } | null;
+  fila: { area: Area } | null;
 };
 
 export interface DadosDoEfeito {

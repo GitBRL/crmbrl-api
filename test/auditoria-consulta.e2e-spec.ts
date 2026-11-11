@@ -643,7 +643,8 @@ describe('Auditoria — consulta (e2e)', () => {
         id: ana.id,
         nome: 'Ana Souza',
         email: 'ana@teste.local',
-        papel: 'COMERCIAL',
+        papel: 'MEMBRO',
+        area: 'COMERCIAL',
         ativo: true,
       },
     });

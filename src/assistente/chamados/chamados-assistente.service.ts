@@ -15,10 +15,8 @@ import {
   RegraVioladaException,
   ServicoIndisponivelException,
 } from '../../comum/erros/excecoes';
-import {
-  DEFINICOES_DE_PAPEL,
-  ROTULO_DA_AREA,
-} from '../../comum/dominio/papeis';
+import { rotuloDoPapel } from '../../comum/dominio/papeis';
+import { nomeDoSetor } from '../../comum/dominio/setores';
 import { FilaService } from '../../fila/fila.service';
 import type {
   AssistenteChamado,
@@ -292,11 +290,9 @@ export class ChamadosAssistenteService implements OnModuleInit {
       { autor: 'pessoa' as const, texto: p.pergunta },
       { autor: 'assistente' as const, texto: p.resposta ?? '' },
     ]);
-    const papel =
-      DEFINICOES_DE_PAPEL[chamado.conversa.papel]?.rotulo ??
-      chamado.conversa.papel;
+    const papel = rotuloDoPapel(chamado.conversa.papel, chamado.conversa.area);
     const area = chamado.conversa.area
-      ? ROTULO_DA_AREA[chamado.conversa.area]
+      ? nomeDoSetor(chamado.conversa.area)
       : '';
     const conversaTexto = conversa
       .map(

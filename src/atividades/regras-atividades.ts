@@ -12,15 +12,14 @@
  */
 import { ehDiretoria, ehLider } from '../comum/dominio/papeis';
 import type { ProblemaDeCampo } from '../comum/validacao/validacao';
-import { podeVerNegocio as podeVerNegocioDoFunil } from '../funis/acesso-funis';
 import type {
-  Area,
   Papel,
   Prisma,
   StatusAtividade,
   TipoAtividade,
 } from '../generated/prisma/client';
 import { type LimitesDoCalendario, limitesDoCalendario } from './fuso-horario';
+import type { Area } from '../comum/dominio/setores';
 
 // ---------------------------------------------------------------------------
 // Textos
@@ -267,6 +266,8 @@ export function ordemDoGrupo(
 export interface QuemConsulta {
   readonly id: string;
   readonly papel: Papel;
+  /** Setor (Líder e Membro); `null` para Admin e C-level. */
+  readonly area: Area | null;
 }
 
 /**
@@ -312,22 +313,6 @@ export function podeVerAtividade(
   return (
     ehLider(usuario.papel) && atividade.liderDoResponsavelId === usuario.id
   );
-}
-
-/**
- * Pode ver o negócio ao qual quer ligar a atividade? É a visibilidade dos
- * negócios do módulo de funis (R5.9, matriz da seção 12) — uma regra só:
- * Admin e C-level, todos; o líder, os da sua área; o membro, os da sua área em
- * que é o responsável e os sem responsável.
- */
-export function podeVerNegocio(
-  usuario: QuemConsulta,
-  negocio: { readonly responsavelId: string | null; readonly area: Area },
-): boolean {
-  return podeVerNegocioDoFunil(usuario, {
-    responsavelId: negocio.responsavelId,
-    funil: { area: negocio.area },
-  });
 }
 
 // ---------------------------------------------------------------------------

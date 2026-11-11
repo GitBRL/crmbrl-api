@@ -1,13 +1,28 @@
 /**
- * Configuração inicial do CRM: funis-base e etapas (R5.2), passagens (R5.7) e
- * regras de distribuição. As `chave`s identificam o que foi criado aqui, mesmo
- * que alguém renomeie depois.
+ * Configuração inicial do CRM: os três setores de base (R1.6), funis-base e
+ * etapas (R5.2), passagens (R5.7) e regras de distribuição. As `chave`s
+ * identificam o que foi criado aqui, mesmo que alguém renomeie depois.
  */
+import {
+  type Area,
+  NOMES_INICIAIS_DOS_SETORES_BASE,
+  SETORES_BASE,
+} from '../comum/dominio/setores';
 import type {
-  Area,
   EstrategiaDistribuicao,
   TipoEtapa,
 } from '../generated/prisma/client';
+
+/** Os setores de base, como a migration os cria (recriados se faltarem). */
+export const SETORES_INICIAIS: readonly {
+  readonly chave: Area;
+  readonly nome: string;
+  readonly ordem: number;
+}[] = SETORES_BASE.map((chave, indice) => ({
+  chave,
+  nome: NOMES_INICIAIS_DOS_SETORES_BASE[chave],
+  ordem: indice + 1,
+}));
 
 export interface EtapaInicial {
   readonly chave: string;
@@ -147,9 +162,5 @@ export const PASSAGENS_INICIAIS: readonly PassagemInicial[] = [
   },
 ];
 
-/** Uma regra de rodízio por área (R5.8), sem líderes por padrão. */
-export const AREAS_COM_RODIZIO: readonly Area[] = [
-  'MARKETING',
-  'COMERCIAL',
-  'CS',
-];
+/** Uma regra de rodízio por setor de base (R5.8), sem líderes por padrão. */
+export const AREAS_COM_RODIZIO: readonly Area[] = SETORES_BASE;

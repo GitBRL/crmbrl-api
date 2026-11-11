@@ -18,7 +18,6 @@ import { UsuarioAtual } from '../auth/decorators';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { ApiRespostasDeErro } from '../comum/erros/documentacao-erros';
 import { ParseIdPipe } from '../comum/validacao/parse-id.pipe';
-import { Area } from '../generated/prisma/client';
 import { DistribuicaoService } from './distribuicao.service';
 import {
   AtualizarRegraDistribuicaoDto,
@@ -26,6 +25,7 @@ import {
   RegraDistribuicaoDto,
 } from './dto/distribuicao.dto';
 import { ParseAreaPipe } from './parse-area.pipe';
+import type { Area } from '../comum/dominio/setores';
 
 /**
  * Rodízio de distribuição por área (R5.8). Matriz: Admin e C-level configuram
@@ -53,7 +53,7 @@ export class DistribuicaoController {
 
   @Get(':area')
   @ApiOperation({ summary: 'Detalha o rodízio de uma área' })
-  @ApiParam({ name: 'area', enum: Area, enumName: 'Area' })
+  @ApiParam({ name: 'area', type: String, example: 'COMERCIAL' })
   @ApiOkResponse({ type: RegraDistribuicaoDto })
   @ApiRespostasDeErro(400)
   detalhar(
@@ -67,7 +67,7 @@ export class DistribuicaoController {
   @ApiOperation({
     summary: 'Define se o líder da área entra no rodízio (R5.8)',
   })
-  @ApiParam({ name: 'area', enum: Area, enumName: 'Area' })
+  @ApiParam({ name: 'area', type: String, example: 'COMERCIAL' })
   @ApiOkResponse({ type: RegraDistribuicaoDto })
   @ApiRespostasDeErro(400)
   atualizar(
@@ -82,7 +82,7 @@ export class DistribuicaoController {
   @ApiOperation({
     summary: 'Inclui ou tira alguém da área do rodízio (ajuste manual)',
   })
-  @ApiParam({ name: 'area', enum: Area, enumName: 'Area' })
+  @ApiParam({ name: 'area', type: String, example: 'COMERCIAL' })
   @ApiOkResponse({ type: RegraDistribuicaoDto })
   @ApiRespostasDeErro(400, 404, 422)
   definirParticipacao(
@@ -98,7 +98,7 @@ export class DistribuicaoController {
   @ApiOperation({
     summary: 'Desfaz o ajuste manual (a pessoa volta a seguir a regra)',
   })
-  @ApiParam({ name: 'area', enum: Area, enumName: 'Area' })
+  @ApiParam({ name: 'area', type: String, example: 'COMERCIAL' })
   @ApiOkResponse({ type: RegraDistribuicaoDto })
   @ApiRespostasDeErro(400, 404)
   removerAjuste(

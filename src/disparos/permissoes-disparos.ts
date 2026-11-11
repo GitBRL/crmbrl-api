@@ -4,10 +4,11 @@
  * da área (e as próprias); Admin e C-level todas.
  */
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
-import type { Area, Prisma } from '../generated/prisma/client';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
+import type { Prisma } from '../generated/prisma/client';
+import type { Area } from '../comum/dominio/setores';
 
-type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel'>;
+type Usuario = Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>;
 
 export interface DonoDeCampanha {
   area: Area | null;
@@ -21,7 +22,7 @@ export function filtroDeCampanhasVisiveis(
   if (ehDiretoria(usuario.papel)) {
     return {};
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   if (ehLider(usuario.papel) && area) {
     return { OR: [{ area }, { criadoPorId: usuario.id }] };
   }
@@ -39,7 +40,7 @@ export function podeVerCampanha(
   if (campanha.criadoPorId === usuario.id) {
     return true;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   return ehLider(usuario.papel) && area !== null && campanha.area === area;
 }
 
@@ -51,7 +52,7 @@ export function podeAprovarCampanha(
   if (ehDiretoria(usuario.papel)) {
     return true;
   }
-  const area = areaDoPapel(usuario.papel);
+  const area = setorDaPessoa(usuario);
   return ehLider(usuario.papel) && area !== null && campanha.area === area;
 }
 
@@ -68,5 +69,5 @@ export function areaDaNovaCampanha(
   if (ehDiretoria(usuario.papel)) {
     return pedida ?? null;
   }
-  return areaDoPapel(usuario.papel);
+  return setorDaPessoa(usuario);
 }

@@ -64,13 +64,17 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Léo Líder',
           email: 'leo@brl.com.br',
-          papel: 'LIDER_COMERCIAL',
+          papel: 'LIDER',
+          area: 'COMERCIAL',
           liderId: cLevel.body.usuario.id,
           senhaTemporaria: SENHA_TEMPORARIA,
         })
         .expect(201);
       expect(lider.body.usuario).toMatchObject({
+        papel: 'LIDER',
+        rotuloPapel: 'Líder Comercial',
         area: 'COMERCIAL',
+        nomeSetor: 'Comercial',
         nivel: 'LIDER',
         lider: { id: cLevel.body.usuario.id, papel: 'C_LEVEL' },
       });
@@ -79,13 +83,16 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Ana Vendas',
           email: 'ana@brl.com.br',
-          papel: 'COMERCIAL',
+          papel: 'MEMBRO',
+          area: 'comercial',
           liderId: lider.body.usuario.id,
           telefone: '(11) 98765-4321',
           senhaTemporaria: SENHA_TEMPORARIA,
         })
         .expect(201);
       expect(membro.body.usuario).toMatchObject({
+        papel: 'MEMBRO',
+        rotuloPapel: 'Comercial',
         area: 'COMERCIAL',
         nivel: 'MEMBRO',
         telefone: '5511987654321',
@@ -112,7 +119,7 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       expect(resposta.body.deveTrocarSenha).toBe(true);
     });
 
-    it('cenário 2 — R1.2: membro com líder de outra área é recusado com mensagem clara', async () => {
+    it('cenário 2 — R1.2: membro com líder de outro setor é recusado com mensagem clara', async () => {
       const { lider: liderDeMarketing } = await criarEquipe(t, 'MARKETING', {
         membros: 0,
       });
@@ -120,18 +127,20 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Ana Vendas',
           email: 'ana@brl.com.br',
-          papel: 'COMERCIAL',
+          papel: 'MEMBRO',
+          area: 'COMERCIAL',
           liderId: liderDeMarketing.id,
           senhaTemporaria: SENHA_TEMPORARIA,
         })
         .expect(422);
       expect(resposta.body).toMatchObject({
         erro: 'regra_violada',
-        mensagem: `O líder de quem é Comercial precisa ser um Líder Comercial ativo, da mesma área — ${liderDeMarketing.nome} é Líder Marketing, de outra área.`,
+        mensagem: `O líder de quem é Comercial precisa ser um Líder Comercial ativo, do mesmo setor — ${liderDeMarketing.nome} é Líder Marketing, de outro setor.`,
         detalhes: {
           regra: 'R1.2',
-          liderEsperado: 'LIDER_COMERCIAL',
-          papelDoLider: 'LIDER_MARKETING',
+          liderEsperado: { papel: 'LIDER', area: 'COMERCIAL' },
+          papelDoLider: 'LIDER',
+          areaDoLider: 'MARKETING',
         },
       });
       expect(
@@ -144,14 +153,18 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Léo Líder',
           email: 'leo@brl.com.br',
-          papel: 'LIDER_CS',
+          papel: 'LIDER',
+          area: 'CS',
           senhaTemporaria: SENHA_TEMPORARIA,
         })
         .expect(422);
       expect(semLider.body).toMatchObject({
         mensagem:
-          'Quem é Líder CS precisa de um C-level ativo como líder (o C-level responsável).',
-        detalhes: { regra: 'R1.2', liderEsperado: 'C_LEVEL' },
+          'Quem é Líder Customer Success precisa de um C-level ativo como líder (o C-level responsável).',
+        detalhes: {
+          regra: 'R1.2',
+          liderEsperado: { papel: 'C_LEVEL', area: null },
+        },
       });
 
       const { lider: outroLider } = await criarEquipe(t, 'COMERCIAL', {
@@ -161,13 +174,14 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Léo Líder',
           email: 'leo@brl.com.br',
-          papel: 'LIDER_CS',
+          papel: 'LIDER',
+          area: 'CS',
           liderId: outroLider.id,
           senhaTemporaria: SENHA_TEMPORARIA,
         })
         .expect(422);
       expect(comLiderErrado.body.mensagem).toBe(
-        `O líder de quem é Líder CS precisa ser um C-level ativo — ${outroLider.nome} é Líder Comercial.`,
+        `O líder de quem é Líder Customer Success precisa ser um C-level ativo — ${outroLider.nome} é Líder Comercial.`,
       );
     });
 
@@ -194,7 +208,8 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Cris CS',
           email: 'cris@brl.com.br',
-          papel: 'CS',
+          papel: 'MEMBRO',
+          area: 'CS',
           liderId: lider.id,
           senhaTemporaria: SENHA_TEMPORARIA,
         })
@@ -207,7 +222,8 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         .post('/api/v1/usuarios', {
           nome: 'Cris CS',
           email: 'cris@brl.com.br',
-          papel: 'CS',
+          papel: 'MEMBRO',
+          area: 'CS',
           liderId: '00000000-0000-4000-8000-000000000000',
           senhaTemporaria: SENHA_TEMPORARIA,
         })
@@ -311,18 +327,24 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
   });
 
   describe('edição (R1.3, R1.4)', () => {
-    it('R1.3 — líder com liderados não deixa de ser líder nem muda de área: o erro lista quem precisa de novo líder', async () => {
+    it('R1.3 — líder com liderados não deixa de ser líder nem muda de setor: o erro lista quem precisa de novo líder', async () => {
       const { lider, membros } = await criarEquipe(t, 'COMERCIAL');
       const rebaixar = await comoAdmin
-        .patch(`/api/v1/usuarios/${lider.id}`, { papel: 'COMERCIAL' })
+        .patch(`/api/v1/usuarios/${lider.id}`, { papel: 'MEMBRO' })
         .expect(422);
       expect(rebaixar.body).toMatchObject({
         erro: 'regra_violada',
         detalhes: {
           regra: 'R1.3',
-          novoPapel: 'COMERCIAL',
+          novoPapel: 'MEMBRO',
+          novaArea: 'COMERCIAL',
           liderados: expect.arrayContaining(
-            membros.map(({ id, nome }) => ({ id, nome, papel: 'COMERCIAL' })),
+            membros.map(({ id, nome }) => ({
+              id,
+              nome,
+              papel: 'MEMBRO',
+              area: 'COMERCIAL',
+            })),
           ),
         },
       });
@@ -334,7 +356,7 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       }
 
       const mudarDeArea = await comoAdmin
-        .patch(`/api/v1/usuarios/${lider.id}`, { papel: 'LIDER_MARKETING' })
+        .patch(`/api/v1/usuarios/${lider.id}`, { area: 'MARKETING' })
         .expect(422);
       expect(mudarDeArea.body.detalhes.regra).toBe('R1.3');
 
@@ -349,12 +371,14 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       }
       const mudou = await comoAdmin
         .patch(`/api/v1/usuarios/${lider.id}`, {
-          papel: 'COMERCIAL',
+          papel: 'MEMBRO',
           liderId: outroLider.id,
         })
         .expect(200);
       expect(mudou.body).toMatchObject({
-        papel: 'COMERCIAL',
+        papel: 'MEMBRO',
+        area: 'COMERCIAL',
+        rotuloPapel: 'Comercial',
         lider: { id: outroLider.id },
       });
     });
@@ -365,9 +389,17 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       });
       const [membro] = membros;
       const semNovoLider = await comoAdmin
-        .patch(`/api/v1/usuarios/${membro.id}`, { papel: 'MARKETING' })
+        .patch(`/api/v1/usuarios/${membro.id}`, { area: 'MARKETING' })
         .expect(422);
       expect(semNovoLider.body.detalhes.regra).toBe('R1.2');
+      // Setor que não existe: 422 (R1.9).
+      const setorInexistente = await comoAdmin
+        .patch(`/api/v1/usuarios/${membro.id}`, { area: 'VENDAS' })
+        .expect(422);
+      expect(setorInexistente.body.detalhes).toMatchObject({
+        regra: 'R1.9',
+        campo: 'area',
+      });
 
       const { lider: liderDeMarketing } = await criarEquipe(t, 'MARKETING', {
         membros: 0,
@@ -375,13 +407,13 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       });
       const mudou = await comoAdmin
         .patch(`/api/v1/usuarios/${membro.id}`, {
-          papel: 'MARKETING',
+          area: 'MARKETING',
           liderId: liderDeMarketing.id,
           nome: 'Nome Novo',
         })
         .expect(200);
       expect(mudou.body).toMatchObject({
-        papel: 'MARKETING',
+        papel: 'MEMBRO',
         area: 'MARKETING',
         nome: 'Nome Novo',
         lider: { id: liderDeMarketing.id },
@@ -390,7 +422,11 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       const promovido = await comoAdmin
         .patch(`/api/v1/usuarios/${membro.id}`, { papel: 'C_LEVEL' })
         .expect(200);
-      expect(promovido.body).toMatchObject({ papel: 'C_LEVEL', lider: null });
+      expect(promovido.body).toMatchObject({
+        papel: 'C_LEVEL',
+        area: null,
+        lider: null,
+      });
 
       const auditoria = await t.prisma.eventoAuditoria.findMany({
         where: { acao: 'usuario.atualizado', entidadeId: membro.id },
@@ -399,7 +435,7 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
       expect(auditoria).toHaveLength(2);
       expect(auditoria[0].dados).toMatchObject({
         alteracoes: {
-          papel: { antes: 'COMERCIAL', depois: 'MARKETING' },
+          area: { antes: 'COMERCIAL', depois: 'MARKETING' },
           nome: { depois: 'Nome Novo' },
           liderId: { depois: liderDeMarketing.id },
         },
@@ -551,11 +587,70 @@ describe('Usuários — gestão, hierarquia e visibilidade (e2e)', () => {
         expect.objectContaining({ id: membros[2].id, ativo: false }),
       ]);
       const pagina = await comoAdmin
-        .get('/api/v1/usuarios?papel=CS&porPagina=2&pagina=2')
+        .get('/api/v1/usuarios?papel=MEMBRO&area=cs&porPagina=2&pagina=2')
         .expect(200);
       expect(pagina.body).toMatchObject({ total: 3, pagina: 2, porPagina: 2 });
       expect(pagina.body.itens).toHaveLength(1);
       await comoAdmin.get('/api/v1/usuarios?ativo=talvez').expect(400);
+    });
+
+    it('R5.11 — busca de pessoas para os editores de acessos: o líder acha pessoas ativas de outros setores, só com o resumo; membro 403', async () => {
+      const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+      const cs = await criarEquipe(t, 'CS', {
+        membros: 2,
+        cLevel: comercial.cLevel,
+      });
+      await t.prisma.usuario.update({
+        where: { id: cs.membros[0].id },
+        data: { nome: 'Bruna Suporte', avatarUrl: '/avatares/bruna.png' },
+      });
+      await t.prisma.usuario.update({
+        where: { id: cs.membros[1].id },
+        data: { ativo: false, desligadoEm: new Date(), nome: 'Bruno Saiu' },
+      });
+      const comoLider = await entrarComo(t, comercial.lider);
+      // A lista de usuários do líder continua só com a equipe dele (R1.5).
+      const equipe = await comoLider
+        .get('/api/v1/usuarios?busca=brun')
+        .expect(200);
+      expect(equipe.body.total).toBe(0);
+
+      const achadas = await comoLider
+        .get('/api/v1/usuarios/opcoes?busca=BRUN')
+        .expect(200);
+      expect(achadas.body).toEqual([
+        {
+          id: cs.membros[0].id,
+          nome: 'Bruna Suporte',
+          avatarUrl: '/avatares/bruna.png',
+          papel: 'MEMBRO',
+          rotuloPapel: 'Customer Success',
+          area: 'CS',
+          nomeSetor: 'Customer Success',
+        },
+      ]);
+      const doCs = await comoLider
+        .get('/api/v1/usuarios/opcoes?area=CS')
+        .expect(200);
+      expect(
+        (doCs.body as { id: string }[]).map(({ id }) => id).sort(),
+      ).toEqual([cs.lider.id, cs.membros[0].id].sort());
+      const todas = await comoLider
+        .get('/api/v1/usuarios/opcoes?limite=50')
+        .expect(200);
+      expect(todas.body).toHaveLength(6); // Admin, C-level, 2 líderes, 2 membros ativos
+      expect(JSON.stringify(todas.body)).not.toContain('@');
+      const limitadas = await comoLider
+        .get('/api/v1/usuarios/opcoes?limite=2')
+        .expect(200);
+      expect(limitadas.body).toHaveLength(2);
+      await comoLider.get('/api/v1/usuarios/opcoes?limite=51').expect(400);
+      await comoLider.get('/api/v1/usuarios/opcoes?area=x-y').expect(400);
+
+      const comoCLevel = await entrarComo(t, comercial.cLevel);
+      await comoCLevel.get('/api/v1/usuarios/opcoes').expect(200);
+      const comoMembro = await entrarComo(t, comercial.membros[0]);
+      await comoMembro.get('/api/v1/usuarios/opcoes').expect(403);
     });
   });
 

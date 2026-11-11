@@ -151,7 +151,7 @@ export class PainelMarketingService {
     usuario: UsuarioAutenticado,
     filtro: FiltroResolvido,
   ): Prisma.Sql {
-    return Prisma.sql`f.area = 'MARKETING'::area AND n.excluido_em IS NULL
+    return Prisma.sql`f.area = 'MARKETING' AND n.excluido_em IS NULL
       AND ${sqlNegociosVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`n.responsavel_id`, filtro.pessoas)}
       AND ${filtro.funilId ? Prisma.sql`n.funil_id = ${filtro.funilId}::uuid` : VERDADEIRO}`;
@@ -165,7 +165,7 @@ export class PainelMarketingService {
     return Prisma.sql`k.excluido_em IS NULL
       AND ${sqlCampanhasVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`k.criado_por_id`, filtro.pessoas)}
-      AND ${filtro.area ? Prisma.sql`k.area = ${filtro.area}::area` : VERDADEIRO}
+      AND ${filtro.area ? Prisma.sql`k.area = ${filtro.area}` : VERDADEIRO}
       AND ${
         filtro.canalId
           ? Prisma.sql`EXISTS (SELECT 1 FROM campanha_canais cc WHERE cc.campanha_id = k.id AND cc.canal_id = ${filtro.canalId}::uuid)`
@@ -203,7 +203,7 @@ export class PainelMarketingService {
           FROM passagem_execucoes pe
           JOIN passagens ps ON ps.id = pe.passagem_id
           JOIN funis fd ON fd.id = ps.funil_destino_id
-          WHERE pe.negocio_origem_id = n.id AND fd.area = 'COMERCIAL'::area
+          WHERE pe.negocio_origem_id = n.id AND fd.area = 'COMERCIAL'
         ) p ON TRUE
         WHERE n.criado_em >= ${de} AND n.criado_em < ${ate}
           AND ${this.condicoesDeLeads(usuario, filtro)}`),
@@ -211,7 +211,7 @@ export class PainelMarketingService {
         SELECT count(*)::int AS passagens
         FROM passagem_execucoes pe
         JOIN passagens ps ON ps.id = pe.passagem_id
-        JOIN funis fd ON fd.id = ps.funil_destino_id AND fd.area = 'COMERCIAL'::area
+        JOIN funis fd ON fd.id = ps.funil_destino_id AND fd.area = 'COMERCIAL'
         JOIN negocios n ON n.id = pe.negocio_origem_id
         JOIN funis f ON f.id = n.funil_id
         WHERE pe.criado_em >= ${de} AND pe.criado_em < ${ate}
@@ -256,7 +256,7 @@ export class PainelMarketingService {
           SELECT 1 FROM passagem_execucoes pe
           JOIN passagens ps ON ps.id = pe.passagem_id
           JOIN funis fd ON fd.id = ps.funil_destino_id
-          WHERE pe.negocio_origem_id = n.id AND fd.area = 'COMERCIAL'::area)))::int AS com_passagem
+          WHERE pe.negocio_origem_id = n.id AND fd.area = 'COMERCIAL')))::int AS com_passagem
       FROM negocios n JOIN funis f ON f.id = n.funil_id
       WHERE n.criado_em >= ${filtro.de} AND n.criado_em < ${filtro.ate}
         AND ${this.condicoesDeLeads(usuario, filtro)}
@@ -325,7 +325,7 @@ export class PainelMarketingService {
         SELECT to_char(pe.criado_em AT TIME ZONE ${FUSO_DO_BI}, 'YYYY-MM-DD') AS dia, count(*)::int AS total
         FROM passagem_execucoes pe
         JOIN passagens ps ON ps.id = pe.passagem_id
-        JOIN funis fd ON fd.id = ps.funil_destino_id AND fd.area = 'COMERCIAL'::area
+        JOIN funis fd ON fd.id = ps.funil_destino_id AND fd.area = 'COMERCIAL'
         JOIN negocios n ON n.id = pe.negocio_origem_id
         JOIN funis f ON f.id = n.funil_id
         WHERE pe.criado_em >= ${filtro.de} AND pe.criado_em < ${filtro.ate}

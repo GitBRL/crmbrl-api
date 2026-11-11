@@ -1,11 +1,15 @@
-import type { Papel } from '../generated/prisma/client';
+import {
+  type PapelDeTeste,
+  pessoa,
+} from '../comum/dominio/papeis-antigos.apoio-spec';
 import {
   filtroDeConversasVisiveis,
   podeUsarAtendimento,
   podeVerConversa,
+  setorUsaAtendimento,
 } from './visibilidade';
 
-const usuario = (papel: Papel, id = 'eu') => ({ id, papel });
+const usuario = (papel: PapelDeTeste, id = 'eu') => pessoa(papel, { id });
 
 describe('visibilidade do Atendimento (R12)', () => {
   const daFilaComercial = (responsavelId: string | null = null) => ({
@@ -27,7 +31,7 @@ describe('visibilidade do Atendimento (R12)', () => {
 
   it('Marketing não acessa o Atendimento, nem as conversas que estiverem com ele', () => {
     for (const papel of ['MARKETING', 'LIDER_MARKETING'] as const) {
-      expect(podeUsarAtendimento(papel)).toBe(false);
+      expect(podeUsarAtendimento(usuario(papel))).toBe(false);
       expect(podeVerConversa(usuario(papel), daFilaComercial('eu'))).toBe(
         false,
       );
@@ -69,5 +73,21 @@ describe('visibilidade do Atendimento (R12)', () => {
         { responsavelId: null, fila: { area: 'CS' } },
       ],
     });
+  });
+
+  it('setores criados usam o Atendimento como Comercial e CS (só o Marketing fica de fora)', () => {
+    expect(setorUsaAtendimento('POS_VENDA')).toBe(true);
+    expect(setorUsaAtendimento('MARKETING')).toBe(false);
+    const membro = { id: 'eu', papel: 'MEMBRO' as const, area: 'POS_VENDA' };
+    expect(podeUsarAtendimento(membro)).toBe(true);
+    expect(
+      podeVerConversa(membro, {
+        responsavelId: null,
+        fila: { area: 'POS_VENDA' },
+      }),
+    ).toBe(true);
+    expect(
+      podeVerConversa(membro, { responsavelId: null, fila: { area: 'CS' } }),
+    ).toBe(false);
   });
 });

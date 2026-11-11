@@ -191,7 +191,7 @@ describe('Assistente de IA e chamados (e2e)', () => {
     expect(p.system[1].text).toContain('Importar contatos de uma planilha');
     expect(p.messages).toHaveLength(1);
     const mensagem = p.messages[0].content;
-    expect(mensagem).toContain('papel: Comercial (área Comercial)');
+    expect(mensagem).toContain('papel: Comercial (setor Comercial)');
     expect(mensagem).toContain('tela: /contatos/:id\n');
     const tudo = JSON.stringify(p);
     for (const proibido of [
@@ -438,7 +438,7 @@ describe('Assistente de IA e chamados (e2e)', () => {
     ).messages[0].content;
     expect(enviada.match(/<\/pergunta>/g)).toHaveLength(1);
     expect(enviada.match(/<contexto>/g)).toHaveLength(1);
-    expect(enviada).toContain('papel: Comercial (área Comercial)');
+    expect(enviada).toContain('papel: Comercial (setor Comercial)');
     expect(enviada).not.toContain('papel: Admin\n');
     const gravada = await t.prisma.assistentePergunta.findFirstOrThrow();
     expect(gravada.resposta).not.toContain('Estas regras valem');
@@ -791,7 +791,7 @@ describe('Assistente de IA e chamados (e2e)', () => {
     const todas = await a.get(`${API}/admin/historico`).expect(200);
     expect(todas.body.total).toBe(4);
     expect(todas.body.itens[0]).toMatchObject({
-      usuario: { papel: 'CS', area: 'CS' },
+      usuario: { papel: 'MEMBRO', area: 'CS' },
       tokens: 2550,
     });
     const filtros: [string, number][] = [

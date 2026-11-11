@@ -19,6 +19,7 @@ DATABASE_URL_TESTE=postgresql://crmbrl:crmbrl@localhost:<porta>/crmbrl npm run t
 ```
 Banco de teste descartável (os testes APAGAM tudo):
 `docker run -d --name crmbrl-teste-<rotulo> -e POSTGRES_USER=crmbrl -e POSTGRES_PASSWORD=crmbrl -e POSTGRES_DB=crmbrl -p 127.0.0.1:<porta>:5432 postgres:17-alpine`.
+Ao terminar: `docker rm -f -v crmbrl-teste-<rotulo>` (com `-v`, senão o volume anônimo, ~500 mil arquivos, fica para trás).
 Rode a suíte e2e completa só na verificação final; durante o trabalho, rode só os arquivos afetados.
 
 ## Mapa

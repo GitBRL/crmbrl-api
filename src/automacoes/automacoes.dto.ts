@@ -18,12 +18,13 @@ import {
 } from 'class-validator';
 import { PaginacaoDto } from '../comum/paginacao/paginacao';
 import {
-  Area,
   LimiteExecucao,
   StatusExecucao,
   TipoGatilhoAutomacao,
 } from '../generated/prisma/client';
 import { CRITERIOS_DE_PARADA } from './automacoes.constantes';
+import type { Area } from '../comum/dominio/setores';
+import { ChaveDeSetor } from '../comum/validacao/setor';
 
 const MENSAGEM_UUID = 'Informe um id válido.';
 
@@ -68,14 +69,14 @@ export class CriarAutomacaoDto {
   descricao?: string | null;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
+    example: 'COMERCIAL',
     nullable: true,
     description:
       'Escopo. Líder: sempre a própria área. Admin/C-level: uma área, ou nula (todas).',
   })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area | null;
 
   @ApiProperty({ enum: TipoGatilhoAutomacao, enumName: 'TipoGatilhoAutomacao' })
@@ -182,9 +183,9 @@ export class CriarDeModeloProntoDto {
   @MaxLength(120)
   nome?: string;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL', nullable: true })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area | null;
 
   @ApiPropertyOptional({
@@ -232,9 +233,9 @@ export class FiltroAutomacoesDto extends PaginacaoDto {
   @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
   ativa?: boolean;
 
-  @ApiPropertyOptional({ enum: Area, enumName: 'Area' })
+  @ApiPropertyOptional({ type: String, example: 'COMERCIAL' })
   @IsOptional()
-  @IsEnum(Area, { message: 'área inválida' })
+  @ChaveDeSetor()
   area?: Area;
 
   @ApiPropertyOptional({

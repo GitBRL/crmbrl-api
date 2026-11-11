@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { papeisDaArea } from '../comum/dominio/papeis';
 import type { FilaAtendimento } from '../generated/prisma/client';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import {
@@ -14,6 +13,7 @@ const SELECAO_DO_USUARIO = {
   id: true,
   nome: true,
   papel: true,
+  area: true,
   avatarUrl: true,
   criadoEm: true,
   acessoAtivadoEm: true,
@@ -72,7 +72,7 @@ export class DistribuicaoDaFila {
   ): Promise<SituacaoDaFila> {
     const [usuarios, linhas, ponteiro] = await Promise.all([
       tx.usuario.findMany({
-        where: { ativo: true, papel: { in: [...papeisDaArea(fila.area)] } },
+        where: { ativo: true, area: fila.area },
         select: SELECAO_DO_USUARIO,
       }),
       tx.filaParticipante.findMany({

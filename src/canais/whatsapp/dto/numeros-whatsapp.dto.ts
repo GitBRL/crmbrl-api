@@ -14,8 +14,9 @@ import {
   ValidateNested,
   type ValidationOptions,
 } from 'class-validator';
-import { Area, StatusWhatsapp } from '../../../generated/prisma/client';
+import { StatusWhatsapp } from '../../../generated/prisma/client';
 import { FAIXAS_DAS_PROTECOES } from '../protecoes';
+import type { Area } from '../../../comum/dominio/setores';
 
 /** Tamanho máximo do nome do número (e do canal). */
 export const TAMANHO_MAXIMO_NOME_NUMERO = 80;
@@ -274,7 +275,7 @@ export class FilaDoNumeroWhatsappDto {
   @ApiProperty({ example: 'Comercial' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 }
 

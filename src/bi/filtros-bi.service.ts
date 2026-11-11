@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { areaDoPapel, ehDiretoria, ehLider } from '../comum/dominio/papeis';
+import { ehDiretoria, ehLider, setorDaPessoa } from '../comum/dominio/papeis';
 import {
   DadosInvalidosException,
   NaoEncontradoException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
+import { funisAcessiveis } from '../funis/acessos-no-banco';
 import { PrismaService } from '../prisma/prisma.service';
 import { REGRA_BI } from './bi.constantes';
 import type { FiltroResolvido, PainelBi } from './bi.tipos';
@@ -35,16 +36,21 @@ export class FiltrosBiService {
       comparar,
       agora,
     );
-    const areaDoUsuario = areaDoPapel(usuario.papel);
+    const areaDoUsuario = setorDaPessoa(usuario);
     if (dto.area && !ehDiretoria(usuario.papel) && dto.area !== areaDoUsuario) {
       throw new SemPermissaoException(
-        'Você só pode consultar a sua própria área.',
+        'Você só pode consultar o seu próprio setor.',
         { regra: REGRA_BI },
       );
     }
     const pessoas = await this.pessoas(usuario, dto);
     const areaDoPainelAtual = areaDoPainel(painel);
-    const funilId = await this.funil(painel, areaDoPainelAtual, dto.funilId);
+    const funilId = await this.funil(
+      usuario,
+      painel,
+      areaDoPainelAtual,
+      dto.funilId,
+    );
     const canalId = await this.canal(painel, dto.canalId);
     const filaId = await this.fila(painel, dto.filaId);
     const area =
@@ -78,7 +84,7 @@ export class FiltrosBiService {
     usuario: UsuarioAutenticado,
     dto: FiltroBiDto,
   ): Promise<string[] | null> {
-    const areaDoUsuario = areaDoPapel(usuario.papel);
+    const areaDoUsuario = setorDaPessoa(usuario);
     let equipe: string[] | null = null;
     if (dto.equipeId) {
       const lider = await this.prisma.usuario.findUnique({
@@ -86,6 +92,7 @@ export class FiltrosBiService {
         select: {
           id: true,
           papel: true,
+          area: true,
           liderados: { select: { id: true } },
         },
       });
@@ -99,10 +106,10 @@ export class FiltrosBiService {
       }
       if (
         !ehDiretoria(usuario.papel) &&
-        areaDoPapel(lider.papel) !== areaDoUsuario
+        setorDaPessoa(lider) !== areaDoUsuario
       ) {
         throw new SemPermissaoException(
-          'Você só pode consultar equipes da sua área.',
+          'Você só pode consultar equipes do seu setor.',
           { regra: REGRA_BI },
         );
       }
@@ -113,19 +120,23 @@ export class FiltrosBiService {
     }
     const pessoa = await this.prisma.usuario.findUnique({
       where: { id: dto.pessoaId },
-      select: { id: true, papel: true },
+      select: { id: true, papel: true, area: true },
     });
     if (
       !pessoa ||
-      (!ehDiretoria(usuario.papel) &&
-        areaDoPapel(pessoa.papel) !== areaDoUsuario)
+      (!ehDiretoria(usuario.papel) && setorDaPessoa(pessoa) !== areaDoUsuario)
     ) {
       throw new NaoEncontradoException('Pessoa não encontrada.');
     }
     return equipe ? equipe.filter((id) => id === pessoa.id) : [pessoa.id];
   }
 
+  /**
+   * O funil do filtro: do setor do painel e visível à pessoa (R5.9) — o que ela
+   * não vê responde como inexistente (404, sem nome nem etapas).
+   */
   private async funil(
+    usuario: UsuarioAutenticado,
     painel: PainelBi,
     areaDoPainelAtual: ReturnType<typeof areaDoPainel>,
     funilId: string | undefined,
@@ -142,7 +153,11 @@ export class FiltrosBiService {
       where: { id: funilId, excluidoEm: null },
       select: { area: true },
     });
-    if (!funil || funil.area !== areaDoPainelAtual) {
+    if (
+      !funil ||
+      funil.area !== areaDoPainelAtual ||
+      !(await funisAcessiveis(this.prisma, usuario)).podeVerFunil(funilId)
+    ) {
       throw new NaoEncontradoException('Funil não encontrado.');
     }
     return funilId;

@@ -1,11 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsUUID } from 'class-validator';
-import { Area } from '../../generated/prisma/client';
+import { IsOptional, IsUUID } from 'class-validator';
+import { ChaveDeSetor } from '../../comum/validacao/setor';
 import { MENSAGEM_UUID } from './criar-usuario.dto';
-import { MENSAGEM_AREA } from './filtro-usuarios.dto';
 import { idEmMinusculas } from './transformacoes';
 import { UsuarioResumoDto } from './usuario.dto';
+import type { Area } from '../../comum/dominio/setores';
 
 /** Filtros da visão de equipes. */
 export class FiltroEquipesDto {
@@ -20,12 +20,12 @@ export class FiltroEquipesDto {
   liderId?: string;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
-    description: 'Só as equipes de líderes desta área.',
+    type: String,
+    example: 'COMERCIAL',
+    description: 'Só as equipes de líderes deste setor (chave).',
   })
   @IsOptional()
-  @IsEnum(Area, { message: MENSAGEM_AREA })
+  @ChaveDeSetor()
   area?: Area;
 }
 
@@ -74,12 +74,20 @@ export class EquipeDto {
   lider: MembroDaEquipeDto;
 
   @ApiPropertyOptional({
-    enum: Area,
-    enumName: 'Area',
+    type: String,
     nullable: true,
-    description: 'Área da equipe; nula para a equipe de um C-level.',
+    example: 'COMERCIAL',
+    description: 'Setor da equipe (chave); nulo para a equipe de um C-level.',
   })
   area: Area | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Comercial',
+    description: 'Nome do setor da equipe; nulo para a equipe de um C-level.',
+  })
+  nomeSetor: string | null;
 
   @ApiProperty({ type: [MembroDaEquipeDto] })
   membros: MembroDaEquipeDto[];

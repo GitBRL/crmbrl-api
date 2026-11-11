@@ -1,4 +1,7 @@
-import type { Papel } from '../generated/prisma/client';
+import {
+  type PapelDeTeste,
+  pessoa,
+} from '../comum/dominio/papeis-antigos.apoio-spec';
 import {
   areaDaNovaAutomacao,
   filtroDeAutomacoesVisiveis,
@@ -7,7 +10,7 @@ import {
   podeUsarAutomacoes,
 } from './permissoes-automacoes';
 
-const usuario = (papel: Papel) => ({ id: 'u1', papel });
+const usuario = (papel: PapelDeTeste) => pessoa(papel, { id: 'u1' });
 
 describe('Permissões das automações (R19.1)', () => {
   it('R19.1 — Admin, C-level e líderes usam; membros não', () => {
@@ -17,10 +20,10 @@ describe('Permissões das automações (R19.1)', () => {
       'LIDER_COMERCIAL',
       'LIDER_MARKETING',
       'LIDER_CS',
-    ] as Papel[]) {
+    ] as PapelDeTeste[]) {
       expect(podeUsarAutomacoes(usuario(papel))).toBe(true);
     }
-    for (const papel of ['COMERCIAL', 'MARKETING', 'CS'] as Papel[]) {
+    for (const papel of ['COMERCIAL', 'MARKETING', 'CS'] as PapelDeTeste[]) {
       expect(podeUsarAutomacoes(usuario(papel))).toBe(false);
     }
   });

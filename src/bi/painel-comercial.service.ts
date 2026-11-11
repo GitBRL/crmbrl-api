@@ -12,7 +12,6 @@ import {
   type Valores,
 } from './cartoes';
 import {
-  papeisDaArea,
   sqlAtividadesVisiveis,
   sqlNegociosVisiveis,
   sqlPessoas,
@@ -175,7 +174,7 @@ export class PainelComercialService {
     usuario: UsuarioAutenticado,
     filtro: FiltroResolvido,
   ): Prisma.Sql {
-    return Prisma.sql`f.area = 'COMERCIAL'::area AND n.excluido_em IS NULL
+    return Prisma.sql`f.area = 'COMERCIAL' AND n.excluido_em IS NULL
       AND ${sqlNegociosVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`n.responsavel_id`, filtro.pessoas)}
       AND ${filtro.funilId ? Prisma.sql`n.funil_id = ${filtro.funilId}::uuid` : VERDADEIRO}`;
@@ -187,7 +186,7 @@ export class PainelComercialService {
     filtro: FiltroResolvido,
   ): Prisma.Sql {
     return Prisma.sql`a.tipo <> 'NOTA'::tipo_atividade
-      AND r.papel = ANY(${papeisDaArea('COMERCIAL')}::papel[])
+      AND r.area = 'COMERCIAL'
       AND ${sqlAtividadesVisiveis(usuario)}
       AND ${sqlPessoas(Prisma.sql`a.responsavel_id`, filtro.pessoas)}`;
   }

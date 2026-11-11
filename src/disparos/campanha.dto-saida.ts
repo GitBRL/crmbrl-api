@@ -1,12 +1,12 @@
 import type { ArquivoDto } from '../arquivos/arquivos.dto';
 import type {
-  Area,
   Campanha,
   StatusCampanha,
   TipoCanal,
   TipoPublico,
 } from '../generated/prisma/client';
 import type { ContadoresDaCampanha } from './progresso-da-campanha.service';
+import type { Area } from '../comum/dominio/setores';
 
 /** O que a pessoa pode fazer com a campanha agora (o front mostra só os botões que cabem). */
 export interface AcoesDaCampanha {

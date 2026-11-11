@@ -1,3 +1,4 @@
+import { papelESetor as comPapel } from '../comum/dominio/papeis-antigos.apoio-spec';
 import type {
   StatusAtividade,
   TipoAtividade,
@@ -11,7 +12,6 @@ import {
   grupoDaAtividade,
   marcadoresParaRearmar,
   podeVerAtividade,
-  podeVerNegocio,
   prazoDaAtividade,
   referenciaDeTempo,
   resolverDatas,
@@ -120,77 +120,75 @@ describe('regras das atividades (R6)', () => {
 
     it('veem: responsável, quem criou, o líder do responsável, C-level e Admin', () => {
       expect(
-        podeVerAtividade({ id: 'membro-1', papel: 'COMERCIAL' }, atividadeDe),
-      ).toBe(true);
-      expect(
-        podeVerAtividade({ id: 'membro-2', papel: 'COMERCIAL' }, atividadeDe),
-      ).toBe(true);
-      expect(
         podeVerAtividade(
-          { id: 'lider-1', papel: 'LIDER_COMERCIAL' },
+          { id: 'membro-1', ...comPapel('COMERCIAL') },
           atividadeDe,
         ),
       ).toBe(true);
       expect(
-        podeVerAtividade({ id: 'c-level', papel: 'C_LEVEL' }, atividadeDe),
+        podeVerAtividade(
+          { id: 'membro-2', ...comPapel('COMERCIAL') },
+          atividadeDe,
+        ),
       ).toBe(true);
       expect(
-        podeVerAtividade({ id: 'admin', papel: 'ADMIN' }, atividadeDe),
+        podeVerAtividade(
+          { id: 'lider-1', ...comPapel('LIDER_COMERCIAL') },
+          atividadeDe,
+        ),
+      ).toBe(true);
+      expect(
+        podeVerAtividade(
+          { id: 'c-level', ...comPapel('C_LEVEL') },
+          atividadeDe,
+        ),
+      ).toBe(true);
+      expect(
+        podeVerAtividade({ id: 'admin', ...comPapel('ADMIN') }, atividadeDe),
       ).toBe(true);
     });
 
     it('não veem: colega de equipe, líder de outra equipe', () => {
       expect(
-        podeVerAtividade({ id: 'membro-3', papel: 'COMERCIAL' }, atividadeDe),
+        podeVerAtividade(
+          { id: 'membro-3', ...comPapel('COMERCIAL') },
+          atividadeDe,
+        ),
       ).toBe(false);
       expect(
-        podeVerAtividade({ id: 'lider-2', papel: 'LIDER_CS' }, atividadeDe),
+        podeVerAtividade(
+          { id: 'lider-2', ...comPapel('LIDER_CS') },
+          atividadeDe,
+        ),
       ).toBe(false);
       // Um membro com o mesmo id de líder no registro não ganha a visão de líder.
       expect(
-        podeVerAtividade({ id: 'lider-1', papel: 'COMERCIAL' }, atividadeDe),
+        podeVerAtividade(
+          { id: 'lider-1', ...comPapel('COMERCIAL') },
+          atividadeDe,
+        ),
       ).toBe(false);
     });
 
     it('o filtro Prisma segue a mesma regra', () => {
-      expect(filtroDeVisibilidade({ id: 'x', papel: 'ADMIN' })).toEqual({});
-      expect(filtroDeVisibilidade({ id: 'x', papel: 'C_LEVEL' })).toEqual({});
-      expect(filtroDeVisibilidade({ id: 'x', papel: 'CS' })).toEqual({
+      expect(filtroDeVisibilidade({ id: 'x', ...comPapel('ADMIN') })).toEqual(
+        {},
+      );
+      expect(filtroDeVisibilidade({ id: 'x', ...comPapel('C_LEVEL') })).toEqual(
+        {},
+      );
+      expect(filtroDeVisibilidade({ id: 'x', ...comPapel('CS') })).toEqual({
         OR: [{ responsavelId: 'x' }, { criadoPorId: 'x' }],
       });
-      expect(filtroDeVisibilidade({ id: 'x', papel: 'LIDER_CS' })).toEqual({
+      expect(
+        filtroDeVisibilidade({ id: 'x', ...comPapel('LIDER_CS') }),
+      ).toEqual({
         OR: [
           { responsavelId: 'x' },
           { criadoPorId: 'x' },
           { responsavel: { liderId: 'x' } },
         ],
       });
-    });
-
-    it('ligar a um negócio exige poder vê-lo (R5.9)', () => {
-      const negocio = { responsavelId: 'outro', area: 'COMERCIAL' as const };
-      expect(podeVerNegocio({ id: 'a', papel: 'ADMIN' }, negocio)).toBe(true);
-      expect(
-        podeVerNegocio({ id: 'l', papel: 'LIDER_COMERCIAL' }, negocio),
-      ).toBe(true);
-      expect(podeVerNegocio({ id: 'm', papel: 'COMERCIAL' }, negocio)).toBe(
-        false,
-      );
-      expect(
-        podeVerNegocio(
-          { id: 'm', papel: 'COMERCIAL' },
-          { responsavelId: null, area: 'COMERCIAL' },
-        ),
-      ).toBe(true);
-      expect(
-        podeVerNegocio(
-          { id: 'm', papel: 'COMERCIAL' },
-          { responsavelId: 'm', area: 'COMERCIAL' },
-        ),
-      ).toBe(true);
-      expect(podeVerNegocio({ id: 'l', papel: 'LIDER_CS' }, negocio)).toBe(
-        false,
-      );
     });
   });
 

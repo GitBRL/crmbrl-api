@@ -8,7 +8,8 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 import type { Utm } from '../../comum/dominio/utm';
-import { Area, TipoEtapa } from '../../generated/prisma/client';
+import { TipoEtapa } from '../../generated/prisma/client';
+import type { Area } from '../../comum/dominio/setores';
 
 /**
  * Campo opcional que, quando vem, não pode ser `null` (o `@IsOptional` do
@@ -56,7 +57,7 @@ export class ResumoFunilDto {
   @ApiProperty({ example: 'Comercial' })
   nome: string;
 
-  @ApiProperty({ enum: Area, enumName: 'Area' })
+  @ApiProperty({ type: String, example: 'COMERCIAL' })
   area: Area;
 }
 

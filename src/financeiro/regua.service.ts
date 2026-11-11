@@ -116,7 +116,7 @@ export class ReguaService implements OnModuleInit {
 
   /** "Executar agora" (R24.2): só a gestão. */
   async executarAgora(usuario: UsuarioAutenticado) {
-    if (!podeGerenciarARegua(usuario.papel)) {
+    if (!podeGerenciarARegua(usuario)) {
       throw new SemPermissaoException(
         'Só Admin, C-level e Líder de CS executam a régua.',
         { regra: 'R22.1' },

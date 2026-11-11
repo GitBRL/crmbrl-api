@@ -23,30 +23,72 @@ e ganham seções aqui quando forem detalhadas.
 
 ---
 
-## 1. Papéis, áreas e hierarquia
+## 1. Papéis, setores e hierarquia
 
-| Papel | Área | Nível | Líder obrigatório |
+O **papel** é só o nível; o **setor** (a "área") da pessoa é um dado à parte, obrigatório
+para Líder e Membro e vazio para Admin e C-level (o banco garante). Rótulos: Admin,
+C-level, "Líder " + nome do setor (ex.: "Líder Comercial") e, para o membro, o nome do
+setor (ex.: "Comercial").
+
+| Papel | Setor | Nível | Líder obrigatório |
 | --- | --- | --- | --- |
-| `ADMIN` | Sistema | administrador | não tem |
-| `C_LEVEL` | Diretoria | diretoria | não tem |
-| `LIDER_COMERCIAL` | Comercial | líder | um `C_LEVEL` ativo |
-| `COMERCIAL` | Comercial | membro | um `LIDER_COMERCIAL` ativo |
-| `LIDER_MARKETING` | Marketing | líder | um `C_LEVEL` ativo |
-| `MARKETING` | Marketing | membro | um `LIDER_MARKETING` ativo |
-| `LIDER_CS` | Customer Success | líder | um `C_LEVEL` ativo |
-| `CS` | Customer Success | membro | um `LIDER_CS` ativo |
+| `ADMIN` | — (Sistema) | administrador | não tem |
+| `C_LEVEL` | — (Diretoria) | diretoria | não tem |
+| `LIDER` | obrigatório | líder | um `C_LEVEL` ativo |
+| `MEMBRO` | obrigatório | membro | um `LIDER` ativo **do mesmo setor** |
+
+Setores de base (chave → nome inicial): `MARKETING` → Marketing, `COMERCIAL` → Comercial,
+`CS` → Customer Success. Até 10/11/2026 o papel misturava nível e área (`LIDER_COMERCIAL`,
+`COMERCIAL`, `LIDER_MARKETING`, `MARKETING`, `LIDER_CS`, `CS`); a migration `setores`
+converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
 
 - **R1.1** E-mail único, comparado sem diferença de maiúsculas; gravado aparado e em
   minúsculas.
-- **R1.2** O líder de um membro é um líder **da mesma área** e ativo. O líder de um líder é
-  um C-level ativo (o "C-level responsável"). Admin e C-level não têm líder.
-- **R1.3** Mudar o papel revalida a hierarquia. Um líder com liderados não pode deixar de
-  ser líder (nem mudar de área) enquanto houver liderados: o erro lista quem precisa de novo
-  líder.
+- **R1.2** O líder de um membro é um líder **do mesmo setor** e ativo. O líder de um líder
+  é um C-level ativo (o "C-level responsável"). Admin e C-level não têm líder nem setor.
+- **R1.3** Mudar o papel ou o setor revalida a hierarquia. Um líder com liderados não pode
+  deixar de ser líder (nem mudar de setor) enquanto houver liderados: o erro lista quem
+  precisa de novo líder.
 - **R1.4** Sempre existe pelo menos um Admin ativo: o último não pode ser desligado nem
   rebaixado.
 - **R1.5** Só o Admin cria, edita, desliga, reativa e redefine senha de usuários. C-level
   vê todos; líder vê a própria equipe; membro vê a si mesmo.
+- **R1.6** **Setores:** os três de base e os criados por Admin e C-level. Cada setor tem
+  chave (imutável, gravada em todos os registros "de área": usuários, funis, rodízio,
+  filas, respostas rápidas, disparos, chatbot, automações, importação), nome, descrição,
+  cor (um tom do selo do design system: `ciano`, `menta`, `lima`, `coral`, `neutro`) e
+  ordem. Todo usuário autenticado lista os setores ativos (as opções dos seletores).
+  Comportamentos que nasceram presos a um setor de base continuam presos à chave dele
+  (Financeiro e régua: CS e Comercial; SDR e passagens padrão; painéis de Marketing,
+  Comercial, CS e Financeiro do BI). Um setor criado ganha o genérico: funis e negócios,
+  rodízio, equipe, filas de atendimento e respostas rápidas (o Marketing continua fora do
+  Atendimento), disparos, automações e chatbot por setor, importação, canal no chat
+  interno e, no BI, os painéis de Atendimento e SDR pelo seu setor.
+- **R1.7** **Criar setor** (só Admin e C-level): nome, descrição, cor, ordem, **líderes**
+  e **C-level responsável** (obrigatório quando há líderes). Numa transação só: o setor, o
+  **funil-base** dele (nome do setor; etapas Novo (2d) → Em andamento (7d), Ganho,
+  Perdido), a regra de rodízio e a promoção dos líderes escolhidos a `LIDER` do setor,
+  respondendo ao C-level responsável. Os líderes precisam ser pessoas ativas; quem tem
+  liderados não muda de setor (R1.3): a criação inteira é recusada (409) com a lista de
+  quem precisa de novo líder. **Ajuste (2026-11-10):** como líder de um setor novo só se
+  aceita quem hoje é `LIDER` ou `MEMBRO` — Admin e C-level não mudam de papel ao criar um
+  setor (422 `R1.7`, `detalhes.recusados: [{id, nome, papel}]`); o C-level responsável não
+  pode estar na lista de líderes (422 `R1.2`, `campo: 'lideres'`). Nada é criado.
+- **R1.8** O **nome** é único entre os setores ativos, sem diferenciar maiúsculas nem
+  acentos (409). A **chave** é gerada do nome na criação — maiúsculas, sem acento, `_` no
+  lugar de espaços e símbolos, até 40 caracteres — e ganha `_2`, `_3`… se já existir (ou se
+  for um valor reservado dos filtros, como `GLOBAL` e `SEM_AREA`). Ex.: "Pós-venda" →
+  `POS_VENDA`.
+- **R1.9** Só um setor **ativo** vale para registros novos ou alterados (usuário, funil,
+  fila, resposta rápida, campanha, modelo, fluxo, automação, rodízio da importação) e para
+  reativar funil, fila ou usuário: setor inexistente ou inativo → 422.
+- **R1.10** **Desativar** (Admin e C-level): os setores de base nunca; um setor criado só
+  vazio — sem pessoas ativas, funis ativos nem filas de atendimento ativas (409 com as
+  listas). Inativo, ele some das listas de escolha e continua nos registros antigos.
+  Reativar devolve o setor às listas, se o nome continuar único entre os ativos.
+- **R1.11** **Editar** (Admin e C-level): nome, descrição, cor e ordem — também dos setores
+  de base. A chave não muda. O canal do setor no chat interno acompanha o nome. Toda
+  criação, edição, desativação e reativação é auditada (`setor.*`).
 
 ## 2. Autenticação e sessões
 
@@ -154,9 +196,12 @@ e ganham seções aqui quando forem detalhadas.
 
 ## 5. Funis, etapas e negócios
 
-- **R5.1** Existem três **funis-base**, um por área, que não podem ser excluídos:
-  Marketing, Comercial e Customer Success. Admin e C-level configuram todos os funis; o
-  líder configura os da sua área (criar, renomear e reordenar etapas, criar funis extras).
+- **R5.1** Cada setor tem um **funil-base**, que não pode ser excluído (só arquivado):
+  Marketing, Comercial e Customer Success vêm da configuração inicial; o de um setor criado
+  nasce com ele (R1.7). Admin e C-level configuram todos os funis; o líder configura os do
+  seu setor (criar, renomear e reordenar etapas, criar funis extras, visibilidade e acessos
+  extras, arquivar). Acessos extras (R5.11) **nunca** dão o poder de configurar. Funil novo
+  só num setor ativo (R1.9).
 - **R5.2** Etapa tem nome, ordem, tipo (`ABERTA`, `GANHO` ou `PERDIDO`), prazo-alvo em dias
   (para sinalizar negócio parado) e probabilidade opcional. Todo funil tem ao menos uma etapa
   aberta, exatamente uma de ganho e exatamente uma de perda. Etapa com negócios não pode ser
@@ -179,7 +224,8 @@ e ganham seções aqui quando forem detalhadas.
   tempo ficou na etapa anterior), gera auditoria e evento. Não se move um negócio para etapa
   de outro funil: isso é papel das passagens (R5.7).
 - **R5.5** Entrar numa etapa de perda exige motivo. Ganhar registra a data de ganho.
-  Reabrir um negócio ganho ou perdido é permitido só a líder da área, C-level e Admin.
+  Reabrir um negócio ganho ou perdido é permitido só a líder do setor dono do funil, C-level
+  e Admin (o nível `CONFIGURAR`, R5.12) — o mesmo vale para excluir negócio.
 - **R5.6** Um contato não tem dois negócios **abertos** no mesmo funil vindos de
   automação: se o webhook ou a passagem encontrar um aberto, registra a reconversão nele em
   vez de criar outro. A criação manual é livre.
@@ -200,9 +246,10 @@ e ganham seções aqui quando forem detalhadas.
   já é criado (à mão ou por webhook) direto na etapa-gatilho, ou reaberto nela; usa o
   mesmo contato do negócio de origem (sem contar nova reconversão) e roda como ator
   `AUTOMACAO`. Passagens encadeadas vão até 5 níveis, sem repetir a mesma passagem.
-- **R5.8** **Distribuição por rodízio:** por área, entre os membros ativos (o líder entra
-  só se a regra da área disser), em ordem estável e com ponteiro salvo, sob trava no banco
-  para não repetir em concorrência. Sem membros disponíveis, vai para o líder da área; sem
+- **R5.8** **Distribuição por rodízio:** por setor (uma regra por setor; a de um setor
+  criado nasce com ele, R1.7), entre os membros ativos do setor (o líder entra só se a
+  regra do setor disser), em ordem estável e com ponteiro salvo, sob trava no banco para
+  não repetir em concorrência. Sem membros disponíveis, vai para o líder do setor; sem
   líder, para um C-level.
   **Ajuste (2026-10-22):** o rodízio só inclui quem **já ativou o acesso** — concluiu o
   primeiro login (com a troca da senha temporária) ou definiu a senha do convite. Quem
@@ -212,12 +259,90 @@ e ganham seções aqui quando forem detalhadas.
   (`usuarios.acesso_ativado_em`) na primeira vez em que a pessoa fica com senha própria e
   não a desfaz: uma senha temporária definida depois pelo Admin (R2.8) não tira ninguém do
   rodízio.
-- **R5.9** **Visibilidade (proposta):** Admin e C-level veem todos os negócios; o líder vê
-  todos os da sua área; o membro vê os da sua área em que é responsável e os ainda sem
-  responsável (que ele pode assumir). Quem vê pode editar e mover, exceto reabrir (R5.5).
+- **R5.9** **Quem vê um funil (reescrita em 10/11/2026):** cada funil tem a **visibilidade**
+  `SETOR` (padrão; todo funil existente ficou assim) ou `RESTRITA`.
+  - `SETOR`: o setor dono inteiro — o líder vê todos os negócios; o membro, os seus e os
+    ainda sem responsável (que ele pode assumir).
+  - `RESTRITA`: do setor dono, **só os líderes**; membros e pessoas de outros setores só com
+    acesso na lista do próprio funil (R5.11).
+  - Admin e C-level veem e configuram todos os funis.
+  - O que a pessoa faz num funil é o seu **nível efetivo** (R5.12): o **maior** entre o papel
+    no setor dono (líder → `CONFIGURAR`; membro → `MEMBRO`, só no `SETOR`), os acessos do
+    funil e os acessos do setor dono (estes não valem no `RESTRITA`), pela pessoa e pelo setor
+    dela. Sem nível, a pessoa não vê o funil nem nada dele.
+  - **Nenhuma consulta devolve negócio de funil que a pessoa não vê** (nem pelo id, que dá
+    404): lista de funis, quadro, métricas, lista e busca de negócios, negócios do contato e
+    da empresa, detalhe (a jornada só diz que existe um negócio ligado e de que setor),
+    movimentações, linhas do tempo (os eventos ligados a negócio que ela não vê somem e a
+    atividade perde o vínculo), atividades (o resumo do negócio some; o filtro por negócio e
+    o vínculo novo exigem vê-lo), detalhe e lista de conversas (o negócio ligado some, e o
+    `negocioId` vem nulo), citação no chat interno (R15.6), prévia de modelo com negócio,
+    públicos de disparos e automações (R5.14), o passo "Criar negócio" do chatbot (R18), a
+    importação (R16.12, R16.15, R16.16: funil que não vê é como inexistente), o Financeiro
+    (notificação de sugestão de contrato, negócios sem contrato e sugestão — R22.6) e o filtro
+    de funil do BI (404, R20.2). O BI segue a R20.2.
 - **R5.10** Métricas base, calculadas do histórico: conversão entre etapas, tempo médio
   por etapa, ciclo médio (criação → ganho) e negócios parados (tempo na etapa maior que o
   prazo-alvo).
+- **R5.11** **Acessos extras:** duas listas, cada linha com **um alvo** — um setor inteiro
+  **ou** uma pessoa — e um nível (`VER` "Só ver", `MEMBRO` "Como membro", `GESTOR` "Ver e
+  editar todos"); cada alvo uma vez por lista.
+  - **Do funil** (`PUT /funis/:id/acessos`, por quem configura o funil, R5.1): vale também no
+    `RESTRITA` — é o único jeito de um membro do setor dono ver um funil restrito.
+  - **Do setor** (`PUT /setores/:chave/acessos`, por Admin, C-level e os líderes do setor):
+    vale para todos os funis do setor, **menos os `RESTRITA`**.
+  - A lista enviada substitui a atual. O setor dono não é alvo; setor e pessoa precisam
+    existir; um alvo **novo** precisa estar ativo (setor ativo, pessoa não desligada) — os que
+    já estavam podem continuar na lista. Acesso dado a um setor desativado **não conta**. Erros:
+    linha sem alvo, com os dois ou repetida → 400; os demais → 422 (`R5.11`). Toda troca é
+    auditada (`funil.acessos_alterados`, `setor.acessos_alterados`) com a lista antes e depois;
+    a visibilidade entra na auditoria do funil (`funil.criado`, `funil.atualizado`).
+  - A lista volta em ordem estável: por data de criação e, entre as gravadas juntas, os
+    setores antes das pessoas, por nome.
+  - **Escolher a pessoa:** `GET /usuarios/opcoes?busca=&area=&limite=` (Admin, C-level e
+    líderes; membro 403) acha qualquer pessoa **ativa**, de qualquer setor, só com o resumo
+    (`id`, nome, foto, papel e rótulo, setor) — sem e-mail, telefone nem dados de equipe. A
+    lista de usuários (`GET /usuarios`) continua presa à R1.5.
+  - Desligar alguém não apaga as linhas dele nas listas; **reativar traz de volta** os acessos
+    extras antigos (quem configura o funil ou o setor tira, se não valerem mais).
+- **R5.12** **Níveis:**
+  - **Ver e agir são separados (ajuste de 2026-11-10):** a pessoa **vê todos** os negócios do
+    funil se tiver, por qualquer caminho (direto, pelo setor dela ou pelo papel), `VER`,
+    `GESTOR` ou `CONFIGURAR`; senão, só os seus e os sem responsável. As **ações** seguem o
+    maior nível: um membro do setor dono com acesso `VER` no funil-base vê os negócios dos
+    colegas, mas continua editando e movendo só os seus e os sem responsável (403 `R5.12` nos
+    demais). `GET /funis` devolve o `nivel` (o de ação) e `veTodos`.
+  - `VER`: vê todos os negócios do funil, só leitura — não cria, não edita, não move, não
+    assume, não ganha nem perde (403 `R5.12`).
+  - `MEMBRO`: como membro do setor dono — vê os seus e os sem responsável; assume, cria,
+    edita (inclusive o responsável) e move os que vê.
+  - `GESTOR`: vê, cria, edita e move todos os negócios do funil e troca o responsável.
+  - `CONFIGURAR` (líder do setor dono, C-level e Admin): o de `GESTOR` e ainda configura o
+    funil (R5.1), reabre (R5.5) e exclui negócios.
+  - `GET /funis` devolve, de cada funil, `area`, `nomeSetor`, `visibilidade`, o `nivel` de
+    quem consulta e `veTodos` — inclusive os funis de outros setores que a pessoa vê por
+    acesso.
+- **R5.13** **Responsável de negócio** (criação, edição, assumir, importação, webhooks,
+  passagens e automações): uma pessoa **ativa** com nível `MEMBRO` ou mais no funil — do setor
+  dono (no `RESTRITA`, os líderes e quem está na lista do funil), com acesso `MEMBRO`/`GESTOR`
+  (direto ou pelo setor dela), C-level ou Admin. `VER` não é responsável. Senão 422 (`R5.13`).
+  O **rodízio** (R5.8) continua só com as pessoas do setor dono; num funil `RESTRITA`, só
+  entram as que atuam nele (sem ninguém, vai para o líder do setor). O **ponteiro** do rodízio
+  é um só por setor: a distribuição num funil `RESTRITA` avança o mesmo ponteiro dos funis
+  `SETOR` do setor. Responsável fixo
+  (webhook, passagem, importação) que não atua mais no funil cai no líder do setor. Na
+  reconversão, o responsável que perdeu o acesso ao funil não é notificado. No
+  desligamento, o negócio de um funil em que o destinatário não atua vai para o líder do
+  setor dono (ajuste da R7.3).
+- **R5.14** **Públicos e automações:** quem não é Admin nem C-level só usa, num segmento
+  (prévia, campanha, prévia do público) ou numa automação (gatilho, condições e passos),
+  funis e etapas de funis que vê (segmento → 400 `R5.9`; automação → 422 `R5.9`); as
+  condições de negócio do segmento contam só os funis que a pessoa vê. **Ajuste
+  (2026-11-10):** a prévia do público conta os funis de quem a monta; a **revisão** e o
+  **envio** de uma campanha, e as automações (recorrência, filtro de entrada, saída "saiu do
+  segmento" e o passo de condição), contam os funis que **quem criou** a campanha ou a
+  automação vê **na hora** (o acesso atual dele, não o do momento da criação). Quem criou
+  e foi desligado (ou registro sem autor): nenhum negócio de funil `RESTRITA` conta.
 
 ## 6. Atividades
 
@@ -243,7 +368,9 @@ Regra central pedida pelo negócio: **quem é desligado perde o acesso, e o que 
 ele vai para o líder; se for um líder, vai para o C-level responsável.**
 
 - **R7.1** Só o Admin desliga. Antes de confirmar, a API mostra uma prévia: quem vai
-  receber e quanto (atividades pendentes, negócios abertos, contatos, empresas, liderados).
+  receber e quanto (atividades pendentes, negócios abertos, contatos, empresas, liderados)
+  e, desde 10/11/2026, a divisão dos negócios abertos por destinatário (`divisaoDosNegocios`,
+  ajuste da R7.3).
 - **R7.2** Destinatário:
   - membro → o líder dele;
   - líder → o C-level responsável (o líder dele);
@@ -266,6 +393,16 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
   responsável fixo em webhooks de entrada e passagens; cada item encaminhado ganha o
   próprio evento de auditoria (aparece na linha do tempo dele), além do
   `usuario.desligado` com as contagens.
+  **Ajuste dos setores (2026-11-10, R5.13):** cada negócio aberto vai para o destinatário
+  só se ele pode ser responsável naquele funil; senão, para o **líder ativo do setor dono
+  do funil**; sem líder ativo, segue a cadeia da R7.2 — um C-level ativo e, no fim, o Admin
+  que executa (o desligamento nunca fica bloqueado). Ex.: um membro do Comercial com acesso
+  `MEMBRO` a um funil do CS é desligado → os negócios do Comercial vão para o líder dele e os
+  do funil do CS, para o líder do CS. A prévia (R7.1) e a resposta mostram a divisão; cada
+  pessoa que recebe negócios é notificada só do que recebeu; a auditoria de cada negócio
+  desviado leva `motivoDaParte` e `regra: R5.13`. Negócio que chegar ao desligado depois da
+  divisão (outra transação, entre a prévia interna e a gravação) passa pela **mesma divisão**
+  (varredura final), e a resposta junta as partes por pessoa.
   **Ajuste da Onda A (2026-10-26):** logo depois do desligamento (pela outbox), as
   conversas do Atendimento em aberto com a pessoa vão para o mesmo destinatário
   (R12.17) e ela sai dos canais padrão e dos grupos do chat interno (R15.1, R15.2);
@@ -275,6 +412,8 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
   Pedro"), a auditoria guarda as contagens e o evento `usuario.desligado` vai para os
   webhooks de saída.
 - **R7.5** Reativar exige definir um líder válido e **não** devolve o que foi encaminhado.
+  Os acessos extras a funis e setores (R5.11) dados à pessoa **voltam a valer** (o
+  desligamento não apaga as linhas; quem configura tira as que não servem mais).
 - **R7.6** Desligar quem já está desligado devolve conflito (HTTP 409).
 
 ## 8. Webhooks de entrada (captação)
@@ -368,19 +507,28 @@ ele vai para o líder; se for um líder, vai para o C-level responsável.**
 
 ## 12. Matriz de acesso (Fase 1)
 
-| Recurso | Admin | C-level | Líder da área | Membro da área |
+O "setor" das colunas Líder e Membro é qualquer setor (de base ou criado, R1.6), salvo
+onde uma regra prende o recurso a um setor de base. Nos funis, o nível efetivo da pessoa
+(R5.9, R5.12) decide; acessos extras nunca configuram nem ampliam o BI.
+
+| Recurso | Admin | C-level | Líder do setor | Membro do setor |
 | --- | --- | --- | --- | --- |
 | Gerenciar usuários | ✓ | — | — | — |
+| Ver setores (ativos) | ✓ | ✓ | ✓ | ✓ |
+| Criar, editar, desativar e reativar setores (R1.7–R1.11) | ✓ | ✓ | — | — |
 | Ver usuários | todos | todos | sua equipe | a si mesmo |
-| Configurar funis e etapas | todos | todos | da sua área | — |
-| Ver e mover negócios | todos | todos | da sua área | da sua área: os seus e os sem responsável |
-| Reabrir negócio | ✓ | ✓ | da sua área | — |
+| Buscar pessoas ativas para os acessos (`GET /usuarios/opcoes`, só o resumo) | ✓ | ✓ | ✓ (todos os setores) | — |
+| Configurar funis e etapas (inclui visibilidade e acessos do funil) | todos | todos | do seu setor | — |
+| Acessos do setor (quem mais vê os funis do setor) | todos | todos | do seu setor | — |
+| Ver e mover negócios | todos | todos | todos os funis do seu setor (inclusive os restritos) | funis `SETOR` do seu setor: os seus e os sem responsável |
+| Funil de outro setor ou restrito, por acesso (R5.11) | — | — | pelo nível: `VER` só vê; `MEMBRO` como membro; `GESTOR` vê e edita todos | idem; `VER` no próprio funil faz o membro ver todos e agir só nos seus |
+| Reabrir e excluir negócio | ✓ | ✓ | do seu setor | — |
 | Ver contatos e empresas | ✓ | ✓ | ✓ | ✓ |
 | Editar contato/empresa | ✓ | ✓ | se o responsável é da sua equipe | se é o responsável |
 | Anonimizar contato | ✓ | — | — | — |
 | Ver atividades | todas | todas | da equipe | as suas (responsável ou criador) |
 | Configurar passagens | ✓ | ✓ | — | — |
-| Configurar rodízio | ✓ | ✓ | da sua área | — |
+| Configurar rodízio | ✓ | ✓ | do seu setor | — |
 | Webhooks de entrada e saída | ✓ | — | — | — |
 | Auditoria | ✓ | ✓ | — | — |
 | Logs técnicos | ✓ | — | — | — |
@@ -456,10 +604,11 @@ Cada cenário vira um teste automatizado contra um Postgres real.
 
 ## 15. Atendimento omnichannel (R12)
 
-- **R12.1** **Filas** organizam o atendimento: nome, área (**Comercial** ou **CS** — o
-  Marketing não usa o Atendimento), prazo de primeira resposta e de resolução (SLA, em
-  minutos, opcionais), estratégia de distribuição (`RODIZIO`, `MENOR_CARGA` ou `MANUAL`),
-  participantes e se está ativa. Admin e C-level configuram todas; o líder, as da sua área.
+- **R12.1** **Filas** organizam o atendimento: nome, setor (**Comercial**, **CS** ou um
+  setor criado, ativo — o Marketing não usa o Atendimento; R1.6, R1.9), prazo de primeira
+  resposta e de resolução (SLA, em minutos, opcionais), estratégia de distribuição
+  (`RODIZIO`, `MENOR_CARGA` ou `MANUAL`), participantes e se está ativa. Admin e C-level
+  configuram todas; o líder, as do seu setor.
   Uma fila com conversas em aberto não pode ser excluída nem mudar de área (422). Cada
   canal tem uma fila padrão, que recebe as conversas novas.
 - **R12.2** **Entrada:** cada mensagem que chega por um canal identifica o contato pelo
@@ -500,7 +649,10 @@ Cada cenário vira um teste automatizado contra um Postgres real.
   a nota de outra pessoa notifica o responsável. A conversa também tem prioridade,
   assunto, etiquetas (normalizadas como na R4.7) e pode ser ligada a um negócio **do mesmo
   contato**. "Criar negócio" a partir da conversa usa o funil-base da área da fila (ou o
-  escolhido), com a origem do canal, e liga o negócio à conversa.
+  escolhido), com a origem do canal, e liga o negócio à conversa. A mensagem de sistema
+  "criou o negócio" fica na conversa e é vista por todos que veem a conversa, mesmo por quem
+  não vê o funil do negócio (o vínculo `negocioId` some para essa pessoa, R5.9; o texto da
+  mensagem não — limite conhecido, de 2026-11-10).
 - **R12.10** **Envio:** a mensagem da equipe nasce `PENDENTE` e vai para a fila de envio
   do canal; o status só avança (`ENVIADA` → `ENTREGUE` → `LIDA`), conforme o canal informa.
   Falha definitiva marca `FALHOU` com o motivo em português, visível na bolha, e "tentar
@@ -632,11 +784,13 @@ Cada cenário vira um teste automatizado contra um Postgres real.
 
 ## 18. Chat interno da equipe (R15)
 
-- **R15.1** **Canais padrão:** o "Geral" reúne todas as pessoas ativas; cada área
-  (Comercial, Marketing, CS) tem o seu canal, com as pessoas da área e o C-level (o Admin
-  fica só no Geral). Os membros acompanham o papel automaticamente (ao subir a API, a cada
-  minuto, no desligamento e sempre que a pessoa usa o chat). Não dá para sair, renomear
-  nem arquivar um canal padrão — só silenciar.
+- **R15.1** **Canais padrão:** o "Geral" reúne todas as pessoas ativas; cada setor ativo
+  (Marketing, Comercial, CS e os criados, R1.6) tem o seu canal, com as pessoas do setor e
+  o C-level (o Admin fica só no Geral). Os membros acompanham o papel e o setor
+  automaticamente (ao subir a API, a cada minuto, no desligamento e sempre que a pessoa usa
+  o chat); o canal de um setor criado aparece na sincronização seguinte e o nome acompanha
+  o do setor (R1.11). Setor desativado: o canal fica, sem membros automáticos. Não dá para
+  sair, renomear nem arquivar um canal padrão — só silenciar.
 - **R15.2** **Grupos:** qualquer pessoa cria e vira administradora. Quem administra
   renomeia, muda a descrição, adiciona pessoas ativas (até 200), tira pessoas, dá ou tira
   a administração (sempre fica alguém administrando) e arquiva ou desarquiva; grupo
@@ -662,20 +816,25 @@ Cada cenário vira um teste automatizado contra um Postgres real.
 
 ## 19. Tempo real e matriz de acesso (Fase 2 — Onda A)
 
+- Negócios não têm evento próprio no tempo real (o quadro é recarregado pela tela): o que
+  sai pelo socket com dados de negócio é a notificação (`notificacao.nova`), só na sala do
+  responsável — que sempre atua no funil (R5.13). Por isso nenhuma sala por funil é
+  necessária e mudar acessos não exige reentrar em salas; um evento de negócio futuro precisa
+  ir só a quem vê o funil (R5.9).
 - O tempo real (Socket.IO) aceita só quem tem sessão válida (cookie) vinda de uma origem
   permitida (R2.9); com troca de senha pendente (R2.7) a conexão é recusada. Sair,
   desligamento ou sessão expirada derrubam os sockets da sessão na hora (R2.4). Entrar na
   sala de uma conversa ou de um canal do chat confere a permissão (R12.5, R15).
 
-| Recurso | Admin | C-level | Líder (Comercial, CS) | Membro (Comercial, CS) | Marketing |
+| Recurso | Admin | C-level | Líder (Comercial, CS e setores criados) | Membro (Comercial, CS e setores criados) | Marketing |
 | --- | --- | --- | --- | --- | --- |
-| Ver e atender conversas | todas | todas | filas da área + as suas | as suas + sem responsável da área | — |
+| Ver e atender conversas | todas | todas | filas do setor + as suas | as suas + sem responsável do setor | — |
 | Assumir, transferir, resolver, reabrir | ✓ | ✓ | nas que vê | nas que vê | — |
-| Configurar filas | todas | todas | da área | — | — |
-| Respostas rápidas (gerenciar) | todas | todas | da área | — | — |
+| Configurar filas | todas | todas | do setor | — | — |
+| Respostas rápidas (gerenciar) | todas | todas | do setor | — | — |
 | Horário, fila padrão e satisfação do canal | ✓ | ✓ | — | — | — |
 | Canais (WhatsApp, chat do site, e-mail, Meta) | ✓ | — | — | — | — |
-| Métricas do Atendimento | todas | todas | da área | — | — |
+| Métricas do Atendimento | todas | todas | do setor | — | — |
 | Chat interno | ✓ (sem ler diretas alheias) | ✓ | ✓ | ✓ | ✓ |
 
 ## 20. Cenários de aceitação (Fase 2 — Onda A)
@@ -746,7 +905,12 @@ real ("cenário N" no nome do teste).
   origem, etiquetas, UTM e `campos.<chave>` para campos personalizados; para empresas,
   nome, CNPJ, UF etc.). Cada campo recebe no máximo uma coluna; para contatos, o início
   exige **nome** e e-mail ou telefone mapeados. Mapeamentos podem ser salvos como
-  **modelo** (auditado) e aplicados a outra planilha pelos nomes das colunas.
+  **modelo** (auditado) e aplicados a outra planilha pelos nomes das colunas. Para
+  contatos há também os campos `responsavel` (e-mail ou nome), `negocio.funil`,
+  `negocio.etapa`, `negocio.titulo`, `negocio.valor` e `negocio.valorRecorrente`
+  (R16.12); a lista de campos vem agrupada (`grupo`: Contato, Negócio, Empresa, Parcela).
+  O modelo guarda também filtro, negócio e DDI; ao aplicar, regras de filtro de colunas que
+  o arquivo novo não tem são descartadas e o negócio que não serve mais some em silêncio.
 - **R16.4** **Processamento:** em fila, em lotes de 100 linhas, **linha a linha pelos
   mesmos serviços da criação manual** (normalização R4.1 e deduplicação R4.2, origem
   `IMPORTACAO` com o detalhe informado, etiquetas e campos personalizados). A linha
@@ -758,10 +922,11 @@ real ("cenário N" no nome do teste).
   existente) ou *sobrescrever* (troca pelos valores da planilha).
 - **R16.6** **Responsável:** quem importou (R4.5), uma pessoa fixa ao alcance de quem
   importa, ou rodízio da área (R5.8); só vale para contatos criados, nunca troca o
-  responsável de quem já existe.
+  responsável de quem já existe. Com a coluna `responsavel` (R16.12) ela tem prioridade.
 - **R16.7** **Cancelar e retomar:** cancelar antes de processar não importa nada; depois
   de concluída, não cancela. Se o processo cair, a retomada continua depois da última
-  linha gravada e os contadores somam tudo.
+  linha gravada e os contadores somam tudo; `filtradas` é recalculado do arquivo (não
+  somado), então retomar não o conta em dobro nem pula linhas.
 - **R16.8** **Auditoria e relatório:** o resumo da importação é auditado (`criada`,
   `iniciada`, `concluida`, `cancelada`, `falhou`, com as contagens) **e** cada contato ou
   empresa criado ou reconvertido tem o seu próprio evento de auditoria
@@ -778,6 +943,104 @@ real ("cenário N" no nome do teste).
   texto e as de data e valor em formato de data e de número. A 2ª aba, "Como preencher",
   explica cada coluna e as regras (etiquetas separadas por vírgula, campos personalizados,
   limites). Mesma permissão de importar (R16.1); para parcelas, a mesma da criação (R22.1).
+- **R16.11** **Filtro da planilha:** de 1 a 10 regras (`coluna`, `operador`, `valor`) sobre
+  **qualquer coluna do arquivo**, mapeada ou não, combinadas por `TODAS` (E) ou `QUALQUER`
+  (OU). Operadores: igual, diferente, contém, não contém, começa com, termina com, um de
+  (`,` ou `;`), vazio, preenchido, maior que, menor que. Texto comparado sem acento, caixa
+  nem espaços extras; maior/menor comparam datas (`dd/mm/aaaa` ou data do XLSX) e, senão,
+  números (`1.234,56`, `1234.56`, `R$ 1.234,56`); outra coisa dá falso. A prévia mostra só as
+  linhas que passam (com o `numero` original) e `linhasNoFiltro`. Linha fora do filtro **não
+  vira linha da importação** e soma em `filtradas`. Iniciar sem nenhuma linha no filtro é 422
+  ("Nenhuma linha da planilha passa no filtro."). Coluna inexistente, operador sem valor ou
+  mais de 10 regras são 400.
+- **R16.12** **Negócio por importação (só contatos):** o cartão "Negócio para todos" (`negocio`:
+  funil, etapa, título e valor opcionais) e/ou as colunas `negocio.*` criam um negócio para
+  cada contato resolvido (criado, atualizado ou encontrado; **duplicado com IGNORAR não toca
+  no existente e não cria negócio**). Destino: colunas de funil e etapa > só funil na coluna
+  (etapa de entrada, a primeira aberta, como na criação manual) > só etapa na coluna (procura
+  no funil do cartão) > funil e etapa do cartão > nada: sem negócio. Vínculo pelo nome
+  normalizado. Funil ou etapa inexistente, arquivado, sem permissão (a mesma da criação manual:
+  nível `MEMBRO` ou mais no funil, R5.12 — `VER` não cria) ou etapa de perda: o contato importa
+  e a linha leva o aviso `Negócio não criado: …` no `motivo`; ao definir o cartão, funil
+  inexistente ou que a pessoa não vê é 404 (sem nome, R5.9 — ajuste de 2026-11-10), funil
+  arquivado e etapa inválida são 422 (R5.1, R5.4, R5.5), funil que ela vê mas em que não cria
+  é 403 (`R5.12`) e valor que não é número ≥ 0 é 400. A criação usa `NegociosService.criarAutomatico` (origem `IMPORTACAO`,
+  título coluna > cartão > nome do contato, valor e valor recorrente coluna > cartão): R5.6
+  vale (contato com negócio aberto no funil ganha reconversão, contada em
+  `negociosReconvertidos`; senão `negociosCriados`). **Responsável** do negócio (e do contato
+  criado): coluna `responsavel` (usuário ativo por e-mail exato ou nome normalizado único, ao
+  alcance de quem importa e que atue na área do funil) > estratégia da importação (pessoa
+  fixa; rodízio da área do funil; quem importou); coluna que não serve usa a estratégia e
+  avisa. Se a pessoa fixa (ou quem importou) não atua na área do funil, o negócio vai direto
+  para o líder da área (R5.8), sem aviso no log técnico a cada linha. Contato que já existia
+  nunca troca de responsável. **Transação:** contato, negócio e
+  linha são gravados juntos; se o negócio falhar por erro inesperado, a linha inteira é
+  desfeita e vira erro ("Negócio não criado: … A linha inteira foi desfeita."). **Notificação:**
+  a importação não notifica por negócio; ao concluir, cada responsável (menos quem importou)
+  recebe **uma** notificação `negocio.atribuido` ("Você recebeu N negócios da importação
+  <nome>"). Eventos de domínio, auditoria, automações e passagens seguem por negócio.
+- **R16.13** **Sem cabeçalho e DDI padrão:** `leitura.semCabecalho` faz as colunas serem
+  "Coluna 1"…"Coluna N" (N = a maior largura entre as primeiras 50 linhas), a linha 1 ser dado
+  (o `numero` continua sendo a linha do arquivo) e o mapeamento sugerido ficar vazio.
+  `ddiPadrao` (1 a 3 dígitos, padrão `55`) vai no telefone sem `+`/`00` que ainda não começa
+  com ele; com `55` vale a regra brasileira de R4.1, sem mudança. O relatório XLSX, a
+  auditoria (`importacao.concluida`) e o evento de domínio levam `filtradas`, `negociosCriados`
+  e `negociosReconvertidos`.
+- **R16.14** **Exportação do Clint e negócio fechado (só contatos):** campos novos do grupo
+  "Negócio" — `negocio.status` (`aberto`/`em aberto`/`open`/`em andamento` → ABERTO;
+  `ganho`/`won`/`vendido` → GANHO; `perdido`/`lost`/`perda` → PERDIDO; sem acento, caixa nem
+  espaços extras; vazio → ABERTO; outro valor → ABERTO com o aviso `Status "X" desconhecido: o
+  negócio entrou aberto.`), `negocio.motivoPerda`, `negocio.ganhoEm`, `negocio.perdidoEm`,
+  `negocio.criadoEm` e `negocio.idExterno`. Sinônimos do Clint: `origin` → funil, `stage` →
+  etapa, `value` → valor, `user_email` → responsável, `deal_name` → título, `complete_phone` →
+  telefone (vence `phone`; o `ddi` e o `phone` ficam sem campo), `organization_name`,
+  `role`, `created_at`, `won_at`, `lost_at`, `lost_status`, `id`; a coluna `origem` (campo de
+  formulário) não é funil. A sugestão nunca liga duas colunas ao mesmo campo e, havendo mais de
+  uma coluna possível, vale a de sinônimo mais à frente na lista do campo (a primeira do
+  arquivo no empate). **Formato detectado:** quando o cabeçalho tem `origin`, `stage`, `status`
+  e `user_email`, a prévia (`previa.formatoOrigem`) e o rascunho (`formatoOrigem`) trazem
+  `CLINT`; senão `null`. **Datas:** `dd/mm/aaaa`, `dd/mm/aaaa hh:mm[:ss]`,
+  `aaaa-mm-dd[Thh:mm[:ss]]` e número de série do Excel (XLSX com hora vem como
+  `aaaa-mm-ddThh:mm:ss`), no horário de America/Sao_Paulo; inválida ou no futuro vira aviso na
+  linha e o campo é ignorado. **Negócio fechado:** ganho ou perdido nasce **já fechado**, direto
+  na etapa de ganho / de perda do funil (a etapa da coluna não é destino; vai na auditoria
+  `negocio.criado` como `etapaOriginalNaPlanilha`); sem etapa de ganho/perda no funil, aviso
+  `Negócio não criado: …`. `ganhoEm`/`perdidoEm` = coluna > `criadoEm` da coluna > agora;
+  motivo da perda = coluna > "Importado como perdido". Linha fechada **nunca** reconverte
+  (R5.6), **não dispara passagens** (R5.7) e não entra na notificação de negócios recebidos;
+  eventos de domínio e auditoria seguem como hoje. `negocio.criadoEm` da coluna grava
+  `criadoEm`, `etapaDesde` e a data da movimentação de entrada. **ID externo:** coluna
+  `negocios.id_externo` com índice único parcial (não nulo e não excluído); a reconversão que
+  cai num negócio aberto sem ID passa a guardá-lo. Linha com `idExterno` que já existe **não
+  cria outro negócio**: aplica a opção de duplicados ao negócio — IGNORAR: nada (linha
+  ignorada); ATUALIZAR_VAZIOS: só preenche valor (se zero), título, responsável e motivo
+  vazios; SOBRESCREVER: troca esses campos e, se a etapa de destino mudou, move pelo motor de
+  negócios (histórico, auditoria e eventos, sem passagens; reabrir segue R5.5 e, sem permissão,
+  avisa; outro funil não move e avisa). Conta em `negociosAtualizados` (progresso, relatório
+  XLSX, auditoria `importacao.concluida` e evento) quando algo mudou.
+- **R16.15** **Conferência de funis e etapas:** `GET /importacoes/:id/funis-da-planilha`
+  (rascunho; mesma permissão da prévia) usa mapeamento, filtro, cartão e traduções salvos e
+  devolve `{ funis: [{ valor, linhas, porStatus, funil, como, problema, etapas: [{ valor,
+  linhas, etapa, como, problema }] }], semFunil }`. `como`: `NOME` ou `TRADUCAO`; `problema`
+  do funil: `NAO_ENCONTRADO`, `ARQUIVADO`, `SEM_PERMISSAO`; da etapa (só linhas abertas):
+  `NAO_ENCONTRADA`, `ETAPA_DE_PERDA`. Só vale para contatos (outros tipos: lista vazia).
+  **Ajuste dos setores (2026-11-10, R5.9):** funil que a pessoa não vê é tratado como
+  **inexistente** — na conferência vem `NAO_ENCONTRADO`, sem id, nome nem etapas; no
+  processamento a linha avisa "funil não encontrado". Funil que ela vê mas em que não cria
+  (`VER`) continua `SEM_PERMISSAO`. Vale o acesso do **início** de cada execução (o job da
+  importação guarda os acessos durante a execução; uma mudança no meio vale na próxima).
+- **R16.16** **Traduções:** o rascunho (PATCH) e os modelos aceitam `traducaoFunis:
+  { [valor]: funilId }` e `traducaoEtapas: { [funilId]: { [valor]: etapaId } }` (chaves
+  normalizadas na gravação; o objeto enviado substitui o anterior e `{}` limpa). O
+  processamento aplica a tradução antes da busca pelo nome. Gravação: forma errada 400; só
+  contatos 400; funil inexistente **ou que a pessoa não vê** 404 "Funil não encontrado." (sem
+  nome; ajuste de 2026-11-10, R5.9 — o mesmo vale para o funil do cartão "Negócio para
+  todos", R16.12); arquivado 422 (R5.1); funil que ela vê mas em que não cria (`VER`) 403
+  (R5.12); etapa de outro funil 422 (R5.4); etapa de perda 422 (R5.5). Tradução que deixou
+  de existir depois (ou veio de um modelo) vira aviso na linha, como o funil não encontrado.
+  Aplicar um modelo copia as traduções dele.
+- **R16.17** **Planilha modelo e relatório:** a planilha modelo (R16.10) traz as colunas novas
+  do grupo "Negócio" e o relatório XLSX traz "Negócios atualizados".
 
 ## 22. Disparos (R17)
 
@@ -873,7 +1136,12 @@ o executor de passos compartilhado.
   (nunca "todos os canais", 400); Admin e C-level escolhem livremente. Os seletores de
   canais e filas vêm de `GET /disparos/canais`, `/chatbot/opcoes` e `/automacoes/opcoes`
   (permissão de cada módulo, sem passar pelo Atendimento). O construtor de segmentos
-  só aceita funis, etapas e área de negócio que a pessoa vê (R5.9, 400).
+  só aceita funis, etapas e área de negócio que a pessoa vê (R5.9, 400). **Ajuste
+  (2026-11-10):** o passo "Criar negócio" (em qualquer ramo) só aceita funil e etapa em que
+  **quem salva ou publica** o fluxo cria negócios — ao criar o fluxo com a definição, ao salvar
+  o rascunho e ao publicar: funil que a pessoa não vê → 422 `R5.9`; visto mas sem criar
+  (`VER`) → 422 `R5.12`; `detalhes.passos` traz os ids dos passos, sem nomes. Sem funil nem
+  etapa, o passo usa o funil-base da fila na hora (não há o que conferir).
 - **R18.7** **Versões:** publicar cria uma **versão imutável**; editar muda só o
   rascunho; a conversa em andamento termina na versão em que começou e a nova usa a
   publicada. Restaurar copia uma versão antiga para o rascunho; também há duplicar,
@@ -907,7 +1175,10 @@ o executor de passos compartilhado.
   *atividade atrasada* (varredura a cada 5 minutos, uma vez por permanência/atraso).
   Gatilho, filtro e passo inválidos são recusados (400).
 - **R19.3** **Condições:** segmento (R17.2) sobre a entidade do gatilho e horário
-  permitido (fora dele, as ações esperam a próxima abertura).
+  permitido (fora dele, as ações esperam a próxima abertura). As condições de negócio contam
+  os funis que quem criou a automação vê na hora (R5.14). Na automação de **atividade**, o
+  alcance é a área do responsável da atividade e o negócio ligado a ela não é conferido contra
+  os funis que quem criou vê (limite conhecido, de 2026-11-10).
 - **R19.4** **Ações:** WhatsApp por modelo, e-mail, atividade, mover etapa, atribuir
   (rodízio), etiquetar, criar negócio em outro funil, notificar usuário, chamar webhook
   de saída (`automacao.acionada`, uma entrega por execução), iniciar fluxo do chatbot e
@@ -947,14 +1218,15 @@ o executor de passos compartilhado.
 | --- | --- | --- | --- | --- |
 | Importar contatos e empresas (R16) | ✓ | ✓ | ✓ | — |
 | Ver o histórico e baixar importações | todas | todas | as próprias | — |
-| Campanhas (R17) | todas | todas | as da área e as suas | as suas |
-| Aprovar campanha | ✓ | ✓ | da área | — |
+| Campanhas (R17) | todas | todas | as do setor e as suas | as suas |
+| Aprovar campanha | ✓ | ✓ | do setor | — |
 | Configuração dos disparos (aprovação, palavras de saída) | ✓ | ✓ | — | — |
-| Chatbot (R18) | todos | todos | os da área (lê os demais) | — |
-| Automações (R19) | todas | todas | as da área | — |
+| Chatbot (R18) | todos | todos | os do setor (lê os demais) | — |
+| Automações (R19) | todas | todas | as do setor | — |
 
 Marketing usa Disparos, mas não o Atendimento (R12); o líder de Marketing importa,
-cria campanhas e automações da própria área.
+cria campanhas e automações do próprio setor. Setores criados (R1.6) seguem as colunas
+Líder e Membro como qualquer setor.
 
 ## 26. Cenários de aceitação (Fase 2 — Onda B)
 
@@ -1017,12 +1289,16 @@ do teste) contra um Postgres real.
   correspondente. Os recortes de SQL espelham as funções das listas — negócios como no
   kanban (R5.9), atividades, conversas (R12.2), campanhas, contratos e parcelas (R22.1) — e
   cada teste confere o número do BI contra a lista. Membro: só o que é dele (e o sem
-  responsável, como no kanban); líder: a área; diretoria: tudo.
+  responsável, como no kanban) nos funis `SETOR` do seu setor; líder: a área (inclusive os
+  funis restritos); diretoria: tudo. **O BI continua pelo setor da pessoa:** acessos extras a
+  funis (R5.11), inclusive o de um membro na lista de um funil restrito, **não** ampliam o BI.
 - **R20.3** **Filtros comuns:** período (`de` e `ate`; padrão, os últimos 30 dias; máximo de
   366), `area`, `equipeId`, `pessoaId`, `funilId`, `canalId` e `filaId` (cada painel aceita os
   que fazem sentido). Filtro fora do alcance do usuário (área de outro, equipe de outra área,
   pessoa de outra área) é recusado e funil de outra área dá 404 — o filtro nunca amplia a
-  visibilidade. Agrupamentos por dia e por hora usam o fuso de São Paulo.
+  visibilidade. Funil do setor que a pessoa **não vê** (R5.9, ex.: um `RESTRITA` para o membro
+  fora da lista) também dá 404 "Funil não encontrado.", sem nome nem etapas (ajuste de
+  2026-11-10). Agrupamentos por dia e por hora usam o fuso de São Paulo.
 - **R20.4** **Comparação:** os cartões trazem o valor do período, o valor do **período anterior
   de mesma duração** e a variação. Indicadores "de agora" (carteira, renovações próximas, MRR
   atual, abertos) não têm comparação.
@@ -1038,7 +1314,8 @@ do teste) contra um Postgres real.
   (R23).
 - **R20.6** **Cache:** resposta guardada por **30 segundos** por pessoa e filtro (no máximo
   300 entradas); `Cache-Control: no-cache` recalcula. Não há invalidação por evento: o número
-  pode atrasar até 30 s.
+  pode atrasar até 30 s — também depois de uma mudança de visibilidade ou de acessos (R5.9,
+  R5.11), que só vale no BI quando a entrada guardada expira.
 - **R20.7** **Exportação:** `POST /bi/:painel/exportar` com os mesmos filtros devolve CSV
   (`;`, BOM, sem fórmulas) ou XLSX (uma aba por tabela) com os mesmos números do painel, de
   quem exporta. Tabela desconhecida, formato inválido ou painel proibido são recusados. A
@@ -1108,7 +1385,14 @@ do teste) contra um Postgres real.
   linha vão ao relatório. Só quem gerencia o Financeiro importa.
 - **R22.6** **Sugestão ao ganhar:** quando um negócio é ganho, o responsável recebe uma
   notificação (`contrato.sugerido`) e a tela de contrato abre pré-preenchida com cliente,
-  produto e valor do negócio.
+  produto e valor do negócio. **Ajuste dos setores (2026-11-10, R5.9):** a notificação (ao
+  responsável e aos líderes de CS), a lista de negócios ganhos sem contrato
+  (`GET /financeiro/negocios/sem-contrato`) e a sugestão (`GET /financeiro/negocios/:id/
+  sugestao-de-contrato`, e o `negocioId` ao criar o contrato) só incluem negócios de funis
+  que **o destinatário/usuário vê** (`funisAcessiveis`); fora disso, 404. Ex.: o Líder de CS só
+  recebe a sugestão dos ganhos do Comercial se o CS tiver acesso ao funil (R5.11, "Só ver"
+  basta). Dentro dos funis que vê, o resto da R22.1 continua (gestor vê todos; membro de CS, os
+  da carteira). Contratos e parcelas já criados seguem a R22.1.
 - **R22.7** **Atraso:** a parcela aberta vencida antes de hoje aparece como `ATRASADO` na
   hora da consulta; o job diário grava o status, audita (`parcela.atrasada`) e publica o evento
   `parcela.atrasada`.
@@ -1182,7 +1466,7 @@ do teste) contra um Postgres real.
 
 | Recurso | Admin | C-level | Líder | Membro |
 | --- | --- | --- | --- | --- |
-| Painéis do BI (R20) | todos | todos | o da área e o Atendimento (Marketing: não) | o da área e o Atendimento (Marketing: não), só o que é dele |
+| Painéis do BI (R20) | todos | todos | o do setor de base e o Atendimento (Marketing: não); setor criado: só Atendimento e SDR | o do setor de base e o Atendimento (Marketing: não), só o que é dele; setor criado: só Atendimento e SDR |
 | Painel Financeiro do BI | ✓ | ✓ | só CS | só CS, a própria carteira |
 | Exportar painel do BI | ✓ | ✓ | do que vê | do que vê |
 | Análise por IA (R21) e histórico | ✓ | — | — | — |
@@ -2901,3 +3185,16 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
      remover o webhook (nova tentativa) ou o Admin descartar a pendência (R32.25, R32.26).
 402. A renovação do token que termina depois de a conexão mudar (troca do ID do app) não a sobrescreve (R32.22, R32.25).
 403. Duas chamadas ao mesmo tempo com o token vencido renovam uma só vez e as duas dão certo (R32.25).
+404. Filtro da planilha: validação das regras (400), prévia só com as linhas que passam, "nenhuma linha passa" é 422 e as filtradas não viram linha da importação (R16.11).
+405. Retomar uma importação com filtro não conta as filtradas duas vezes nem pula linhas (R16.11, R16.7).
+406. Negócio para todos: cartão validado (404 funil inexistente ou que não vê, 422/400), funil e etapa devolvidos com nome, um negócio por contato com origem `IMPORTACAO` (R16.12).
+407. Funil e etapa por coluna pelo nome sem acento nem caixa, padrões e aviso de funil inexistente sem perder o contato (R16.12).
+408. Reconversão (R5.6) conta em `negociosReconvertidos`; duplicado com IGNORAR não ganha negócio (R16.12).
+409. Responsável por coluna (e-mail ou nome) no contato novo e no negócio; coluna inválida ou fora do alcance cai na estratégia com aviso; contato existente não troca de responsável (R16.12).
+410. Planilha sem cabeçalho (Coluna 1…N) e DDI padrão (R16.13).
+411. Quem não vê o funil recebe 404 ao definir o cartão (como se o funil não existisse); por coluna, o contato entra sem negócio e com o aviso de funil não encontrado (R16.12, R5.9).
+412. Uma notificação por responsável ao concluir; se o negócio falha, contato, negócio e linha são desfeitos juntos (R16.12).
+413. Campos com grupo e modelo de mapeamento com filtro, negócio e DDI (colunas inexistentes descartadas) (R16.3, R16.13).
+414. Exportação do Clint: formato detectado, conferência de funis, tradução de funil e etapa, ganho e perdido já fechados com datas e motivo (sem passagem para o CS) e `criadoEm` respeitado (R16.14–R16.16).
+415. Reimportar o mesmo ID de negócio não duplica: pular, completar e trocar (com movimentação); a reconversão passa a guardar o ID (R16.14).
+416. Status desconhecido entra aberto com aviso, data inválida ou futura é ignorada com aviso e o modelo guarda as traduções (R16.14, R16.16).
