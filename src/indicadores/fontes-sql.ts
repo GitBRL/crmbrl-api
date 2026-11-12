@@ -8,11 +8,13 @@ import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import {
   FALSO,
   sqlAtividadesVisiveis,
+  sqlConversasVisiveis,
   sqlLigacoesVisiveis,
   sqlNegociosVisiveis,
   sqlPessoas,
   VERDADEIRO,
 } from '../bi/escopo-bi';
+import { ehDiretoria, ehLider } from '../comum/dominio/papeis';
 import { Prisma } from '../generated/prisma/client';
 import type { Fonte } from './catalogo';
 import type { FiltroResolvido } from './indicadores.tipos';
@@ -185,6 +187,44 @@ export function fonteDeLigacoes(
   };
 }
 
+/**
+ * Mensagens enviadas por pessoas (`m`), com conversa `c`, fila `fl`, canal `cn` e autor `r`.
+ * Visibilidade das conversas do BI (R12.2/R20.2); o membro conta só as que ele mesmo enviou.
+ * Funil, etapa, origem e UTM valem pelo negócio ligado à conversa (sem ele, a mensagem sai).
+ */
+export function fonteDeMensagens(
+  usuario: UsuarioAutenticado,
+  filtro: FiltroResolvido,
+): FonteSql {
+  const condicoes: Prisma.Sql[] = [
+    sqlConversasVisiveis(usuario, Prisma.raw('c'), Prisma.raw('fl')),
+    sqlPessoas(Prisma.sql`m.autor_id`, filtro.pessoas),
+  ];
+  if (!ehDiretoria(usuario.papel) && !ehLider(usuario.papel)) {
+    condicoes.push(Prisma.sql`m.autor_id = ${usuario.id}::uuid`);
+  }
+  if (filtro.setor) {
+    condicoes.push(Prisma.sql`r.area = ${filtro.setor}`);
+  }
+  const negocio = existeNegocio(filtro, Prisma.sql`nf.id = c.negocio_id`);
+  if (negocio) {
+    condicoes.push(negocio);
+  }
+  if (filtro.etiquetas) {
+    condicoes.push(Prisma.sql`EXISTS (SELECT 1 FROM contatos ct_e
+      WHERE ct_e.id = c.contato_id AND ct_e.etiquetas && ${lista(filtro.etiquetas)}::text[])`);
+  }
+  return {
+    from: Prisma.sql`mensagens m
+      JOIN conversas c ON c.id = m.conversa_id
+      JOIN canais cn ON cn.id = m.canal_id
+      LEFT JOIN filas_atendimento fl ON fl.id = c.fila_id
+      LEFT JOIN usuarios r ON r.id = m.autor_id`,
+    onde: junta(condicoes),
+    pessoa: Prisma.sql`m.autor_id`,
+  };
+}
+
 export function fonteDe(
   fonte: Fonte,
   usuario: UsuarioAutenticado,
@@ -197,6 +237,8 @@ export function fonteDe(
       return fonteDeAtividades(usuario, filtro);
     case 'LIGACAO':
       return fonteDeLigacoes(usuario, filtro);
+    case 'MENSAGEM':
+      return fonteDeMensagens(usuario, filtro);
   }
 }
 

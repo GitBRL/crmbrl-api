@@ -33,6 +33,7 @@ const CHAVES_MINIMAS = [
   'negocios_abertos',
   'valor_em_aberto',
   'ligacoes_feitas',
+  'mensagens_enviadas',
   'ligacoes_atendidas',
   'taxa_atendimento_ligacoes',
   'duracao_media_ligacao',
@@ -127,14 +128,41 @@ describe('catálogo de indicadores (R33.1)', () => {
       'negocios_ganhos',
       'valor_ganho',
       'ligacoes_feitas',
+      'mensagens_enviadas',
     ]) {
       expect(indicadores).toContain(esperado);
     }
+    const tem = (indicador: string, visualizacao: string) =>
+      validados.some(
+        (w) => w.indicador === indicador && w.visualizacao === visualizacao,
+      );
+    expect(tem('mensagens_enviadas', 'RANKING')).toBe(true);
+    expect(tem('leads_recebidos', 'RANKING')).toBe(true);
+    expect(tem('ligacoes_feitas', 'RANKING')).toBe(true);
+    expect(tem('negocios_abertos', 'POR_ETAPA')).toBe(true);
     expect(
       validados.some(
         (w) =>
           w.visualizacao === 'RANKING' && w.indicador === 'negocios_ganhos',
       ),
     ).toBe(true);
+  });
+});
+
+describe('mensagens_enviadas (R33.1)', () => {
+  it('R33.1 — conta mensagens de pessoas: número, série, ranking e barras por canal', () => {
+    const def = indicadorDoCatalogo('mensagens_enviadas')!;
+    expect(def.unidade).toBe('NUMERO');
+    expect(def.grupo).toBe('LIGACOES');
+    expect([...def.visualizacoes].sort()).toEqual(
+      ['BARRAS', 'NUMERO', 'RANKING', 'SERIE'].sort(),
+    );
+    expect(def.barras).toEqual(['CANAL']);
+    expect(DIMENSOES_DE_BARRAS['CANAL']).toMatchObject({ fonte: 'MENSAGEM' });
+    expect(def.calculo.fonte).toBe('MENSAGEM');
+    const onde = def.calculo.onde({}).sql;
+    expect(onde).toContain("autor_tipo = 'USUARIO'");
+    expect(onde).toContain("direcao = 'SAIDA'");
+    expect(def.calculo.formula(7, null)).toBe(7);
   });
 });

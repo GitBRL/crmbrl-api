@@ -42,7 +42,7 @@ export const MODELO_TIME_COMERCIAL: ModeloDePainel = {
   chave: 'time_comercial',
   nome: 'Time comercial',
   descricao:
-    'Leads, atendimento, reuniões, no-show, conversão, ganhos e ligações do time comercial.',
+    'Leads, atendimento, reuniões, no-show, conversão, ganhos, ligações e mensagens do time comercial.',
   widgets: [
     numero('leads_recebidos'),
     numero('leads_atendidos'),
@@ -61,9 +61,14 @@ export const MODELO_TIME_COMERCIAL: ModeloDePainel = {
     }),
     grafico('negocios_ganhos', 'RANKING', 'Ganhos por vendedor', 1),
     grafico('valor_ganho', 'RANKING', 'Valor ganho por vendedor', 1),
+    grafico('leads_recebidos', 'RANKING', 'Leads por vendedor', 1),
+    grafico('negocios_abertos', 'POR_ETAPA', 'Leads por etapa', 1),
     numero('ligacoes_feitas'),
+    grafico('ligacoes_feitas', 'RANKING', 'Ligações por vendedor', 1),
     numero('taxa_atendimento_ligacoes'),
     numero('duracao_media_ligacao'),
+    numero('mensagens_enviadas'),
+    grafico('mensagens_enviadas', 'RANKING', 'Mensagens por vendedor', 1),
   ],
 };
 

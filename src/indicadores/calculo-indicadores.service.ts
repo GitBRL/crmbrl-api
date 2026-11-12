@@ -79,6 +79,14 @@ const ROTULOS_DE_BARRAS: Record<string, Record<string, string>> = {
     REMARCADA: 'Remarcada',
     SEM_RESULTADO: 'Sem resultado',
   },
+  CANAL: {
+    WHATSAPP: 'WhatsApp',
+    WHATSAPP_OFICIAL: 'WhatsApp oficial',
+    INSTAGRAM: 'Instagram',
+    MESSENGER: 'Messenger',
+    EMAIL: 'E-mail',
+    WEBCHAT: 'Chat do site',
+  },
   DIRECAO: { FEITA: 'Feita', RECEBIDA: 'Recebida' },
   ESTADO: {
     CHAMANDO: 'Chamando',

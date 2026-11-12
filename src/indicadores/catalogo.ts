@@ -23,7 +23,7 @@ import type {
   Visualizacao,
 } from './indicadores.tipos';
 
-export type Fonte = 'NEGOCIO' | 'ATIVIDADE' | 'LIGACAO';
+export type Fonte = 'NEGOCIO' | 'ATIVIDADE' | 'LIGACAO' | 'MENSAGEM';
 
 /** Dimensões de barras (`por`): rótulo e a expressão SQL (chave) por fonte. */
 export const DIMENSOES_DE_BARRAS: Readonly<
@@ -53,6 +53,7 @@ export const DIMENSOES_DE_BARRAS: Readonly<
   },
   DIRECAO: { rotulo: 'Direção', fonte: 'LIGACAO', sql: `l.direcao::text` },
   ESTADO: { rotulo: 'Como terminou', fonte: 'LIGACAO', sql: `l.estado::text` },
+  CANAL: { rotulo: 'Canal', fonte: 'MENSAGEM', sql: `cn.tipo::text` },
 };
 
 export interface CalculoDoIndicador {
@@ -218,6 +219,7 @@ const BARRAS_DE_NEGOCIO = ['ORIGEM', 'FUNIL', 'UTM_SOURCE'] as const;
 const NEGOCIO = { fonte: 'NEGOCIO' as const };
 const ATIVIDADE = { fonte: 'ATIVIDADE' as const };
 const LIGACAO = { fonte: 'LIGACAO' as const };
+const MENSAGEM = { fonte: 'MENSAGEM' as const };
 
 const REUNIAO_VALIDA = `a.tipo = 'REUNIAO'::tipo_atividade AND a.status <> 'CANCELADA'::status_atividade`;
 
@@ -650,6 +652,29 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
       onde: () =>
         Prisma.raw(
           `l.direcao = 'FEITA'::direcao_ligacao AND l.atendente_id IS NOT NULL`,
+        ),
+      a: contar,
+      formula: identidade,
+    },
+  }),
+  indicador({
+    chave: 'mensagens_enviadas',
+    nome: 'Mensagens enviadas',
+    descricao:
+      'Mensagens que as pessoas enviaram aos clientes no período, em qualquer canal (robô, chatbot, automação, SDR com IA, sistema e disparos em massa não entram).',
+    grupo: 'LIGACOES',
+    unidade: 'NUMERO',
+    visualizacoes: [...COM_BARRAS],
+    barras: ['CANAL'],
+    calculo: {
+      ...MENSAGEM,
+      tempo: 'coalesce(m.enviada_em, m.ocorrida_em)',
+      // Só saída escrita por uma pessoa e já enviada (não conta pendente nem falha, nem nota interna).
+      onde: () =>
+        Prisma.raw(
+          `m.direcao = 'SAIDA'::direcao_mensagem AND m.autor_tipo = 'USUARIO'::tipo_ator AND m.autor_id IS NOT NULL
+           AND m.status IN ('ENVIADA'::status_mensagem, 'ENTREGUE'::status_mensagem, 'LIDA'::status_mensagem)
+           AND NOT EXISTS (SELECT 1 FROM campanha_destinatarios cd_m WHERE cd_m.mensagem_id = m.id)`,
         ),
       a: contar,
       formula: identidade,

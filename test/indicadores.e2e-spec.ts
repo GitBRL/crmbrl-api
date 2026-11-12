@@ -8,6 +8,8 @@ import {
   criarAtividade,
   criarCanal,
   criarContato,
+  criarConversa,
+  criarFila,
   criarEquipe,
   criarUsuario,
   entrarComo,
@@ -301,6 +303,9 @@ describe('Indicadores configuráveis (R33, e2e)', () => {
       'LIGACOES',
       'ATIVIDADES',
     ]);
+    expect(
+      body.grupos.find((g: { chave: string }) => g.chave === 'LIGACOES').rotulo,
+    ).toBe('Ligações e mensagens');
     expect(body.indicadores.length).toBeGreaterThanOrEqual(30);
     expect(body.modelos[0]).toMatchObject({ chave: 'time_comercial' });
   });
@@ -1149,6 +1154,184 @@ describe('Indicadores configuráveis (R33, e2e)', () => {
         .send({ painelId: '3f1f3a52-9a53-4d63-a7a3-5c8e0f6f2f10' })
         .expect(404);
       await clienteAnonimo(t).post(`${BASE}/calcular`).send({}).expect(401);
+    });
+  });
+
+  describe('mensagens enviadas (R33.1, R20.2)', () => {
+    async function mensagens() {
+      const wa = await criarCanal(t, { tipo: 'WHATSAPP' });
+      const email = await criarCanal(t, { tipo: 'EMAIL' });
+      const fila = await criarFila(t, { area: 'COMERCIAL' });
+      const c1 = await criarConversa(t, {
+        canal: wa,
+        fila,
+        responsavel: v1,
+      });
+      const c2 = await criarConversa(t, {
+        canal: email,
+        fila,
+        responsavel: v2,
+      });
+      const c3 = await criarConversa(t, { canal: wa, fila });
+      const enviar = (
+        conversa: { id: string; canalId: string },
+        dados: {
+          direcao?: 'ENTRADA' | 'SAIDA' | 'INTERNA' | 'SISTEMA';
+          autor?: Usuario;
+          autorTipo?: 'USUARIO' | 'SISTEMA' | 'AUTOMACAO' | 'IA' | 'BOT';
+          status?: 'PENDENTE' | 'ENVIADA' | 'ENTREGUE' | 'LIDA' | 'FALHOU';
+          dias?: number;
+        },
+      ) =>
+        t.prisma.mensagem.create({
+          data: {
+            conversaId: conversa.id,
+            canalId: conversa.canalId,
+            direcao: dados.direcao ?? 'SAIDA',
+            texto: 'oi',
+            autorId: dados.autor?.id ?? null,
+            autorTipo:
+              dados.direcao === 'ENTRADA'
+                ? null
+                : (dados.autorTipo ?? (dados.autor ? 'USUARIO' : 'SISTEMA')),
+            status:
+              (dados.direcao ?? 'SAIDA') === 'SAIDA'
+                ? (dados.status ?? 'ENVIADA')
+                : null,
+            ocorridaEm: quando(dados.dias ?? 2, 11),
+            enviadaEm: quando(dados.dias ?? 2, 11),
+          },
+        });
+      // v1: 4 enviadas (uma ENTREGUE, uma LIDA) no WhatsApp.
+      await enviar(c1, { autor: v1 });
+      await enviar(c1, { autor: v1, status: 'ENTREGUE', dias: 1 });
+      await enviar(c1, { autor: v1, status: 'LIDA' });
+      await enviar(c1, { autor: v1 });
+      // Não contam: entrada, nota interna, aviso do sistema, robô, chatbot, automação, IA, pendente e falha.
+      await enviar(c1, { direcao: 'ENTRADA' });
+      await enviar(c1, { direcao: 'INTERNA', autor: v1 });
+      await enviar(c1, { direcao: 'SISTEMA' });
+      await enviar(c1, { autorTipo: 'BOT' });
+      await enviar(c1, { autorTipo: 'AUTOMACAO' });
+      await enviar(c1, { autorTipo: 'IA' });
+      await enviar(c1, { autor: v1, status: 'PENDENTE' });
+      await enviar(c1, { autor: v1, status: 'FALHOU' });
+      // Fora do período.
+      await enviar(c1, { autor: v1, dias: 40 });
+      // v2: 2 no e-mail e 1 na conversa sem responsável.
+      await enviar(c2, { autor: v2 });
+      await enviar(c2, { autor: v2 });
+      await enviar(c3, { autor: v2 });
+      return { c1 };
+    }
+
+    it('R33.1 — conta só mensagens de pessoas enviadas: robô, chatbot, automação, IA, sistema, nota, entrada, pendente e falha ficam de fora', async () => {
+      await mensagens();
+      expect(await numero(cAdmin, 'mensagens_enviadas')).toBe(7);
+      const [num] = await calcular(cAdmin, [
+        { indicador: 'mensagens_enviadas', filtros: { comparar: true } },
+      ]);
+      expect(num.valorAnterior).toBe(0);
+      expect(num.valor).toBe(7);
+    });
+
+    it('R33.2 — ranking por autor, barras por canal e série que soma o número', async () => {
+      await mensagens();
+      const [rank, canais, serie] = await calcular(cAdmin, [
+        { indicador: 'mensagens_enviadas', visualizacao: 'RANKING' },
+        {
+          indicador: 'mensagens_enviadas',
+          visualizacao: 'BARRAS',
+          parametros: { por: 'CANAL' },
+        },
+        {
+          indicador: 'mensagens_enviadas',
+          visualizacao: 'SERIE',
+          parametros: { agrupamento: 'DIA' },
+        },
+      ]);
+      expect(rank.linhas?.map((l) => [l.id, l.valor])).toEqual([
+        [v1.id, 4],
+        [v2.id, 3],
+      ]);
+      expect(canais.linhas?.map((l) => [l.rotulo, l.valor])).toEqual([
+        ['WhatsApp', 5],
+        ['E-mail', 2],
+      ]);
+      const soma = (serie.pontos ?? []).reduce((s, p) => s + (p.valor ?? 0), 0);
+      expect(soma).toBe(7);
+    });
+
+    it('R20.2 — o membro conta só as dele; o líder, a área; a diretoria, tudo; o número bate com o recorte', async () => {
+      await mensagens();
+      expect(await numero(cV1, 'mensagens_enviadas')).toBe(4);
+      expect(await numero(cV2, 'mensagens_enviadas')).toBe(3);
+      expect(await numero(cLider, 'mensagens_enviadas')).toBe(7);
+      const recorte = await t.prisma.mensagem.count({
+        where: {
+          autorId: v1.id,
+          direcao: 'SAIDA',
+          autorTipo: 'USUARIO',
+          status: { in: ['ENVIADA', 'ENTREGUE', 'LIDA'] },
+          enviadaEm: { gte: periodoDeTeste().de, lt: periodoDeTeste().ate },
+          conversa: { responsavelId: v1.id },
+        },
+      });
+      expect(await numero(cV1, 'mensagens_enviadas')).toBe(recorte);
+    });
+
+    it('R33.3 — filtra por pessoa e por setor; funil, etapa, origem e UTM valem pelo negócio da conversa', async () => {
+      const { c1 } = await mensagens();
+      const [pessoa, setor, outroSetor] = await calcular(
+        cAdmin,
+        [
+          { indicador: 'mensagens_enviadas' },
+          { indicador: 'mensagens_enviadas' },
+          { indicador: 'mensagens_enviadas' },
+        ].map((w, i) => ({
+          ...w,
+          filtros:
+            i === 0
+              ? { pessoaIds: [v2.id] }
+              : { setor: i === 1 ? 'COMERCIAL' : 'MARKETING' },
+        })),
+      );
+      expect(pessoa.valor).toBe(3);
+      expect(setor.valor).toBe(7);
+      expect(outroSetor.valor).toBe(0);
+      const negocio = await criarNegocioBi(t, {
+        area: 'COMERCIAL',
+        etapa: 'novo',
+        responsavel: v1,
+        criadoEm: quando(3),
+        origem: 'SITE',
+      });
+      await t.prisma.conversa.update({
+        where: { id: c1.id },
+        data: { negocioId: negocio.id },
+      });
+      const [comOrigem, outraOrigem] = await calcular(cAdmin, [
+        { indicador: 'mensagens_enviadas', filtros: { origens: ['SITE'] } },
+        { indicador: 'mensagens_enviadas', filtros: { origens: ['WEBHOOK'] } },
+      ]);
+      expect(comOrigem.valor).toBe(4);
+      expect(outraOrigem.valor).toBe(0);
+    });
+
+    it('R33.6 — o modelo "Time comercial" traz mensagens, leads e ligações por vendedor e leads por etapa', async () => {
+      const { body } = await cLider
+        .post(`${BASE}/paineis`)
+        .send({ modelo: 'time_comercial' })
+        .expect(201);
+      const tem = (indicador: string, visualizacao: string) =>
+        (body.widgets as { indicador: string; visualizacao: string }[]).some(
+          (w) => w.indicador === indicador && w.visualizacao === visualizacao,
+        );
+      expect(tem('mensagens_enviadas', 'NUMERO')).toBe(true);
+      expect(tem('mensagens_enviadas', 'RANKING')).toBe(true);
+      expect(tem('leads_recebidos', 'RANKING')).toBe(true);
+      expect(tem('negocios_abertos', 'POR_ETAPA')).toBe(true);
+      expect(tem('ligacoes_feitas', 'RANKING')).toBe(true);
     });
   });
 

@@ -13,7 +13,7 @@ export const ROTULO_DO_GRUPO: Readonly<Record<Grupo, string>> = {
   LEADS: 'Leads',
   REUNIOES: 'Reuniões',
   VENDAS: 'Vendas',
-  LIGACOES: 'Ligações',
+  LIGACOES: 'Ligações e mensagens',
   ATIVIDADES: 'Atividades',
 };
 
