@@ -11,7 +11,8 @@ Clique num cartão do quadro para abrir o painel lateral.
 
 - **Cabeçalho**: título, etapa (o seletor move o negócio), responsável (dá para trocar), contato e empresa (links), etiquetas. **Assumir** aparece se não há responsável.
 - Aba **Linha do tempo**: alterações e atividades, com filtros **Tudo**, **Alterações** e **Atividades**, e **Carregar mais**.
-- Aba **Atividades**: criar, concluir (com **Desfazer**), reabrir e criar reunião com início, fim e nota.
+- Aba **Atividades**: criar, concluir (com **Desfazer**), reabrir e criar reunião com início, fim e nota. Ao concluir uma reunião, escolha **Compareceu**, **Não compareceu** ou **Remarcada** (com a nova data).
+- **Primeiro atendimento** (aba **Dados**): quando e como uma pessoa falou pela primeira vez com o contato depois que o negócio nasceu (ligação, mensagem, e-mail ou atividade concluída), e quem foi. Mensagens de bot, automações e IA não contam. Mostra "Ainda não atendido" até acontecer.
 - Aba **Dados**: título, valor, valor recorrente mensal, previsão de fechamento, origem, UTM e campos personalizados. É aqui que você edita esses campos.
 - **Jornada**: "Veio de: Marketing — …" e "Gerou: Customer Success — …", com link. Se você não acessa o outro funil, aparece "outro funil" sem link.
 

@@ -1,4 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
+import { descricaoDaAtividade as descricaoDaLigacaoTresc } from '../tresc-plus/descricao-da-ligacao';
+import { negociosQueVe, veNegocio } from '../funis/negocios-visiveis';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { dadosDoEvento } from '../atividades/atividades.service';
@@ -47,10 +50,13 @@ import {
   FILA_VIGIAR_LIGACAO,
   PRAZO_DE_RETORNO_HORAS,
   REGRA_LIGACOES,
+  RESULTADO_POR_ESTADO,
   textoDoMotivo,
   TIPOS_NOTIFICACAO_LIGACAO,
   TOLERANCIA_DE_DESCONEXAO_S,
   VIGIA_DA_LIGACAO_FEITA_S,
+  canalDaLigacao,
+  exigirWhatsapp,
 } from './ligacoes.constantes';
 import type {
   AnotarLigacaoDto,
@@ -243,11 +249,21 @@ export class LigacoesService implements OnModuleInit {
         atendidaEm: ligacao.atendidaEm?.toISOString() ?? null,
       });
     }
+    if (decisao.estado === 'EM_ANDAMENTO' && ligacao.atendenteId) {
+      // R6.7 — ligação (feita ou recebida) atendida/conectada, com uma pessoa do lado do CRM: só aí conta
+      // como contato real (não na criação, nem quando falha ou ninguém atende).
+      await registrarPrimeiraInteracao(tx, {
+        contatoId: ligacao.contatoId,
+        tipo: 'LIGACAO',
+        usuarioId: ligacao.atendenteId,
+        quando: agora,
+      });
+    }
     if (decisao.estado === 'EM_ANDAMENTO') {
       // Ligação conectada: zera a contagem de pedidos e de "sem resposta" (R29.4).
       await this.permissoes.contarDesfecho(
         tx,
-        ligacao.canalId,
+        canalDaLigacao(ligacao),
         ligacao.contatoId,
         'atendida',
       );
@@ -347,7 +363,7 @@ export class LigacoesService implements OnModuleInit {
         ligacao.motivo !== 'cancelada_pelo_atendente';
       await this.permissoes.contarDesfecho(
         tx,
-        ligacao.canalId,
+        canalDaLigacao(ligacao),
         ligacao.contatoId,
         semResposta ? 'sem_resposta' : 'ignorar',
       );
@@ -446,7 +462,7 @@ export class LigacoesService implements OnModuleInit {
       }
       const { conversa } = await this.atendimento.conversaDaLigacao(
         tx,
-        ligacao.canalId,
+        canalDaLigacao(ligacao),
         remetente,
         ligacao.atendidaEm ?? new Date(),
       );
@@ -454,7 +470,7 @@ export class LigacoesService implements OnModuleInit {
     }
     const aberta = await tx.conversa.findFirst({
       where: {
-        canalId: ligacao.canalId,
+        canalId: canalDaLigacao(ligacao),
         contatoId: ligacao.contatoId,
         status: { not: 'RESOLVIDA' },
       },
@@ -548,8 +564,16 @@ export class LigacoesService implements OnModuleInit {
       | 'anotacao'
       | 'atendente'
       | 'iniciadaEm'
+      | 'provedor'
+      | 'telefone'
+      | 'campanhaNome'
+      | 'qualificacaoNome'
+      | 'qualificacaoNota'
     >,
   ): string {
+    // As ligações do 3C+ têm outro texto (campanha, qualificação), mas a anotação vale para as duas.
+    if (ligacao.provedor === 'TRESC_PLUS')
+      return descricaoDaLigacaoTresc(ligacao);
     const linhas = [
       `Direção: ${ligacao.direcao === 'RECEBIDA' ? 'recebida' : 'feita'} pelo WhatsApp.`,
       `Resultado: ${RESULTADO_POR_ESTADO[ligacao.estado]}${
@@ -784,7 +808,7 @@ export class LigacoesService implements OnModuleInit {
       null,
       conversa?.fila?.area ?? null,
     );
-    const config = await this.config.ler(ligacao.canalId);
+    const config = await this.config.ler(canalDaLigacao(ligacao));
     const filaId = conversa?.filaId ?? config.filaId ?? null;
     let participantes: string[] = [];
     if (filaId) {
@@ -831,7 +855,7 @@ export class LigacoesService implements OnModuleInit {
         dados: { ligacaoId: ligacao.id, contatoId: ligacao.contatoId },
       });
     }
-    const config = await this.config.ler(ligacao.canalId);
+    const config = await this.config.ler(canalDaLigacao(ligacao));
     if (
       ligacao.estado === 'PERDIDA' &&
       config.mensagemPerdidaAtiva &&
@@ -843,7 +867,7 @@ export class LigacoesService implements OnModuleInit {
         where: { id: conversaId },
       });
       const canal = await tx.canal.findUnique({
-        where: { id: ligacao.canalId },
+        where: { id: canalDaLigacao(ligacao) },
         select: { id: true, tipo: true },
       });
       if (
@@ -894,14 +918,23 @@ export class LigacoesService implements OnModuleInit {
     exigirAtendimento(usuario);
     const ligacao = await this.carregar(this.prisma, id);
     await this.exigirAcesso(usuario, ligacao);
-    return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
+    return paraLigacaoDto(
+      ligacao,
+      usuario.id,
+      usuario.papel,
+      await veNegocio(this.prisma, usuario, ligacao.negocioId),
+    );
   }
 
   /** A ligação em curso do usuário e as que ainda tocam para ele (retomar depois de recarregar a página). */
   async doUsuario(usuario: UsuarioAutenticado): Promise<LigacoesDoUsuarioDto> {
     exigirAtendimento(usuario);
     const emAndamento = await this.prisma.ligacao.findFirst({
-      where: { atendenteId: usuario.id, estado: { in: [...ESTADOS_ATIVOS] } },
+      where: {
+        atendenteId: usuario.id,
+        provedor: 'WHATSAPP',
+        estado: { in: [...ESTADOS_ATIVOS] },
+      },
       include: INCLUIR_LIGACAO,
     });
     const tocando = await this.prisma.ligacao.findMany({
@@ -916,9 +949,24 @@ export class LigacoesService implements OnModuleInit {
       include: INCLUIR_LIGACAO,
       orderBy: { iniciadaEm: 'asc' },
     });
+    const visiveis = await negociosQueVe(this.prisma, usuario, [
+      emAndamento?.negocioId,
+      ...tocando.map((item) => item.negocioId),
+    ]);
+    const ve = (negocioId: string | null) =>
+      !negocioId || visiveis.has(negocioId);
     return {
-      emAndamento: emAndamento ? paraLigacaoDto(emAndamento, usuario.id) : null,
-      tocando: tocando.map((item) => paraLigacaoDto(item, usuario.id)),
+      emAndamento: emAndamento
+        ? paraLigacaoDto(
+            emAndamento,
+            usuario.id,
+            null,
+            ve(emAndamento.negocioId),
+          )
+        : null,
+      tocando: tocando.map((item) =>
+        paraLigacaoDto(item, usuario.id, null, ve(item.negocioId)),
+      ),
     };
   }
 
@@ -973,6 +1021,7 @@ export class LigacoesService implements OnModuleInit {
   async encerrar(usuario: UsuarioAutenticado, id: string): Promise<LigacaoDto> {
     exigirAtendimento(usuario);
     const ligacao = await this.carregar(this.prisma, id);
+    exigirWhatsapp(ligacao);
     if (ligacao.atendenteId !== usuario.id && !ehDiretoria(usuario.papel)) {
       await this.exigirAcesso(usuario, ligacao);
       throw new SemPermissaoException(
@@ -981,7 +1030,12 @@ export class LigacoesService implements OnModuleInit {
       );
     }
     if (ehTerminal(ligacao.estado)) {
-      return paraLigacaoDto(ligacao, usuario.id);
+      return paraLigacaoDto(
+        ligacao,
+        usuario.id,
+        null,
+        await veNegocio(this.prisma, usuario, ligacao.negocioId),
+      );
     }
     if (ligacao.direcao === 'RECEBIDA' && ligacao.estado === 'TOCANDO') {
       throw new ConflitoException(
@@ -1011,7 +1065,11 @@ export class LigacoesService implements OnModuleInit {
     });
     if (ligacao.idMeta) {
       try {
-        await this.agirNaMeta(ligacao.canalId, 'terminate', ligacao.idMeta);
+        await this.agirNaMeta(
+          canalDaLigacao(ligacao),
+          'terminate',
+          ligacao.idMeta,
+        );
       } catch (erro) {
         // Ligação que a Meta já encerrou, ou Meta fora do ar: o fechamento local garante o desfecho.
         this.logger.warn(
@@ -1056,7 +1114,11 @@ export class LigacoesService implements OnModuleInit {
   /** Um socket do usuário caiu: se ele tem ligação em curso, agenda a conferência depois da tolerância. */
   async aoUsuarioDesconectar(usuarioId: string): Promise<void> {
     const ligacao = await this.prisma.ligacao.findFirst({
-      where: { atendenteId: usuarioId, estado: { in: [...ESTADOS_ATIVOS] } },
+      where: {
+        atendenteId: usuarioId,
+        provedor: 'WHATSAPP',
+        estado: { in: [...ESTADOS_ATIVOS] },
+      },
       select: { id: true },
     });
     if (!ligacao) {
@@ -1091,7 +1153,11 @@ export class LigacoesService implements OnModuleInit {
     }
     if (ligacao.idMeta) {
       try {
-        await this.agirNaMeta(ligacao.canalId, 'terminate', ligacao.idMeta);
+        await this.agirNaMeta(
+          canalDaLigacao(ligacao),
+          'terminate',
+          ligacao.idMeta,
+        );
       } catch (erro) {
         this.logger.warn(
           `terminate da ligação ${ligacao.id} (conexão perdida) falhou: ${erro instanceof Error ? erro.message : String(erro)}`,
@@ -1126,7 +1192,11 @@ export class LigacoesService implements OnModuleInit {
     }
     if (ligacao.idMeta) {
       try {
-        await this.agirNaMeta(ligacao.canalId, 'terminate', ligacao.idMeta);
+        await this.agirNaMeta(
+          canalDaLigacao(ligacao),
+          'terminate',
+          ligacao.idMeta,
+        );
       } catch (erro) {
         this.logger.warn(
           `terminate da ligação ${ligacao.id} (vigia) falhou: ${erro instanceof Error ? erro.message : String(erro)}`,
@@ -1171,17 +1241,6 @@ function naoAtendidaRecebida(ligacao: LigacaoCompleta): boolean {
     (ligacao.estado === 'PERDIDA' || ligacao.estado === 'FALHOU')
   );
 }
-
-const RESULTADO_POR_ESTADO = {
-  CHAMANDO: 'chamando',
-  TOCANDO: 'tocando',
-  EM_ANDAMENTO: 'em andamento',
-  ENCERRADA: 'atendida',
-  PERDIDA: 'perdida',
-  RECUSADA: 'recusada pelo cliente',
-  SEM_RESPOSTA: 'sem resposta',
-  FALHOU: 'falhou',
-} as const;
 
 function motivoDeDeixarDeTocar(
   estado: string,

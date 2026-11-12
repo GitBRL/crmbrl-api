@@ -18,8 +18,13 @@ import {
 /** Prazo de cada consulta da verificação. O healthcheck do Docker espera até 5 s. */
 export const PRAZO_DA_VERIFICACAO_MS = 3_000;
 
+/** Corpo público de `GET /api/saude`: só o estado, para o healthcheck. */
+export interface SaudePublica {
+  status: 'ok' | 'degradado';
+}
+
 /**
- * Corpo de `GET /api/saude`. É contrato com o front (`crmbrl`), que não
+ * Corpo de `GET /api/saude` para o Admin logado. É contrato com o front (`crmbrl`), que não
  * compartilha tipos com a API: mudou aqui, mude lá e em `docs/ARQUITETURA.md`.
  */
 export interface Saude {
@@ -36,6 +41,8 @@ export interface Saude {
   banco: SaudeDoBanco;
   /** `null` quando o banco falha. */
   migrations: SaudeDasMigrations | null;
+  /** Avisos de configuração da subida (ex.: segredo de desenvolvimento permitido em produção). Sem valores secretos. */
+  avisos: readonly string[];
 }
 
 export interface SaudeDoBanco {
@@ -80,6 +87,7 @@ export class SaudeService implements OnApplicationBootstrap {
       uptimeSegundos: Math.floor(process.uptime()),
       banco,
       migrations,
+      avisos: this.ambiente.avisos,
     };
   }
 

@@ -38,6 +38,11 @@ import {
   ReabrirNegocioDto,
   ResultadoMovimentacaoDto,
 } from './dto/negocios.dto';
+import {
+  AcaoEmMassaDto,
+  ResultadoEmMassaDto,
+} from './dto/negocios-em-massa.dto';
+import { NegociosEmMassaService } from './negocios-em-massa.service';
 import { NegociosConsultaService } from './negocios-consulta.service';
 import { NegociosService } from './negocios.service';
 
@@ -53,6 +58,7 @@ export class NegociosController {
   constructor(
     private readonly negocios: NegociosService,
     private readonly consulta: NegociosConsultaService,
+    private readonly emMassa: NegociosEmMassaService,
   ) {}
 
   @Get()
@@ -84,6 +90,23 @@ export class NegociosController {
     @Body() dto: CriarNegocioDto,
   ): Promise<NegocioDto> {
     return this.negocios.criar(usuario, dto);
+  }
+
+  @Post('em-massa')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Ação em massa nos negócios do quadro (R5.16)',
+    description:
+      'Aplica a ação a até 500 negócios, cada um pelo serviço de domínio e na própria transação: o sucesso é parcial e as falhas voltam em `falhas` ' +
+      '(negócio que a pessoa não vê, como 404). Corpo inválido é 400 antes de tudo. Grava uma auditoria-resumo `negocio.acao_em_massa`.',
+  })
+  @ApiOkResponse({ type: ResultadoEmMassaDto })
+  @ApiRespostasDeErro(400)
+  acaoEmMassa(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body() dto: AcaoEmMassaDto,
+  ): Promise<ResultadoEmMassaDto> {
+    return this.emMassa.executar(usuario, dto);
   }
 
   @Get(':id')

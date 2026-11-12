@@ -1,13 +1,17 @@
 import type { Request, Response } from 'express';
 import { criarMiddlewareDeCabecalhos, HSTS } from './cabecalhos-de-seguranca';
 
-function executar(hsts: boolean): Map<string, string> {
+function executar(hsts: boolean, caminho = '/'): Map<string, string> {
   const cabecalhos = new Map<string, string>();
   const resposta = {
     setHeader: (nome: string, valor: string) => cabecalhos.set(nome, valor),
   } as unknown as Response;
   const proximo = jest.fn();
-  criarMiddlewareDeCabecalhos(hsts)({} as Request, resposta, proximo);
+  criarMiddlewareDeCabecalhos(hsts)(
+    { path: caminho } as Request,
+    resposta,
+    proximo,
+  );
   expect(proximo).toHaveBeenCalledTimes(1);
   return cabecalhos;
 }
@@ -22,5 +26,13 @@ describe('cabeçalhos de segurança', () => {
 
   it('com HTTPS de ponta a ponta, acrescenta o HSTS', () => {
     expect(executar(true).get('Strict-Transport-Security')).toBe(HSTS);
+  });
+
+  it('R3 — respostas de /api/v1/* levam Cache-Control: no-store; o resto da API não é tocado', () => {
+    expect(executar(false, '/api/v1/contatos').get('Cache-Control')).toBe(
+      'no-store',
+    );
+    expect(executar(false, '/api/saude').has('Cache-Control')).toBe(false);
+    expect(executar(false, '/api/docs').has('Cache-Control')).toBe(false);
   });
 });

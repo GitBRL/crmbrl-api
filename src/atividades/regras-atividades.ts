@@ -89,6 +89,52 @@ export function ehAtrasada(atividade: DatasDaAtividade, agora: Date): boolean {
 }
 
 /**
+ * R6.6 — "aguardando resultado" é a reunião pendente cujo início já passou
+ * (calculado, nunca gravado).
+ */
+export function ehAguardandoResultado(
+  atividade: Pick<DatasDaAtividade, 'tipo' | 'status' | 'venceEm'> & {
+    readonly inicioEm?: Date | null;
+  },
+  agora: Date,
+): boolean {
+  if (atividade.tipo !== 'REUNIAO' || atividade.status !== 'PENDENTE') {
+    return false;
+  }
+  const inicio = atividade.inicioEm ?? atividade.venceEm;
+  return inicio !== null && inicio.getTime() < agora.getTime();
+}
+
+/** Filtro Prisma de `ehAguardandoResultado`. */
+export function condicaoAguardandoResultado(
+  agora: Date,
+): Prisma.AtividadeWhereInput {
+  return {
+    tipo: 'REUNIAO',
+    status: 'PENDENTE',
+    OR: [
+      { inicioEm: { lt: agora } },
+      { inicioEm: null, venceEm: { lt: agora } },
+    ],
+  };
+}
+
+/** Complemento exato de `condicaoAguardandoResultado`. */
+export function condicaoNaoAguardandoResultado(
+  agora: Date,
+): Prisma.AtividadeWhereInput {
+  return {
+    OR: [
+      { tipo: { not: 'REUNIAO' } },
+      { status: { not: 'PENDENTE' } },
+      { inicioEm: { gte: agora } },
+      { inicioEm: null, venceEm: null },
+      { inicioEm: null, venceEm: { gte: agora } },
+    ],
+  };
+}
+
+/**
  * Agrupamentos da agenda, na ordem em que o front os mostra. São exclusivos:
  * cada atividade pendente cai em exatamente um dos cinco primeiros; as
  * concluídas, no último. Canceladas e notas não entram em nenhum.

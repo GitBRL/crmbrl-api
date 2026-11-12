@@ -87,10 +87,8 @@ describe('Base — infraestrutura (e2e)', () => {
       await clienteAnonimo(t).get('/api/v1/auth/eu').expect(401);
       await clienteAnonimo(t).get('/api/auth/eu').expect(404);
       const saude = await clienteAnonimo(t).get('/api/saude').expect(200);
-      expect(saude.body).toMatchObject({
-        status: 'ok',
-        banco: { status: 'ok' },
-      });
+      // Sem login, só o estado (revisão de segurança U4): versão, banco e migrations ficam para o Admin.
+      expect(saude.body).toEqual({ status: 'ok' });
     });
 
     it('validação: lista branca, mensagens em português e campos aninhados', async () => {

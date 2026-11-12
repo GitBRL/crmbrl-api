@@ -95,6 +95,36 @@ describe('Disparos — campanhas (e2e, R17)', () => {
         .expect(404);
     });
 
+    it('R17 — campanha só usa modelo de mensagem que a pessoa vê: o de outro setor é "não encontrado"', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
+      const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 1 });
+      const { canal } = await cenarioWhatsapp(t, 0);
+      const doMarketing = await entrarComo(t, marketing.lider);
+      const doComercial = await entrarComo(t, comercial.lider);
+      const modelo = await doMarketing
+        .post('/api/v1/modelos-mensagem', {
+          nome: 'Só do marketing',
+          canal: 'WHATSAPP',
+          texto: 'Oi, temos uma oferta.',
+        })
+        .expect(201);
+      const campanha = (modeloId: string) => ({
+        nome: 'Com modelo alheio',
+        canal: 'WHATSAPP',
+        canalIds: [canal.id],
+        modeloId,
+      });
+      await doMarketing
+        .post('/api/v1/disparos/campanhas', campanha(modelo.body.id))
+        .expect(201);
+      const recusada = await doComercial
+        .post('/api/v1/disparos/campanhas', campanha(modelo.body.id))
+        .expect(400);
+      expect(recusada.body.detalhes.campos).toEqual([
+        { campo: 'modeloId', mensagens: ['modelo não encontrado'] },
+      ]);
+    });
+
     it('R17.1 — Marketing escolhe número e cria/inicia a campanha sem passar pelo Atendimento; Chatbot e Automações têm rotas de opções próprias', async () => {
       const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
       const { canal } = await cenarioWhatsapp(t, 2);
@@ -143,6 +173,29 @@ describe('Disparos — campanhas (e2e, R17)', () => {
         );
         expect(Array.isArray(body.filas)).toBe(true);
       }
+    });
+
+    it('R5.9/R5.12 — no segmento, quem é membro só conta os negócios que são seus ou sem responsável', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING', { membros: 2 });
+      const [ana, bia] = marketing.membros;
+      await criarNegocio(t, { area: 'MARKETING', responsavel: ana });
+      await criarNegocio(t, { area: 'MARKETING', responsavel: bia });
+      await criarNegocio(t, { area: 'MARKETING' });
+      const previa = async (quem: typeof ana) =>
+        (
+          await (
+            await entrarComo(t, quem!)
+          )
+            .post('/api/v1/segmentos/previa', {
+              segmento: {
+                condicoes: [{ campo: 'negocio', operador: 'tem', valor: {} }],
+              },
+            })
+            .expect(200)
+        ).body.total;
+      // Os da própria pessoa e o sem responsável; o da colega fica de fora.
+      expect(await previa(ana)).toBe(2);
+      expect(await previa(bia)).toBe(2);
     });
 
     it('R5.9 — o construtor de segmentos não revela negócios de funil que a pessoa não vê', async () => {
@@ -397,6 +450,32 @@ describe('Disparos — campanhas (e2e, R17)', () => {
         })
         .expect(200);
       expect(resposta.body).toMatchObject({ total: 2, elegiveis: 2 });
+    });
+  });
+
+  describe('importação como público (R17.2)', () => {
+    it('R17.2 — importação de outra pessoa é "não encontrada"; a diretoria usa qualquer uma', async () => {
+      const marketing = await criarEquipe(t, 'MARKETING', { membros: 1 });
+      const admin = await criarUsuario(t, { papel: 'ADMIN' });
+      const importacao = await t.prisma.importacao.create({
+        data: {
+          tipo: 'CONTATOS',
+          status: 'CONCLUIDA',
+          nome: 'do-marketing.csv',
+          arquivoId: (await criarArquivo(t, { contexto: 'IMPORTACAO' })).id,
+          formato: 'csv',
+          criadoPorId: marketing.membros[0]!.id,
+        },
+      });
+      const previa = (quem: Awaited<ReturnType<typeof entrarComo>>) =>
+        quem.post('/api/v1/disparos/previa-publico', {
+          canal: 'WHATSAPP',
+          tipoPublico: 'IMPORTACAO',
+          importacaoId: importacao.id,
+        });
+      await previa(await entrarComo(t, marketing.membros[0]!)).expect(200);
+      await previa(await entrarComo(t, marketing.lider)).expect(404);
+      await previa(await entrarComo(t, admin)).expect(200);
     });
   });
 

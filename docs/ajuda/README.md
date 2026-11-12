@@ -38,6 +38,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Configurar filas, SLA, horário, satisfação e respostas rápidas](atendimento-filas-sla-respostas-rapidas.md)
 - [Histórico de ligações: filtrar, buscar no que foi dito, ouvir e ler a transcrição](atendimento-historico-de-ligacoes.md)
 - [Ligações pelo WhatsApp: atender, ligar e pedir permissão ao cliente](atendimento-ligacoes.md)
+- [Ligações pelo 3C+: conectar, entrar na campanha, ligar e qualificar](atendimento-ligacoes-3c-plus.md)
 - [Responder uma conversa: mensagem, nota interna, anexos e respostas rápidas](atendimento-responder-conversa.md)
 - [Atendimento com o SDR com IA: selo, assumir, devolver, sugestão e qualificação](atendimento-sdr-ia.md)
 
@@ -77,6 +78,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Meu perfil e Minha equipe](configuracoes-perfil-e-minha-equipe.md)
 - [Configurar o SDR com IA](configuracoes-sdr-ia.md)
 - [Convidar e editar usuários](configuracoes-usuarios-convidar-editar.md)
+- [Ativar a verificação em duas etapas](configuracoes-verificacao-em-duas-etapas.md)
 
 ## administracao
 - [Consultar a auditoria e os logs técnicos](administracao-auditoria-e-logs.md)

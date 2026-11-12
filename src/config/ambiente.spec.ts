@@ -106,6 +106,11 @@ describe('lerAmbiente', () => {
         rdStationDialogoUrl: 'https://api.rd.services',
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
+      trescPlus: {
+        ouvinteAtivo: true,
+        reconciliacaoMinutos: 10,
+        hostsPermitidos: [],
+      },
       transcricao: {
         url: null,
         modelo: 'small',
@@ -129,6 +134,7 @@ describe('lerAmbiente', () => {
         chavePrivada: expect.any(Function),
       },
       backupDir: '/backups',
+      permitirSegredosDeDesenvolvimento: false,
       avisos: [
         'CHAVE_CRIPTOGRAFIA não definida: usando a chave de desenvolvimento (não use em produção).',
         expect.stringContaining(
@@ -217,6 +223,27 @@ describe('lerAmbiente', () => {
     );
   });
 
+  describe('R34.1 — TRESC_PLUS_HOSTS_PERMITIDOS', () => {
+    it('lê a lista separada por vírgula (aceita *.dominio e IP), sem repetidos', () => {
+      expect(
+        ler({
+          TRESC_PLUS_HOSTS_PERMITIDOS:
+            ' apoio, *.Interno.com ,apoio,127.0.0.1 ',
+        }).trescPlus.hostsPermitidos,
+      ).toEqual(['apoio', '*.interno.com', '127.0.0.1']);
+      expect(ler({}).trescPlus.hostsPermitidos).toEqual([]);
+    });
+
+    it('recusa item inválido', () => {
+      expect(
+        problemasDe({
+          DATABASE_URL: URL_DO_BANCO,
+          TRESC_PLUS_HOSTS_PERMITIDOS: 'ok.com, não é host',
+        }).join(' '),
+      ).toMatch(/TRESC_PLUS_HOSTS_PERMITIDOS/);
+    });
+  });
+
   describe('produção', () => {
     it('sobe com o mínimo e liga os padrões seguros', () => {
       const ambiente = lerAmbiente(PRODUCAO);
@@ -254,31 +281,42 @@ describe('lerAmbiente', () => {
       expect(lerAmbiente(semEndpoint).arquivos.endpoint).toBeNull();
     });
 
-    it('avisa do driver de arquivos em memória e do token interno de desenvolvimento', () => {
-      const ambiente = lerAmbiente({
-        ...PRODUCAO,
-        ARQUIVOS_DRIVER: 'memoria',
-        WHATSAPP_TOKEN_INTERNO: TOKEN_INTERNO_DESENVOLVIMENTO,
-      });
+    it('avisa do driver de arquivos em memória; o token interno de desenvolvimento recusa a subida', () => {
+      const ambiente = lerAmbiente({ ...PRODUCAO, ARQUIVOS_DRIVER: 'memoria' });
       expect(ambiente.avisos).toEqual([
         expect.stringContaining('ARQUIVOS_DRIVER=memoria em produção'),
-        expect.stringContaining('token público de desenvolvimento'),
       ]);
+      expect(
+        problemasDe({
+          ...PRODUCAO,
+          WHATSAPP_TOKEN_INTERNO: TOKEN_INTERNO_DESENVOLVIMENTO,
+        }),
+      ).toEqual([expect.stringContaining('token público de desenvolvimento')]);
     });
 
-    it('avisa se a chave de criptografia for a pública de desenvolvimento', () => {
-      const ambiente = lerAmbiente({
+    it('se a chave de criptografia for a pública de desenvolvimento, recusa a subida (ou avisa alto com a permissão explícita)', () => {
+      const variaveis = {
         ...PRODUCAO,
         CHAVE_CRIPTOGRAFIA: CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO.toString('hex'),
-      });
-      expect(ambiente.avisos).toEqual([
+      };
+      expect(problemasDe(variaveis)).toEqual([
         expect.stringContaining('chave pública de desenvolvimento'),
       ]);
+      expect(
+        lerAmbiente({
+          ...variaveis,
+          PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO: 'true',
+        }).avisos,
+      ).toEqual([expect.stringMatching(/^ATENÇÃO:.*chave pública/)]);
     });
 
     it('permite COOKIE_SEGURO=false para o compose local em http', () => {
       expect(
-        lerAmbiente({ ...PRODUCAO, COOKIE_SEGURO: 'false' }).cookieSeguro,
+        lerAmbiente({
+          ...PRODUCAO,
+          URL_PUBLICA: 'http://localhost:8080',
+          COOKIE_SEGURO: 'false',
+        }).cookieSeguro,
       ).toBe(false);
     });
   });

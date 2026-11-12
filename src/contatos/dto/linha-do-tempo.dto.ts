@@ -173,6 +173,25 @@ export class LigacaoDaLinhaDoTempoDto {
   @ApiProperty({ type: String, nullable: true, format: 'uuid' })
   canalId: string | null;
   @ApiProperty({ type: String, nullable: true }) canalNome: string | null;
+  @ApiProperty({
+    enum: ['WHATSAPP', 'TRESC_PLUS'],
+    description: 'R34.3: de onde vem a ligação.',
+  })
+  provedor: string;
+  @ApiProperty({ type: String, nullable: true, format: 'uuid' })
+  negocioId: string | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Qualificação dada no 3C+.',
+  })
+  qualificacaoNome: string | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Campanha do 3C+.',
+  })
+  campanhaNome: string | null;
   @ApiProperty({ type: () => UsuarioVinculadoDto, nullable: true })
   atendente: UsuarioVinculadoDto | null;
   @ApiProperty({ format: 'date-time' }) iniciadaEm: string;

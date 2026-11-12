@@ -194,6 +194,14 @@ export class CriptografiaService {
     );
   }
 
+  /**
+   * HMAC-SHA256 com a `CHAVE_CRIPTOGRAFIA` em hexadecimal: guarda valores de pouca entropia
+   * que não podem ser revertidos sem a chave (códigos de recuperação do 2FA, R2.11).
+   */
+  hmacComChave(conteudo: string): string {
+    return createHmac('sha256', this.chave).update(conteudo).digest('hex');
+  }
+
   /** HMAC-SHA256 em hexadecimal. */
   assinarHmac(segredo: string, conteudo: string | Buffer): string {
     return createHmac('sha256', segredo).update(conteudo).digest('hex');

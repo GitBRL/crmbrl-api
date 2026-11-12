@@ -4,7 +4,7 @@ import { FilaService } from '../fila/fila.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import type { ResumoGravado } from '../transcricao/transcricao.constantes';
 import { ConfiguracaoDeLigacoesService } from './configuracao-ligacoes.service';
-import { resultadoDaLigacao } from './ligacoes.constantes';
+import { canalDaLigacao, resultadoDaLigacao } from './ligacoes.constantes';
 import { ESPERA_PARA_FINALIZAR_SOZINHO_S } from './gravacao/gravacao.constantes';
 import type { LigacaoCompleta } from './ligacao-dto';
 import { INCLUIR_LIGACAO } from './ligacao-dto';
@@ -37,6 +37,50 @@ function resumoParaWebhook(resumo: ResumoGravado | null): object | null {
         sentimento: resumo.sentimento,
       }
     : null;
+}
+
+/** O que o evento `ligacao.encerrada` (e o webhook) leva. Sem áudio, sem transcrição; resumo só se `comResumo`. */
+export function dadosDoEventoDeLigacao(
+  ligacao: LigacaoCompleta,
+  comResumo: boolean,
+): Record<string, unknown> {
+  const dados: Record<string, unknown> = {
+    ligacaoId: ligacao.id,
+    canalId: ligacao.canalId,
+    canalTipo: ligacao.provedor === 'WHATSAPP' ? 'WHATSAPP_OFICIAL' : null,
+    provedor: ligacao.provedor,
+    negocioId: ligacao.negocioId,
+    contatoId: ligacao.contatoId,
+    contato: { id: ligacao.contato.id, nome: ligacao.contato.nome },
+    conversaId: ligacao.conversaId,
+    atividadeId: ligacao.atividadeId,
+    direcao: ligacao.direcao,
+    estado: ligacao.estado,
+    resultado: resultadoDaLigacao(ligacao.estado),
+    motivo: ligacao.motivo,
+    duracaoSegundos: ligacao.duracaoSegundos ?? 0,
+    esperaSegundos:
+      ligacao.atendidaEm !== null
+        ? Math.max(
+            0,
+            Math.round(
+              (ligacao.atendidaEm.getTime() - ligacao.iniciadaEm.getTime()) /
+                1000,
+            ),
+          )
+        : null,
+    atendenteId: ligacao.atendenteId,
+    atendente: ligacao.atendente
+      ? { id: ligacao.atendente.id, nome: ligacao.atendente.nome }
+      : null,
+    iniciadaEm: ligacao.iniciadaEm.toISOString(),
+    atendidaEm: iso(ligacao.atendidaEm),
+    encerradaEm: iso(ligacao.encerradaEm),
+  };
+  if (comResumo) {
+    dados.resumo = resumoParaWebhook(ligacao.resumo as ResumoGravado | null);
+  }
+  return dados;
 }
 
 /**
@@ -76,7 +120,7 @@ export class EventosDeLigacaoService implements OnModuleInit {
         this.dados(ligacao, false),
       );
     }
-    const config = await this.config.ler(ligacao.canalId);
+    const config = await this.config.ler(canalDaLigacao(ligacao));
     const aguardaResumo =
       config.webhookIncluiResumo &&
       ligacao.gravar &&
@@ -116,7 +160,7 @@ export class EventosDeLigacaoService implements OnModuleInit {
       );
       return;
     }
-    const config = await this.config.ler(ligacao.canalId);
+    const config = await this.config.ler(canalDaLigacao(ligacao));
     await this.prisma.$transaction(async (tx) => {
       await this.eventos.publicar(
         tx,
@@ -155,40 +199,6 @@ export class EventosDeLigacaoService implements OnModuleInit {
 
   /** O que o evento (e o webhook) leva. Sem áudio, sem transcrição; resumo só se `comResumo`. */
   dados(ligacao: LigacaoCompleta, comResumo: boolean): Record<string, unknown> {
-    const dados: Record<string, unknown> = {
-      ligacaoId: ligacao.id,
-      canalId: ligacao.canalId,
-      canalTipo: 'WHATSAPP_OFICIAL',
-      contatoId: ligacao.contatoId,
-      contato: { id: ligacao.contato.id, nome: ligacao.contato.nome },
-      conversaId: ligacao.conversaId,
-      atividadeId: ligacao.atividadeId,
-      direcao: ligacao.direcao,
-      estado: ligacao.estado,
-      resultado: resultadoDaLigacao(ligacao.estado),
-      motivo: ligacao.motivo,
-      duracaoSegundos: ligacao.duracaoSegundos ?? 0,
-      esperaSegundos:
-        ligacao.atendidaEm !== null
-          ? Math.max(
-              0,
-              Math.round(
-                (ligacao.atendidaEm.getTime() - ligacao.iniciadaEm.getTime()) /
-                  1000,
-              ),
-            )
-          : null,
-      atendenteId: ligacao.atendenteId,
-      atendente: ligacao.atendente
-        ? { id: ligacao.atendente.id, nome: ligacao.atendente.nome }
-        : null,
-      iniciadaEm: ligacao.iniciadaEm.toISOString(),
-      atendidaEm: iso(ligacao.atendidaEm),
-      encerradaEm: iso(ligacao.encerradaEm),
-    };
-    if (comResumo) {
-      dados.resumo = resumoParaWebhook(ligacao.resumo as ResumoGravado | null);
-    }
-    return dados;
+    return dadosDoEventoDeLigacao(ligacao, comResumo);
   }
 }

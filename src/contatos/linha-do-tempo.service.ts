@@ -14,7 +14,15 @@ import {
 import { type EventoAuditoria, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsuarioVinculadoDto } from './dto/comum.dto';
-import { sqlLigacoesVisiveis } from '../bi/escopo-bi';
+import {
+  sqlCampanhasVisiveis,
+  sqlConversasVisiveis,
+  sqlLigacoesVisiveis,
+} from '../bi/escopo-bi';
+import {
+  sqlContratosVisiveis,
+  sqlParcelasVisiveis,
+} from '../financeiro/permissoes-financeiro-sql';
 import {
   ESTADOS_TERMINAIS,
   resultadoDaLigacao,
@@ -135,11 +143,14 @@ export class LinhaDoTempoService {
            AND NOT (a.status = 'CONCLUIDA'::status_atividade AND EXISTS (
                  SELECT 1 FROM ligacoes la WHERE la.atividade_id = a.id))`);
     }
-    if (so('ligacoes') && entidade !== 'negocio') {
+    if (so('ligacoes')) {
+      // R34.3: no negócio entram só as ligações do 3C+ ligadas a ele (`negocio_id`).
       const coluna =
-        entidade === 'contato'
-          ? Prisma.sql`l.contato_id = ${id}::uuid`
-          : Prisma.sql`l.contato_id IN (SELECT ct.id FROM contatos ct WHERE ct.empresa_id = ${id}::uuid)`;
+        entidade === 'negocio'
+          ? Prisma.sql`l.negocio_id = ${id}::uuid`
+          : entidade === 'contato'
+            ? Prisma.sql`l.contato_id = ${id}::uuid`
+            : Prisma.sql`l.contato_id IN (SELECT ct.id FROM contatos ct WHERE ct.empresa_id = ${id}::uuid)`;
       ramos.push(Prisma.sql`
         SELECT 'ligacao'::text AS tipo, NULL::bigint AS evento_id, NULL::uuid AS atividade_id,
                l.id AS ligacao_id, COALESCE(l.encerrada_em, l.iniciada_em) AS ocorrido_em
@@ -186,9 +197,34 @@ export class LinhaDoTempoService {
       return semFechamentoDeLigacao;
     }
     const idDaEntidade = Prisma.sql`(CASE WHEN e.entidade_id ~ ${PADRAO_UUID} THEN e.entidade_id::uuid END)`;
+    // Lista fechada: quem não é da diretoria só vê eventos das entidades abaixo, cada uma com a
+    // visibilidade do próprio módulo (contrato e parcela R22.1, conversa R12.2, ligação R29.8,
+    // campanha R17). Entidade fora da lista (configuração, integração, usuário…) não aparece.
     return Prisma.sql`(
       ${semFechamentoDeLigacao} AND (
-      e.entidade NOT IN ('negocio', 'atividade')
+      e.entidade IN ('contato', 'empresa', 'passagem')
+      OR (e.entidade = 'conversa' AND EXISTS (
+            SELECT 1 FROM conversas ec LEFT JOIN filas_atendimento ef ON ef.id = ec.fila_id
+             WHERE ec.id = ${idDaEntidade}
+               AND ${sqlConversasVisiveis(usuario, Prisma.raw('ec'), Prisma.raw('ef'))}))
+      OR (e.entidade = 'ligacao' AND EXISTS (
+            SELECT 1 FROM ligacoes el
+              LEFT JOIN conversas elc ON elc.id = el.conversa_id
+              LEFT JOIN filas_atendimento elf ON elf.id = elc.fila_id
+             WHERE el.id = ${idDaEntidade}
+               AND ${sqlLigacoesVisiveis(usuario, Prisma.raw('el'), Prisma.raw('elc'), Prisma.raw('elf'))}))
+      OR (e.entidade = 'contrato' AND EXISTS (
+            SELECT 1 FROM contratos ect
+             WHERE ect.id = ${idDaEntidade}
+               AND ${sqlContratosVisiveis(usuario, Prisma.raw('ect'))}))
+      OR (e.entidade = 'parcela' AND EXISTS (
+            SELECT 1 FROM parcelas epa
+             WHERE epa.id = ${idDaEntidade}
+               AND ${sqlParcelasVisiveis(usuario, Prisma.raw('epa'))}))
+      OR (e.entidade = 'campanha' AND EXISTS (
+            SELECT 1 FROM campanhas ek
+             WHERE ek.id = ${idDaEntidade}
+               AND ${sqlCampanhasVisiveis(usuario, Prisma.raw('ek'))}))
       OR (e.entidade = 'atividade' AND EXISTS (
             SELECT 1 FROM atividades ea
              WHERE ea.id = ${idDaEntidade}
@@ -268,7 +304,10 @@ export class LinhaDoTempoService {
     );
     // A atividade que a pessoa vê (R6.4) pode ser de um negócio que ela não vê: o vínculo some (R5.9).
     const idsDeNegocios = [
-      ...new Set(atividades.flatMap((a) => (a.negocioId ? [a.negocioId] : []))),
+      ...new Set([
+        ...atividades.flatMap((a) => (a.negocioId ? [a.negocioId] : [])),
+        ...ligacoes.flatMap((l) => (l.negocioId ? [l.negocioId] : [])),
+      ]),
     ];
     const negociosVisiveis = new Set(
       idsDeNegocios.length > 0
@@ -321,7 +360,11 @@ export class LinhaDoTempoService {
             ocorridoEm,
             evento: null,
             atividade: null,
-            ligacao: this.paraLigacao(ligacao),
+            ligacao: this.paraLigacao(
+              ligacao,
+              ligacao.negocioId !== null &&
+                negociosVisiveis.has(ligacao.negocioId),
+            ),
           });
         }
       }
@@ -336,6 +379,8 @@ export class LinhaDoTempoService {
         atendente: { select: typeof SELECIONAR_USUARIO_VINCULADO };
       };
     }>,
+    /** R5.9: a pessoa vê o funil do negócio ligado? */
+    mostrarNegocio: boolean,
   ): LigacaoDaLinhaDoTempoDto {
     const resumo = ligacao.resumo as ResumoGravado | null;
     const terminal = ESTADOS_TERMINAIS.includes(ligacao.estado);
@@ -351,8 +396,12 @@ export class LinhaDoTempoService {
       motivoTexto: textoDoMotivo(ligacao.motivo),
       duracaoSegundos: ligacao.duracaoSegundos,
       conversaId: ligacao.conversaId,
-      canalId: ligacao.canal.id,
-      canalNome: ligacao.canal.nome,
+      canalId: ligacao.canal?.id ?? null,
+      canalNome: ligacao.canal?.nome ?? null,
+      provedor: ligacao.provedor,
+      negocioId: mostrarNegocio ? ligacao.negocioId : null,
+      qualificacaoNome: ligacao.qualificacaoNome,
+      campanhaNome: ligacao.campanhaNome,
       atendente: ligacao.atendente
         ? UsuarioVinculadoDto.de(ligacao.atendente)
         : null,

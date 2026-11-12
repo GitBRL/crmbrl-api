@@ -106,6 +106,14 @@ export const EVENTOS_DO_SERVIDOR = {
   LIGACAO_PROCESSADA: 'ligacao.processada',
   /** Ligações: a permissão do cliente para ligar mudou (sala `conversa:<id>`, para o botão "Ligar"). */
   LIGACAO_PERMISSAO: 'ligacao.permissao',
+  /** 3C+ (R34.4): o estado do agente mudou (sala `usuario:<id>`). Corpo: `CargaTrescAgente`. */
+  TRESC_AGENTE: 'tresc.agente',
+  /** 3C+: uma ligação do 3C+ mudou de estado (sala `usuario:<atendente>`). Corpo: `CargaTrescLigacao`. */
+  TRESC_LIGACAO: 'tresc.ligacao',
+  /** 3C+ (R34.7): ligação recebida; abra a ficha (ou "novo contato"). Corpo: `CargaTrescRecebida`. */
+  TRESC_RECEBIDA: 'tresc.recebida',
+  /** 3C+ (R34.5): a ligação terminou e espera a qualificação; abra o modal. Corpo: `CargaTrescQualificar`. */
+  TRESC_QUALIFICAR: 'tresc.qualificar',
   /**
    * SDR com IA (R31): o estado do SDR numa conversa mudou (IA assumiu, nova sugestão, critério
    * descoberto, passou para humano, qualificada…). Vai para as salas da conversa; recarregue
@@ -322,6 +330,51 @@ export interface CargaSdrAtualizado {
   motivo: string;
 }
 
+/** `tresc.agente`: estado do agente no 3C+ (R34.4). */
+export interface CargaTrescAgente {
+  /** `desconectado`, `ocioso`, `manual`, `em_ligacao`, `pos_atendimento` ou `pausa`. */
+  estado: string;
+  desde: string;
+  campanha: { id: number; nome: string | null } | null;
+  /** `manual` ou `dialer`. */
+  modo: string | null;
+  pausa: { id: number; nome: string | null } | null;
+  /** Mensagem em português quando o 3C+ recusou uma ação do agente (login, modo manual, pausa). */
+  erro: string | null;
+}
+
+/** `tresc.ligacao`: uma ligação do 3C+ (o mesmo vocabulário de estados de `GET /ligacoes/:id`). */
+export interface CargaTrescLigacao {
+  ligacaoId: string;
+  estado: string;
+  direcao: string;
+  telefone: string | null;
+  contatoId: string;
+  negocioId: string | null;
+  campanhaId: number | null;
+  motivo: string | null;
+  motivoTexto: string | null;
+  atendidaEm: string | null;
+  encerradaEm: string | null;
+  duracaoSegundos: number | null;
+  qualificacao: string | null;
+}
+
+/** `tresc.recebida`: ligação recebida pelo 3C+ (R34.7). `contato` nulo = número desconhecido ("novo contato"). */
+export interface CargaTrescRecebida {
+  ligacaoId: string | null;
+  telefone: string | null;
+  contato: { id: string; nome: string; empresa: string | null } | null;
+  negocios: Array<{ id: string; titulo: string }>;
+  novoContato: boolean;
+}
+
+/** `tresc.qualificar`: abra o modal de qualificação (`GET /tresc-plus/ligacoes/:id/qualificacoes`). */
+export interface CargaTrescQualificar {
+  ligacaoId: string;
+  campanhaId: number | null;
+}
+
 export interface CargaLigacaoEncerrada {
   ligacaoId: string;
   estado: string;
@@ -354,6 +407,10 @@ export interface CargasDoServidor {
   'ligacao.encerrada': CargaLigacaoEncerrada;
   'ligacao.processada': CargaLigacaoProcessada;
   'ligacao.permissao': CargaLigacaoPermissao;
+  'tresc.agente': CargaTrescAgente;
+  'tresc.ligacao': CargaTrescLigacao;
+  'tresc.recebida': CargaTrescRecebida;
+  'tresc.qualificar': CargaTrescQualificar;
   'sdr.atualizado': CargaSdrAtualizado;
 }
 

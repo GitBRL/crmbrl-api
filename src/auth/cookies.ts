@@ -2,8 +2,22 @@ import type { CookieSerializeOptions } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Ambiente } from '../config/ambiente';
 
-/** Cookie da sessão (R2.2). */
+/** Cookie da sessão (R2.2) quando o cookie não é `Secure` (desenvolvimento local em http). */
 export const NOME_COOKIE_SESSAO = 'crmbrl_sessao';
+
+/**
+ * Com `Secure`, o cookie leva o prefixo `__Host-` (R2.2): o navegador só o aceita vindo de https,
+ * sem `Domain` e com `Path=/`, e um subdomínio ou um http interceptado não consegue plantar um
+ * cookie de sessão com esse nome.
+ */
+export const NOME_COOKIE_SESSAO_SEGURO = '__Host-crmbrl_sessao';
+
+/** O nome do cookie de sessão deste ambiente (`COOKIE_SEGURO`). */
+export function nomeDoCookieDeSessao(
+  ambiente: Pick<Ambiente, 'cookieSeguro'>,
+): string {
+  return ambiente.cookieSeguro ? NOME_COOKIE_SESSAO_SEGURO : NOME_COOKIE_SESSAO;
+}
 
 /**
  * Atributos do cookie de sessão (R2.2): `HttpOnly`, `SameSite=Lax`, `Path=/`,

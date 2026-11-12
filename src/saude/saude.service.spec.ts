@@ -84,6 +84,7 @@ describe('SaudeService', () => {
       uptimeSegundos: expect.any(Number) as number,
       banco: { status: 'ok', latenciaMs: expect.any(Number) as number },
       migrations: { aplicadas: 1, ultima: '20261020180000_inicial' },
+      avisos: expect.any(Array) as string[],
     });
     expect(new Date(saude.horario).toISOString()).toBe(saude.horario);
     expect(Number.isInteger(saude.uptimeSegundos)).toBe(true);

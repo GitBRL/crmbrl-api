@@ -27,6 +27,7 @@ import {
   StatusNegocio,
   TemperaturaSdr,
   TipoAtor,
+  TipoPrimeiraInteracao,
 } from '../../generated/prisma/client';
 import {
   diasNaEtapa,
@@ -80,6 +81,25 @@ export class SdrDoCartaoDto {
 
   @ApiProperty({ enum: SituacaoSdr, enumName: 'SituacaoSdr' })
   situacao: SituacaoSdr;
+}
+
+/** R6.7 — a primeira ação de uma pessoa com o contato do negócio. */
+export class PrimeiraInteracaoDto {
+  @ApiProperty({ format: 'date-time' })
+  em: string;
+
+  @ApiProperty({
+    enum: TipoPrimeiraInteracao,
+    enumName: 'TipoPrimeiraInteracao',
+  })
+  tipo: TipoPrimeiraInteracao;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: ResumoUsuarioDto,
+    description: 'Quem agiu; nulo se a pessoa foi excluída.',
+  })
+  por: ResumoUsuarioDto | null;
 }
 
 export class NegocioDto {
@@ -204,6 +224,14 @@ export class NegocioDto {
   })
   sdr: SdrDoCartaoDto | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: PrimeiraInteracaoDto,
+    description:
+      'R6.7 — primeira ação de uma pessoa (ligação, mensagem, e-mail ou atividade concluída) com o contato depois da criação do negócio; gravada uma vez. Nulo = ainda não atendido.',
+  })
+  primeiraInteracao: PrimeiraInteracaoDto | null;
+
   @ApiProperty({ format: 'date-time' })
   criadoEm: string;
 
@@ -268,6 +296,20 @@ export class NegocioDto {
           }
         : null,
       sdr,
+      primeiraInteracao:
+        negocio.primeiraInteracaoEm && negocio.primeiraInteracaoTipo
+          ? {
+              em: negocio.primeiraInteracaoEm.toISOString(),
+              tipo: negocio.primeiraInteracaoTipo,
+              por: negocio.primeiraInteracaoPor
+                ? {
+                    id: negocio.primeiraInteracaoPor.id,
+                    nome: negocio.primeiraInteracaoPor.nome,
+                    avatarUrl: negocio.primeiraInteracaoPor.avatarUrl,
+                  }
+                : null,
+            }
+          : null,
       criadoPorId: negocio.criadoPorId,
       criadoEm: negocio.criadoEm.toISOString(),
       atualizadoEm: negocio.atualizadoEm.toISOString(),
@@ -614,6 +656,15 @@ export class FiltroBaseNegociosDto {
   @Transform(lerBooleano)
   @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
   semResponsavel?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'R6.7 — `true`: só os já atendidos (com primeira interação); `false`: só os ainda não atendidos.',
+  })
+  @IsOptional()
+  @Transform(lerBooleano)
+  @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
+  atendido?: boolean;
 }
 
 /** Lista paginada de negócios: os filtros do kanban e mais alguns. */

@@ -24,6 +24,7 @@ import { ParseIdPipe } from '../comum/validacao/parse-id.pipe';
 import { AtividadesService } from './atividades.service';
 import { AtividadeDto, AtividadesAgrupadasDto } from './dto/atividade.dto';
 import { AtualizarAtividadeDto } from './dto/atualizar-atividade.dto';
+import { ConcluirAtividadeDto } from './dto/concluir-atividade.dto';
 import { CriarAtividadeDto } from './dto/criar-atividade.dto';
 import {
   FiltroAgrupadasDto,
@@ -122,15 +123,16 @@ export class AtividadesController {
   @ApiOperation({
     summary: 'Conclui uma atividade pendente',
     description:
-      'R6.2: grava quando e quem concluiu e publica `atividade.concluida`. Já concluída ou cancelada: 409.',
+      'R6.2: grava quando e quem concluiu e publica `atividade.concluida`. Já concluída ou cancelada: 409. R6.6: a reunião exige `resultadoReuniao` (`COMPARECEU`, `NAO_COMPARECEU` ou `REMARCADA` com `novaData` futura, que cria a nova reunião pendente); nos outros tipos o campo é recusado (400).',
   })
   @ApiOkResponse({ type: AtividadeDto })
   @ApiRespostasDeErro(400, 404, 409, 422)
   concluir(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Param('id', ParseIdPipe) id: string,
+    @Body() dto: ConcluirAtividadeDto,
   ): Promise<AtividadeDto> {
-    return this.atividades.concluir(usuario, id);
+    return this.atividades.concluir(usuario, id, dto);
   }
 
   @Post(':id/cancelar')

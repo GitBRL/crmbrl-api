@@ -1,3 +1,4 @@
+import { RegraVioladaException } from '../comum/erros/excecoes';
 import type { EstadoLigacao } from '../generated/prisma/client';
 
 /** Regra de negócio das ligações pelo WhatsApp (REGRAS-DE-NEGOCIO, R29). */
@@ -86,6 +87,12 @@ export const MOTIVOS_DA_LIGACAO = {
   falha_de_midia: 'Não foi possível conectar o áudio da ligação.',
   falha_na_meta: 'A Meta encerrou a ligação com erro.',
   sem_resposta_da_meta: 'A Meta não completou a ligação a tempo.',
+  // 3C+ (R34)
+  nao_atendida: 'O cliente não atendeu.',
+  abandonada: 'O cliente atendeu, mas ninguém falou com ele.',
+  abandonada_secretaria: 'Atendida por caixa postal ou secretária eletrônica.',
+  falha_3c: 'O 3C+ não conseguiu completar a ligação.',
+  sem_retorno_do_3c: 'O 3C+ não informou o fim da ligação.',
 } as const;
 
 export type MotivoDaLigacao = keyof typeof MOTIVOS_DA_LIGACAO;
@@ -123,4 +130,41 @@ export const RESULTADOS_DE_LIGACAO: readonly ResultadoDaLigacao[] = [
 
 export function resultadoDaLigacao(estado: EstadoLigacao): ResultadoDaLigacao {
   return RESULTADOS_POR_ESTADO[estado] ?? 'falhou';
+}
+
+/**
+ * O canal de uma ligação do WhatsApp. A do 3C+ não tem canal do CRM (R34.3): chegar aqui com ela
+ * é erro de programação, porque só o código do WhatsApp usa o canal.
+ */
+export function canalDaLigacao(ligacao: { canalId: string | null }): string {
+  if (ligacao.canalId === null) {
+    throw new Error('Esta ligação não pertence a um canal do WhatsApp.');
+  }
+  return ligacao.canalId;
+}
+
+/** Texto do resultado de cada estado (descrição das atividades de ligação). */
+export const RESULTADO_POR_ESTADO = {
+  CHAMANDO: 'chamando',
+  TOCANDO: 'tocando',
+  EM_ANDAMENTO: 'em andamento',
+  ENCERRADA: 'atendida',
+  PERDIDA: 'perdida',
+  RECUSADA: 'recusada pelo cliente',
+  SEM_RESPOSTA: 'sem resposta',
+  FALHOU: 'falhou',
+} as const;
+
+/**
+ * As rotas de atender, recusar, encerrar e gravar são do WhatsApp (SDP, Meta, navegador). A ligação do
+ * 3C+ (R34) é comandada pelas rotas `/tresc-plus/ligacoes/…`: aqui ela é recusada com a orientação.
+ */
+export function exigirWhatsapp(ligacao: { provedor: string }): void {
+  if (ligacao.provedor !== 'WHATSAPP') {
+    throw new RegraVioladaException(
+      'R34',
+      'Esta ligação é do 3C+: use o painel do agente do 3C+ para desligar ou qualificar.',
+      { motivo: 'ligacao_do_tresc_plus' },
+    );
+  }
 }

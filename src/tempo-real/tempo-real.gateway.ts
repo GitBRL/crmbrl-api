@@ -12,6 +12,7 @@ import type { Namespace } from 'socket.io';
 import { SessoesService } from '../auth/sessoes.service';
 import { ehUuid } from '../comum/validacao/parse-id.pipe';
 import { AMBIENTE, type Ambiente } from '../config/ambiente';
+import { nomeDoCookieDeSessao } from '../auth/cookies';
 import { autenticarHandshake, RecusaDeConexao } from './autenticacao-socket';
 import {
   EVENTOS_DO_CLIENTE,
@@ -59,7 +60,7 @@ export class TempoRealGateway
   private readonly origensPermitidas: ReadonlySet<string>;
 
   constructor(
-    @Inject(AMBIENTE) ambiente: Ambiente,
+    @Inject(AMBIENTE) private readonly ambiente: Ambiente,
     private readonly sessoes: SessoesService,
     private readonly tempoReal: TempoRealService,
   ) {
@@ -73,6 +74,7 @@ export class TempoRealGateway
         socket.handshake.headers,
         this.origensPermitidas,
         this.sessoes,
+        nomeDoCookieDeSessao(this.ambiente),
       )
         .then((resultado) => {
           if (!resultado.aceito) {

@@ -196,11 +196,42 @@ programas escrevem tudo na saída de erro, inclusive as mensagens normais de in�
 
 ## 8. Diferenças em relação ao servidor próprio (pendentes)
 
-- **IP do cliente:** atrás do proxy do Railway, a API registra o IP do proxy, não o do visitante. Isso afeta a
-  auditoria, os recebimentos de webhook e o limite por IP do chat do site (todos os visitantes contam
-  juntos). A correção é um ajuste no `Caddyfile` do front para usar o cabeçalho `X-Real-IP` do Railway.
-- **HSTS:** no servidor próprio, o Caddy de borda envia o `Strict-Transport-Security`; no Railway, ninguém
-  envia.
+- **IP do cliente (corrigido na U4):** o `Caddyfile` do front confia nos cabeçalhos `X-Forwarded-For` /
+  `X-Real-IP` só quando chegam pela rede privada (`trusted_proxies static private_ranges`, que é por onde o
+  proxy de borda do Railway entrega) e repassa à API um único `X-Forwarded-For` com o IP do cliente
+  (`header_up X-Forwarded-For {client_ip}`). Um cabeçalho forjado pelo visitante não chega à API, então o
+  bloqueio por força bruta (R2.5), a auditoria, os webhooks e o limite do chat do site enxergam o IP real.
+  Confira depois da subida: a tabela `tentativas_login` deve mostrar o IP do visitante, não o do proxy.
+- **HSTS (corrigido na U4):** o Caddy do front envia `Strict-Transport-Security` quando a requisição chega por
+  https (`X-Forwarded-Proto: https`, posto pelo proxy de borda); o endereço local em http (`:8080`) não recebe.
+- **Segredos de desenvolvimento (U4):** com `NODE_ENV=production` (a imagem Docker) a API **recusa subir** com a
+  chave `CHAVE_CRIPTOGRAFIA`, o `WHATSAPP_TOKEN_INTERNO` ou o `ARQUIVOS_SEGREDO` públicos de desenvolvimento,
+  com a senha do banco `crmbrl` ou com `COOKIE_SEGURO=false` e `URL_PUBLICA` em https. Só
+  `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true` deixa subir (teste local: vira aviso alto no log e em
+  `GET /api/saude` do Admin). No Railway, defina valores próprios e não use essa variável.
+- **`GET /api/saude` (U4):** responde só `{ "status": "ok" | "degradado" }` (200 ou 503) para qualquer pessoa; versão, banco,
+  migrations e avisos de configuração só saem para o Admin logado. O healthcheck do Railway e do Docker
+  (`/api/saude`) continua igual: só olha o código HTTP.
+- **Cookie de sessão (U4):** com `COOKIE_SEGURO=true` o cookie passa a se chamar `__Host-crmbrl_sessao`. **Na primeira
+  publicação depois dessa mudança todo mundo é deslogado uma vez** (o nome antigo deixa de valer).
+
+### Pendências conhecidas de segurança (U4, só documentadas)
+
+- **DNS rebinding nos webhooks de saída:** `webhooks/saida/protecao-ssrf.ts` confere o endereço ao cadastrar e
+  ao enviar, mas não fixa o IP resolvido na conexão (isso exigiria `undici` como dependência direta). O
+  https obrigatório em produção e a recusa de redes internas mitigam; a correção completa depende de aprovar
+  essa dependência.
+- **Imagem do MinIO:** `bitnamilegacy/minio:2025.7.23-debian-12-r5` não recebe correções (CVE-2025-62506,
+  autorização de chaves de serviço). Troque por uma imagem mantida (por exemplo, a oficial `minio/minio` ou
+  `quay.io/minio/minio` fixada por digest) assim que possível; o volume e as variáveis são compatíveis, mas
+  teste a troca num ambiente descartável antes.
+- **`Dockerfile.transcricao`:** a imagem do whisper.cpp roda como root e o modelo baixado no primeiro boot não
+  tem conferência de SHA-256. Mitigação: o serviço é só da rede privada e sem segredos. Correção sugerida:
+  rodar com usuário sem privilégios (o volume `/modelos` precisa de dono correspondente) e fixar o SHA-256
+  de cada modelo em `scripts/transcricao-entrypoint.sh`.
+- **Zip forjado no XLSX:** a conferência de bomba de zip lê o diretório central (tamanhos declarados); um zip que
+  mente nesses tamanhos ainda passa por ela, e o limite de linhas e de memória do processo continua sendo a
+  última barreira.
 
 ## Referências do Railway
 

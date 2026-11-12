@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
 import { gerarIdDeMensagemWhatsapp } from '../canais/whatsapp/contrato-gateway';
 import { contextoAtual } from '../comum/contexto/contexto-requisicao';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
@@ -281,6 +282,13 @@ export class MotorDoAtendimento {
     }
     await this.enfileirarEnvio(tx, mensagem.id);
     if (dados.autorId) {
+      // R6.7 — mensagem ou e-mail de uma pessoa: primeira interação dos negócios abertos do contato.
+      await registrarPrimeiraInteracao(tx, {
+        contatoId: conversa.contatoId,
+        tipo: canal.tipo === 'EMAIL' ? 'EMAIL' : 'MENSAGEM',
+        usuarioId: dados.autorId,
+        quando: agora,
+      });
       await this.eventos.publicar(
         tx,
         EVENTOS_DO_ATENDIMENTO.MENSAGEM_DA_EQUIPE,

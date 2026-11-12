@@ -217,6 +217,76 @@ export const LIMITE_DE_COLUNAS_DA_IMPORTACAO = 200;
 
 const MENSAGEM_ILEGIVEL_XLSX = 'Não foi possível ler a planilha XLSX.';
 
+/** Tamanho máximo do conteúdo descompactado de um XLSX (soma de todas as partes do zip). */
+export const LIMITE_DESCOMPACTADO_XLSX_BYTES = 100 * 1024 * 1024;
+/** Razão máxima entre o descompactado e o arquivo enviado: acima disso é bomba de compressão. */
+export const LIMITE_RAZAO_DE_COMPRESSAO_XLSX = 100;
+/** Partes do zip aceitas (um XLSX comum tem poucas dezenas). */
+const LIMITE_DE_PARTES_DO_XLSX = 5000;
+
+const MENSAGEM_XLSX_GRANDE_DEMAIS =
+  'A planilha XLSX descompactada é grande demais (limite de 100 MB) ou está compactada de forma suspeita. Salve de novo pelo Excel ou envie em CSV.';
+
+/**
+ * Lê só o diretório central do zip (sem descompactar nada) e recusa o arquivo cujo total
+ * descompactado passa de 100 MB ou cuja razão de compressão passa de 100:1 — a "bomba de
+ * zip" (poucos KB que viram gigabytes e derrubam o processo). Os tamanhos vêm do diretório
+ * central; zip64 (tamanhos acima de 4 GB) é recusado.
+ */
+export function conferirTamanhoDoZip(conteudo: Buffer): void {
+  const recusar = (mensagem: string): never => {
+    throw new PlanilhaIlegivelError(mensagem);
+  };
+  const fim = Math.max(0, conteudo.length - 22 - 0xffff);
+  let eocd = -1;
+  for (let i = conteudo.length - 22; i >= fim; i--) {
+    if (conteudo.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) {
+    return recusar(MENSAGEM_ILEGIVEL_XLSX);
+  }
+  const partes = conteudo.readUInt16LE(eocd + 10);
+  const tamanhoDoDiretorio = conteudo.readUInt32LE(eocd + 12);
+  const inicioDoDiretorio = conteudo.readUInt32LE(eocd + 16);
+  if (
+    partes === 0xffff ||
+    tamanhoDoDiretorio === 0xffffffff ||
+    inicioDoDiretorio === 0xffffffff ||
+    partes > LIMITE_DE_PARTES_DO_XLSX
+  ) {
+    return recusar(MENSAGEM_XLSX_GRANDE_DEMAIS);
+  }
+  let posicao = inicioDoDiretorio;
+  let descompactado = 0;
+  for (let n = 0; n < partes; n++) {
+    if (
+      posicao + 46 > conteudo.length ||
+      conteudo.readUInt32LE(posicao) !== 0x02014b50
+    ) {
+      return recusar(MENSAGEM_ILEGIVEL_XLSX);
+    }
+    const tamanho = conteudo.readUInt32LE(posicao + 24);
+    if (tamanho === 0xffffffff) {
+      return recusar(MENSAGEM_XLSX_GRANDE_DEMAIS);
+    }
+    descompactado += tamanho;
+    if (descompactado > LIMITE_DESCOMPACTADO_XLSX_BYTES) {
+      return recusar(MENSAGEM_XLSX_GRANDE_DEMAIS);
+    }
+    posicao +=
+      46 +
+      conteudo.readUInt16LE(posicao + 28) +
+      conteudo.readUInt16LE(posicao + 30) +
+      conteudo.readUInt16LE(posicao + 32);
+  }
+  if (descompactado > conteudo.length * LIMITE_RAZAO_DE_COMPRESSAO_XLSX) {
+    recusar(MENSAGEM_XLSX_GRANDE_DEMAIS);
+  }
+}
+
 /**
  * Lê o XLSX em fluxo (nada de montar o livro inteiro na memória): para ao passar
  * do limite de linhas e só guarda as células até a largura do cabeçalho — uma
@@ -226,6 +296,7 @@ async function lerXlsx(
   conteudo: Buffer,
   opcoes: OpcoesDeLeitura,
 ): Promise<PlanilhaLida> {
+  conferirTamanhoDoZip(conteudo);
   const semCabecalho = opcoes.semCabecalho === true;
   const linhaCabecalho = semCabecalho ? 1 : (opcoes.linhaCabecalho ?? 1);
   const entrada = Readable.from([conteudo]);

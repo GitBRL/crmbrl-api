@@ -33,7 +33,9 @@ const iso = (data: Date | null): string | null => data?.toISOString() ?? null;
 export function paraLigacaoDto(
   ligacao: LigacaoCompleta,
   usuarioId: string | null,
-  papel: Papel | null = null,
+  papel: Papel | null,
+  /** R5.9: `false` quando quem recebe não vê o funil do negócio ligado (o id não sai). */
+  negocioVisivel: boolean,
 ): LigacaoDto {
   const chamado = !!usuarioId && ligacao.tocouPara.includes(usuarioId);
   const mostraOferta =
@@ -53,6 +55,27 @@ export function paraLigacaoDto(
     motivo: ligacao.motivo,
     motivoTexto: textoDoMotivo(ligacao.motivo),
     canal: ligacao.canal,
+    provedor: ligacao.provedor,
+    idExterno: ligacao.idExterno,
+    negocioId: negocioVisivel ? ligacao.negocioId : null,
+    qualificacao:
+      ligacao.qualificacaoNome !== null
+        ? {
+            id: ligacao.qualificacaoId,
+            nome: ligacao.qualificacaoNome,
+            observacao: ligacao.qualificacaoNota,
+            conversao: ligacao.qualificacaoConversao,
+            qualificadaEm: iso(ligacao.qualificadaEm),
+          }
+        : null,
+    campanha:
+      ligacao.campanhaId !== null
+        ? {
+            id: ligacao.campanhaId,
+            nome: ligacao.campanhaNome,
+            modo: ligacao.modoChamada,
+          }
+        : null,
     contato: {
       id: ligacao.contato.id,
       nome: ligacao.contato.nome,

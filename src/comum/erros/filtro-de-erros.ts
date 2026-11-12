@@ -139,6 +139,13 @@ export function montarCorpo(excecao: unknown, requisicaoId: string): CorpoErro {
     };
   }
 
+  // Erro de um serviço externo que sabe virar erro da API (ex.: `ErroTrescPlus`): o `.status` dele é o do
+  // serviço externo (401, 404, 429) e nunca pode virar o status do CRM (um 401 desloga a pessoa).
+  const convertido = comoErroApi(excecao);
+  if (convertido) {
+    return montarCorpo(convertido, requisicaoId);
+  }
+
   const doPrisma = traduzirErroDoPrisma(excecao);
   if (doPrisma) {
     return montarCorpo(doPrisma, requisicaoId);
@@ -167,6 +174,21 @@ export function montarCorpo(excecao: unknown, requisicaoId: string): CorpoErro {
     mensagem: `Erro interno. Tente de novo; se persistir, informe o código ${requisicaoId}.`,
     requisicaoId,
   };
+}
+
+/** Erro de serviço externo com `paraErroApi()` (duck typing: a camada comum não conhece os módulos). */
+function comoErroApi(excecao: unknown): ErroApi | null {
+  if (
+    excecao instanceof Error &&
+    !(excecao instanceof HttpException) &&
+    typeof (excecao as { paraErroApi?: unknown }).paraErroApi === 'function'
+  ) {
+    const erro = (
+      excecao as unknown as { paraErroApi: () => unknown }
+    ).paraErroApi();
+    return erro instanceof ErroApi ? erro : null;
+  }
+  return null;
 }
 
 /** Status HTTP de uma `HttpException` ou de um erro do body parser (`http-errors`). */

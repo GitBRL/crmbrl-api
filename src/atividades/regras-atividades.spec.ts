@@ -5,6 +5,7 @@ import type {
 } from '../generated/prisma/client';
 import {
   type DatasDaAtividade,
+  ehAguardandoResultado,
   ehAtrasada,
   filtroDeVisibilidade,
   flexionar,
@@ -337,5 +338,29 @@ describe('regras das atividades (R6)', () => {
     expect(tipoComArtigo('EMAIL')).toBe('O e-mail');
     expect(flexionar('WHATSAPP', 'criad')).toBe('criado');
     expect(flexionar('REUNIAO', 'concluíd')).toBe('concluída');
+  });
+});
+
+describe('R6.6 — aguardando resultado', () => {
+  const reuniao = (
+    status: StatusAtividade,
+    inicioEm: Date | null,
+    tipo: TipoAtividade = 'REUNIAO',
+  ) => ({ tipo, status, venceEm: inicioEm, inicioEm });
+
+  it('só a reunião pendente com o início no passado aguarda resultado', () => {
+    expect(ehAguardandoResultado(reuniao('PENDENTE', horas(-1)), AGORA)).toBe(
+      true,
+    );
+    expect(ehAguardandoResultado(reuniao('PENDENTE', horas(1)), AGORA)).toBe(
+      false,
+    );
+    expect(ehAguardandoResultado(reuniao('CONCLUIDA', horas(-1)), AGORA)).toBe(
+      false,
+    );
+    expect(
+      ehAguardandoResultado(reuniao('PENDENTE', horas(-1), 'TAREFA'), AGORA),
+    ).toBe(false);
+    expect(ehAguardandoResultado(reuniao('PENDENTE', null), AGORA)).toBe(false);
   });
 });

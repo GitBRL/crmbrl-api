@@ -16,7 +16,7 @@ import type { RequisicaoHttp } from '../../comum/http/requisicao-http';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
 import {
   lerCookie,
-  NOME_COOKIE_SESSAO,
+  nomeDoCookieDeSessao,
   opcoesDoCookieDeSessao,
 } from '../cookies';
 import { CHAVE_PUBLICO, CHAVE_TROCA_PENDENTE } from '../decorators';
@@ -55,7 +55,7 @@ export class SessaoGuard implements CanActivate {
     const http = contexto.switchToHttp();
     const requisicao = http.getRequest<RequisicaoHttp>();
 
-    const token = lerCookie(requisicao, NOME_COOKIE_SESSAO);
+    const token = lerCookie(requisicao, nomeDoCookieDeSessao(this.ambiente));
     if (!token) {
       if (publico) {
         return true;
@@ -67,7 +67,7 @@ export class SessaoGuard implements CanActivate {
     if (!validada) {
       this.adaptador.httpAdapter.clearCookie?.(
         http.getResponse<Response>(),
-        NOME_COOKIE_SESSAO,
+        nomeDoCookieDeSessao(this.ambiente),
         opcoesDoCookieDeSessao(this.ambiente),
       );
       if (publico) {

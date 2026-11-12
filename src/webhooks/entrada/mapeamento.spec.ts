@@ -8,6 +8,7 @@ import {
   MAPEAMENTO_GENERICO,
   type Mapeamento,
   mapeamentoEfetivo,
+  reconhecerCargo,
   validarMapeamento,
 } from './mapeamento';
 
@@ -332,5 +333,72 @@ describe('mapeamento dos webhooks de entrada (R8.1)', () => {
         expect(lerValorMonetario(entrada)).toBeNull();
       },
     );
+  });
+
+  describe('cargo sem regra no mapeamento (R8.8)', () => {
+    const base = { name: 'Ana Julia', email: 'ana@exemplo.com' };
+
+    it('R8.8 — o `role` do Clint vira o cargo no modelo Genérico', () => {
+      const lead = aplicarMapeamento(MAPEAMENTO_GENERICO, {
+        ...base,
+        role: 'Diretora comercial',
+      });
+      expect(lead.contato.cargo).toBe('Diretora comercial');
+      expect(lead.encontrados).toContainEqual({
+        destino: 'cargo',
+        caminho: 'role',
+      });
+    });
+
+    it('R8.8 — reconhece `cargo`, `job_title`, `Função` e dentro de `contact`/`contato`', () => {
+      expect(reconhecerCargo({ cargo: 'Sócio' })).toEqual({
+        caminho: 'cargo',
+        texto: 'Sócio',
+      });
+      expect(reconhecerCargo({ job_title: 'CEO' })?.texto).toBe('CEO');
+      expect(reconhecerCargo({ jobTitle: 'CFO' })?.texto).toBe('CFO');
+      expect(reconhecerCargo({ Função: 'Gerente' })?.texto).toBe('Gerente');
+      expect(reconhecerCargo({ contact: { role: 'Analista' } })).toEqual({
+        caminho: 'contact.role',
+        texto: 'Analista',
+      });
+      expect(
+        reconhecerCargo({ contato: { cargo: 'Coordenadora' } })?.caminho,
+      ).toBe('contato.cargo');
+    });
+
+    it('R8.8 — ignora valor que não é texto, vazio, e o vendedor (`user.role`)', () => {
+      expect(reconhecerCargo({ position: 3 })).toBeNull();
+      expect(reconhecerCargo({ role: '   ' })).toBeNull();
+      expect(reconhecerCargo({ user: { role: 'admin' } })).toBeNull();
+      expect(reconhecerCargo({ role: { nome: 'x' } })).toBeNull();
+    });
+
+    it('R8.8 — com regra para o cargo, vale só a regra; caminho já usado fica de fora', () => {
+      const comRegra: Mapeamento = {
+        campos: [
+          ...MAPEAMENTO_GENERICO.campos,
+          { caminho: 'funcao_atual', destino: 'cargo' },
+        ],
+        ignorarQuando: [],
+      };
+      expect(
+        aplicarMapeamento(comRegra, { ...base, role: 'Diretora' }).contato
+          .cargo,
+      ).toBeNull();
+      const roleParaCampo: Mapeamento = {
+        campos: [
+          ...MAPEAMENTO_GENERICO.campos,
+          { caminho: 'role', destino: 'camposPersonalizados.papel' },
+        ],
+        ignorarQuando: [],
+      };
+      const lead = aplicarMapeamento(roleParaCampo, {
+        ...base,
+        role: 'Diretora',
+      });
+      expect(lead.contato.cargo).toBeNull();
+      expect(lead.camposPersonalizados).toEqual({ papel: 'Diretora' });
+    });
   });
 });

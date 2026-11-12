@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { exigirAtendimento } from '../atendimento/conversas.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { Prisma } from '../generated/prisma/client';
+import { negociosQueVe } from '../funis/negocios-visiveis';
 import { PrismaService } from '../prisma/prisma.service';
 import { INCLUIR_LIGACAO, paraLigacaoDto } from './ligacao-dto';
 import type {
@@ -98,9 +99,19 @@ export class HistoricoDeLigacoesService {
           pagina.map((item) => item.id),
         )
       : new Map<string, TrechoEncontradoDto[]>();
+    const negociosVisiveis = await negociosQueVe(
+      this.prisma,
+      usuario,
+      pagina.map((item) => item.negocioId),
+    );
     return {
       itens: pagina.map((item): LigacaoDoHistoricoDto => ({
-        ...paraLigacaoDto(item, usuario.id, usuario.papel),
+        ...paraLigacaoDto(
+          item,
+          usuario.id,
+          usuario.papel,
+          !item.negocioId || negociosVisiveis.has(item.negocioId),
+        ),
         trechosEncontrados: trechos.get(item.id) ?? [],
       })),
       proximoCursor:

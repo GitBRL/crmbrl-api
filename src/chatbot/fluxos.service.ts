@@ -38,6 +38,7 @@ import {
 } from './permissoes-chatbot';
 import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
 import { funisAcessiveis } from '../funis/acessos-no-banco';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 const INCLUIR_VERSAO = {
   versaoPublicada: {
@@ -159,6 +160,7 @@ export class FluxosChatbotService {
     private readonly prisma: PrismaService,
     private readonly passos: PassosService,
     private readonly auditoria: AuditoriaService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -265,7 +267,7 @@ export class FluxosChatbotService {
     id: string,
     filtro: FiltroExecucoesChatbotDto,
   ) {
-    await this.obter(usuario, id);
+    this.exigirGerenciarExecucoes(usuario, await this.obter(usuario, id));
     const where: Prisma.ExecucaoWhereInput = {
       fluxoId: id,
       tipo: 'CHATBOT',
@@ -313,7 +315,7 @@ export class FluxosChatbotService {
 
   /** O passo a passo de uma execução (histórico por passo, com o que o bot disse e ouviu). */
   async execucao(usuario: UsuarioAutenticado, id: string, execucaoId: string) {
-    await this.obter(usuario, id);
+    this.exigirGerenciarExecucoes(usuario, await this.obter(usuario, id));
     const execucao = await this.prisma.execucao.findFirst({
       where: { id: execucaoId, fluxoId: id, tipo: 'CHATBOT' },
       include: {
@@ -370,6 +372,7 @@ export class FluxosChatbotService {
       await garantirSetorAtivoSeHouver(tx, area);
       await this.conferirCanais(tx, usuario, dto.canalIds ?? []);
       await this.exigirFunisDoNegocio(tx, usuario, definicao);
+      await this.exigirArquivosDoFluxo(tx, usuario, definicao);
       const fluxo = await tx.fluxoChatbot.create({
         data: {
           nome: dto.nome,
@@ -461,6 +464,7 @@ export class FluxosChatbotService {
     await this.prisma.$transaction(async (tx) => {
       const fluxo = await this.travar(tx, usuario, id, true);
       await this.exigirFunisDoNegocio(tx, usuario, estrutura);
+      await this.exigirArquivosDoFluxo(tx, usuario, estrutura);
       await tx.fluxoChatbot.update({
         where: { id },
         data: {
@@ -508,6 +512,8 @@ export class FluxosChatbotService {
         );
       }
       await this.exigirFunisDoNegocio(tx, usuario, fluxo.rascunho);
+      await this.exigirArquivosDoFluxo(tx, usuario, fluxo.rascunho);
+      await this.reconferirCanais(tx, usuario, fluxo.canalIds);
       const ultima = await tx.fluxoChatbotVersao.aggregate({
         where: { fluxoId: id },
         _max: { numero: true },
@@ -555,6 +561,7 @@ export class FluxosChatbotService {
       if (fluxo.ativo) {
         return;
       }
+      await this.reconferirCanais(tx, usuario, fluxo.canalIds);
       await tx.fluxoChatbot.update({ where: { id }, data: { ativo: true } });
       await this.auditoria.registrar(tx, {
         acao: 'fluxo_chatbot.ativado',
@@ -594,12 +601,19 @@ export class FluxosChatbotService {
     this.exigirAcesso(usuario);
     const origem = await this.obter(usuario, id);
     const copia = await this.prisma.$transaction(async (tx) => {
+      // Quem não é da diretoria só leva para a cópia os canais da própria área (R18.6):
+      // o fluxo de outra área pode ser lido e copiado, mas não empresta os canais dela.
+      const canalIds = await this.canaisPermitidosNaCopia(
+        tx,
+        usuario,
+        origem.canalIds,
+      );
       const nova = await tx.fluxoChatbot.create({
         data: {
           nome: `${origem.nome} (cópia)`.slice(0, 120),
           descricao: origem.descricao,
           area: areaDoNovoFluxo(usuario, origem.area),
-          canalIds: origem.canalIds,
+          canalIds,
           gatilho: origem.gatilho,
           palavrasChave: origem.palavrasChave,
           prioridade: origem.prioridade,
@@ -685,6 +699,22 @@ export class FluxosChatbotService {
     }
   }
 
+  /**
+   * As execuções carregam a conversa e o contato de quem falou com o bot: só quem
+   * gerencia o fluxo (diretoria ou líder da área dele) as vê (R18.6). Ler o fluxo
+   * de outra área continua liberado.
+   */
+  private exigirGerenciarExecucoes(
+    usuario: UsuarioAutenticado,
+    fluxo: FluxoComRelacoes,
+  ): void {
+    if (!podeGerenciarFluxo(usuario, fluxo)) {
+      throw new SemPermissaoException(
+        'As execuções de um fluxo de outra área só aparecem para a diretoria e para o líder dessa área.',
+      );
+    }
+  }
+
   /** O fluxo, se a pessoa o vê (senão 404). */
   async obter(
     usuario: UsuarioAutenticado,
@@ -722,6 +752,34 @@ export class FluxosChatbotService {
       );
     }
     return fluxo;
+  }
+
+  /** Canais da cópia: todos para a diretoria; para o líder, só os que a fila da área dele atende. */
+  private async canaisPermitidosNaCopia(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    canalIds: readonly string[],
+  ): Promise<string[]> {
+    if (ehDiretoria(usuario.papel) || canalIds.length === 0) {
+      return [...canalIds];
+    }
+    const area = setorDaPessoa(usuario);
+    const canais = await tx.canal.findMany({
+      where: { id: { in: [...canalIds] }, excluidoEm: null },
+      select: { id: true, filaPadrao: { select: { area: true } } },
+    });
+    return canais.filter((c) => c.filaPadrao?.area === area).map((c) => c.id);
+  }
+
+  /** Ao publicar e ao ativar, quem não é da diretoria reconfere os canais gravados (R18.6). */
+  private async reconferirCanais(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    canalIds: readonly string[],
+  ): Promise<void> {
+    if (!ehDiretoria(usuario.papel)) {
+      await this.conferirCanais(tx, usuario, canalIds);
+    }
   }
 
   /**
@@ -852,6 +910,44 @@ export class FluxosChatbotService {
         'O passo "Criar negócio" usa um funil em que você não cria negócios.',
         { campo: 'definicao', passos: naoCria },
       );
+    }
+  }
+
+  /**
+   * R11/R18: a mídia dos passos (`arquivoId`) é um arquivo de campanha/chatbot que **quem salva
+   * ou publica** pode ler (`ArquivosService.podeLer`). Id de arquivo de conversa, de importação,
+   * de outra pessoa… é 422: o bot não pode virar um jeito de ler o que a pessoa não vê.
+   */
+  private async exigirArquivosDoFluxo(
+    tx: Tx,
+    usuario: UsuarioAutenticado,
+    definicao: unknown,
+  ): Promise<void> {
+    const ids = idsDeArquivosDaDefinicao(definicao);
+    if (ids.length === 0) return;
+    const encontrados = new Map(
+      (
+        await tx.arquivo.findMany({
+          where: { id: { in: ids.filter((id) => PADRAO_UUID.test(id)) } },
+        })
+      ).map((arquivo) => [arquivo.id, arquivo]),
+    );
+    for (const id of ids) {
+      const arquivo = encontrados.get(id);
+      if (
+        !arquivo ||
+        arquivo.removidoEm ||
+        arquivo.contexto !== 'CAMPANHA' ||
+        !(await this.arquivos.podeLer(usuario, arquivo))
+      ) {
+        throw new DadosInvalidosException(
+          'Um passo usa uma mídia que não existe ou que você não pode usar. Envie a mídia de novo.',
+          {
+            regra: 'R18',
+            campos: [{ campo: 'definicao', mensagens: ['mídia inválida'] }],
+          },
+        );
+      }
     }
   }
 
@@ -996,4 +1092,24 @@ export class FluxosChatbotService {
         : {}),
     };
   }
+}
+
+/** Todos os `arquivoId` (texto) que aparecem na definição, em qualquer passo ou ramo. */
+function idsDeArquivosDaDefinicao(definicao: unknown): string[] {
+  const ids = new Set<string>();
+  const percorrer = (valor: unknown): void => {
+    if (Array.isArray(valor)) {
+      valor.forEach(percorrer);
+    } else if (valor && typeof valor === 'object') {
+      for (const [chave, interno] of Object.entries(valor)) {
+        if (chave === 'arquivoId' && typeof interno === 'string' && interno) {
+          ids.add(interno);
+        } else {
+          percorrer(interno);
+        }
+      }
+    }
+  };
+  percorrer(definicao);
+  return [...ids];
 }
