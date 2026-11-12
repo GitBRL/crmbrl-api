@@ -78,6 +78,7 @@ Um artigo curto por tarefa, escrito a partir das telas e regras do CRM. Cada art
 - [Meu perfil e Minha equipe](configuracoes-perfil-e-minha-equipe.md)
 - [Configurar o SDR com IA](configuracoes-sdr-ia.md)
 - [Convidar e editar usuários](configuracoes-usuarios-convidar-editar.md)
+- [Ativar a verificação em duas etapas](configuracoes-verificacao-em-duas-etapas.md)
 
 ## administracao
 - [Consultar a auditoria e os logs técnicos](administracao-auditoria-e-logs.md)

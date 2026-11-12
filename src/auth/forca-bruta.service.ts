@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MuitasTentativasException } from '../comum/erros/excecoes';
 import type { Tx } from '../prisma/prisma.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -20,6 +21,7 @@ export type MotivoTentativa =
   | 'USUARIO_INEXISTENTE'
   | 'SEM_SENHA'
   | 'USUARIO_DESLIGADO'
+  | 'DOIS_FATORES_INCORRETO'
   | 'BLOQUEADO_EMAIL'
   | 'BLOQUEADO_IP';
 
@@ -28,6 +30,7 @@ const FALHAS_DE_CREDENCIAL: readonly MotivoTentativa[] = [
   'SENHA_INCORRETA',
   'USUARIO_INEXISTENTE',
   'SEM_SENHA',
+  'DOIS_FATORES_INCORRETO',
 ];
 
 export interface Bloqueio {
@@ -155,4 +158,21 @@ export class ForcaBrutaService {
     const ate = limite.criadoEm.getTime() + janelaMs;
     return ate > agora.getTime() ? new Date(ate) : null;
   }
+}
+
+/** 429 com o tempo que falta para o bloqueio acabar (R2.5). */
+export function excecaoDeBloqueio(
+  bloqueio: Bloqueio,
+  agora: Date,
+): MuitasTentativasException {
+  const segundos = Math.max(
+    1,
+    Math.ceil((bloqueio.ate.getTime() - agora.getTime()) / 1000),
+  );
+  const minutos = Math.ceil(segundos / 60);
+  return new MuitasTentativasException(
+    `Muitas tentativas de login. Tente de novo em ${minutos} minuto${minutos === 1 ? '' : 's'}.`,
+    segundos,
+    { regra: 'R2.5', motivo: bloqueio.motivo, ate: bloqueio.ate.toISOString() },
+  );
 }

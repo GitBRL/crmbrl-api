@@ -32,6 +32,40 @@ export class EntrarDto {
   senha: string;
 }
 
+/** Segunda etapa do login (R2.11). */
+export class ConcluirEntradaDto {
+  @ApiProperty({ description: 'O `desafio` devolvido por `auth/entrar`.' })
+  @IsString({ message: 'deve ser um texto' })
+  @IsNotEmpty({ message: 'é obrigatório' })
+  @MaxLength(200, { message: 'deve ter no máximo 200 caracteres' })
+  desafio: string;
+
+  @ApiProperty({
+    example: '123456',
+    description:
+      'Código de 6 dígitos do aplicativo ou código de recuperação (XXXXX-XXXXX).',
+  })
+  @IsString({ message: 'deve ser um texto' })
+  @IsNotEmpty({ message: 'é obrigatório' })
+  @MaxLength(32, { message: 'deve ter no máximo 32 caracteres' })
+  codigo: string;
+}
+
+/** Resposta de `auth/entrar` quando a conta usa verificação em duas etapas (R2.11). */
+export class DesafioDoisFatoresDto {
+  @ApiProperty({ enum: [true] })
+  doisFatoresNecessario: true;
+
+  @ApiProperty({
+    description:
+      'Token curto (5 minutos) para `auth/entrar/dois-fatores`; só vale uma vez.',
+  })
+  desafio: string;
+
+  @ApiProperty({ format: 'date-time' })
+  expiraEm: string;
+}
+
 export class TrocarSenhaDto {
   @ApiProperty({ format: 'password' })
   @IsString({ message: 'deve ser um texto' })
@@ -177,6 +211,11 @@ export class UsuarioDoPerfilDto {
 
   @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
   ultimoAcessoEm: string | null;
+
+  @ApiProperty({
+    description: 'Verificação em duas etapas ativa na conta (R2.11).',
+  })
+  doisFatoresAtivo: boolean;
 }
 
 const ESCOPOS: Escopo[] = ['TODOS', 'AREA', 'EQUIPE', 'PROPRIOS', 'NENHUM'];

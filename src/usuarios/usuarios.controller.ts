@@ -165,6 +165,24 @@ export class UsuariosController {
     return this.usuarios.definirSenhaTemporaria(usuario, id, dto);
   }
 
+  @Post(':id/dois-fatores/redefinir')
+  @Papeis('ADMIN')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Redefine a verificação em duas etapas de alguém (só Admin)',
+    description:
+      'Para quem perdeu o aparelho e os códigos de recuperação: desliga o 2FA, apaga os códigos, audita e avisa a ' +
+      'pessoa por notificação (R2.11). 422 se a pessoa não usa 2FA ou se é o próprio Admin.',
+  })
+  @ApiOkResponse({ type: UsuarioDto })
+  @ApiRespostasDeErro(400, 403, 404, 422)
+  redefinirDoisFatores(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Param('id', ParseIdPipe) id: string,
+  ): Promise<UsuarioDto> {
+    return this.usuarios.redefinirDoisFatores(usuario, id);
+  }
+
   @Post(':id/convite')
   @Papeis('ADMIN')
   @HttpCode(HttpStatus.ACCEPTED)

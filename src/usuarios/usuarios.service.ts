@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { DoisFatoresService } from '../auth/dois-fatores/dois-fatores.service';
 import { SenhasService } from '../auth/senhas.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { CriptografiaService } from '../comum/criptografia/criptografia.service';
@@ -95,6 +96,7 @@ export class UsuariosService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly senhas: SenhasService,
+    private readonly doisFatores: DoisFatoresService,
     private readonly cripto: CriptografiaService,
     private readonly tempoReal: TempoRealService,
   ) {}
@@ -412,6 +414,30 @@ export class UsuariosService {
         );
       }
       await this.senhas.definirSenhaTemporaria(tx, usuario, dto.senha);
+    });
+    return this.detalhar(admin, id);
+  }
+
+  /**
+   * O Admin redefine a verificação em duas etapas de quem perdeu o aparelho (R2.11):
+   * desliga, apaga os códigos, audita e avisa a pessoa.
+   */
+  async redefinirDoisFatores(
+    admin: UsuarioAutenticado,
+    id: string,
+  ): Promise<UsuarioDto> {
+    if (id === admin.id) {
+      throw new RegraVioladaException(
+        'R2.11',
+        'Para desativar a sua própria verificação em duas etapas, use o Meu perfil.',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const usuario = await tx.usuario.findUnique({ where: { id } });
+      if (!usuario) {
+        throw new NaoEncontradoException('Usuário não encontrado.');
+      }
+      await this.doisFatores.redefinirPeloAdmin(tx, admin, usuario);
     });
     return this.detalhar(admin, id);
   }

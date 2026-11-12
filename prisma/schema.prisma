@@ -313,9 +313,17 @@ model Usuario {
   acessoAtivadoEm         DateTime? @map("acesso_ativado_em") @db.Timestamptz(3)
   avatarUrl               String?   @map("avatar_url")
   telefone                String?
+  /// Segredo TOTP cifrado (R10.3, R2.11). Com `doisFatoresAtivadoEm` nulo é só um segredo pendente de confirmação.
+  doisFatoresSegredo      String?   @map("dois_fatores_segredo")
+  /// Verificação em duas etapas ativa desde quando (R2.11); nulo = desligada.
+  doisFatoresAtivadoEm    DateTime? @map("dois_fatores_ativado_em") @db.Timestamptz(3)
+  /// Último passo de 30 s aceito: o mesmo código não vale duas vezes.
+  doisFatoresUltimoPasso  Int?      @map("dois_fatores_ultimo_passo")
   criadoEm                DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
   atualizadoEm            DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
+  codigosRecuperacao         CodigoRecuperacao[]
+  desafiosDoisFatores        DesafioDoisFatores[]
   sessoes                    Sessao[]
   tokensSenha                TokenSenha[]
   empresasResponsavel        Empresa[]                       @relation("EmpresaResponsavel")
@@ -411,6 +419,35 @@ model Sessao {
   @@map("sessoes")
 }
 
+/// Código de recuperação da verificação em duas etapas (R2.11): uso único; só o HMAC fica no banco.
+model CodigoRecuperacao {
+  id         String    @id @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  codigoHash String    @map("codigo_hash")
+  criadoEm   DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  usadoEm    DateTime? @map("usado_em") @db.Timestamptz(3)
+
+  @@unique([usuarioId, codigoHash])
+  @@map("codigos_recuperacao")
+}
+
+/// Desafio da segunda etapa do login (R2.11): vale 5 minutos, com tentativas limitadas. Só o hash do token fica no banco.
+model DesafioDoisFatores {
+  id         String    @id @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @map("token_hash")
+  criadoEm   DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  expiraEm   DateTime  @map("expira_em") @db.Timestamptz(3)
+  tentativas Int       @default(0)
+  usadoEm    DateTime? @map("usado_em") @db.Timestamptz(3)
+
+  @@index([usuarioId])
+  @@index([expiraEm])
+  @@map("desafios_dois_fatores")
+}
+
 /// Toda tentativa de login, com sucesso ou não (R2.5). Base do bloqueio por força bruta.
 model TentativaLogin {
   id        BigInt   @id @default(autoincrement())
@@ -419,7 +456,7 @@ model TentativaLogin {
   ip        String?
   usuarioId String?  @map("usuario_id") @db.Uuid
   sucesso   Boolean
-  /// `SUCESSO`, `SENHA_INCORRETA`, `USUARIO_INEXISTENTE`, `SEM_SENHA`, `USUARIO_DESLIGADO`, `BLOQUEADO_EMAIL`, `BLOQUEADO_IP`.
+  /// `SUCESSO`, `SENHA_INCORRETA`, `USUARIO_INEXISTENTE`, `SEM_SENHA`, `USUARIO_DESLIGADO`, `DOIS_FATORES_INCORRETO`, `BLOQUEADO_EMAIL`, `BLOQUEADO_IP`.
   motivo    String
   userAgent String?  @map("user_agent")
   criadoEm  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)

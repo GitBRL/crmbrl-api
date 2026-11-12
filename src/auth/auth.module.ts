@@ -3,6 +3,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { LimitadorDeRequisicoes } from '../canais/comum/limitador';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { DoisFatoresController } from './dois-fatores/dois-fatores.controller';
+import { DoisFatoresService } from './dois-fatores/dois-fatores.service';
 import { ForcaBrutaService } from './forca-bruta.service';
 import { OrigemGuard } from './guards/origem.guard';
 import { PapeisGuard } from './guards/papeis.guard';
@@ -21,18 +23,19 @@ import { SessoesService } from './sessoes.service';
  */
 @Global()
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, DoisFatoresController],
   providers: [
     AuthService,
     SessoesService,
     ForcaBrutaService,
     SenhasService,
+    DoisFatoresService,
     // Limite das rotas públicas de senha (instância própria: contagem separada dos canais).
     LimitadorDeRequisicoes,
     { provide: APP_GUARD, useClass: OrigemGuard },
     { provide: APP_GUARD, useClass: SessaoGuard },
     { provide: APP_GUARD, useClass: PapeisGuard },
   ],
-  exports: [AuthService, SessoesService, SenhasService],
+  exports: [AuthService, SessoesService, SenhasService, DoisFatoresService],
 })
 export class AuthModule {}

@@ -11,16 +11,25 @@ import {
 import { areasVisiveis, permissoesDoPapel } from '../comum/dominio/permissoes';
 import {
   DadosInvalidosException,
-  MuitasTentativasException,
   NaoAutenticadoException,
   SemPermissaoException,
 } from '../comum/erros/excecoes';
 import type { Sessao, Usuario } from '../generated/prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { chavesDosSetoresAtivos } from '../setores/setores-no-banco';
-import type { EntrarDto, PerfilDto, TrocarSenhaDto } from './dto/auth.dto';
+import type {
+  ConcluirEntradaDto,
+  EntrarDto,
+  PerfilDto,
+  TrocarSenhaDto,
+} from './dto/auth.dto';
 import {
-  type Bloqueio,
+  DoisFatoresService,
+  MENSAGEM_DESAFIO_EXPIRADO,
+  type ViaDoCodigo,
+} from './dois-fatores/dois-fatores.service';
+import {
+  excecaoDeBloqueio,
   ForcaBrutaService,
   LIMITES_DE_LOGIN,
   type MotivoTentativa,
@@ -42,6 +51,11 @@ export interface MetadadosDoLogin {
   tokenAnterior?: string;
 }
 
+/** Resultado da primeira etapa do login: sessão aberta ou desafio de duas etapas (R2.11). */
+export type ResultadoDoLogin =
+  | { tipo: 'sessao'; token: string; sessaoId: string; perfil: PerfilDto }
+  | { tipo: 'dois_fatores'; desafio: string; expiraEm: string };
+
 /**
  * Login, logout, perfil (`auth/eu`) e troca da própria senha (R2.1–R2.7).
  * Login, logout, falha de login, bloqueio por força bruta e troca de senha são
@@ -55,12 +69,13 @@ export class AuthService {
     private readonly sessoes: SessoesService,
     private readonly forcaBruta: ForcaBrutaService,
     private readonly auditoria: AuditoriaService,
+    private readonly doisFatores: DoisFatoresService,
   ) {}
 
   async entrar(
     dto: EntrarDto,
     meta: MetadadosDoLogin,
-  ): Promise<{ token: string; sessaoId: string; perfil: PerfilDto }> {
+  ): Promise<ResultadoDoLogin> {
     const email = normalizarEmail(dto.email);
     const agora = new Date();
 
@@ -106,44 +121,129 @@ export class AuthService {
     const novoHash = this.cripto.precisaRefazerHash(usuario.senhaHash ?? '')
       ? await this.cripto.hashSenha(dto.senha)
       : undefined;
-    const { token, sessao } = await this.prisma.$transaction(async (tx) => {
-      if (meta.tokenAnterior) {
-        await this.sessoes.revogarPorToken(
+
+    // Com verificação em duas etapas (R2.11) a sessão só nasce depois do código:
+    // aqui sai um desafio de 5 minutos. A senha certa não zera a contagem de
+    // falhas (não há registro de sucesso), senão os códigos seriam adivinháveis sem limite.
+    if (usuario.doisFatoresAtivadoEm) {
+      const desafio = await this.prisma.$transaction(async (tx) => {
+        if (novoHash) {
+          await tx.usuario.update({
+            where: { id: usuario.id },
+            data: { senhaHash: novoHash },
+          });
+        }
+        const criado = await this.doisFatores.criarDesafio(
           tx,
-          meta.tokenAnterior,
-          'novo_login',
+          usuario.id,
+          agora,
         );
-      }
-      const criada = await this.sessoes.criar(tx, usuario.id, meta);
-      await this.forcaBruta.registrar(tx, {
-        email,
+        await this.auditoria.registrar(tx, {
+          acao: 'usuario.dois_fatores_solicitado',
+          entidade: 'usuario',
+          entidadeId: usuario.id,
+          resumo: `${usuario.nome} acertou a senha e precisa do código de verificação`,
+          dados: { expiraEm: criado.expiraEm },
+          ator: {
+            tipoAtor: 'USUARIO',
+            usuario: {
+              id: usuario.id,
+              papel: usuario.papel,
+              nome: usuario.nome,
+            },
+          },
+        });
+        return criado;
+      });
+      return {
+        tipo: 'dois_fatores',
+        desafio: desafio.token,
+        expiraEm: desafio.expiraEm.toISOString(),
+      };
+    }
+
+    const { token, sessao } = await this.prisma.$transaction((tx) =>
+      this.abrirSessao(tx, usuario, meta, agora, novoHash),
+    );
+    return {
+      tipo: 'sessao',
+      token,
+      sessaoId: sessao.id,
+      perfil: await this.perfil(usuario.id, sessao),
+    };
+  }
+
+  /**
+   * Segunda etapa do login (R2.11): o código do aplicativo ou um código de
+   * recuperação, com o desafio recebido na primeira etapa. Erros contam na
+   * força bruta (R2.5) e no limite do próprio desafio.
+   */
+  async concluirEntrada(
+    dto: ConcluirEntradaDto,
+    meta: MetadadosDoLogin,
+  ): Promise<{ token: string; sessaoId: string; perfil: PerfilDto }> {
+    const agora = new Date();
+    const desafio = await this.doisFatores.buscarDesafio(dto.desafio, agora);
+    const usuario = desafio.usuario;
+    const bloqueio = await this.forcaBruta.verificar(
+      usuario.email,
+      meta.ip,
+      agora,
+    );
+    if (bloqueio) {
+      await this.forcaBruta.registrar(this.prisma, {
+        email: usuario.email,
         ip: meta.ip,
         usuarioId: usuario.id,
-        sucesso: true,
-        motivo: 'SUCESSO',
+        sucesso: false,
+        motivo: bloqueio.motivo,
         userAgent: meta.userAgent,
       });
-      await tx.usuario.update({
-        where: { id: usuario.id },
-        data: {
-          ultimoAcessoEm: agora,
-          ...(novoHash ? { senhaHash: novoHash } : {}),
-        },
-      });
-      await this.auditoria.registrar(tx, {
-        acao: 'usuario.login',
-        entidade: 'usuario',
-        entidadeId: usuario.id,
-        resumo: `${usuario.nome} entrou no CRM`,
-        dados: {
-          sessaoId: criada.sessao.id,
-          deveTrocarSenha: usuario.deveTrocarSenha,
-        },
-        ator: {
-          tipoAtor: 'USUARIO',
-          usuario: { id: usuario.id, papel: usuario.papel, nome: usuario.nome },
-        },
-      });
+      throw excecaoDeBloqueio(bloqueio, agora);
+    }
+    if (!usuario.ativo) {
+      await this.registrarFalha(
+        usuario.email,
+        usuario,
+        'USUARIO_DESLIGADO',
+        meta,
+        agora,
+      );
+      throw new SemPermissaoException(MENSAGEM_ACESSO_DESATIVADO);
+    }
+    const via = await this.doisFatores.conferirCodigo(usuario, dto.codigo, {
+      aceitarRecuperacao: true,
+    });
+    if (!via) {
+      const restantes = await this.doisFatores.contarErroNoDesafio(
+        desafio.id,
+        agora,
+      );
+      await this.doisFatores.registrarFalha(usuario, meta, agora, 'login');
+      if (restantes <= 0) {
+        throw new NaoAutenticadoException(MENSAGEM_DESAFIO_EXPIRADO, {
+          regra: 'R2.11',
+        });
+      }
+      throw this.doisFatores.codigoIncorreto(restantes);
+    }
+    const { token, sessao } = await this.prisma.$transaction(async (tx) => {
+      if (!(await this.doisFatores.consumirDesafio(tx, desafio.id, agora))) {
+        throw new NaoAutenticadoException(MENSAGEM_DESAFIO_EXPIRADO, {
+          regra: 'R2.11',
+        });
+      }
+      const criada = await this.abrirSessao(
+        tx,
+        usuario,
+        meta,
+        agora,
+        undefined,
+        via,
+      );
+      if (via === 'recuperacao') {
+        await this.doisFatores.avisarUsoDeRecuperacao(tx, usuario);
+      }
       return criada;
     });
     return {
@@ -151,6 +251,52 @@ export class AuthService {
       sessaoId: sessao.id,
       perfil: await this.perfil(usuario.id, sessao),
     };
+  }
+
+  /** Cria a sessão, registra o sucesso (zera as falhas do e-mail) e audita o login. */
+  private async abrirSessao(
+    tx: Tx,
+    usuario: Usuario,
+    meta: MetadadosDoLogin,
+    agora: Date,
+    novoHash?: string,
+    doisFatores?: ViaDoCodigo,
+  ) {
+    if (meta.tokenAnterior) {
+      await this.sessoes.revogarPorToken(tx, meta.tokenAnterior, 'novo_login');
+    }
+    const criada = await this.sessoes.criar(tx, usuario.id, meta);
+    await this.forcaBruta.registrar(tx, {
+      email: usuario.email,
+      ip: meta.ip,
+      usuarioId: usuario.id,
+      sucesso: true,
+      motivo: 'SUCESSO',
+      userAgent: meta.userAgent,
+    });
+    await tx.usuario.update({
+      where: { id: usuario.id },
+      data: {
+        ultimoAcessoEm: agora,
+        ...(novoHash ? { senhaHash: novoHash } : {}),
+      },
+    });
+    await this.auditoria.registrar(tx, {
+      acao: 'usuario.login',
+      entidade: 'usuario',
+      entidadeId: usuario.id,
+      resumo: `${usuario.nome} entrou no CRM`,
+      dados: {
+        sessaoId: criada.sessao.id,
+        deveTrocarSenha: usuario.deveTrocarSenha,
+        ...(doisFatores ? { doisFatores } : {}),
+      },
+      ator: {
+        tipoAtor: 'USUARIO',
+        usuario: { id: usuario.id, papel: usuario.papel, nome: usuario.nome },
+      },
+    });
+    return criada;
   }
 
   async sair(usuario: UsuarioAutenticado): Promise<void> {
@@ -198,6 +344,7 @@ export class AuthService {
         avatarUrl: usuario.avatarUrl,
         telefone: usuario.telefone,
         ultimoAcessoEm: usuario.ultimoAcessoEm?.toISOString() ?? null,
+        doisFatoresAtivo: usuario.doisFatoresAtivadoEm !== null,
       },
       deveTrocarSenha: usuario.deveTrocarSenha,
       permissoes: {
@@ -364,20 +511,4 @@ export class AuthService {
       }
     });
   }
-}
-
-function excecaoDeBloqueio(
-  bloqueio: Bloqueio,
-  agora: Date,
-): MuitasTentativasException {
-  const segundos = Math.max(
-    1,
-    Math.ceil((bloqueio.ate.getTime() - agora.getTime()) / 1000),
-  );
-  const minutos = Math.ceil(segundos / 60);
-  return new MuitasTentativasException(
-    `Muitas tentativas de login. Tente de novo em ${minutos} minuto${minutos === 1 ? '' : 's'}.`,
-    segundos,
-    { regra: 'R2.5', motivo: bloqueio.motivo, ate: bloqueio.ate.toISOString() },
-  );
 }

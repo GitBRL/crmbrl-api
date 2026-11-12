@@ -127,6 +127,24 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   `/api/v1/arquivos/<id>`, que qualquer usuário logado abre; a anterior enviada pelo CRM é
   removida. Trocar e remover (`DELETE /usuarios/eu/foto`) auditam `usuario.atualizado`. O
   Admin continua podendo pôr um endereço externo (`avatarUrl`) no cadastro do usuário.
+- **R2.11** Verificação em duas etapas (TOTP), opcional para todos: cada pessoa ativa no Meu perfil.
+  TOTP da RFC 6238 (HMAC-SHA1, 30 s, 6 dígitos, janela ±1), feito com `node:crypto`. O segredo fica
+  cifrado (R10.3). **Ativar** (`POST /auth/dois-fatores/ativar`) gera o segredo e devolve a chave (base32)
+  e o QR (data URL); só vale depois de **confirmar** com um código (`.../confirmar`), que devolve **10
+  códigos de recuperação** (`XXXXX-XXXXX`) uma única vez: o banco guarda só o HMAC deles (chave da
+  `CHAVE_CRIPTOGRAFIA`). `.../codigos` gera novos (pede um código do aplicativo; os antigos deixam de valer);
+  `.../desativar` pede a senha atual e um código (do aplicativo ou de recuperação). Um passo de 30 s aceito
+  não vale de novo (exceto na confirmação da ativação). **Login:** com senha certa e 2FA ativo, `auth/entrar`
+  devolve `{ doisFatoresNecessario: true, desafio, expiraEm }` e **nenhuma sessão**; o desafio vale 5 minutos,
+  uma vez, e aceita 5 códigos errados. A sessão só nasce em `auth/entrar/dois-fatores` (`{ desafio, codigo }`,
+  código do aplicativo ou de recuperação, de uso único). O passo da senha não registra sucesso (não zera as
+  falhas): código errado conta como falha de credencial na força bruta (R2.5: 5 falhas bloqueiam o e-mail por
+  15 minutos, 429). Com troca obrigatória (R2.7) a sessão nasce restrita à troca; "esqueci a senha" (R2.8)
+  não abre sessão, então o login seguinte pede o código. O **Admin** redefine o 2FA de quem perdeu o aparelho
+  (`POST /usuarios/:id/dois-fatores/redefinir`, não vale para si mesmo): desliga, apaga os códigos e
+  desafios e avisa a pessoa por notificação. Auditoria: `usuario.dois_fatores_ativado`, `_desativado`,
+  `_redefinido`, `_codigos_gerados`, `_solicitado`, `_codigo_incorreto`, `_senha_incorreta`,
+  `_recuperacao_usada` e o `doisFatores` no `usuario.login`; nunca segredo, código, desafio ou hash.
 
 ## 3. Auditoria e logs técnicos
 

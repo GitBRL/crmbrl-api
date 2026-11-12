@@ -30,3 +30,6 @@ Quem é convidado recebe um link para definir a senha (vale 24 horas, uso único
 
 ## Sair
 Avatar, depois **Sair**. Se a sessão terminar sozinha (ficou 7 dias sem uso), aparece "Sua sessão terminou" e, ao entrar de novo, você volta para a tela em que estava.
+
+## Verificação em duas etapas
+Se você ativou a verificação em duas etapas, depois da senha o CRM pede o código de 6 dígitos do aplicativo (ou um código de recuperação). Veja **Ativar a verificação em duas etapas**.
