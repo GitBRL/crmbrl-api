@@ -102,10 +102,29 @@ async function montarXlsx(
   calculado: PainelCalculado,
   tabelas: TabelaBi[],
 ): Promise<Buffer> {
+  return montarXlsxDeTabelas(tabelas, [
+    ['Painel', painel],
+    ['De', calculado.periodo.de],
+    ['Até (exclusivo)', calculado.periodo.ate],
+    ['Gerado em', calculado.geradoEm],
+  ]);
+}
+
+/** XLSX com uma aba por tabela (texto literal, cabeçalho em negrito, linha fixa) e a aba "Período" com o resumo. Também usado pelos indicadores (R33.7). */
+export async function montarXlsxDeTabelas(
+  tabelas: TabelaBi[],
+  resumoDoPeriodo: [string, string][],
+): Promise<Buffer> {
   const livro = new ExcelJS.Workbook();
   livro.creator = 'BRL CRM';
+  const usados = new Set<string>(['Período']);
   for (const tabela of tabelas) {
-    const folha = livro.addWorksheet(nomeDeAba(tabela.titulo));
+    let nome = nomeDeAba(tabela.titulo);
+    for (let n = 2; usados.has(nome); n += 1) {
+      nome = `${nomeDeAba(tabela.titulo).slice(0, 27)} ${n}`;
+    }
+    usados.add(nome);
+    const folha = livro.addWorksheet(nome);
     const colunas = tabela.colunas.filter((c) => c.visivel);
     folha.addRow(colunas.map(cabecalhoDaColuna)).font = { bold: true };
     for (const linha of tabela.linhas) {
@@ -125,12 +144,7 @@ async function montarXlsx(
     folha.views = [{ state: 'frozen', ySplit: 1 }];
   }
   const resumo = livro.addWorksheet('Período', { state: 'visible' });
-  resumo.addRows([
-    ['Painel', painel],
-    ['De', calculado.periodo.de],
-    ['Até (exclusivo)', calculado.periodo.ate],
-    ['Gerado em', calculado.geradoEm],
-  ]);
+  resumo.addRows(resumoDoPeriodo);
   resumo.getColumn(1).font = { bold: true };
   resumo.getColumn(1).width = 20;
   resumo.getColumn(2).width = 40;

@@ -80,7 +80,7 @@ export class FiltrosBiService {
   }
 
   /** Equipe (líder + liderados) e pessoa; com os dois, a interseção. `null` = sem filtro. */
-  private async pessoas(
+  async pessoas(
     usuario: UsuarioAutenticado,
     dto: FiltroBiDto,
   ): Promise<string[] | null> {

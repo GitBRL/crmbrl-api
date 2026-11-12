@@ -325,6 +325,8 @@ model Usuario {
   negociosResponsavel        Negocio[]                       @relation("NegocioResponsavel")
   negociosCriados            Negocio[]                       @relation("NegocioCriadoPor")
   negociosPrimeiraInteracao  Negocio[]                       @relation("NegocioPrimeiraInteracaoPor")
+  /// Onda T (R33): painéis de indicadores que a pessoa criou.
+  paineisIndicadores         PainelIndicadores[]              @relation("PainelIndicadoresDono")
   movimentacoes              NegocioMovimentacao[]
   passagensResponsavelFixo   Passagem[]                      @relation("PassagemResponsavelFixo")
   regrasDistribuicaoUltimo   RegraDistribuicao[]             @relation("RegraDistribuicaoUltimo")
@@ -4001,4 +4003,28 @@ model SdrSugestao {
 
   @@index([conversaId, status])
   @@map("sdr_sugestoes")
+}
+
+/// Painel de indicadores (R33.6). `widgets` = `[{id, indicador, parametros, visualizacao, titulo?, filtros?, meta?, largura, ordem}]`
+/// e `filtrosPadrao` = filtros do painel (validados pela API). O compartilhamento fica em três listas (setores, pessoas, papéis).
+model PainelIndicadores {
+  id                   String    @id @default(uuid()) @db.Uuid
+  nome                 String
+  descricao            String?
+  donoId               String    @map("dono_id") @db.Uuid
+  dono                 Usuario   @relation("PainelIndicadoresDono", fields: [donoId], references: [id], onDelete: Restrict)
+  filtrosPadrao        Json      @default("{}") @map("filtros_padrao")
+  widgets              Json      @default("[]")
+  compartilhadoSetores String[]  @default([]) @map("compartilhado_setores")
+  compartilhadoPessoas String[]  @default([]) @map("compartilhado_pessoas") @db.Uuid
+  compartilhadoPapeis  Papel[]   @default([]) @map("compartilhado_papeis")
+  /// Chave do modelo pronto que originou o painel (ex.: `time_comercial`).
+  modelo               String?
+  criadoEm             DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm           DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  @@index([donoId])
+  @@index([excluidoEm])
+  @@map("paineis_indicadores")
 }

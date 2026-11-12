@@ -3278,3 +3278,164 @@ Y: ignorada.`, `Dono "x" não encontrado…`, `Status "talvez" desconhecido…`,
 414. Exportação do Clint: formato detectado, conferência de funis, tradução de funil e etapa, ganho e perdido já fechados com datas e motivo (sem passagem para o CS) e `criadoEm` respeitado (R16.14–R16.16).
 415. Reimportar o mesmo ID de negócio não duplica: pular, completar e trocar (com movimentação); a reconversão passa a guardar o ID (R16.14).
 416. Status desconhecido entra aberto com aviso, data inválida ou futura é ignorada com aviso e o modelo guarda as traduções (R16.14, R16.16).
+
+## 45. Indicadores configuráveis (R33)
+
+Onda T (T3). Painéis de indicadores que Admin, C-level e líderes montam a partir de um catálogo fixo, em `/bi/indicadores`. Reaproveita do BI (§27, R20) os recortes de visibilidade, a validação de filtros, o cache e a exportação. Código em `src/indicadores/`.
+
+- **R33.1** **Catálogo** (`GET /indicadores/catalogo`, constante na API): cada indicador tem chave, nome, descrição, grupo (Leads, Reuniões, Vendas, Ligações, Atividades), unidade (`NUMERO`, `PERCENTUAL`, `MOEDA`, `DURACAO` — duração sempre em **segundos**), parâmetros, dimensões de barras e visualizações aceitas. Definições:
+  - *Leads* — `leads_recebidos` (negócios criados no período); `leads_atendidos` (dos criados no período, os com primeira interação, R6.7); `taxa_atendimento` (atendidos ÷ recebidos); `tempo_ate_atendimento` (média ou mediana, parâmetro `estatistica`, de primeira interação − criação, **pela data da interação** no período); `leads_sem_atendimento` (abertos sem primeira interação, **agora**).
+  - *Reuniões* — pelo **início** no período, sem as canceladas: `reunioes_agendadas`, `reunioes_realizadas` (`COMPARECEU`), `reunioes_no_show` (`NAO_COMPARECEU`), `reunioes_remarcadas` (`REMARCADA`), `reunioes_sem_resultado` (sem resultado e que já começaram); `taxa_comparecimento` = COMPARECEU ÷ (COMPARECEU + NAO_COMPARECEU) e `taxa_no_show` = NAO_COMPARECEU ÷ (COMPARECEU + NAO_COMPARECEU). Remarcada e sem resultado ficam fora das taxas. A reunião nova criada pela remarcação conta como agendada (R6.6).
+  - *Vendas* — `negocios_ganhos` e `valor_ganho` (pela data do ganho), `ticket_medio` (valor ganho ÷ ganhos), `negocios_perdidos` (pela data da perda), `perdas_por_motivo` (barras por motivo), `taxa_conversao` = ganhos ÷ (ganhos + perdidos) fechados no período, `taxa_conversao_coorte` (dos criados no período, quantos já foram ganhos), `conversao_entre_etapas` (parâmetros etapa de origem e de destino: dos negócios que **entraram na origem no período**, quantos chegaram ao destino depois, pelo histórico de movimentação; como funil, dos que **entraram no funil no período**, quantos passaram por cada etapa — a etapa de perda não entra na sequência), `ciclo_medio` (criação → ganho, dos ganhos do período), `negocios_abertos` e `valor_em_aberto` (agora).
+  - *Ligações* — a tabela de ligações, **sem filtrar por provedor** (WhatsApp hoje; o 3C+ entra na mesma tabela, R34): `ligacoes_feitas` (direção `FEITA`, pela data de início), `ligacoes_atendidas` (feitas com atendimento), `taxa_atendimento_ligacoes` (atendidas ÷ feitas), `duracao_media_ligacao` e `tempo_falado` (ligações atendidas; parâmetro `direcao`: `TODAS`, `FEITA` ou `RECEBIDA`).
+  - *Atividades* — `atividades_concluidas` (pela data de conclusão, sem notas; parâmetro `tipo` opcional) e `atividades_atrasadas` (pendentes com prazo vencido, agora, sem notas).
+  - Taxa ou média sem base (divisão por zero, nenhuma amostra) vale **nulo**, nunca zero. Contagens e somas vazias valem zero.
+- **R33.2** **Visualizações:** `NUMERO` (valor, período anterior de mesma duração, variação e meta; indicadores "de agora" não têm comparação, R20.4), `SERIE` (por dia, semana — de segunda a domingo — ou mês, no fuso de São Paulo, sem buracos: balde vazio é 0 nas contagens e nulo nas médias e taxas), `RANKING` (por pessoa: responsável do negócio ou da atividade, atendente da ligação; até 50 linhas; ordem do melhor ao pior segundo o indicador), `POR_ETAPA` (etapas de um funil, na ordem, inclusive as vazias), `BARRAS` (por motivo, origem, UTM source, funil, tipo, resultado, direção ou como terminou a ligação, conforme o indicador) e `FUNIL`. Cada indicador declara as que aceita; widget com visualização que o indicador não aceita é recusado (400). `POR_ETAPA` e `FUNIL` usam o funil do parâmetro, o único funil do filtro ou o funil-base do Comercial.
+- **R33.3** **Filtros** (do painel, com sobrescrita por widget, chave a chave; o que o usuário escolhe no topo vale sobre o padrão do painel e é vencido pelo do widget): `periodo` (`HOJE`, `ULTIMOS_7_DIAS`, `ULTIMOS_30_DIAS` — padrão —, `MES_ATUAL`, `MES_ANTERIOR`, `TRIMESTRE`, `ANO` ou `PERSONALIZADO` com `de` e `ate`, até 366 dias; os predefinidos seguem o dia de São Paulo e os "até agora" terminam no fim de hoje), `comparar`, `funilIds`, `etapaIds`, `setor`, `equipeId`, `pessoaIds`, `origens`, `utmSource`, `utmCampaign` e `etiquetas` (do contato). Em atividades e ligações, funil, etapa, origem e UTM valem pelo negócio ligado (da atividade, ou do contato da ligação); `setor` vale pelo setor do funil (negócios) ou da pessoa responsável (atividades e ligações). **Filtro fora do alcance é recusado como no BI (R20.3):** funil ou etapa de outro setor ou que a pessoa não vê, e pessoa de outro setor, dão 404; setor ou equipe de outro setor, 403; período maior que 366 dias ou invertido, 400. O filtro escolhido no topo recusa a chamada inteira; um filtro do painel ou do widget que a pessoa não alcança derruba só os widgets afetados (R33.7). Ao salvar, o painel é conferido contra o alcance de **quem salva**.
+- **R33.4** **Visibilidade:** cada número é calculado **para quem vê**, com os mesmos recortes de SQL do BI (R20.2, `bi/escopo-bi.ts`): negócios como no kanban (R5.9), atividades como na lista (R6.4), ligações como no histórico (R12/R29.8): membro só o que é dele (e os sem responsável nos funis `SETOR` do setor), líder a área, diretoria tudo. Acessos extras a funis (R5.11) não ampliam. **Compartilhar um painel não amplia dados**: quem abre calcula com o próprio recorte, então o mesmo painel mostra números diferentes para membro, líder e diretoria. Cache de 30 s por pessoa, painel (e sua última alteração), indicadores avulsos e filtros (no máximo 300 entradas); `Cache-Control: no-cache` recalcula (R20.6).
+- **R33.5** **Metas:** em widgets `NUMERO` (meta `geral`) e `RANKING` (`porPessoa` e/ou `geral`), na unidade do indicador (duração em segundos). A resposta traz `{alvo, progresso (% do alvo), atingida}`; no ranking, a meta de cada pessoa. Em indicadores em que menos é melhor (tempo até o atendimento, perdidos, no-show, atrasadas) a meta é um teto: atingida quando o valor não passa do alvo. Meta em outra visualização ou negativa é recusada (400).
+- **R33.6** **Painéis:** `{id, nome, descricao, dono, filtrosPadrao, widgets[{id, indicador, parametros, visualizacao, titulo?, filtros?, meta?, largura 1–3, ordem}], compartilhamento {setores[], pessoas[], papeis[]}}`; até 40 widgets e 100 painéis por dono. **Criam, editam, duplicam e excluem:** Admin, C-level e líderes (o líder edita e exclui só os seus; Admin e C-level todos). O líder compartilha **só com o próprio setor e com pessoas do próprio setor, nunca por papel** (403); Admin e C-level com qualquer setor, pessoa ou papel. **Veem:** o dono, os compartilhados (por setor, pessoa ou papel) e Admin e C-level todos; painel que a pessoa não vê é 404. Quem só vê o painel não recebe a lista de com quem ele foi compartilhado. Duplicar cria uma cópia do próprio usuário, sem compartilhamento, com novos ids de widget. A exclusão é lógica. O **modelo pronto "Time comercial"** (`POST /indicadores/paineis` com `modelo: "time_comercial"`) traz leads recebidos, atendidos, taxa de atendimento e tempo até o atendimento, reuniões agendadas e realizadas, no-show, taxas de comparecimento e de no-show, conversão, ganhos e valor ganho, leads por dia, rankings de ganhos por vendedor e ligações. Auditoria: `indicadores.painel_criado`, `indicadores.painel_atualizado`, `indicadores.painel_compartilhado` (antes e depois), `indicadores.painel_duplicado`, `indicadores.painel_excluido`.
+- **R33.7** **Rotas** (`/api/v1/indicadores`): `GET /catalogo`; `GET|POST /paineis`, `GET|PATCH|DELETE /paineis/:id`, `POST /paineis/:id/duplicar`; `POST /calcular` `{painelId?, widgets?, filtros?}` → `{painelId, geradoEm, periodo, anterior, filtros, widgets[]}`. Cada widget volta com `ok`; **o erro de um não derruba os outros** (`ok: false` com `erro.mensagem` e `erro.status`). Indicadores avulsos (`widgets` no corpo, a prévia do editor) só para quem monta painéis (403 para os demais, que calculam pelo `painelId`). `POST /exportar` `{painelId?, widgets?, filtros?, formato: xlsx|csv, widgetId?}`: XLSX com o resumo, uma aba por indicador que não é um número só e a aba "Período"; CSV (`;`, BOM, sem fórmulas) com o resumo ou, com `widgetId`, a tabela daquele indicador; sempre recalcula, com os números de quem exporta; auditada (`indicadores.exportado`).
+- **R33.8** **Tela** (`/bi/indicadores`, aba "Indicadores" do BI): lista de painéis (meus e compartilhados comigo), visualização em grade responsiva (gráficos echarts do BI), editor (catálogo agrupado com busca, visualização, parâmetros, filtros, meta, largura; reordenar por arrastar e por teclado), compartilhamento, filtros do painel no topo e exportação. **Cliques (R20.8):** número ou linha abre a lista que o sustenta quando ela representa o número — negócios abertos e leads sem atendimento levam ao quadro, linha de etapa leva ao quadro naquela etapa, reuniões e atrasadas levam às atividades filtradas; o resto não é clicável. Estados: carregando, vazio, erro por widget, sem acesso e reconectando; 390 px sem rolagem lateral.
+
+### Matriz de acesso — Indicadores
+
+| Ação | Admin | C-level | Líder | Membro |
+| --- | --- | --- | --- | --- |
+| Ver o catálogo e os painéis compartilhados com ele | sim (todos os painéis) | sim (todos) | sim | sim |
+| Criar, duplicar painel e usar modelo | sim | sim | sim | 403 |
+| Editar e excluir | todos | todos | só os seus | 403 |
+| Compartilhar | qualquer setor, pessoa ou papel | idem | só o próprio setor e pessoas dele | — |
+| Calcular indicadores avulsos (prévia) | sim | sim | sim | 403 |
+| Exportar | sim | sim | sim | sim (do painel que vê) |
+
+### Cenários de aceitação (Onda T, T3: indicadores)
+
+1. Cada grupo do catálogo calcula com dados controlados: leads, reuniões, vendas, ligações e atividades (R33.1).
+2. Número com período anterior e variação; série sem buracos; ranking, por etapa, barras e funil (R33.2).
+3. Membro, líder e diretoria veem números diferentes para o mesmo painel; o número do membro bate com a lista de negócios ou de atividades dele (R33.4, R20.2).
+4. Compartilhar por pessoa, setor e papel; quem vê não edita; o líder só compartilha com o próprio setor (R33.6).
+5. O modelo "Time comercial" cria o painel com um clique e tudo é auditado (R33.6).
+6. Meta em número e ranking, com progresso e meta atingida (R33.5).
+7. Filtro fora do alcance (funil, pessoa, setor ou equipe de outro setor) e período maior que 366 dias são recusados (R33.3).
+8. Um widget com erro não derruba os outros; o cache de 30 s respeita o `no-cache` (R33.7, R20.6).
+9. Exportação CSV e XLSX com os números de quem exporta e auditoria (R33.7).
+
+## 46. Ligações pelo 3C+ (R34)
+
+Integração com o discador 3C+ da empresa (Onda T, T4): o vendedor entra no 3C+ pelo CRM e liga clicando no telefone;
+chamadas, gravações e qualificações voltam para o contato e o negócio; leads do funil vão para campanhas do discador;
+a ligação recebida avisa o vendedor. Referência da pesquisa: `referencias/3cplus.md`. Código: `src/tresc-plus/`.
+**Construído contra um 3C+ simulado** (serviço de apoio dos agentes); o formato real dos eventos e algumas rotas só se
+confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e rotas estão no Swagger (tag "3C+").
+
+- **R34.1 Conexão da empresa** (só Admin; `GET|PATCH /tresc-plus/conexao`, `POST /tresc-plus/conexao/testar`). Uma
+  conexão por empresa: URL da API (padrão `https://3c.plus/api/v1`), URL e caminho do socket (padrão: o host da API e
+  `/socket.io`), formato do envelope dos eventos (`AUTO`, `EVENTO_DADOS` ou `OBJETO`), **token do gestor** e **campanha
+  padrão** do modo manual. O token é cifrado (AES-256-GCM, R10.3) e **nunca volta inteiro**: a resposta traz só
+  `••••` + os 4 últimos caracteres; a auditoria registra se o token mudou, nunca o valor. Ativar exige o token; limpar o
+  token desativa. "Testar conexão" faz `GET /me` com o token do gestor e responde, em português, se funcionou (avisa se o
+  token não é de gestor) e guarda o resultado. Alterar a conexão reinicia o ouvinte de eventos.
+  `GET /tresc-plus/campanhas` e `GET /tresc-plus/campanhas/:id/listas` (Admin, C-level e líder) usam o token do gestor.
+- **R34.2 Vínculo do vendedor** (`GET|POST|DELETE /tresc-plus/vinculo`; Admin: `GET /tresc-plus/vinculos`,
+  `DELETE /tresc-plus/vinculos/:usuarioId`). `POST` recebe e-mail ou ramal e a senha do 3C+, chama `POST /authenticate`
+  **uma única vez** e guarda só o `api_token` (cifrado), o ramal e o id do usuário no 3C+; **a senha nunca é guardada,
+  registrada em log nem auditada**. Exige a integração ativa. Um usuário do 3C+ só pode estar ligado a uma pessoa do CRM
+  (409); refazer o próprio vínculo é permitido. Desconectar (o próprio, ou o Admin desvincula) sai da campanha no 3C+ por
+  melhor esforço. Sem vínculo, as rotas do agente respondem 422 pedindo "Conectar ao 3C+".
+- **R34.3 Registro das ligações.** Na mesma tabela e no mesmo histórico das ligações do WhatsApp (R29/R30), com
+  `provedor` (`WHATSAPP` ou `TRESC_PLUS`), `idExterno` (id da chamada, único por provedor), `negocioId`, campanha,
+  modo da chamada (`manual`, `dialer`, `receptive`), tempo falado e **qualificação** (id, nome, observação, conversão).
+  A ligação do 3C+ não tem canal (`canal: null`). Ela entra no **contato** (telefone normalizado, com e sem o nono dígito)
+  e no **negócio**: pelo `identifier` do discador (id do negócio ou do contato) ou, sem ele, o negócio aberto mais recente
+  do contato. Aparece no histórico (`GET /ligacoes`, `GET /ligacoes/:id`, com gravação e transcrição), na linha do tempo do
+  contato e do negócio e nos indicadores (T3), com a **visibilidade do R29** (atendente, responsável do contato e líder dele,
+  diretoria). O fim da ligação cria a atividade `LIGACAO` concluída do vendedor (com a qualificação na descrição), audita
+  (`ligacao.<estado>`) e publica `ligacao.encerrada` (automações e webhooks de saída, com `provedor` e `canalId: null`).
+  **Primeira interação (R6.7):** ligação feita por uma pessoa chama `registrarPrimeiraInteracao` (feita pelo CRM, ou pelo
+  3C+ em modo manual, ao ser criada); a do discador e a recebida só contam quando conectam ao agente. A regra "uma ligação
+  ativa por atendente" continua só para o WhatsApp.
+- **R34.4 Ouvinte de eventos.** Um `socket.io-client` por empresa (o token do gestor vai em `?token=`; não vai a log),
+  ligado ao subir a API (`TRESC_PLUS_OUVINTE`, padrão junto de `PROCESSAR_FILAS`). **Reconexão com backoff** exponencial
+  de 1 s a 60 s com variação de ±25%; o estado (`conectado`, `reconectando`, `erro`) fica em `GET /tresc-plus/conexao`.
+  Os eventos são aplicados **em série e deduplicados** por chamada + evento (tabela `tresc_plus_eventos`, limpa após 7 dias).
+  Mapeamento: `call-was-created` → CHAMANDO (feita) ou TOCANDO (recebida); `call-was-answered` → TOCANDO (o cliente
+  atendeu, conectando); `call-was-connected` → EM_ANDAMENTO; `call-was-ended`/`finished` → ENCERRADA se chegou a conectar,
+  senão SEM_RESPOSTA (feita) ou PERDIDA (recebida); `call-was-abandoned*` → PERDIDA; `call-was-not-answered` → SEM_RESPOSTA;
+  `call-was-failed` → FALHOU. Estados só avançam e o terminal nunca muda. Eventos de agente (`agent-*`) atualizam o estado
+  do vendedor (`ocioso`, `manual`, `em_ligacao`, `pos_atendimento`, `pausa`, `desconectado`). O vendedor é avisado pelo tempo
+  real do CRM: `tresc.agente`, `tresc.ligacao`, `tresc.recebida` e `tresc.qualificar` (sala `usuario:<id>`).
+  **`call-history-was-created`** completa a ligação (tempo falado, qualificação, causa do fim; corrige para ENCERRADA quem
+  teve fala) e, havendo gravação, enfileira o download: `GET /calls/{id}/recording` com o token do gestor → arquivo de
+  ligação (contexto `LIGACAO`) → a **transcrição e o resumo do R30 valem também** (a gravação do 3C+ entra como o áudio original).
+  **Reconciliação:** job pg-boss a cada `TRESC_PLUS_RECONCILIACAO_MIN` minutos (padrão 10) e `POST /tresc-plus/reconciliar`
+  (Admin): lê `GET /calls` (janela desde a última reconciliação, com 15 min de folga, ou 6 h) e aplica cada registro pelo mesmo
+  caminho do histórico; fecha as ligações sem fim há mais de 3 h (ENCERRADA se falou; senão SEM_RESPOSTA/PERDIDA).
+- **R34.5 Agente e ligação** (token do próprio vendedor; erros do 3C+ viram mensagens claras em português e **nunca 401**,
+  que deslogaria a pessoa do CRM: token recusado, sem permissão, agente não ocioso, sem campanha, limite de requisições,
+  3C+ indisponível). `GET /tresc-plus/agente[?atualizar=true]` (estado, campanha, modo, pausa, ligação em curso ou a
+  qualificar), `GET /tresc-plus/agente/campanhas`, `POST /tresc-plus/agente/entrar {campanhaId?, modo?}` (padrão: campanha
+  padrão, modo `manual`), `POST /tresc-plus/agente/sair`, `GET /tresc-plus/agente/pausas`, `POST|DELETE /tresc-plus/agente/pausa`.
+  `POST /tresc-plus/ligacoes {contatoId?, negocioId?, telefone?}` **liga**: entra na campanha padrão e no modo manual se
+  preciso, disca o número nacional (sem o 55) e registra a ligação; `POST /tresc-plus/ligacoes/:id/desligar`;
+  `GET /tresc-plus/ligacoes/:id/qualificacoes` (ou `GET /tresc-plus/qualificacoes?campanhaId=`) e
+  `POST /tresc-plus/ligacoes/:id/qualificar {qualificacaoId, observacao?, agendarPara?, telefoneDoAgendamento?}` (só quem
+  ligou; agendar só em qualificação que permite; a data vai no horário de Brasília).
+- **R34.6 Discador.** `POST /tresc-plus/discador/enviar {campanhaId, listaId | nomeLista, negocioIds?, contatoIds?}` (Admin,
+  C-level e líder; até 500): monta o `mailing.json` (`phone` nacional, `identifier` = id do negócio/contato, `data` com nome,
+  empresa, funil, etapa, negócio e e-mail), cria a lista se pedido e usa o token do gestor. O **relatório** traz enviados,
+  importados e filtrados com o motivo em português (DND, ligado recentemente, bloqueio, sem telefone válido, negócio sem
+  acesso) e fica em `tresc_plus_envios`. **Ação em massa `DISCADOR`** em `POST /negocios/em-massa` (R5.16), `dados: {campanhaId,
+  listaId | nomeLista}`: mesma permissão (403 para os demais); `sucesso` = importados, `falhas` = negócios que não entraram
+  (422 `R34`) e `discador` com o relatório.
+- **R34.7 Receptivo.** Ligação recebida (modo `receptive`) casa o número com o contato: o vendedor que atende recebe
+  `tresc.recebida` com o contato, a empresa e os negócios abertos (a tela abre a ficha) e a ligação é registrada como RECEBIDA.
+  Número desconhecido: `tresc.recebida` com `contato: null` e `novoContato: true` ("novo contato"); **a ligação sem contato não é
+  gravada** e a perdida não gera "Retornar ligação".
+- **R34.8 Tela:** na T4b (agente na barra superior, "Ligar pelo 3C+", barra da ligação, qualificação, aviso de recebida,
+  player no histórico, envio ao discador).
+- **R34.9 3C+ simulado:** no serviço de apoio dos agentes (`apoio:8097`, `127.0.0.1:3297`), com as rotas e os eventos desta
+  seção e gatilhos para ligação recebida e atendida/encerrada (ver `ambiente-dev.md`); nos testes e2e, um falso dentro do
+  teste (HTTP + socket.io). Nunca tokens reais.
+
+### Matriz de acesso — 3C+
+
+| Ação | Admin | C-level | Líder | Membro |
+| --- | --- | --- | --- | --- |
+| Configurar a conexão, testar, reconciliar, ver e desvincular vendedores | sim | 403 | 403 | 403 |
+| Conectar o próprio usuário, entrar/sair da campanha, pausas, ligar, desligar, qualificar | sim | sim | sim | sim |
+| Listar campanhas e listas da empresa, enviar ao discador (inclusive em massa) | sim | sim | sim | 403 |
+| Ver a ligação (histórico, linha do tempo, gravação) | todas | todas | área e equipe (R29) | as dele (R29) |
+
+### Lacunas que só a conta real resolve (teste do usuário)
+
+1. **Socket:** domínio/URL e caminho do socket atuais e o **formato do envelope** (`{event,data}` ou o objeto com `type`);
+   campos de `User` e dos payloads de chamada e agente (`call.agent`, `campaign`, `phone`/`number`). Hoje: URL, caminho e
+   envelope configuráveis; leitura tolerante dos campos.
+2. Se o agente recebe só os eventos dele e se existe evento de "qualificada" (o CRM usa `call-history-was-created`).
+3. **Como listar as qualificações da campanha** (não há rota de catálogo evidente): o CRM lê `GET /campaigns/{id}`
+   (`qualifications`/`qualification_list`) e, se vierem só ids, tenta `GET /qualifications`. Efeito de não qualificar (ACW).
+4. Limites de requisição, retenção das gravações e autenticação do download (o CRM usa Bearer do gestor em
+   `GET /calls/{id}/recording`).
+5. Webhook de eventos (inexistente?) e assinatura: o tempo real é só por socket.
+6. **DDI 55 na discagem** (o CRM envia o número nacional, também no mailing); `click2call` exige gestor (o CRM usa o fluxo
+   manual com o token do agente). Se `POST /agent/login` com `mode=manual` já entra no modo manual ou exige `manual_call/enter`
+   (o CRM chama os dois, tolerando "já está").
+7. Áudio no CRM por SIP/WSS (não documentado): o vendedor mantém o webphone do 3C+ aberto e o CRM só comanda.
+8. **Campo que distingue a ligação recebida** (`mode`, `type` ou `direction` com `receptive`, `inbound`, `incoming`…) e quando
+   o agente aparece no evento (na fila, o agente pode só vir no `connected`).
+9. Fuso do `call_date` (assumido Brasília) e formato de `speaking_time` (segundos ou `mm:ss`); se `agent` do histórico é
+   objeto, id ou nome; se o `identifier` volta no registro do histórico e na chamada do discador.
+10. Mudança de domínio de 2025 e artigos da central de ajuda não lidos na pesquisa.
+
+### Cenários de aceitação (Onda T, T4: 3C+)
+
+1. O Admin configura a conexão: o token fica cifrado e só os 4 últimos caracteres voltam; "Testar conexão" responde em português (R34.1).
+2. O vendedor conecta o usuário: só o token cifrado, o ramal e o id ficam guardados, nunca a senha; desconectar e desvincular (R34.2).
+3. O vendedor liga: entra na campanha e no modo manual, a ligação aparece no contato e no negócio e a primeira interação é gravada (R34.3, R34.5, R6.7).
+4. Os eventos do 3C+ levam a ligação de chamando a encerrada, avisam o vendedor e geram a atividade; evento repetido não duplica (R34.4).
+5. O vendedor lista as qualificações e qualifica com observação; o histórico completa duração, qualificação e baixa a gravação, que é transcrita (R34.4, R34.5, R30).
+6. A reconciliação cobre eventos perdidos sem duplicar e fecha ligações presas (R34.4).
+7. Erros do 3C+ (não ocioso, sem campanha, token inválido, indisponível) viram mensagens claras e nunca 401 (R34.5).
+8. Líder envia negócios ao discador (pela tela ou em massa) e vê o relatório de importados e filtrados; membro recebe 403 (R34.6).
+9. Ligação recebida avisa o vendedor com o contato e os negócios; número desconhecido avisa "novo contato" (R34.7).
