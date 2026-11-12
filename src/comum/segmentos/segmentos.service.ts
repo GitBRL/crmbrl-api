@@ -35,6 +35,12 @@ export interface ContatoDaAmostra {
  * if (await this.segmentos.contem(segmento, contatoId, { excluirOptOut: false, negocioId })) { … }
  * ```
  */
+/** Restrição dos negócios nas condições de um segmento (R5.9): por funil ou pelo recorte completo da pessoa. */
+type OpcoesDeVisibilidade = Pick<
+  OpcoesDoSegmento,
+  'funisDosNegocios' | 'visibilidadeDosNegocios'
+>;
+
 @Injectable()
 export class SegmentosService {
   constructor(private readonly prisma: PrismaService) {}
@@ -114,9 +120,11 @@ export class SegmentosService {
    */
   async opcoesDoUsuario(
     usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
-  ): Promise<{ funisDosNegocios?: string[] }> {
+  ): Promise<OpcoesDeVisibilidade> {
     const acesso = await funisAcessiveis(this.prisma, usuario);
-    return acesso.todos ? {} : { funisDosNegocios: acesso.idsVisiveis() };
+    return acesso.todos
+      ? {}
+      : { visibilidadeDosNegocios: acesso.filtroDeNegocios() };
   }
 
   /**
@@ -125,9 +133,7 @@ export class SegmentosService {
    * na hora da prévia, da revisão, do envio ou da execução). Desligado — ou sem
    * autor conhecido —, nenhum negócio de funil `RESTRITA` conta.
    */
-  async opcoesDoAutor(
-    autorId: string | null,
-  ): Promise<{ funisDosNegocios?: string[] }> {
+  async opcoesDoAutor(autorId: string | null): Promise<OpcoesDeVisibilidade> {
     const autor = autorId
       ? await this.prisma.usuario.findUnique({
           where: { id: autorId },

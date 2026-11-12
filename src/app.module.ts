@@ -10,6 +10,7 @@ import { AuditoriaConsultaModule } from './auditoria/consulta/auditoria-consulta
 import { AuthModule } from './auth/auth.module';
 import { AnaliseModule } from './bi/analise/analise.module';
 import { BiModule } from './bi/bi.module';
+import { IndicadoresModule } from './indicadores/indicadores.module';
 import { AutomacoesModule } from './automacoes/automacoes.module';
 import { CanaisModule } from './canais/canais.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
@@ -28,6 +29,7 @@ import { FunisModule } from './funis/funis.module';
 import { ImportacaoModule } from './importacao/importacao.module';
 import { GravacaoModule } from './ligacoes/gravacao/gravacao.module';
 import { LigacoesModule } from './ligacoes/ligacoes.module';
+import { TrescPlusModule } from './tresc-plus/tresc-plus.module';
 import { LogsModule } from './logs/logs.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -94,6 +96,7 @@ export class AppModule {
         AtendimentoModule,
         CanaisModule,
         LigacoesModule,
+        TrescPlusModule,
         GravacaoModule,
         ChatInternoModule,
         // Módulos de negócio (Onda B): importação, disparos, chatbot e automações.
@@ -103,6 +106,7 @@ export class AppModule {
         AutomacoesModule,
         // Módulos de negócio (Onda C): BI.
         BiModule,
+        IndicadoresModule,
         AnaliseModule,
         // Onda C: financeiro (contratos, parcelas, régua de cobrança).
         FinanceiroModule,

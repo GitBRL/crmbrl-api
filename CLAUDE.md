@@ -24,7 +24,8 @@ Rode a suíte e2e completa só na verificação final; durante o trabalho, rode 
 
 ## Mapa
 - `src/<modulo>/` — um módulo Nest por domínio (auth, usuarios, contatos, funis, atividades, auditoria,
-  webhooks, atendimento, canais, whatsapp, chat-interno, arquivos, tempo-real, notificacoes, fila, eventos…).
+  webhooks, atendimento, canais, whatsapp, chat-interno, arquivos, tempo-real, notificacoes, fila, eventos,
+  ligacoes (WhatsApp, R29/R30), tresc-plus (discador 3C+, R34)…).
 - `src/comum/` — peças compartilhadas; `src/config/` — variáveis de ambiente validadas; `prisma/` — schema e migrations.
 - `test/*.e2e-spec.ts` — integração contra a API inteira; utilitários em `test/utils/index.ts`
   (fábricas, clientes autenticados, `drenar` da fila, e-mail falso, tempo real, gateway falso).
@@ -41,7 +42,7 @@ Rode a suíte e2e completa só na verificação final; durante o trabalho, rode 
 
 ## Documentos (leia por seção)
 - `docs/REGRAS-DE-NEGOCIO.md` — §1–13 Fase 1; §14 Arquivos (R11), §15 Atendimento (R12), §16 WhatsApp (R13),
-  §17 Canais (R14), §18 Chat interno (R15), §19 Tempo real, §20 Cenários da Onda A.
+  §17 Canais (R14), §18 Chat interno (R15), §19 Tempo real, §20 Cenários da Onda A; §46 Ligações pelo 3C+ (R34).
 - `docs/ARQUITETURA.md` — "Contexto" (l. 3), "Inventario tecnico" (l. ~782), "Decisoes de arquitetura" (l. ~1126).
   Use `grep -n '^### '` para achar o módulo.
 - `docs/ROADMAP.md`, `README.md` (variáveis de ambiente).

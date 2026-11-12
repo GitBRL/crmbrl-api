@@ -1,7 +1,9 @@
 import { PassThrough } from 'node:stream';
+import { crc32, deflateRawSync } from 'node:zlib';
 import ExcelJS from 'exceljs';
 import {
   dividirCsv,
+  conferirTamanhoDoZip,
   detectarSeparador,
   lerPlanilha,
   PlanilhaIlegivelError,
@@ -143,5 +145,61 @@ describe('Leitura de planilhas (R16.2)', () => {
     expect(lida.colunas).toEqual(['Coluna 1', 'Coluna 2', 'Coluna 3']);
     expect(lida.linhas).toHaveLength(2);
     expect(lida.linhas[0].valores[0]).toBe('Ana');
+  });
+
+  /** Zip com uma parte de zeros: poucos KB que viram `bytes` ao descompactar. */
+  function zipForjado(bytes: number, declarado = bytes): Buffer {
+    const nome = Buffer.from('xl/worksheets/sheet1.xml');
+    const dados = Buffer.alloc(bytes);
+    const comprimido = deflateRawSync(dados);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc32(dados), 14);
+    local.writeUInt32LE(comprimido.length, 18);
+    local.writeUInt32LE(declarado, 22);
+    local.writeUInt16LE(nome.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(crc32(dados), 16);
+    central.writeUInt32LE(comprimido.length, 20);
+    central.writeUInt32LE(declarado, 24);
+    central.writeUInt16LE(nome.length, 28);
+    const inicioDoDiretorio = local.length + nome.length + comprimido.length;
+    const fim = Buffer.alloc(22);
+    fim.writeUInt32LE(0x06054b50, 0);
+    fim.writeUInt16LE(1, 8);
+    fim.writeUInt16LE(1, 10);
+    fim.writeUInt32LE(central.length + nome.length, 12);
+    fim.writeUInt32LE(inicioDoDiretorio, 16);
+    return Buffer.concat([local, nome, comprimido, central, nome, fim]);
+  }
+
+  it('R16.2 — bomba de zip: XLSX que descompacta em mais de 100 MB é recusado antes de abrir (422)', async () => {
+    const bomba = zipForjado(150 * 1024 * 1024);
+    expect(bomba.length).toBeLessThan(1024 * 1024);
+    await expect(lerPlanilha(bomba, 'xlsx')).rejects.toThrow(
+      PlanilhaIlegivelError,
+    );
+    await expect(lerPlanilha(bomba, 'xlsx')).rejects.toThrow(/100 MB/);
+  });
+
+  it('R16.2 — razão de compressão acima de 100:1 também é recusada, mesmo abaixo de 100 MB', () => {
+    const suspeita = zipForjado(20 * 1024 * 1024);
+    expect(suspeita.length * 100).toBeLessThan(20 * 1024 * 1024);
+    expect(() => conferirTamanhoDoZip(suspeita)).toThrow(/suspeita/);
+  });
+
+  it('R16.2 — planilha comum passa pela conferência do zip', async () => {
+    const livro = new ExcelJS.Workbook();
+    const aba = livro.addWorksheet('Contatos');
+    aba.addRow(['nome', 'email']);
+    aba.addRow(['Ana', 'ana@x.com']);
+    const buffer = Buffer.from(await livro.xlsx.writeBuffer());
+    expect(() => conferirTamanhoDoZip(buffer)).not.toThrow();
   });
 });

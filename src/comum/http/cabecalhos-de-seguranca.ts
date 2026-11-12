@@ -18,7 +18,13 @@ export const HSTS = 'max-age=15552000';
 export function criarMiddlewareDeCabecalhos(
   hsts: boolean,
 ): (req: Request, res: Response, next: NextFunction) => void {
-  return (_req, res, next) => {
+  return (req, res, next) => {
+    // Respostas da API (dados de pessoas, de negócios, de conversas) nunca ficam em cache de
+    // navegador nem de proxy. Quem tem política própria (download de arquivo, widget, gravação)
+    // troca o cabeçalho depois, na própria resposta.
+    if (req.path?.startsWith('/api/v1/')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
     for (const [nome, valor] of Object.entries(CABECALHOS_DE_SEGURANCA)) {
       res.setHeader(nome, valor);
     }

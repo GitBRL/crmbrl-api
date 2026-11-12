@@ -11,6 +11,7 @@ import {
   cookieDaSessao,
   criarAppTeste,
   criarUsuario,
+  drenarTudo,
   entrarComo,
   entrarPeloLogin,
   ORIGEM_DE_TESTE,
@@ -280,6 +281,41 @@ describe('Base — autenticação e sessões (e2e)', () => {
   });
 
   describe('sessão', () => {
+    it('R2.2 — "encerrar as outras sessões" mantém a atual, revoga as demais e audita', async () => {
+      const usuario = await criarUsuario(t);
+      const atual = await entrarComo(t, usuario);
+      const outroNavegador = await entrarComo(t, usuario);
+      const outroAparelho = await entrarComo(t, usuario);
+      const deOutraPessoa = await entrarComo(t, await criarUsuario(t));
+
+      const resposta = await atual
+        .post('/api/v1/auth/sessoes/encerrar-outras')
+        .expect(200);
+      expect(resposta.body).toEqual({ encerradas: 2 });
+      await atual.get('/api/v1/auth/eu').expect(200);
+      await outroNavegador.get('/api/v1/auth/eu').expect(401);
+      await outroAparelho.get('/api/v1/auth/eu').expect(401);
+      await deOutraPessoa.get('/api/v1/auth/eu').expect(200);
+      expect(
+        await t.prisma.eventoAuditoria.count({
+          where: {
+            acao: 'usuario.sessoes_encerradas',
+            entidadeId: usuario.id,
+          },
+        }),
+      ).toBe(1);
+      await clienteAnonimo(t)
+        .post('/api/v1/auth/sessoes/encerrar-outras')
+        .expect(401);
+    });
+
+    it('respostas de /api/v1/* levam Cache-Control: no-store', async () => {
+      const usuario = await criarUsuario(t);
+      const cliente = await entrarComo(t, usuario);
+      const resposta = await cliente.get('/api/v1/auth/eu').expect(200);
+      expect(resposta.headers['cache-control']).toBe('no-store');
+    });
+
     it('cenário 3 — R2.4: login → auth/eu responde; desligar o usuário → a próxima requisição dele dá 401', async () => {
       const usuario = await criarUsuario(t, { papel: 'MARKETING' });
       const { cliente } = await entrarPeloLogin(t, usuario.email);
@@ -537,6 +573,57 @@ describe('Base — autenticação e sessões (e2e)', () => {
         .set('X-Forwarded-For', '203.0.113.8')
         .expect(200);
     });
+
+    it('R2.5 — tentativas recusadas por já estarem bloqueadas não contam no limite do IP nem o renovam', async () => {
+      const ip = '203.0.113.9';
+      const falhas = Array.from({ length: 25 }, (_valor, indice) => ({
+        email: `varios-${indice % 5}@teste.local`,
+        ip,
+        sucesso: false,
+        motivo: 'USUARIO_INEXISTENTE',
+      }));
+      const recusadas = Array.from({ length: 20 }, () => ({
+        email: 'bloqueado@teste.local',
+        ip,
+        sucesso: false,
+        motivo: 'BLOQUEADO_EMAIL',
+      }));
+      await t.prisma.tentativaLogin.createMany({
+        data: [...falhas, ...recusadas],
+      });
+      const usuario = await criarUsuario(t, { email: 'livre@teste.local' });
+      await clienteAnonimo(t)
+        .post('/api/v1/auth/entrar', {
+          email: usuario.email,
+          senha: SENHA_DE_TESTE,
+        })
+        .set('X-Forwarded-For', ip)
+        .expect(200);
+    });
+
+    it('R2.5 — requisições simultâneas não furam o limite do e-mail (a conferência é serializada)', async () => {
+      await criarUsuario(t, { email: 'corrida@teste.local' });
+      const respostas = await Promise.all(
+        Array.from({ length: 12 }, (_valor, indice) =>
+          clienteAnonimo(t).post('/api/v1/auth/entrar', {
+            email: 'corrida@teste.local',
+            senha: `errada-${indice}`,
+          }),
+        ),
+      );
+      const status = respostas.map((resposta) => resposta.status);
+      expect(status.filter((valor) => valor === 401)).toHaveLength(5);
+      expect(status.filter((valor) => valor === 429)).toHaveLength(7);
+      expect(
+        await t.prisma.tentativaLogin.count({
+          where: {
+            email: 'corrida@teste.local',
+            sucesso: false,
+            motivo: { not: 'BLOQUEADO_EMAIL' },
+          },
+        }),
+      ).toBe(5);
+    });
   });
 
   describe('CSRF', () => {
@@ -601,6 +688,30 @@ describe('Base — autenticação e sessões (e2e)', () => {
   });
 
   describe('troca de senha', () => {
+    it('R2.12 — senha comum é recusada na troca e na senha temporária definida pelo Admin', async () => {
+      const usuario = await criarUsuario(t);
+      const { cliente } = await entrarPeloLogin(t, usuario.email);
+      const comum = await cliente
+        .post('/api/v1/auth/senha', {
+          senhaAtual: SENHA_DE_TESTE,
+          novaSenha: 'Senha@123',
+        })
+        .expect(400);
+      expect(comum.body.detalhes.campos).toEqual([
+        {
+          campo: 'novaSenha',
+          mensagens: [expect.stringContaining('muito comum')],
+        },
+      ]);
+      const admin = await criarUsuario(t, { papel: 'ADMIN' });
+      const clienteAdmin = await entrarComo(t, admin);
+      await clienteAdmin
+        .post(`/api/v1/usuarios/${usuario.id}/senha-temporaria`, {
+          senha: '12345678',
+        })
+        .expect(400);
+    });
+
     it('R2.1 — confere a senha atual, exige 8 a 128 caracteres e encerra as outras sessões', async () => {
       const usuario = await criarUsuario(t);
       const { cliente } = await entrarPeloLogin(t, usuario.email);
@@ -663,6 +774,9 @@ describe('Base — autenticação e sessões (e2e)', () => {
         .post('/api/v1/auth/senha/esqueci', { email: 'ESQUECEU@teste.local' })
         .expect(202);
       expect(pedido.body.mensagem).toMatch(/Se o e-mail estiver cadastrado/);
+      // R2.8: a resposta não espera a busca nem o envio (tempo igual com e-mail existente ou não).
+      expect(t.email.enviados).toHaveLength(0);
+      await drenarTudo(t);
       const token = t.email.tokenDoUltimo('esqueceu@teste.local');
       expect(token).toBeDefined();
       expect(t.email.ultimo()?.texto).toContain(
@@ -726,6 +840,7 @@ describe('Base — autenticação e sessões (e2e)', () => {
       await sessao
         .post('/api/v1/auth/senha/esqueci', { email: 'esqueceu@teste.local' })
         .expect(202);
+      await drenarTudo(t);
       const pedido = await t.prisma.eventoAuditoria.findFirstOrThrow({
         where: { acao: 'usuario.redefinicao_solicitada' },
       });
@@ -741,6 +856,7 @@ describe('Base — autenticação e sessões (e2e)', () => {
       await clienteAnonimo(t)
         .post('/api/v1/auth/senha/esqueci', { email: 'nao-existe@teste.local' })
         .expect(202);
+      await drenarTudo(t);
       expect(t.email.enviados).toHaveLength(0);
     });
 
@@ -749,6 +865,7 @@ describe('Base — autenticação e sessões (e2e)', () => {
       await clienteAnonimo(t)
         .post('/api/v1/auth/senha/esqueci', { email: usuario.email })
         .expect(202);
+      await drenarTudo(t);
       const token = t.email.tokenDoUltimo();
       await t.prisma.tokenSenha.updateMany({
         data: { expiraEm: new Date(Date.now() - 1000) },

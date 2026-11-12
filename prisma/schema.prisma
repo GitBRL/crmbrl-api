@@ -128,6 +128,25 @@ enum TipoAtividade {
   @@map("tipo_atividade")
 }
 
+/// R6.6 — como terminou uma reunião concluída (nulo = sem resultado).
+enum ResultadoReuniao {
+  COMPARECEU
+  NAO_COMPARECEU
+  REMARCADA
+
+  @@map("resultado_reuniao")
+}
+
+/// R6.7 — o que foi a primeira interação humana com o contato do negócio.
+enum TipoPrimeiraInteracao {
+  LIGACAO
+  MENSAGEM
+  EMAIL
+  ATIVIDADE
+
+  @@map("tipo_primeira_interacao")
+}
+
 enum StatusAtividade {
   PENDENTE
   CONCLUIDA
@@ -294,9 +313,17 @@ model Usuario {
   acessoAtivadoEm         DateTime? @map("acesso_ativado_em") @db.Timestamptz(3)
   avatarUrl               String?   @map("avatar_url")
   telefone                String?
+  /// Segredo TOTP cifrado (R10.3, R2.11). Com `doisFatoresAtivadoEm` nulo é só um segredo pendente de confirmação.
+  doisFatoresSegredo      String?   @map("dois_fatores_segredo")
+  /// Verificação em duas etapas ativa desde quando (R2.11); nulo = desligada.
+  doisFatoresAtivadoEm    DateTime? @map("dois_fatores_ativado_em") @db.Timestamptz(3)
+  /// Último passo de 30 s aceito: o mesmo código não vale duas vezes.
+  doisFatoresUltimoPasso  Int?      @map("dois_fatores_ultimo_passo")
   criadoEm                DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
   atualizadoEm            DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
+  codigosRecuperacao         CodigoRecuperacao[]
+  desafiosDoisFatores        DesafioDoisFatores[]
   sessoes                    Sessao[]
   tokensSenha                TokenSenha[]
   empresasResponsavel        Empresa[]                       @relation("EmpresaResponsavel")
@@ -305,6 +332,9 @@ model Usuario {
   contatosCriados            Contato[]                       @relation("ContatoCriadoPor")
   negociosResponsavel        Negocio[]                       @relation("NegocioResponsavel")
   negociosCriados            Negocio[]                       @relation("NegocioCriadoPor")
+  negociosPrimeiraInteracao  Negocio[]                       @relation("NegocioPrimeiraInteracaoPor")
+  /// Onda T (R33): painéis de indicadores que a pessoa criou.
+  paineisIndicadores         PainelIndicadores[]              @relation("PainelIndicadoresDono")
   movimentacoes              NegocioMovimentacao[]
   passagensResponsavelFixo   Passagem[]                      @relation("PassagemResponsavelFixo")
   regrasDistribuicaoUltimo   RegraDistribuicao[]             @relation("RegraDistribuicaoUltimo")
@@ -354,6 +384,10 @@ model Usuario {
   // Onda E (ligações)
   ligacoesAtendidas          Ligacao[]                       @relation("LigacaoAtendente")
   configuracoesLigacao       CanalLigacaoConfig[]            @relation("CanalLigacaoConfigAtualizadaPor")
+  // T4 (3C+, R34)
+  trescPlusVinculo           TrescPlusVinculo?
+  trescPlusEnvios            TrescPlusEnvio[]
+  trescPlusConfigs           TrescPlusConfig[]               @relation("TrescPlusConfigAtualizadaPor")
   // Setores (S2): acessos extras a funis e a setores (R5.11)
   acessosAFunis              AcessoFunil[]
   acessosASetores            AcessoSetor[]
@@ -385,6 +419,35 @@ model Sessao {
   @@map("sessoes")
 }
 
+/// Código de recuperação da verificação em duas etapas (R2.11): uso único; só o HMAC fica no banco.
+model CodigoRecuperacao {
+  id         String    @id @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  codigoHash String    @map("codigo_hash")
+  criadoEm   DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  usadoEm    DateTime? @map("usado_em") @db.Timestamptz(3)
+
+  @@unique([usuarioId, codigoHash])
+  @@map("codigos_recuperacao")
+}
+
+/// Desafio da segunda etapa do login (R2.11): vale 5 minutos, com tentativas limitadas. Só o hash do token fica no banco.
+model DesafioDoisFatores {
+  id         String    @id @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @map("token_hash")
+  criadoEm   DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  expiraEm   DateTime  @map("expira_em") @db.Timestamptz(3)
+  tentativas Int       @default(0)
+  usadoEm    DateTime? @map("usado_em") @db.Timestamptz(3)
+
+  @@index([usuarioId])
+  @@index([expiraEm])
+  @@map("desafios_dois_fatores")
+}
+
 /// Toda tentativa de login, com sucesso ou não (R2.5). Base do bloqueio por força bruta.
 model TentativaLogin {
   id        BigInt   @id @default(autoincrement())
@@ -393,7 +456,7 @@ model TentativaLogin {
   ip        String?
   usuarioId String?  @map("usuario_id") @db.Uuid
   sucesso   Boolean
-  /// `SUCESSO`, `SENHA_INCORRETA`, `USUARIO_INEXISTENTE`, `SEM_SENHA`, `USUARIO_DESLIGADO`, `BLOQUEADO_EMAIL`, `BLOQUEADO_IP`.
+  /// `SUCESSO`, `SENHA_INCORRETA`, `USUARIO_INEXISTENTE`, `SEM_SENHA`, `USUARIO_DESLIGADO`, `DOIS_FATORES_INCORRETO`, `BLOQUEADO_EMAIL`, `BLOQUEADO_IP`.
   motivo    String
   userAgent String?  @map("user_agent")
   criadoEm  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
@@ -643,6 +706,7 @@ model Etapa {
 
 /// Negócio (oportunidade) num funil (R5.3). `status` deriva do tipo da etapa.
 model Negocio {
+  ligacoes             Ligacao[]
   id                   String        @id @default(uuid()) @db.Uuid
   /// Padrão: nome do contato ou da empresa.
   titulo               String
@@ -682,6 +746,11 @@ model Negocio {
   reconversoes         Int           @default(0)
   ultimaReconversaoEm  DateTime?     @map("ultima_reconversao_em") @db.Timestamptz(3)
   camposPersonalizados Json          @default("{}") @map("campos_personalizados")
+  /// R6.7 — primeira ação de uma pessoa com o contato depois da criação do negócio (gravada uma vez).
+  primeiraInteracaoEm     DateTime?              @map("primeira_interacao_em") @db.Timestamptz(3)
+  primeiraInteracaoTipo   TipoPrimeiraInteracao? @map("primeira_interacao_tipo")
+  primeiraInteracaoPorId  String?                @map("primeira_interacao_por_id") @db.Uuid
+  primeiraInteracaoPor    Usuario?               @relation("NegocioPrimeiraInteracaoPor", fields: [primeiraInteracaoPorId], references: [id], onDelete: SetNull)
   /// Id do negócio no sistema de origem (importação, ex.: Clint); índice único parcial (não nulo e não excluído).
   idExterno            String?       @map("id_externo")
   criadoPorId          String?       @map("criado_por_id") @db.Uuid
@@ -709,6 +778,8 @@ model Negocio {
   @@index([empresaId])
   @@index([negocioOrigemId])
   @@index([funilId, criadoEm], map: "negocios_funil_criado_idx")
+  @@index([criadoEm], map: "negocios_criado_idx")
+  @@index([primeiraInteracaoEm], map: "negocios_primeira_interacao_idx", where: raw("primeira_interacao_em IS NOT NULL"))
   @@index([funilId, ganhoEm], map: "negocios_funil_ganho_idx", where: raw("ganho_em IS NOT NULL"))
   @@index([funilId, perdidoEm], map: "negocios_funil_perdido_idx", where: raw("perdido_em IS NOT NULL"))
   @@index([previsaoFechamento], map: "negocios_previsao_aberto_idx", where: raw("(status = 'ABERTO'::status_negocio) AND (previsao_fechamento IS NOT NULL)"))
@@ -859,6 +930,12 @@ model Atividade {
   encaminhadaEm      DateTime?           @map("encaminhada_em") @db.Timestamptz(3)
   /// Onda E: ligações do WhatsApp ligadas a esta atividade (a perdida gera "Retornar ligação"; o retorno a conclui).
   ligacoes           Ligacao[]
+  /// R6.6 — resultado da reunião concluída; nulo = sem resultado.
+  resultadoReuniao   ResultadoReuniao?   @map("resultado_reuniao")
+  /// R6.6 — a reunião de origem, quando esta nasceu de uma remarcação.
+  remarcadaDeId      String?             @map("remarcada_de_id") @db.Uuid
+  remarcadaDe        Atividade?          @relation("AtividadeRemarcada", fields: [remarcadaDeId], references: [id], onDelete: SetNull)
+  remarcacoes        Atividade[]         @relation("AtividadeRemarcada")
   /// Lembretes (R6.5).
   lembreteEnviadoEm  DateTime?           @map("lembrete_enviado_em") @db.Timestamptz(3)
   atrasoNotificadoEm DateTime?           @map("atraso_notificado_em") @db.Timestamptz(3)
@@ -871,7 +948,9 @@ model Atividade {
   @@index([empresaId])
   @@index([negocioId])
   @@index([criadoPorId])
+  @@index([remarcadaDeId])
   @@index([concluidaEm], map: "atividades_concluida_idx", where: raw("status = 'CONCLUIDA'::status_atividade"))
+  @@index([inicioEm], map: "atividades_reuniao_inicio_idx", where: raw("tipo = 'REUNIAO'::tipo_atividade"))
   @@map("atividades")
 }
 
@@ -3371,6 +3450,16 @@ model WhatsappOficialTemplate {
 // Onda E: ligações pelo WhatsApp (Calling API da Meta, R29)
 // ---------------------------------------------------------------------------
 
+/// R34.3: de onde vem a ligação.
+enum ProvedorLigacao {
+  /// Calling API da Meta (R29), pelo navegador do atendente.
+  WHATSAPP
+  /// Discador 3C+ (R34).
+  TRESC_PLUS
+
+  @@map("provedor_ligacao")
+}
+
 enum DirecaoLigacao {
   /// O cliente ligou para o número do canal.
   RECEBIDA
@@ -3460,8 +3549,28 @@ enum SituacaoResumoLigacao {
 /// gravação e transcrição são da E3.
 model Ligacao {
   id                        String                      @id @default(uuid()) @db.Uuid
-  canalId                   String                      @map("canal_id") @db.Uuid
-  canal                     Canal                       @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  /// Nulo nas ligações do 3C+ (R34.3): elas não passam por canal do CRM.
+  canalId                   String?                     @map("canal_id") @db.Uuid
+  canal                     Canal?                      @relation(fields: [canalId], references: [id], onDelete: Restrict)
+  /// R34.3: de onde vem a ligação (WhatsApp oficial ou 3C+).
+  provedor                  ProvedorLigacao             @default(WHATSAPP)
+  /// R34.3: id da chamada no 3C+ (`call.id`). Único por provedor.
+  idExterno                 String?                     @map("id_externo")
+  /// R34.3: negócio da ligação (por `identifier` do discador ou pelo telefone), quando há um só candidato.
+  negocioId                 String?                     @map("negocio_id") @db.Uuid
+  negocio                   Negocio?                    @relation(fields: [negocioId], references: [id], onDelete: SetNull)
+  /// R34.3: campanha do 3C+ (id e nome) e modo da chamada (`manual`, `dialer`, `receptive`).
+  campanhaId                Int?                        @map("campanha_id")
+  campanhaNome              String?                     @map("campanha_nome")
+  modoChamada               String?                     @map("modo_chamada")
+  /// R34.3: qualificação (tabulação) dada no 3C+.
+  qualificacaoId            Int?                        @map("qualificacao_id")
+  qualificacaoNome          String?                     @map("qualificacao_nome")
+  qualificacaoNota          String?                     @map("qualificacao_nota")
+  qualificacaoConversao     Boolean?                    @map("qualificacao_conversao")
+  qualificadaEm             DateTime?                   @map("qualificada_em") @db.Timestamptz(3)
+  /// R34.3: tempo falado (segundos) informado pelo 3C+ no histórico.
+  tempoFaladoSegundos       Int?                        @map("tempo_falado_segundos")
   contatoId                 String                      @map("contato_id") @db.Uuid
   contato                   Contato                     @relation(fields: [contatoId], references: [id], onDelete: Restrict)
   conversaId                String?                     @map("conversa_id") @db.Uuid
@@ -3533,7 +3642,9 @@ model Ligacao {
   atualizadoEm              DateTime                    @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
   @@unique([canalId, idMeta], map: "ligacoes_canal_id_meta_key", where: raw("(id_meta IS NOT NULL)"))
-  @@unique([atendenteId], map: "ligacoes_uma_ativa_por_atendente_key", where: raw("((atendente_id IS NOT NULL) AND (estado IN ('CHAMANDO'::estado_ligacao, 'TOCANDO'::estado_ligacao, 'EM_ANDAMENTO'::estado_ligacao)))"))
+  @@unique([atendenteId], map: "ligacoes_uma_ativa_por_atendente_key", where: raw("((atendente_id IS NOT NULL) AND (provedor = 'WHATSAPP'::provedor_ligacao) AND (estado IN ('CHAMANDO'::estado_ligacao, 'TOCANDO'::estado_ligacao, 'EM_ANDAMENTO'::estado_ligacao)))"))
+  @@unique([provedor, idExterno], map: "ligacoes_provedor_id_externo_key", where: raw("(id_externo IS NOT NULL)"))
+  @@index([negocioId, criadoEm])
   @@index([estado, criadoEm])
   @@index([iniciadaEm])
   @@index([contatoId, criadoEm])
@@ -3636,6 +3747,99 @@ model LigacaoWebhookEvento {
 
   @@index([recebidoEm])
   @@map("ligacoes_webhook_eventos")
+}
+
+// ---------------------------------------------------------------------------
+// 3C+ (T4, R34): conexão da empresa, vínculo dos vendedores, dedupe e discador
+// ---------------------------------------------------------------------------
+
+/// R34.1: conexão da empresa com o 3C+ (uma só linha, `id = 1`). O token do gestor fica cifrado
+/// (AES-256-GCM, R10.3) e nunca sai inteiro: só `tokenFinal` (últimos 4 caracteres).
+model TrescPlusConfig {
+  id                 Int       @id @default(1)
+  ativa              Boolean   @default(false)
+  /// URL da API REST (padrão `https://3c.plus/api/v1`).
+  urlApi             String    @default("https://3c.plus/api/v1") @map("url_api")
+  /// URL do servidor socket.io (lacuna da referência: configurável). Nula = o mesmo host da API.
+  urlSocket          String?   @map("url_socket")
+  /// Caminho do socket.io (padrão `/socket.io`).
+  caminhoSocket      String    @default("/socket.io") @map("caminho_socket")
+  /// Como os eventos chegam: `AUTO` (detecta), `EVENTO_DADOS` (`{event,data}`), `OBJETO` (o objeto com `type`).
+  formatoEnvelope    String    @default("AUTO") @map("formato_envelope")
+  tokenCifrado       String?   @map("token_cifrado")
+  tokenFinal         String?   @map("token_final")
+  campanhaPadraoId   Int?      @map("campanha_padrao_id")
+  campanhaPadraoNome String?   @map("campanha_padrao_nome")
+  /// Último "testar conexão" e o estado do ouvinte (`conectado`, `desconectado`, `erro`).
+  testadaEm          DateTime? @map("testada_em") @db.Timestamptz(3)
+  testeOk            Boolean?  @map("teste_ok")
+  testeMensagem      String?   @map("teste_mensagem")
+  ouvinteEstado      String?   @map("ouvinte_estado")
+  ouvinteEm          DateTime? @map("ouvinte_em") @db.Timestamptz(3)
+  /// Última reconciliação por `GET /calls`.
+  reconciliadaEm     DateTime? @map("reconciliada_em") @db.Timestamptz(3)
+  atualizadoPorId    String?   @map("atualizado_por_id") @db.Uuid
+  atualizadoPor      Usuario?  @relation("TrescPlusConfigAtualizadaPor", fields: [atualizadoPorId], references: [id], onDelete: SetNull)
+  criadoEm           DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm       DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("tresc_plus_config")
+}
+
+/// R34.2: o vendedor ligado ao 3C+. Só o `api_token` (cifrado), o ramal e o id; a senha nunca é guardada.
+model TrescPlusVinculo {
+  id               String    @id @default(uuid()) @db.Uuid
+  usuarioId        String    @unique @map("usuario_id") @db.Uuid
+  usuario          Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  /// Id do usuário no 3C+ (`agent.id` dos eventos).
+  trescUsuarioId   Int       @unique @map("tresc_usuario_id")
+  nome3c           String?   @map("nome_3c")
+  ramal            String?
+  tokenCifrado     String    @map("token_cifrado")
+  tokenFinal       String    @map("token_final")
+  /// Estado do agente, mantido pelos eventos: `desconectado`, `ocioso`, `em_ligacao`, `pos_atendimento`, `pausa`, `manual`.
+  estado           String    @default("desconectado")
+  estadoDesde      DateTime  @default(now()) @map("estado_desde") @db.Timestamptz(3)
+  campanhaId       Int?      @map("campanha_id")
+  campanhaNome     String?   @map("campanha_nome")
+  /// `manual` ou `dialer`.
+  modo             String?
+  pausaId          Int?      @map("pausa_id")
+  pausaNome        String?   @map("pausa_nome")
+  vinculadoEm      DateTime  @default(now()) @map("vinculado_em") @db.Timestamptz(3)
+  atualizadoEm     DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+
+  @@map("tresc_plus_vinculos")
+}
+
+/// R34.4: eventos do 3C+ já processados (deduplicação por chamada + evento). Limpos após 7 dias.
+model TrescPlusEvento {
+  id         String   @id @default(uuid()) @db.Uuid
+  chave      String   @unique
+  recebidoEm DateTime @default(now()) @map("recebido_em") @db.Timestamptz(3)
+
+  @@index([recebidoEm])
+  @@map("tresc_plus_eventos")
+}
+
+/// R34.6: um envio de negócios/contatos ao discador, com o relatório de importados e filtrados.
+model TrescPlusEnvio {
+  id           String   @id @default(uuid()) @db.Uuid
+  usuarioId    String?  @map("usuario_id") @db.Uuid
+  usuario      Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  campanhaId   Int      @map("campanha_id")
+  campanhaNome String?  @map("campanha_nome")
+  listaId      Int      @map("lista_id")
+  listaNome    String?  @map("lista_nome")
+  enviados     Int
+  importados   Int
+  filtrados    Int
+  /// `[{identifier, telefone, motivo}]` dos filtrados e dos que o CRM nem enviou (sem telefone).
+  detalhes     Json     @default("[]")
+  criadoEm     DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  @@index([criadoEm])
+  @@map("tresc_plus_envios")
 }
 
 // ---------------------------------------------------------------------------
@@ -3968,4 +4172,32 @@ model SdrSugestao {
 
   @@index([conversaId, status])
   @@map("sdr_sugestoes")
+}
+
+// ---------------------------------------------------------------------------
+// Onda T — indicadores configuráveis (R33)
+// ---------------------------------------------------------------------------
+
+/// Painel de indicadores (R33.6). `widgets` = `[{id, indicador, parametros, visualizacao, titulo?, filtros?, meta?, largura, ordem}]`
+/// e `filtrosPadrao` = filtros do painel (validados pela API). O compartilhamento fica em três listas (setores, pessoas, papéis).
+model PainelIndicadores {
+  id                   String    @id @default(uuid()) @db.Uuid
+  nome                 String
+  descricao            String?
+  donoId               String    @map("dono_id") @db.Uuid
+  dono                 Usuario   @relation("PainelIndicadoresDono", fields: [donoId], references: [id], onDelete: Restrict)
+  filtrosPadrao        Json      @default("{}") @map("filtros_padrao")
+  widgets              Json      @default("[]")
+  compartilhadoSetores String[]  @default([]) @map("compartilhado_setores")
+  compartilhadoPessoas String[]  @default([]) @map("compartilhado_pessoas") @db.Uuid
+  compartilhadoPapeis  Papel[]   @default([]) @map("compartilhado_papeis")
+  /// Chave do modelo pronto que originou o painel (ex.: `time_comercial`).
+  modelo               String?
+  criadoEm             DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  atualizadoEm         DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
+  excluidoEm           DateTime? @map("excluido_em") @db.Timestamptz(3)
+
+  @@index([donoId])
+  @@index([excluidoEm])
+  @@map("paineis_indicadores")
 }

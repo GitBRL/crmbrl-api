@@ -17,6 +17,7 @@ import {
 import { PaginacaoDto } from '../../comum/paginacao/paginacao';
 import {
   PrioridadeAtividade,
+  ResultadoReuniao,
   StatusAtividade,
   TipoAtividade,
 } from '../../generated/prisma/client';
@@ -55,6 +56,13 @@ export const ORDENS_DE_ATIVIDADES = [
   'PRIORIDADE',
 ] as const;
 export type OrdemAtividades = (typeof ORDENS_DE_ATIVIDADES)[number];
+
+/** Filtro por resultado da reunião: um resultado ou `SEM_RESULTADO` (R6.6). */
+export const RESULTADOS_DO_FILTRO = [
+  ...Object.values(ResultadoReuniao),
+  'SEM_RESULTADO',
+] as const;
+export type ResultadoDoFiltro = (typeof RESULTADOS_DO_FILTRO)[number];
 
 const MENSAGEM_FUSO =
   'deve ser um fuso horário IANA válido (ex.: America/Sao_Paulo)';
@@ -133,6 +141,30 @@ export class FiltroBaseAtividadesDto {
   @Transform(minusculas)
   @IsUUID('all', { message: MENSAGEM_UUID })
   negocioId?: string;
+
+  @ApiPropertyOptional({
+    enum: RESULTADOS_DO_FILTRO,
+    isArray: true,
+    description:
+      'R6.6 — reuniões por resultado (`COMPARECEU`, `NAO_COMPARECEU`, `REMARCADA` ou `SEM_RESULTADO`); repetido ou separado por vírgula. Só traz reuniões.',
+  })
+  @IsOptional()
+  @Transform(paraLista)
+  @IsArray({ message: 'deve ser uma lista' })
+  @IsIn(RESULTADOS_DO_FILTRO, {
+    each: true,
+    message: `(cada item) ${mensagemDeValores(RESULTADOS_DO_FILTRO)}`,
+  })
+  resultadoReuniao?: ResultadoDoFiltro[];
+
+  @ApiPropertyOptional({
+    description:
+      'R6.6 — `true`: só as reuniões pendentes cujo início já passou (aguardando resultado); `false`: o resto.',
+  })
+  @IsOptional()
+  @Transform(paraBooleano)
+  @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
+  aguardandoResultado?: boolean;
 
   @ApiPropertyOptional({
     description:

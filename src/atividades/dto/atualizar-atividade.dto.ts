@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 import {
   PrioridadeAtividade,
+  ResultadoReuniao,
   TipoAtividade,
 } from '../../generated/prisma/client';
 import {
@@ -151,4 +152,26 @@ export class AtualizarAtividadeDto {
   @Transform(minusculas)
   @IsUUID('all', { message: MENSAGEM_UUID })
   negocioId?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ResultadoReuniao,
+    enumName: 'ResultadoReuniao',
+    description:
+      'R6.6 — corrige o resultado de uma reunião concluída (auditado). `REMARCADA` exige `novaData`.',
+  })
+  @IsOptional()
+  @IsEnum(ResultadoReuniao, {
+    message: mensagemDeValores(Object.values(ResultadoReuniao)),
+  })
+  resultadoReuniao?: ResultadoReuniao;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description:
+      'R6.6 — com `resultadoReuniao: REMARCADA`: início da nova reunião (no futuro).',
+  })
+  @IsOptional()
+  @IsDataHoraComFuso({ message: MENSAGEM_DATA_HORA })
+  novaData?: string;
 }

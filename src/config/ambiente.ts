@@ -7,6 +7,7 @@
  * `AMBIENTE` — nenhum outro arquivo de `src/` lê `process.env`.
  */
 import { createHash } from 'node:crypto';
+import { normalizarHostPermitido } from '../tresc-plus/hosts-permitidos';
 
 /** Token de injeção do ambiente já validado. */
 export const AMBIENTE = Symbol('AMBIENTE');
@@ -116,6 +117,16 @@ export interface ConfiguracaoMeta {
   readonly graphVersao: string;
   /** Base do diálogo de login do Facebook, sem barra no fim (`META_DIALOGO_URL`; é aberta no NAVEGADOR do Admin, R32.14). */
   readonly dialogoUrl: string;
+}
+
+/** Ligações pelo 3C+ (Onda T, R34). */
+export interface ConfiguracaoTrescPlus {
+  /** Ouvinte do socket e reconciliação ligados (`TRESC_PLUS_OUVINTE`; padrão: o mesmo de `PROCESSAR_FILAS`). */
+  readonly ouvinteAtivo: boolean;
+  /** Intervalo da reconciliação por `GET /calls`, em minutos (`TRESC_PLUS_RECONCILIACAO_MIN`, padrão 10). */
+  readonly reconciliacaoMinutos: number;
+  /** Hosts do 3C+ além dos padrão (`TRESC_PLUS_HOSTS_PERMITIDOS`: lista separada por vírgula; aceita `*.dominio`). */
+  readonly hostsPermitidos: readonly string[];
 }
 
 /** Ligações pelo WhatsApp oficial (Onda E, R29). */
@@ -247,6 +258,8 @@ export interface Ambiente {
   readonly integracoes: ConfiguracaoIntegracoes;
   /** Ligações pelo WhatsApp oficial (Onda E, R29). */
   readonly ligacoes: ConfiguracaoLigacoes;
+  /** Ligações pelo 3C+ (Onda T, R34). */
+  readonly trescPlus: ConfiguracaoTrescPlus;
   /** Gravação, transcrição e resumo das ligações (Onda E, R30). */
   readonly transcricao: ConfiguracaoTranscricao;
   readonly anthropic: ConfiguracaoAnthropic;
@@ -254,6 +267,11 @@ export interface Ambiente {
   readonly push: ConfiguracaoPush;
   /** Pasta dos backups, montada só para leitura (`BACKUP_DIR`, padrão `/backups`): a saúde lê `ultimo.json`. */
   readonly backupDir: string;
+  /**
+   * `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`: escape explícito que deixa a produção subir com
+   * segredos públicos de desenvolvimento (só para testes locais; sem isso a subida é recusada).
+   */
+  readonly permitirSegredosDeDesenvolvimento: boolean;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -269,6 +287,7 @@ export interface VariaveisDeAmbiente {
   URL_PUBLICA?: string;
   ORIGENS_PERMITIDAS?: string;
   COOKIE_SEGURO?: string;
+  PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO?: string;
   CHAVE_CRIPTOGRAFIA?: string;
   SESSAO_INATIVIDADE_DIAS?: string;
   SESSAO_DURACAO_MAXIMA_DIAS?: string;
@@ -307,6 +326,9 @@ export interface VariaveisDeAmbiente {
   RD_STATION_DIALOGO_URL?: string;
   LIGACOES_STUN_URLS?: string;
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
+  TRESC_PLUS_OUVINTE?: string;
+  TRESC_PLUS_RECONCILIACAO_MIN?: string;
+  TRESC_PLUS_HOSTS_PERMITIDOS?: string;
   TRANSCRICAO_URL?: string;
   WHISPER_MODELO?: string;
   TRANSCRICAO_TEMPO_LIMITE_S?: string;
@@ -333,6 +355,7 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'URL_PUBLICA',
   'ORIGENS_PERMITIDAS',
   'COOKIE_SEGURO',
+  'PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO',
   'CHAVE_CRIPTOGRAFIA',
   'SESSAO_INATIVIDADE_DIAS',
   'SESSAO_DURACAO_MAXIMA_DIAS',
@@ -371,6 +394,9 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'RD_STATION_DIALOGO_URL',
   'LIGACOES_STUN_URLS',
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
+  'TRESC_PLUS_OUVINTE',
+  'TRESC_PLUS_RECONCILIACAO_MIN',
+  'TRESC_PLUS_HOSTS_PERMITIDOS',
   'TRANSCRICAO_URL',
   'WHISPER_MODELO',
   'TRANSCRICAO_TEMPO_LIMITE_S',
@@ -418,6 +444,18 @@ export function lerAmbiente(
   const producao = nodeEnv === 'production';
   const urlPublica = lerUrlPublica(variaveis.URL_PUBLICA, producao, problemas);
   const origemPublica = comoOrigem(urlPublica);
+  const permitirSegredosDeDesenvolvimento = lerBooleano(
+    'PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO',
+    variaveis.PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO,
+    false,
+    problemas,
+  );
+  const processarFilas = lerBooleano(
+    'PROCESSAR_FILAS',
+    variaveis.PROCESSAR_FILAS,
+    true,
+    problemas,
+  );
 
   const ambiente: Ambiente = {
     databaseUrl: lerDatabaseUrl(variaveis.DATABASE_URL, problemas),
@@ -443,6 +481,7 @@ export function lerAmbiente(
       producao,
       problemas,
       avisos,
+      permitirSegredosDeDesenvolvimento,
     ),
     sessao: lerSessao(variaveis, problemas),
     admin: lerAdmin(variaveis, problemas),
@@ -459,27 +498,30 @@ export function lerAmbiente(
       !producao,
       problemas,
     ),
-    processarFilas: lerBooleano(
-      'PROCESSAR_FILAS',
-      variaveis.PROCESSAR_FILAS,
-      true,
-      problemas,
-    ),
+    processarFilas,
     logFormato: lerLogFormato(variaveis.LOG_FORMATO, producao, problemas),
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
-    whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
+    whatsapp: lerWhatsapp(
+      variaveis,
+      producao,
+      problemas,
+      avisos,
+      permitirSegredosDeDesenvolvimento,
+    ),
     meta: lerMeta(variaveis, problemas),
     integracoes: lerIntegracoes(variaveis, problemas),
     ligacoes: lerLigacoes(variaveis, problemas),
+    trescPlus: lerTrescPlus(variaveis, processarFilas, problemas),
     transcricao: lerTranscricao(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
     ticketHub: lerTicketHub(variaveis, problemas),
     push: lerPush(variaveis, problemas, avisos),
     backupDir: variaveis.BACKUP_DIR?.trim() || '/backups',
+    permitirSegredosDeDesenvolvimento,
     avisos,
   };
 
-  avisosDeProducao(ambiente, variaveis, avisos);
+  avisosDeProducao(ambiente, variaveis, problemas, avisos);
 
   if (problemas.length > 0) {
     throw new AmbienteInvalidoError(problemas);
@@ -492,35 +534,68 @@ export const ARQUIVOS_SEGREDO_DESENVOLVIMENTO =
   'crmbrl-arquivos-desenvolvimento';
 
 /**
- * Configurações que deixam a produção insegura sem impedir a subida (o compose
- * de desenvolvimento usa os padrões públicos): viram aviso no log da inicialização.
- * Nunca incluem o valor do segredo.
+ * Segredo público de desenvolvimento em produção: a subida é recusada (problema), salvo com
+ * `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`, que a deixa subir com um aviso alto no log e na
+ * Saúde do sistema. Nunca inclui o valor do segredo.
+ */
+function segredoDeDesenvolvimento(
+  permitir: boolean,
+  problemas: string[],
+  avisos: string[],
+  descricao: string,
+): void {
+  if (permitir) {
+    avisos.push(
+      `ATENÇÃO: ${descricao} (permitido por PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true: nunca use com dados reais).`,
+    );
+  } else {
+    problemas.push(
+      `${descricao}. Corrija, ou (só em teste local) defina PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true.`,
+    );
+  }
+}
+
+/**
+ * Configurações que deixam a produção insegura: segredo público de desenvolvimento e cookie sem
+ * `Secure` em https recusam a subida (salvo `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`, que vira
+ * aviso alto); `http` na URL pública só avisa. Nunca incluem o valor do segredo.
  */
 function avisosDeProducao(
   ambiente: Ambiente,
   variaveis: VariaveisDeAmbiente,
+  problemas: string[],
   avisos: string[],
 ): void {
   if (!ambiente.producao) {
     return;
   }
+  const permitir = ambiente.permitirSegredosDeDesenvolvimento;
   if (ambiente.urlPublica.startsWith('http://')) {
     avisos.push(
       'URL_PUBLICA usa http em produção: a sessão e os dados trafegam sem criptografia (use HTTPS pelo Caddy, veja docs/DEPLOY.md).',
     );
   } else if (!ambiente.cookieSeguro) {
-    avisos.push(
-      'COOKIE_SEGURO=false com URL_PUBLICA em https: o cookie de sessão pode vazar em http. Use COOKIE_SEGURO=true.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'COOKIE_SEGURO=false com URL_PUBLICA em https: o cookie de sessão pode vazar em http. Use COOKIE_SEGURO=true',
     );
   }
   if (limpar(variaveis.ARQUIVOS_SEGREDO) === ARQUIVOS_SEGREDO_DESENVOLVIMENTO) {
-    avisos.push(
-      'ARQUIVOS_SEGREDO é o segredo público de desenvolvimento do MinIO: troque-o antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'ARQUIVOS_SEGREDO é o segredo público de desenvolvimento do MinIO',
     );
   }
   if (senhaDoBanco(ambiente.databaseUrl) === 'crmbrl') {
-    avisos.push(
-      'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte',
     );
   }
 }
@@ -709,6 +784,7 @@ function lerChaveCriptografia(
   producao: boolean,
   problemas: string[],
   avisos: string[],
+  permitirSegredosDev: boolean,
 ): Buffer {
   const texto = limpar(valor);
   if (!texto) {
@@ -736,8 +812,11 @@ function lerChaveCriptografia(
     return CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO;
   }
   if (producao && chave.equals(CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO)) {
-    avisos.push(
-      'CHAVE_CRIPTOGRAFIA é a chave pública de desenvolvimento: troque-a antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitirSegredosDev,
+      problemas,
+      avisos,
+      'CHAVE_CRIPTOGRAFIA é a chave pública de desenvolvimento',
     );
   }
   return chave;
@@ -1088,6 +1167,7 @@ function lerWhatsapp(
   producao: boolean,
   problemas: string[],
   avisos: string[],
+  permitirSegredosDev: boolean,
 ): ConfiguracaoWhatsapp {
   const porta = lerPorta(
     variaveis.WHATSAPP_PORTA,
@@ -1120,8 +1200,11 @@ function lerWhatsapp(
       `WHATSAPP_TOKEN_INTERNO precisa ter pelo menos ${TAMANHO_MINIMO_TOKEN_INTERNO} caracteres.`,
     );
   } else if (producao && tokenInterno === TOKEN_INTERNO_DESENVOLVIMENTO) {
-    avisos.push(
-      'WHATSAPP_TOKEN_INTERNO é o token público de desenvolvimento: troque-o antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitirSegredosDev,
+      problemas,
+      avisos,
+      'WHATSAPP_TOKEN_INTERNO é o token público de desenvolvimento',
     );
   }
   return {
@@ -1141,6 +1224,60 @@ function lerWhatsapp(
  * `LIGACOES_*` (R29): STUN opcional do navegador (vazio por padrão: o áudio vai
  * direto entre o navegador e a Meta, sem TURN) e a espera entre `pre_accept` e `accept`.
  */
+/** `TRESC_PLUS_*` (R34): ouvinte do socket (padrão: junto das filas) e intervalo da reconciliação. */
+function lerTrescPlus(
+  variaveis: VariaveisDeAmbiente,
+  processarFilas: boolean,
+  problemas: string[],
+): ConfiguracaoTrescPlus {
+  const minutos = lerInteiroPositivo(
+    'TRESC_PLUS_RECONCILIACAO_MIN',
+    variaveis.TRESC_PLUS_RECONCILIACAO_MIN,
+    10,
+    problemas,
+  );
+  if (minutos > 120) {
+    problemas.push(
+      `TRESC_PLUS_RECONCILIACAO_MIN precisa ser de 1 a 120 (recebido: "${minutos}").`,
+    );
+  }
+  return {
+    ouvinteAtivo: lerBooleano(
+      'TRESC_PLUS_OUVINTE',
+      variaveis.TRESC_PLUS_OUVINTE,
+      processarFilas,
+      problemas,
+    ),
+    reconciliacaoMinutos: Math.min(minutos, 120),
+    hostsPermitidos: lerHostsTrescPlus(
+      variaveis.TRESC_PLUS_HOSTS_PERMITIDOS,
+      problemas,
+    ),
+  };
+}
+
+function lerHostsTrescPlus(
+  valor: string | undefined,
+  problemas: string[],
+): string[] {
+  const itens = (limpar(valor) ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  const hosts: string[] = [];
+  for (const item of itens) {
+    const host = normalizarHostPermitido(item);
+    if (host === null) {
+      problemas.push(
+        `TRESC_PLUS_HOSTS_PERMITIDOS tem um item inválido ("${item}"): use dominio.com, *.dominio.com ou um IP.`,
+      );
+    } else if (!hosts.includes(host)) {
+      hosts.push(host);
+    }
+  }
+  return hosts;
+}
+
 function lerLigacoes(
   variaveis: VariaveisDeAmbiente,
   problemas: string[],

@@ -31,6 +31,7 @@ import { PrismaService, type Tx } from '../../prisma/prisma.service';
 import { TranscricaoService } from '../../transcricao/transcricao.service';
 import { REGRA_TRANSCRICAO } from '../../transcricao/transcricao.constantes';
 import { ClienteWhisper } from '../../transcricao/cliente-whisper';
+import { exigirWhatsapp } from '../ligacoes.constantes';
 import {
   ASSINATURA_WEBM,
   FILA_FINALIZAR_GRAVACAO,
@@ -252,6 +253,7 @@ export class GravacaoService implements OnModuleInit {
     if (!ligacao || ligacao.atendenteId !== usuario.id) {
       throw new NaoEncontradoException('Ligação não encontrada.');
     }
+    exigirWhatsapp(ligacao);
     return ligacao;
   }
 
@@ -465,7 +467,7 @@ export class GravacaoService implements OnModuleInit {
 
   private async auditoriaDaGravacao(
     tx: Tx,
-    ligacao: { id: string; contatoId: string; canalId: string },
+    ligacao: { id: string; contatoId: string; canalId: string | null },
     partes: number,
     tamanhoBytes: number,
     completa: boolean,

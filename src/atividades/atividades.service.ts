@@ -22,6 +22,7 @@ import type {
   Atividade,
   Prisma,
   PrioridadeAtividade,
+  ResultadoReuniao,
   StatusAtividade,
   TipoAtividade,
 } from '../generated/prisma/client';
@@ -33,6 +34,7 @@ import {
   ReferenciaDosGruposDto,
 } from './dto/atividade.dto';
 import type { AtualizarAtividadeDto } from './dto/atualizar-atividade.dto';
+import type { ConcluirAtividadeDto } from './dto/concluir-atividade.dto';
 import type { CriarAtividadeDto } from './dto/criar-atividade.dto';
 import type {
   FiltroAgrupadasDto,
@@ -42,9 +44,12 @@ import type {
 import { lerDataHora } from './dto/transformacoes';
 import type { AcessoAosFunis } from '../funis/acesso-funis';
 import { funisAcessiveis } from '../funis/acessos-no-banco';
+import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
 import { FUSO_HORARIO_DAS_ATIVIDADES } from './fuso-horario';
 import {
+  condicaoAguardandoResultado,
   condicaoAtrasada,
+  condicaoNaoAguardandoResultado,
   condicaoDoGrupo,
   condicaoNaoAtrasada,
   filtroDeVisibilidade,
@@ -73,6 +78,7 @@ const CAMPOS_EDITAVEIS = [
   'contatoId',
   'empresaId',
   'negocioId',
+  'resultadoReuniao',
 ] as const;
 
 type CampoEditavel = (typeof CAMPOS_EDITAVEIS)[number];
@@ -89,6 +95,7 @@ const ROTULO_DO_CAMPO: Readonly<Record<CampoEditavel, string>> = {
   contatoId: 'contato',
   empresaId: 'empresa',
   negocioId: 'negócio',
+  resultadoReuniao: 'resultado da reunião',
 };
 
 /**
@@ -112,6 +119,9 @@ export interface DadosDoEventoDeAtividade {
   contatoId: string | null;
   empresaId: string | null;
   negocioId: string | null;
+  /** R6.6 — só em reunião concluída; nulo = sem resultado. */
+  resultadoReuniao: ResultadoReuniao | null;
+  remarcadaDeId: string | null;
 }
 
 export function dadosDoEvento(atividade: Atividade): DadosDoEventoDeAtividade {
@@ -132,6 +142,8 @@ export function dadosDoEvento(atividade: Atividade): DadosDoEventoDeAtividade {
     contatoId: atividade.contatoId,
     empresaId: atividade.empresaId,
     negocioId: atividade.negocioId,
+    resultadoReuniao: atividade.resultadoReuniao,
+    remarcadaDeId: atividade.remarcadaDeId,
   };
 }
 
@@ -205,6 +217,16 @@ export class AtividadesService {
     lancarSeHouver(problemas);
     const nota = dto.tipo === 'NOTA';
     const concluida = nota || dto.concluida === true;
+    // R6.6: a reunião já concluída (por uma pessoa) precisa do resultado; fora disso o campo é recusado.
+    const novaData =
+      dto.tipo === 'REUNIAO' && concluida
+        ? this.validarResultado(
+            dto.tipo,
+            dto.resultadoReuniao,
+            dto.novaData,
+            true,
+          )
+        : this.recusarResultadoSemConclusao(dto);
 
     const criada = await this.prisma.$transaction(async (tx) => {
       const responsavel = await this.validarResponsavel(
@@ -231,6 +253,10 @@ export class AtividadesService {
           criadoPorId: usuario.id,
           concluidaEm: concluida ? agora : null,
           concluidaPorId: concluida ? usuario.id : null,
+          resultadoReuniao:
+            dto.tipo === 'REUNIAO' && concluida
+              ? (dto.resultadoReuniao ?? null)
+              : null,
           ...vinculos,
         },
       });
@@ -246,10 +272,31 @@ export class AtividadesService {
       await this.eventos.publicar(tx, 'atividade.criada', dados);
       if (concluida && !nota) {
         await this.eventos.publicar(tx, 'atividade.concluida', dados);
+        if (novaData) await this.remarcar(tx, atividade, novaData);
+        await this.registrarInteracao(tx, atividade, usuario.id);
       }
       return atividade;
     });
     return this.carregarResposta(criada.id, usuario);
+  }
+
+  /** R6.6 — `resultadoReuniao` e `novaData` só valem ao criar uma reunião já concluída. */
+  private recusarResultadoSemConclusao(dto: CriarAtividadeDto): null {
+    const problemas: ProblemaDeCampo[] = [];
+    if (dto.resultadoReuniao !== undefined) {
+      problemas.push({
+        campo: 'resultadoReuniao',
+        mensagens: ['só vale ao criar uma reunião já concluída'],
+      });
+    }
+    if (dto.novaData !== undefined) {
+      problemas.push({
+        campo: 'novaData',
+        mensagens: ['só vale ao criar uma reunião já concluída e remarcada'],
+      });
+    }
+    lancarSeHouver(problemas);
+    return null;
   }
 
   /** Lista paginada do que o usuário pode ver (R6.4), com os filtros. */
@@ -372,6 +419,47 @@ export class AtividadesService {
       problemas.push(...resolvidas.problemas);
       lancarSeHouver(problemas);
 
+      let novaData: Date | null = null;
+      // R6.6: uma concluída que vira reunião agora precisa do resultado (a nota não vira reunião: acima).
+      const virouReuniaoConcluida =
+        tipo === 'REUNIAO' &&
+        atual.tipo !== 'REUNIAO' &&
+        atual.status === 'CONCLUIDA';
+      if (virouReuniaoConcluida && dto.resultadoReuniao === undefined) {
+        throw new DadosInvalidosException(
+          'Informe o resultado da reunião para transformar uma atividade concluída em reunião.',
+          {
+            campos: [
+              {
+                campo: 'resultadoReuniao',
+                mensagens: ['é obrigatório para concluir uma reunião'],
+              },
+            ],
+          },
+        );
+      }
+      if (dto.resultadoReuniao !== undefined) {
+        if (tipo !== 'REUNIAO' || atual.status !== 'CONCLUIDA') {
+          throw new DadosInvalidosException(
+            'O resultado só se corrige numa reunião concluída.',
+            {
+              campos: [
+                {
+                  campo: 'resultadoReuniao',
+                  mensagens: ['só vale para reunião concluída'],
+                },
+              ],
+            },
+          );
+        }
+        novaData = this.validarResultado(
+          tipo,
+          dto.resultadoReuniao,
+          dto.novaData,
+          false,
+        );
+      }
+
       const trocaResponsavel =
         dto.responsavelId !== undefined &&
         dto.responsavelId !== atual.responsavelId;
@@ -404,24 +492,38 @@ export class AtividadesService {
           dto.empresaId === undefined ? atual.empresaId : dto.empresaId,
         negocioId:
           dto.negocioId === undefined ? atual.negocioId : dto.negocioId,
+        // R6.6: quem deixa de ser reunião perde o resultado (ele só existe na reunião).
+        resultadoReuniao:
+          tipo !== 'REUNIAO'
+            ? null
+            : dto.resultadoReuniao === undefined
+              ? atual.resultadoReuniao
+              : dto.resultadoReuniao,
       };
       const alteracoes = calcularAlteracoes(atual, depois, CAMPOS_EDITAVEIS);
-      if (Object.keys(alteracoes).length === 0) {
+      // `REMARCADA` de novo com outra data só muda a reunião remarcada (o resultado continua o mesmo).
+      if (Object.keys(alteracoes).length === 0 && !novaData) {
         return;
       }
-      const atualizada = await tx.atividade.update({
-        where: { id },
-        data: {
-          ...depois,
-          ...marcadoresParaRearmar(atual, depois, new Date()),
-        },
-      });
+      const atualizada =
+        Object.keys(alteracoes).length === 0
+          ? atual
+          : await tx.atividade.update({
+              where: { id },
+              data: {
+                ...depois,
+                ...marcadoresParaRearmar(atual, depois, new Date()),
+              },
+            });
       const anterior = novoResponsavel
         ? await tx.usuario.findUnique({
             where: { id: atual.responsavelId },
             select: { nome: true },
           })
         : null;
+      if (novaData) {
+        await this.remarcar(tx, atualizada, novaData);
+      }
       await this.auditoria.registrar(tx, {
         acao: 'atividade.atualizada',
         entidade: 'atividade',
@@ -440,10 +542,15 @@ export class AtividadesService {
     return this.carregarResposta(id, usuario);
   }
 
-  /** R6.2 — conclui a pendente, gravando quando e quem concluiu. */
+  /**
+   * R6.2 — conclui a pendente, gravando quando e quem concluiu. R6.6 — a
+   * reunião concluída por uma pessoa exige o resultado; `REMARCADA` cria, na
+   * mesma transação, a nova reunião pendente. Os outros tipos recusam o campo.
+   */
   async concluir(
     usuario: UsuarioAutenticado,
     id: string,
+    dto: ConcluirAtividadeDto = {},
   ): Promise<AtividadeDto> {
     await this.prisma.$transaction(async (tx) => {
       const atual = await this.carregarParaAlterar(tx, usuario, id);
@@ -458,12 +565,19 @@ export class AtividadesService {
           { status: atual.status },
         );
       }
+      const novaData = this.validarResultado(
+        atual.tipo,
+        dto.resultadoReuniao,
+        dto.novaData,
+        true,
+      );
       const atualizada = await tx.atividade.update({
         where: { id },
         data: {
           status: 'CONCLUIDA',
           concluidaEm: new Date(),
           concluidaPorId: usuario.id,
+          resultadoReuniao: dto.resultadoReuniao ?? null,
         },
       });
       await this.registrarMudancaDeStatus(
@@ -478,6 +592,10 @@ export class AtividadesService {
         'atividade.concluida',
         dadosDoEvento(atualizada),
       );
+      if (novaData) {
+        await this.remarcar(tx, atualizada, novaData);
+      }
+      await this.registrarInteracao(tx, atualizada, usuario.id);
     });
     return this.carregarResposta(id, usuario);
   }
@@ -537,6 +655,7 @@ export class AtividadesService {
           concluidaEm: null,
           concluidaPorId: null,
           canceladaEm: null,
+          resultadoReuniao: null,
           ...marcadoresParaRearmar(atual, atual, new Date(), true),
         },
       });
@@ -549,6 +668,201 @@ export class AtividadesService {
       );
     });
     return this.carregarResposta(id, usuario);
+  }
+
+  /**
+   * R6.6 — confere resultado e nova data. Devolve a nova data (só em `REMARCADA`).
+   * `exigir`: ao concluir por uma pessoa, a reunião precisa de resultado.
+   */
+  private validarResultado(
+    tipo: TipoAtividade,
+    resultado: ResultadoReuniao | undefined,
+    novaData: string | undefined,
+    exigir: boolean,
+  ): Date | null {
+    const problemas: ProblemaDeCampo[] = [];
+    if (tipo !== 'REUNIAO') {
+      if (resultado !== undefined) {
+        problemas.push({
+          campo: 'resultadoReuniao',
+          mensagens: ['só vale para reunião'],
+        });
+      }
+      if (novaData !== undefined) {
+        problemas.push({
+          campo: 'novaData',
+          mensagens: ['só vale para reunião remarcada'],
+        });
+      }
+    } else if (resultado === undefined) {
+      if (exigir) {
+        problemas.push({
+          campo: 'resultadoReuniao',
+          mensagens: ['é obrigatório para concluir uma reunião'],
+        });
+      }
+      if (novaData !== undefined) {
+        problemas.push({
+          campo: 'novaData',
+          mensagens: ['só vale com o resultado REMARCADA'],
+        });
+      }
+    } else if (resultado !== 'REMARCADA' && novaData !== undefined) {
+      problemas.push({
+        campo: 'novaData',
+        mensagens: ['só vale com o resultado REMARCADA'],
+      });
+    }
+    let data: Date | null = null;
+    if (resultado === 'REMARCADA' && tipo === 'REUNIAO') {
+      data = lerDataHora(novaData) ?? null;
+      if (!data) {
+        problemas.push({
+          campo: 'novaData',
+          mensagens: ['é obrigatória para remarcar'],
+        });
+      } else if (data.getTime() <= Date.now()) {
+        problemas.push({
+          campo: 'novaData',
+          mensagens: ['deve ser no futuro'],
+        });
+      }
+    }
+    lancarSeHouver(problemas);
+    return data;
+  }
+
+  /**
+   * R6.6 — a reunião remarcada de `origem` na `novaData`. Uma reunião tem no máximo uma remarcação: se ela
+   * já existe (corrigindo o resultado de novo, ou reabrindo e concluindo outra vez), a pendente é movida
+   * para a nova data; se já foi concluída ou cancelada, a correção é recusada com uma mensagem clara.
+   */
+  private async remarcar(
+    tx: Tx,
+    origem: Atividade,
+    novaData: Date,
+  ): Promise<void> {
+    const existente = await tx.atividade.findFirst({
+      where: { remarcadaDeId: origem.id },
+      orderBy: { criadoEm: 'desc' },
+    });
+    if (!existente) {
+      await this.criarRemarcacao(tx, origem, novaData);
+      return;
+    }
+    if (existente.status !== 'PENDENTE') {
+      throw new ConflitoException(
+        'A reunião remarcada a partir desta já foi concluída ou cancelada: remarque a reunião mais recente.',
+        { status: existente.status, remarcadaId: existente.id },
+      );
+    }
+    const duracao =
+      existente.inicioEm && existente.fimEm
+        ? existente.fimEm.getTime() - existente.inicioEm.getTime()
+        : 60 * 60 * 1000;
+    const novoFim = new Date(novaData.getTime() + duracao);
+    const movida = await tx.atividade.update({
+      where: { id: existente.id },
+      data: {
+        venceEm: novaData,
+        inicioEm: novaData,
+        fimEm: novoFim,
+        ...marcadoresParaRearmar(
+          existente,
+          { ...existente, venceEm: novaData, fimEm: novoFim },
+          new Date(),
+        ),
+      },
+    });
+    await this.auditoria.registrar(tx, {
+      acao: 'atividade.atualizada',
+      entidade: 'atividade',
+      entidadeId: movida.id,
+      resumo: `Reunião "${movida.titulo}" remarcada para outra data`,
+      dados: {
+        alteracoes: {
+          inicioEm: {
+            antes: existente.inicioEm?.toISOString() ?? null,
+            depois: novaData.toISOString(),
+          },
+        },
+      },
+      relacionados: relacionadosDe(movida),
+    });
+  }
+
+  /** R6.6 — a nova reunião pendente de uma remarcação (mesma duração e vínculos). */
+  private async criarRemarcacao(
+    tx: Tx,
+    origem: Atividade,
+    novaData: Date,
+  ): Promise<void> {
+    const duracao =
+      origem.inicioEm && origem.fimEm
+        ? origem.fimEm.getTime() - origem.inicioEm.getTime()
+        : 60 * 60 * 1000;
+    const nova = await tx.atividade.create({
+      data: {
+        tipo: 'REUNIAO',
+        titulo: origem.titulo,
+        descricao: origem.descricao,
+        prioridade: origem.prioridade,
+        status: 'PENDENTE',
+        venceEm: novaData,
+        inicioEm: novaData,
+        fimEm: new Date(novaData.getTime() + duracao),
+        responsavelId: origem.responsavelId,
+        criadoPorId: origem.concluidaPorId ?? origem.criadoPorId,
+        contatoId: origem.contatoId,
+        empresaId: origem.empresaId,
+        negocioId: origem.negocioId,
+        remarcadaDeId: origem.id,
+      },
+    });
+    const dados = dadosDoEvento(nova);
+    await this.auditoria.registrar(tx, {
+      acao: 'atividade.criada',
+      entidade: 'atividade',
+      entidadeId: nova.id,
+      resumo: `Reunião "${nova.titulo}" remarcada`,
+      dados: { ...dados },
+      relacionados: relacionadosDe(nova),
+    });
+    await this.eventos.publicar(tx, 'atividade.criada', dados);
+  }
+
+  /** R6.7 — atividade concluída por uma pessoa (menos nota): primeira interação. */
+  private async registrarInteracao(
+    tx: Tx,
+    atividade: Atividade,
+    usuarioId: string,
+  ): Promise<void> {
+    if (atividade.tipo === 'NOTA') {
+      return;
+    }
+    // R6.7: a reunião em que o contato não apareceu (ou que foi remarcada) não é contato real.
+    if (
+      atividade.tipo === 'REUNIAO' &&
+      (atividade.resultadoReuniao === 'NAO_COMPARECEU' ||
+        atividade.resultadoReuniao === 'REMARCADA')
+    ) {
+      return;
+    }
+    let contatoId = atividade.contatoId;
+    if (!contatoId && atividade.negocioId) {
+      const negocio = await tx.negocio.findUnique({
+        where: { id: atividade.negocioId },
+        select: { contatoId: true },
+      });
+      contatoId = negocio?.contatoId ?? null;
+    }
+    if (contatoId) {
+      await registrarPrimeiraInteracao(tx, {
+        contatoId,
+        tipo: 'ATIVIDADE',
+        usuarioId,
+      });
+    }
   }
 
   private referenciaPadrao(): ReferenciaDeTempo {
@@ -737,6 +1051,7 @@ export class AtividadesService {
           'concluidaEm',
           'concluidaPorId',
           'canceladaEm',
+          'resultadoReuniao',
         ]),
       },
       relacionados: relacionadosDe(depois),
@@ -788,6 +1103,29 @@ export class AtividadesService {
         negocioId: filtro.negocioId,
         negocio: acesso.filtroDeNegocios(),
       });
+    }
+    if (filtro.resultadoReuniao && filtro.resultadoReuniao.length > 0) {
+      const resultados = filtro.resultadoReuniao.filter(
+        (r): r is ResultadoReuniao => r !== 'SEM_RESULTADO',
+      );
+      condicoes.push({
+        tipo: 'REUNIAO',
+        OR: [
+          ...(resultados.length > 0
+            ? [{ resultadoReuniao: { in: resultados } }]
+            : []),
+          ...(filtro.resultadoReuniao.includes('SEM_RESULTADO')
+            ? [{ resultadoReuniao: null }]
+            : []),
+        ],
+      });
+    }
+    if (filtro.aguardandoResultado !== undefined) {
+      condicoes.push(
+        filtro.aguardandoResultado
+          ? condicaoAguardandoResultado(new Date())
+          : condicaoNaoAguardandoResultado(new Date()),
+      );
     }
     if (filtro.encaminhadas !== undefined) {
       condicoes.push(

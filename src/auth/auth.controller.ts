@@ -13,10 +13,12 @@ import { HttpAdapterHost } from '@nestjs/core';
 import {
   ApiAcceptedResponse,
   ApiCookieAuth,
+  ApiExtraModels,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { definirUsuarioDoContexto } from '../comum/contexto/contexto-requisicao';
@@ -27,7 +29,7 @@ import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import { AuthService, type MetadadosDoLogin } from './auth.service';
 import {
   lerCookie,
-  NOME_COOKIE_SESSAO,
+  nomeDoCookieDeSessao,
   opcoesDoCookieDeSessao,
 } from './cookies';
 import {
@@ -36,13 +38,16 @@ import {
   UsuarioAtual,
 } from './decorators';
 import {
+  ConcluirEntradaDto,
   ConsultaTokenDto,
+  DesafioDoisFatoresDto,
   EntrarDto,
   EsqueciSenhaDto,
   MensagemDto,
   PerfilDto,
   RedefinirSenhaDto,
   TokenDeSenhaDto,
+  SessoesEncerradasDto,
   TrocarSenhaDto,
 } from './dto/auth.dto';
 import { SenhasService } from './senhas.service';
@@ -77,35 +82,65 @@ export class AuthController {
     summary: 'Entra com e-mail e senha',
     description:
       'Abre a sessão e devolve o cookie `crmbrl_sessao` (HttpOnly). Credenciais erradas: 401 com mensagem genérica; ' +
-      'usuário desligado: 403; 5 falhas em 15 min bloqueiam o e-mail por 15 min (429, R2.5).',
+      'usuário desligado: 403; 5 falhas em 15 min bloqueiam o e-mail por 15 min (429, R2.5). Com verificação em ' +
+      'duas etapas ativa (R2.11), a resposta é `{ doisFatoresNecessario: true, desafio, expiraEm }` e a sessão só ' +
+      'nasce em `auth/entrar/dois-fatores`.',
   })
-  @ApiOkResponse({ type: PerfilDto })
+  @ApiExtraModels(PerfilDto, DesafioDoisFatoresDto)
+  @ApiOkResponse({
+    schema: {
+      oneOf: [
+        { $ref: getSchemaPath(PerfilDto) },
+        { $ref: getSchemaPath(DesafioDoisFatoresDto) },
+      ],
+    },
+  })
   @ApiRespostasDeErro(400, 401, 403, 429)
   async entrar(
     @Body() dto: EntrarDto,
     @Req() requisicao: RequisicaoHttp,
     @Res({ passthrough: true }) resposta: Response,
-  ): Promise<PerfilDto> {
-    const { token, sessaoId, perfil } = await this.auth.entrar(dto, {
+  ): Promise<PerfilDto | DesafioDoisFatoresDto> {
+    const resultado = await this.auth.entrar(dto, {
       ...this.metadados(requisicao),
-      tokenAnterior: lerCookie(requisicao, NOME_COOKIE_SESSAO),
+      tokenAnterior: lerCookie(requisicao, nomeDoCookieDeSessao(this.ambiente)),
     });
-    this.adaptador.httpAdapter.setCookie?.(
-      resposta,
-      NOME_COOKIE_SESSAO,
-      token,
-      opcoesDoCookieDeSessao(this.ambiente),
+    if (resultado.tipo === 'dois_fatores') {
+      return {
+        doisFatoresNecessario: true,
+        desafio: resultado.desafio,
+        expiraEm: resultado.expiraEm,
+      };
+    }
+    return this.abrirCookie(resultado, resposta);
+  }
+
+  @Post('entrar/dois-fatores')
+  @Publico()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Segunda etapa do login: código do aplicativo ou de recuperação',
+    description:
+      'Abre a sessão e devolve o cookie. O desafio vale 5 minutos e aceita 5 códigos errados; erros contam na ' +
+      'força bruta (R2.5). Código de recuperação vale uma vez.',
+  })
+  @ApiOkResponse({ type: PerfilDto })
+  @ApiRespostasDeErro(400, 401, 403, 429)
+  async entrarComDoisFatores(
+    @Body() dto: ConcluirEntradaDto,
+    @Req() requisicao: RequisicaoHttp,
+    @Res({ passthrough: true }) resposta: Response,
+  ): Promise<PerfilDto> {
+    this.limitador.exigir(
+      `entrar-2fa:ip:${requisicao.ip ?? '?'}`,
+      LIMITES_DE_SENHA.tokenPorIp,
+      'Muitas tentativas de verificação.',
     );
-    // O log HTTP desta requisição já sai com quem entrou.
-    definirUsuarioDoContexto(
-      {
-        id: perfil.usuario.id,
-        papel: perfil.usuario.papel,
-        nome: perfil.usuario.nome,
-      },
-      sessaoId,
-    );
-    return perfil;
+    const resultado = await this.auth.concluirEntrada(dto, {
+      ...this.metadados(requisicao),
+      tokenAnterior: lerCookie(requisicao, nomeDoCookieDeSessao(this.ambiente)),
+    });
+    return this.abrirCookie(resultado, resposta);
   }
 
   @Post('sair')
@@ -122,9 +157,25 @@ export class AuthController {
     await this.auth.sair(usuario);
     this.adaptador.httpAdapter.clearCookie?.(
       resposta,
-      NOME_COOKIE_SESSAO,
+      nomeDoCookieDeSessao(this.ambiente),
       opcoesDoCookieDeSessao(this.ambiente),
     );
+  }
+
+  @Post('sessoes/encerrar-outras')
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Encerra as outras sessões da própria pessoa',
+    description:
+      'Revoga as sessões de outros navegadores e aparelhos e mantém a atual (R2.2). Auditado.',
+  })
+  @ApiOkResponse({ type: SessoesEncerradasDto })
+  @ApiRespostasDeErro(401)
+  async encerrarOutrasSessoes(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<SessoesEncerradasDto> {
+    return { encerradas: await this.auth.encerrarOutrasSessoes(usuario) };
   }
 
   @Get('eu')
@@ -224,6 +275,32 @@ export class AuthController {
   ): Promise<void> {
     this.limitarToken(requisicao);
     await this.senhas.redefinirComToken(dto.token, dto.novaSenha);
+  }
+
+  private abrirCookie(
+    {
+      token,
+      sessaoId,
+      perfil,
+    }: { token: string; sessaoId: string; perfil: PerfilDto },
+    resposta: Response,
+  ): PerfilDto {
+    this.adaptador.httpAdapter.setCookie?.(
+      resposta,
+      nomeDoCookieDeSessao(this.ambiente),
+      token,
+      opcoesDoCookieDeSessao(this.ambiente),
+    );
+    // O log HTTP desta requisição já sai com quem entrou.
+    definirUsuarioDoContexto(
+      {
+        id: perfil.usuario.id,
+        papel: perfil.usuario.papel,
+        nome: perfil.usuario.nome,
+      },
+      sessaoId,
+    );
+    return perfil;
   }
 
   private limitarToken(requisicao: RequisicaoHttp): void {

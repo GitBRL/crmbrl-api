@@ -12,6 +12,7 @@ export type MotivoRevogacao =
   | 'troca_de_senha'
   | 'redefinicao_de_senha'
   | 'senha_temporaria'
+  | 'encerrar_outras'
   | 'usuario_inativo';
 
 export interface SessaoValidada {

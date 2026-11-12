@@ -32,6 +32,6 @@ import { PainelMarketingService } from './painel-marketing.service';
     PainelSdrService,
     PainelFinanceiroService,
   ],
-  exports: [BiService],
+  exports: [BiService, FiltrosBiService],
 })
 export class BiModule {}

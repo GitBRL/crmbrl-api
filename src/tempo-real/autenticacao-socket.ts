@@ -28,6 +28,7 @@ export async function autenticarHandshake(
   cabecalhos: IncomingHttpHeaders,
   origensPermitidas: ReadonlySet<string>,
   sessoes: Pick<SessoesService, 'validar'>,
+  nomeDoCookie: string = NOME_COOKIE_SESSAO,
 ): Promise<ResultadoDaAutenticacao> {
   const origem = origemDaRequisicao({ headers: cabecalhos } as RequisicaoHttp);
   if (!origem || !origensPermitidas.has(origem)) {
@@ -37,10 +38,7 @@ export async function autenticarHandshake(
       mensagem: 'Origem da conexão não permitida.',
     };
   }
-  const token = lerCookie(
-    { headers: cabecalhos } as Request,
-    NOME_COOKIE_SESSAO,
-  );
+  const token = lerCookie({ headers: cabecalhos } as Request, nomeDoCookie);
   if (!token) {
     return {
       aceito: false,

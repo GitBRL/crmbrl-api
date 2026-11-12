@@ -275,6 +275,11 @@ export class NegociosConsultaService {
     } else if (filtro.semResponsavel === false) {
       condicoes.push({ responsavelId: { not: null } });
     }
+    if (filtro.atendido !== undefined) {
+      condicoes.push({
+        primeiraInteracaoEm: filtro.atendido ? { not: null } : null,
+      });
+    }
     if (filtro.busca) {
       condicoes.push(this.condicaoDeBusca(filtro.busca));
     }

@@ -629,6 +629,51 @@ describe('Automações e cadências (e2e, R19)', () => {
       expect(await t.prisma.mensagem.count()).toBe(total);
     });
 
+    it('R17/R19.4 — o modelo usado pela automação segue a visibilidade de quem a criou: o de outro setor falha a execução', async () => {
+      await criarCanalWhatsapp(t, {
+        status: 'CONECTADO',
+        telefone: '5511900000000',
+      });
+      const comercial = await criarEquipe(t, 'COMERCIAL');
+      const modelo = await admin
+        .post('/api/v1/modelos-mensagem', {
+          nome: 'Do marketing',
+          canal: 'WHATSAPP',
+          texto: 'Olá, {{contato.primeiro_nome}}!',
+        })
+        .expect(201);
+      await t.prisma.modeloMensagem.update({
+        where: { id: modelo.body.id },
+        data: { area: 'MARKETING' },
+      });
+      const automacao = await criarAtiva(admin, {
+        marketing: true,
+        definicao: {
+          passos: [
+            {
+              id: 'p1',
+              tipo: 'acao.whatsapp',
+              config: { modeloId: modelo.body.id },
+            },
+          ],
+        },
+      });
+      await t.prisma.automacao.update({
+        where: { id: automacao.id as string },
+        data: { criadoPorId: comercial.lider.id },
+      });
+      await admin
+        .post('/api/v1/contatos', {
+          nome: 'Helena Souza',
+          telefone: '11977776666',
+        })
+        .expect(201);
+      await assentar();
+      const [execucao] = await execucoesDe(automacao.id as string);
+      expect(execucao.status).toBe('FALHOU');
+      expect(await t.prisma.mensagem.count()).toBe(0);
+    });
+
     it('cenário 63 — R19.4 — cadência: ações intercaladas por esperas, com atividade, notificação e etiqueta', async () => {
       const equipe = await criarEquipe(t, 'COMERCIAL');
       const contato = await criarContato(t, { responsavel: equipe.membros[0] });

@@ -42,6 +42,7 @@ export const INCLUIR_NEGOCIO = {
   },
   empresa: { select: { id: true, nome: true } },
   responsavel: { select: { id: true, nome: true, avatarUrl: true } },
+  primeiraInteracaoPor: { select: { id: true, nome: true, avatarUrl: true } },
 } satisfies Prisma.NegocioInclude;
 
 export type NegocioCompleto = Prisma.NegocioGetPayload<{

@@ -48,6 +48,7 @@ import {
   statusEfetivo,
 } from './financeiro.mapas';
 import {
+  ehCsDaCarteira,
   filtroDeContratosVisiveis,
   filtroDeParcelasVisiveis,
   podeAtuarNoFinanceiro,
@@ -55,6 +56,7 @@ import {
 } from './permissoes-financeiro';
 import { TempoRealFinanceiro } from './tempo-real-financeiro.service';
 import { escreverExportacao, type CelulaDeExportacao } from './exportacao';
+import { conferirClienteNaCarteira } from './carteira-do-cliente';
 
 export type OrigemDaBaixa = 'MANUAL' | 'IMPORTACAO' | 'LIGACAO';
 
@@ -353,6 +355,8 @@ export class ParcelasService {
       let contatoId = dto.contatoId ?? null;
       let empresaId = dto.empresaId ?? null;
       let sequencia: number | null = null;
+      let contratoDoCliente: Pick<Parcela, 'contatoId' | 'empresaId'> | null =
+        null;
       if (dto.contratoId) {
         const contrato = await tx.contrato.findFirst({
           where: { AND: [{ id: dto.contratoId }, visivelDoContrato(usuario)] },
@@ -360,6 +364,7 @@ export class ParcelasService {
         if (!contrato) {
           throw new NaoEncontradoException('Contrato não encontrado.');
         }
+        contratoDoCliente = contrato;
         contatoId ??= contrato.contatoId;
         empresaId ??= contrato.empresaId;
         sequencia =
@@ -371,6 +376,17 @@ export class ParcelasService {
           )._max.sequencia ?? 0) + 1;
       }
       await this.conferirCliente(tx, contatoId, empresaId);
+      if (contratoDoCliente) {
+        // Com contrato, o cliente do título é o do contrato (R22.1): o membro de CS não troca por outro.
+        if (
+          ehCsDaCarteira(usuario) &&
+          ((contatoId && contatoId !== contratoDoCliente.contatoId) ||
+            (empresaId && empresaId !== contratoDoCliente.empresaId))
+        ) {
+          throw new NaoEncontradoException('Contrato não encontrado.');
+        }
+      }
+      await conferirClienteNaCarteira(tx, usuario, { empresaId, contatoId });
       const numero = dto.numero ?? numeroAutomatico();
       if (await tx.parcela.findUnique({ where: { numero } })) {
         throw new ConflitoException('Já existe um título com este número.', {

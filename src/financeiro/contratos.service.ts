@@ -56,6 +56,7 @@ import {
   podeAtuarNoFinanceiro,
 } from './permissoes-financeiro';
 import { ParcelasService } from './parcelas.service';
+import { conferirClienteNaCarteira } from './carteira-do-cliente';
 
 /**
  * Contratos (R22.2): cliente (empresa e/ou contato), negócio ganho de origem, produto,
@@ -347,6 +348,7 @@ export class ContratosService {
         );
       }
       await this.conferirCliente(tx, empresaId, contatoId);
+      await conferirClienteNaCarteira(tx, usuario, { empresaId, contatoId });
       if (ehCsDaCarteira(usuario)) {
         responsavelCsId = usuario.id;
       }

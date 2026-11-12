@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 import {
   PrioridadeAtividade,
+  ResultadoReuniao,
   TipoAtividade,
 } from '../../generated/prisma/client';
 import {
@@ -157,4 +158,26 @@ export class CriarAtividadeDto {
   @IsOptional()
   @IsBoolean({ message: 'deve ser verdadeiro ou falso' })
   concluida?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ResultadoReuniao,
+    enumName: 'ResultadoReuniao',
+    description:
+      'R6.6 — obrigatório ao criar uma reunião já concluída (`concluida: true`); recusado nos outros casos.',
+  })
+  @IsOptional()
+  @IsEnum(ResultadoReuniao, {
+    message: mensagemDeValores(Object.values(ResultadoReuniao)),
+  })
+  resultadoReuniao?: ResultadoReuniao;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description:
+      'R6.6 — com `resultadoReuniao: REMARCADA`: início da nova reunião (no futuro).',
+  })
+  @IsOptional()
+  @IsDataHoraComFuso({ message: MENSAGEM_DATA_HORA })
+  novaData?: string;
 }

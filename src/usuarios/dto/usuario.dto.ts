@@ -126,6 +126,12 @@ export class UsuarioDto extends UsuarioResumoDto {
   })
   senhaDefinida: boolean;
 
+  @ApiProperty({
+    description:
+      'A pessoa usa a verificação em duas etapas (R2.11). O Admin pode redefini-la.',
+  })
+  doisFatoresAtivo: boolean;
+
   @ApiPropertyOptional({
     nullable: true,
     type: String,
@@ -162,6 +168,7 @@ export class UsuarioDto extends UsuarioResumoDto {
       desligadoEm: usuario.desligadoEm?.toISOString() ?? null,
       deveTrocarSenha: usuario.deveTrocarSenha,
       senhaDefinida: usuario.senhaHash !== null,
+      doisFatoresAtivo: usuario.doisFatoresAtivadoEm !== null,
       telefone: usuario.telefone,
       identificadorIntegracao: usuario.identificadorIntegracao,
       avatarUrl: usuario.avatarUrl,

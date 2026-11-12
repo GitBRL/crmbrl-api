@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { FilaService } from '../fila/fila.service';
 import {
   CriptografiaService,
   TAMANHO_MAXIMO_SENHA,
@@ -24,6 +25,10 @@ import { LogsTecnicosService } from '../logs/logs-tecnicos.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import type { ConsultaTokenDto } from './dto/auth.dto';
 import { SessoesService } from './sessoes.service';
+import { ehSenhaComum, MENSAGEM_SENHA_COMUM } from './senhas-comuns';
+
+/** Fila do pedido "esqueci minha senha" (R2.8): a resposta é igual e no mesmo tempo para qualquer e-mail. */
+export const FILA_REDEFINICAO_DE_SENHA = 'auth.redefinicao-de-senha';
 
 /** Validade dos links de convite e de redefinição (R2.8). */
 export const VALIDADE_TOKEN_SENHA_HORAS = 24;
@@ -46,7 +51,7 @@ export const CAMINHO_REDEFINIR_SENHA = '/redefinir-senha';
  * convida e define senha temporária, R1.5).
  */
 @Injectable()
-export class SenhasService {
+export class SenhasService implements OnModuleInit {
   private readonly logger = new Logger(SenhasService.name);
 
   constructor(
@@ -57,7 +62,16 @@ export class SenhasService {
     private readonly email: EmailService,
     private readonly logs: LogsTecnicosService,
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
+    private readonly fila: FilaService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.fila.trabalhar<{ email: string }>(
+      FILA_REDEFINICAO_DE_SENHA,
+      (trabalho) => this.processarRedefinicao(trabalho.dados.email),
+      { tentativas: 3, intervaloEntreTentativasSegundos: 30 },
+    );
+  }
 
   /** Há SMTP para convite e redefinição por e-mail? */
   get envioPorEmailDisponivel(): boolean {
@@ -162,9 +176,16 @@ export class SenhasService {
    */
   async solicitarRedefinicao(email: string): Promise<void> {
     this.exigirEmail();
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: normalizarEmail(email) },
+    // Tempo constante: a requisição só enfileira o pedido, exista o e-mail ou não. A busca, o
+    // token e o envio (a parte lenta, que denunciaria uma conta existente) rodam no trabalho.
+    await this.fila.enviar(FILA_REDEFINICAO_DE_SENHA, {
+      email: normalizarEmail(email),
     });
+  }
+
+  /** O trabalho do pedido de "esqueci minha senha" (fila `auth.redefinicao-de-senha`). */
+  private async processarRedefinicao(email: string): Promise<void> {
+    const usuario = await this.prisma.usuario.findUnique({ where: { email } });
     if (!usuario || !usuario.ativo) {
       return;
     }
@@ -376,5 +397,11 @@ function validarTamanho(senha: string, campo: string): void {
         ],
       },
     );
+  }
+  if (ehSenhaComum(senha)) {
+    throw new DadosInvalidosException('A senha escolhida é muito comum.', {
+      regra: 'R2.12',
+      campos: [{ campo, mensagens: [MENSAGEM_SENHA_COMUM] }],
+    });
   }
 }
