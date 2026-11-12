@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AtividadesModule } from '../atividades/atividades.module';
 import { ContatosModule } from '../contatos/contatos.module';
 import { DistribuicaoController } from './distribuicao.controller';
 import { DistribuicaoService } from './distribuicao.service';
@@ -7,6 +8,7 @@ import { FunisService } from './funis.service';
 import { MetricasService } from './metricas.service';
 import { MotorDeNegociosService } from './motor-de-negocios.service';
 import { NegociosConsultaService } from './negocios-consulta.service';
+import { NegociosEmMassaService } from './negocios-em-massa.service';
 import { NegociosController } from './negocios.controller';
 import { NegociosService } from './negocios.service';
 import { PassagensController } from './passagens.controller';
@@ -27,7 +29,7 @@ import { PassagensService } from './passagens.service';
  * `LinhaDoTempoService` do módulo de contatos.
  */
 @Module({
-  imports: [ContatosModule],
+  imports: [ContatosModule, AtividadesModule],
   controllers: [
     FunisController,
     NegociosController,
@@ -38,6 +40,7 @@ import { PassagensService } from './passagens.service';
     FunisService,
     NegociosService,
     NegociosConsultaService,
+    NegociosEmMassaService,
     MotorDeNegociosService,
     PassagensService,
     DistribuicaoService,
