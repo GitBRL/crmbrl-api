@@ -236,6 +236,29 @@ describe('Verificação em duas etapas — TOTP (R2.11, e2e)', () => {
       expect(nomes).toContain('usuario.bloqueado_forca_bruta');
     });
 
+    it('R2.5/R2.11 — códigos errados simultâneos não furam o limite do e-mail', async () => {
+      const ana = await criarUsuario(t, { papel: 'COMERCIAL' });
+      await ativar(ana);
+      await liberarPasso(ana);
+      const { desafio } = (await primeiraEtapa(ana.email)).body;
+      const respostas = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          clienteAnonimo(t)
+            .post('/api/v1/auth/entrar/dois-fatores', {
+              desafio,
+              codigo: '000000',
+            })
+            .set('X-Forwarded-For', '198.51.100.77'),
+        ),
+      );
+      expect(respostas.filter((r) => r.status === 429)).toHaveLength(3);
+      expect(
+        await t.prisma.tentativaLogin.count({
+          where: { email: ana.email, motivo: 'DOIS_FATORES_INCORRETO' },
+        }),
+      ).toBe(5);
+    });
+
     it('R2.11 — desafio com mais de 5 minutos expira', async () => {
       const ana = await criarUsuario(t, { papel: 'COMERCIAL' });
       const { chave } = await ativar(ana);

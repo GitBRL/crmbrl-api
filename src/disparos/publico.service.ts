@@ -1,4 +1,5 @@
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { ehDiretoria } from '../comum/dominio/papeis';
 import { Injectable } from '@nestjs/common';
 import { SegmentosService } from '../comum/segmentos/segmentos.service';
 import type { Segmento } from '../comum/segmentos/segmentos';
@@ -81,9 +82,15 @@ export class PublicoDaCampanha {
     }
     const importacao = await this.prisma.importacao.findUnique({
       where: { id: origem.importacaoId },
-      select: { tipo: true, status: true },
+      select: { tipo: true, status: true, criadoPorId: true },
     });
-    if (!importacao) {
+    // Quem monta o público só usa importação própria (a diretoria, qualquer uma), como em R16.
+    if (
+      !importacao ||
+      (usuario &&
+        !ehDiretoria(usuario.papel) &&
+        importacao.criadoPorId !== usuario.id)
+    ) {
       throw new NaoEncontradoException('Importação não encontrada.');
     }
     if (importacao.tipo !== 'CONTATOS') {

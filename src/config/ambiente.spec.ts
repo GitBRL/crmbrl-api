@@ -134,6 +134,7 @@ describe('lerAmbiente', () => {
         chavePrivada: expect.any(Function),
       },
       backupDir: '/backups',
+      permitirSegredosDeDesenvolvimento: false,
       avisos: [
         'CHAVE_CRIPTOGRAFIA não definida: usando a chave de desenvolvimento (não use em produção).',
         expect.stringContaining(
@@ -280,31 +281,42 @@ describe('lerAmbiente', () => {
       expect(lerAmbiente(semEndpoint).arquivos.endpoint).toBeNull();
     });
 
-    it('avisa do driver de arquivos em memória e do token interno de desenvolvimento', () => {
-      const ambiente = lerAmbiente({
-        ...PRODUCAO,
-        ARQUIVOS_DRIVER: 'memoria',
-        WHATSAPP_TOKEN_INTERNO: TOKEN_INTERNO_DESENVOLVIMENTO,
-      });
+    it('avisa do driver de arquivos em memória; o token interno de desenvolvimento recusa a subida', () => {
+      const ambiente = lerAmbiente({ ...PRODUCAO, ARQUIVOS_DRIVER: 'memoria' });
       expect(ambiente.avisos).toEqual([
         expect.stringContaining('ARQUIVOS_DRIVER=memoria em produção'),
-        expect.stringContaining('token público de desenvolvimento'),
       ]);
+      expect(
+        problemasDe({
+          ...PRODUCAO,
+          WHATSAPP_TOKEN_INTERNO: TOKEN_INTERNO_DESENVOLVIMENTO,
+        }),
+      ).toEqual([expect.stringContaining('token público de desenvolvimento')]);
     });
 
-    it('avisa se a chave de criptografia for a pública de desenvolvimento', () => {
-      const ambiente = lerAmbiente({
+    it('se a chave de criptografia for a pública de desenvolvimento, recusa a subida (ou avisa alto com a permissão explícita)', () => {
+      const variaveis = {
         ...PRODUCAO,
         CHAVE_CRIPTOGRAFIA: CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO.toString('hex'),
-      });
-      expect(ambiente.avisos).toEqual([
+      };
+      expect(problemasDe(variaveis)).toEqual([
         expect.stringContaining('chave pública de desenvolvimento'),
       ]);
+      expect(
+        lerAmbiente({
+          ...variaveis,
+          PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO: 'true',
+        }).avisos,
+      ).toEqual([expect.stringMatching(/^ATENÇÃO:.*chave pública/)]);
     });
 
     it('permite COOKIE_SEGURO=false para o compose local em http', () => {
       expect(
-        lerAmbiente({ ...PRODUCAO, COOKIE_SEGURO: 'false' }).cookieSeguro,
+        lerAmbiente({
+          ...PRODUCAO,
+          URL_PUBLICA: 'http://localhost:8080',
+          COOKIE_SEGURO: 'false',
+        }).cookieSeguro,
       ).toBe(false);
     });
   });

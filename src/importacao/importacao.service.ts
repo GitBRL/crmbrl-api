@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ArquivosService } from '../arquivos/arquivos.service';
-import { ehDiretoria } from '../comum/dominio/papeis';
+import { ehDiretoria, setorDaPessoa } from '../comum/dominio/papeis';
 import { permissoesDoPapel } from '../comum/dominio/permissoes';
 import { normalizarEtiquetas } from '../comum/dominio/etiquetas';
 import {
@@ -1325,6 +1325,17 @@ export class ImportacaoService implements OnModuleInit {
           { campo: 'areaRodizio', mensagens: ['é obrigatória com rodízio'] },
         ],
       });
+    }
+    if (
+      estrategia === 'RODIZIO' &&
+      area &&
+      !ehDiretoria(usuario.papel) &&
+      area !== setorDaPessoa(usuario)
+    ) {
+      // R16.6: quem não é da diretoria só distribui entre as pessoas do próprio setor.
+      throw new SemPermissaoException(
+        'O rodízio da importação só pode ser do seu próprio setor.',
+      );
     }
     if (estrategia === 'RODIZIO' && area) {
       // R1.9: o rodízio é de um setor ativo.

@@ -177,6 +177,34 @@ describe('Saúde do sistema (e2e)', () => {
     expect(corpo.situacao).toBe('atencao');
   });
 
+  describe('GET /api/saude — detalhe só para o Admin (U4)', () => {
+    it('anônimo e membro recebem só { status }; o Admin recebe versão, banco, migrations e avisos', async () => {
+      const anonimo = await clienteAnonimo(t).get('/api/saude').expect(200);
+      expect(anonimo.body).toEqual({ status: 'ok' });
+
+      const membro = await entrarComo(
+        t,
+        await criarUsuario(t, { papel: 'COMERCIAL' }),
+      );
+      expect((await membro.get('/api/saude').expect(200)).body).toEqual({
+        status: 'ok',
+      });
+
+      const admin = await entrarComo(
+        t,
+        await criarUsuario(t, { papel: 'ADMIN' }),
+      );
+      const completo = (await admin.get('/api/saude').expect(200)).body;
+      expect(completo).toMatchObject({
+        status: 'ok',
+        banco: { status: 'ok' },
+        migrations: { aplicadas: expect.any(Number) },
+        avisos: expect.any(Array),
+      });
+      expect(completo.versao).toEqual(expect.any(String));
+    });
+  });
+
   describe('alertas por e-mail', () => {
     const monitorar = () => t.get(AlertasDeSaudeService).monitorar();
 

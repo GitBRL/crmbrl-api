@@ -94,6 +94,57 @@ describe('Financeiro — contratos, parcelas e indicadores (e2e)', () => {
 
   // ------------------------------------------------------------------ R22.1
 
+  it('R22.1 — membro de CS só liga contrato e título a cliente da própria carteira (ou sem responsável)', async () => {
+    const cs = await criarEquipe(t, 'CS', { membros: 2 });
+    const [ana, bia] = cs.membros;
+    const clienteAna = await entrarComo(t, ana);
+    const deAna = await criarContato(t, { responsavel: ana });
+    const deBia = await criarContato(t, { responsavel: bia });
+    const semDono = await criarContato(t);
+    const empresaDaBia = await criarEmpresa(t, { responsavel: bia });
+    const contrato = (corpo: Record<string, unknown>) =>
+      clienteAna.post('/api/v1/financeiro/contratos', {
+        produto: 'Plano',
+        valor: '100.00',
+        periodicidade: 'MENSAL',
+        inicioEm: hojeLocal(),
+        ...corpo,
+      });
+    await contrato({ contatoId: deBia.id }).expect(404);
+    await contrato({ empresaId: empresaDaBia.id }).expect(404);
+    await contrato({ contatoId: deAna.id }).expect(201);
+    await contrato({ contatoId: semDono.id }).expect(201);
+
+    const titulo = (corpo: Record<string, unknown>) =>
+      clienteAna.post('/api/v1/financeiro/parcelas', {
+        vencimento: somarDias(hojeLocal(), 5),
+        valor: '10.00',
+        ...corpo,
+      });
+    await titulo({ contatoId: deBia.id }).expect(404);
+    await titulo({ empresaId: empresaDaBia.id }).expect(404);
+    await titulo({ contatoId: deAna.id }).expect(201);
+    // Com contrato, o cliente é o do contrato: não dá para trocar por um da carteira de outra pessoa.
+    const doContrato = (await contrato({ contatoId: deAna.id }).expect(201))
+      .body as ContratoApi;
+    await titulo({ contratoId: doContrato.id, contatoId: deBia.id }).expect(
+      404,
+    );
+    await titulo({ contratoId: doContrato.id }).expect(201);
+
+    // Quem gerencia (Líder de CS) liga a qualquer cliente.
+    const lider = await entrarComo(t, cs.lider);
+    await lider
+      .post('/api/v1/financeiro/contratos', {
+        contatoId: deBia.id,
+        produto: 'Plano',
+        valor: '100.00',
+        periodicidade: 'MENSAL',
+        inicioEm: hojeLocal(),
+      })
+      .expect(201);
+  });
+
   it('cenário 87 — R22.1 — Marketing não acessa; CS vê só a carteira; Comercial só lê; líder de CS vê tudo', async () => {
     const cs = await criarEquipe(t, 'CS', { membros: 2 });
     const comercial = await criarEquipe(t, 'COMERCIAL', { membros: 2 });

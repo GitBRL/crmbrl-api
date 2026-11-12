@@ -405,9 +405,10 @@ describe('Quem vê um funil (e2e, R5.9, R5.11–R5.13)', () => {
     });
 
     it('R5.14 — campanha: revisão e envio contam só os funis que quem a criou vê agora; desligado, nenhum funil restrito conta', async () => {
+      // Sem responsável: quem é só MEMBRO do funil conta os seus e os sem responsável (R5.12).
       const visivel = await criarNegocio(t, {
         area: 'COMERCIAL',
-        responsavel: c.semLista,
+        responsavel: null,
       });
       const segmento = {
         combinacao: 'todas',

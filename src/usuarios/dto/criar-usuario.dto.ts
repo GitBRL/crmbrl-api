@@ -22,6 +22,7 @@ import type { Area } from '../../comum/dominio/setores';
 import { ChaveDeSetor } from '../../comum/validacao/setor';
 import { Papel } from '../../generated/prisma/client';
 import { aparar, emailNormalizado, idEmMinusculas } from './transformacoes';
+import { SenhaNaoComum } from '../../auth/senhas-comuns';
 
 export const TAMANHO_MAXIMO_NOME = 200;
 export const TAMANHO_MAXIMO_URL = 2_000;
@@ -137,5 +138,6 @@ export class CriarUsuarioDto {
   @Length(TAMANHO_MINIMO_SENHA, TAMANHO_MAXIMO_SENHA, {
     message: MENSAGEM_TAMANHO_SENHA,
   })
+  @SenhaNaoComum()
   senhaTemporaria?: string;
 }

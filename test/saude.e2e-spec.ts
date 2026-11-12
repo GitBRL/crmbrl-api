@@ -101,46 +101,23 @@ describe('GET /api/saude (e2e)', () => {
     await app.close();
   });
 
-  it('responde 200 com o contrato completo quando o banco responde', async () => {
+  it('R27/U4 — o healthcheck público responde só { status }, sem versão, banco nem migrations', async () => {
     const resposta = await request(app.getHttpServer())
       .get('/api/saude')
       .expect(200)
       .expect('Content-Type', /application\/json/)
       .expect('Cache-Control', 'no-store');
-
-    expect(resposta.body).toEqual({
-      status: 'ok',
-      versao: '0.0.1',
-      ambiente: 'test',
-      horario: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/) as string,
-      uptimeSegundos: expect.any(Number) as number,
-      banco: { status: 'ok', latenciaMs: expect.any(Number) as number },
-      migrations: { aplicadas: 1, ultima: '20261020180000_inicial' },
-    });
-    expect(Object.keys(resposta.body as object)).toEqual([
-      'status',
-      'versao',
-      'ambiente',
-      'horario',
-      'uptimeSegundos',
-      'banco',
-      'migrations',
-    ]);
+    expect(resposta.body).toEqual({ status: 'ok' });
   });
 
-  it('responde 503 com o mesmo corpo, degradado, quando o banco falha', async () => {
+  it('responde 503 com { status: "degradado" } quando o banco falha, sem detalhe', async () => {
     prisma.foraDoAr = true;
 
     const resposta = await request(app.getHttpServer())
       .get('/api/saude')
       .expect(503);
 
-    expect(resposta.body).toMatchObject({
-      status: 'degradado',
-      versao: '0.0.1',
-      banco: { status: 'erro', erro: 'Não foi possível conectar ao banco.' },
-      migrations: null,
-    });
+    expect(resposta.body).toEqual({ status: 'degradado' });
     expect(resposta.text).not.toContain('senha-secreta');
     expect(resposta.text).not.toContain('banco:5432');
   });

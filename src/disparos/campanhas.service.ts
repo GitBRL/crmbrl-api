@@ -64,6 +64,7 @@ import { ProgressoDaCampanha } from './progresso-da-campanha.service';
 import { type Estimativa, estimarDuracao, situacaoDaJanela } from './ritmo';
 import { type PreviaDoPublico, PublicoDaCampanha } from './publico.service';
 import { garantirSetorAtivoSeHouver } from '../setores/setores-no-banco';
+import { filtroDeModelosVisiveis } from './modelos-mensagem.service';
 
 const INCLUIR = {
   canais: {
@@ -296,7 +297,7 @@ export class CampanhasService {
   ): Promise<CampanhaDto> {
     const tipoPublico = dto.tipoPublico ?? 'SEGMENTO';
     const modelo = dto.modeloId
-      ? await this.carregarModelo(dto.modeloId, dto.canal)
+      ? await this.carregarModelo(usuario, dto.modeloId, dto.canal)
       : null;
     const texto = dto.texto ?? modelo?.texto ?? '';
     const assunto = dto.assunto ?? modelo?.assunto ?? null;
@@ -404,6 +405,7 @@ export class CampanhasService {
 
     const modelo = dto.modeloId
       ? await this.carregarModelo(
+          usuario,
           dto.modeloId,
           atual.canal as 'WHATSAPP' | 'EMAIL',
         )
@@ -1272,9 +1274,18 @@ export class CampanhasService {
     return unicos;
   }
 
-  private async carregarModelo(modeloId: string, canal: 'WHATSAPP' | 'EMAIL') {
+  /** O modelo, só se a pessoa o vê (R17): modelo de outro setor é "não encontrado". */
+  private async carregarModelo(
+    usuario: UsuarioAutenticado,
+    modeloId: string,
+    canal: 'WHATSAPP' | 'EMAIL',
+  ) {
     const modelo = await this.prisma.modeloMensagem.findFirst({
-      where: { id: modeloId, excluidoEm: null },
+      where: {
+        id: modeloId,
+        excluidoEm: null,
+        ...filtroDeModelosVisiveis(usuario),
+      },
     });
     if (!modelo) {
       throw new DadosInvalidosException('Modelo de mensagem não encontrado.', {

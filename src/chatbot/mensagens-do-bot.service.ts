@@ -104,7 +104,13 @@ export class MensagensDoBot {
       let arquivo: { id: string; mime: string } | null = null;
       if (dados.arquivoId) {
         arquivo = await tx.arquivo.findFirst({
-          where: { id: dados.arquivoId, removidoEm: null },
+          // Só mídia de campanha/chatbot (R11): o arquivo de outro contexto (conversa, importação,
+          // ligação…) nunca sai por aqui, mesmo que o id tenha entrado no fluxo.
+          where: {
+            id: dados.arquivoId,
+            removidoEm: null,
+            contexto: 'CAMPANHA',
+          },
           select: { id: true, mime: true },
         });
       }

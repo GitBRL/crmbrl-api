@@ -29,7 +29,7 @@ import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import { AuthService, type MetadadosDoLogin } from './auth.service';
 import {
   lerCookie,
-  NOME_COOKIE_SESSAO,
+  nomeDoCookieDeSessao,
   opcoesDoCookieDeSessao,
 } from './cookies';
 import {
@@ -47,6 +47,7 @@ import {
   PerfilDto,
   RedefinirSenhaDto,
   TokenDeSenhaDto,
+  SessoesEncerradasDto,
   TrocarSenhaDto,
 } from './dto/auth.dto';
 import { SenhasService } from './senhas.service';
@@ -102,7 +103,7 @@ export class AuthController {
   ): Promise<PerfilDto | DesafioDoisFatoresDto> {
     const resultado = await this.auth.entrar(dto, {
       ...this.metadados(requisicao),
-      tokenAnterior: lerCookie(requisicao, NOME_COOKIE_SESSAO),
+      tokenAnterior: lerCookie(requisicao, nomeDoCookieDeSessao(this.ambiente)),
     });
     if (resultado.tipo === 'dois_fatores') {
       return {
@@ -137,7 +138,7 @@ export class AuthController {
     );
     const resultado = await this.auth.concluirEntrada(dto, {
       ...this.metadados(requisicao),
-      tokenAnterior: lerCookie(requisicao, NOME_COOKIE_SESSAO),
+      tokenAnterior: lerCookie(requisicao, nomeDoCookieDeSessao(this.ambiente)),
     });
     return this.abrirCookie(resultado, resposta);
   }
@@ -156,9 +157,25 @@ export class AuthController {
     await this.auth.sair(usuario);
     this.adaptador.httpAdapter.clearCookie?.(
       resposta,
-      NOME_COOKIE_SESSAO,
+      nomeDoCookieDeSessao(this.ambiente),
       opcoesDoCookieDeSessao(this.ambiente),
     );
+  }
+
+  @Post('sessoes/encerrar-outras')
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Encerra as outras sessões da própria pessoa',
+    description:
+      'Revoga as sessões de outros navegadores e aparelhos e mantém a atual (R2.2). Auditado.',
+  })
+  @ApiOkResponse({ type: SessoesEncerradasDto })
+  @ApiRespostasDeErro(401)
+  async encerrarOutrasSessoes(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<SessoesEncerradasDto> {
+    return { encerradas: await this.auth.encerrarOutrasSessoes(usuario) };
   }
 
   @Get('eu')
@@ -270,7 +287,7 @@ export class AuthController {
   ): PerfilDto {
     this.adaptador.httpAdapter.setCookie?.(
       resposta,
-      NOME_COOKIE_SESSAO,
+      nomeDoCookieDeSessao(this.ambiente),
       token,
       opcoesDoCookieDeSessao(this.ambiente),
     );

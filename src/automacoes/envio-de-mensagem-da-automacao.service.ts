@@ -10,6 +10,7 @@ import {
 } from '../comum/passos/tipos';
 import { EmailService } from '../email/email.service';
 import type { Canal, Conversa, Prisma } from '../generated/prisma/client';
+import { filtroDeModelosVisiveis } from '../disparos/modelos-mensagem.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { travarChave } from '../prisma/travas';
 
@@ -37,6 +38,24 @@ export class EnvioDeMensagemDaAutomacao {
     private readonly motor: MotorDoAtendimento,
     private readonly email: EmailService,
   ) {}
+
+  /** Recorte de modelos do autor da automação; sem autor ativo, só os de todas as áreas. */
+  private async visibilidadeDoAutor(
+    automacaoId: string | null,
+  ): Promise<Prisma.ModeloMensagemWhereInput> {
+    const automacao = automacaoId
+      ? await this.prisma.automacao.findUnique({
+          where: { id: automacaoId },
+          select: {
+            criadoPor: {
+              select: { id: true, papel: true, area: true, ativo: true },
+            },
+          },
+        })
+      : null;
+    const autor = automacao?.criadoPor;
+    return autor?.ativo ? filtroDeModelosVisiveis(autor) : { area: null };
+  }
 
   async enviar(
     ctx: ContextoDoPasso<ConfigDeMensagem>,
@@ -68,9 +87,14 @@ export class EnvioDeMensagemDaAutomacao {
       });
     }
 
+    // O modelo vale pelo acesso de quem criou a automação (R17): o de outro setor não é usado.
     const modelo = config.modeloId
       ? await this.prisma.modeloMensagem.findFirst({
-          where: { id: config.modeloId, excluidoEm: null },
+          where: {
+            id: config.modeloId,
+            excluidoEm: null,
+            ...(await this.visibilidadeDoAutor(execucao.automacaoId)),
+          },
         })
       : null;
     if (config.modeloId && !modelo) {

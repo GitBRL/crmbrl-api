@@ -11,6 +11,7 @@ import {
   type AppTeste,
   type ClienteHttp,
   criarAppTeste,
+  criarArquivo,
   criarCanal,
   criarFluxoChatbot,
   drenarTudo,
@@ -211,6 +212,116 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
         .post('/api/v1/chatbot/fluxos')
         .send({ nome: 'Diretoria', gatilho: 'SEMPRE' })
         .expect(201);
+    });
+
+    it('R18.6 — duplicar não leva canais de outra área; publicar e ativar reconferem os canais do líder', async () => {
+      const liderCs = await entrarComo(t, cenario.cs.lider);
+      const definicao = {
+        passos: [{ id: 'm', tipo: 'mensagem', config: { texto: 'oi' } }],
+      };
+      const doComercial = await admin
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'Do comercial',
+          area: 'COMERCIAL',
+          canalIds: [cenario.canal.id],
+          gatilho: 'NOVA_CONVERSA',
+          definicao,
+        })
+        .expect(201);
+      // O líder de CS lê o fluxo do comercial e o duplica: o canal do comercial não vai junto.
+      const copia = await liderCs
+        .post(`/api/v1/chatbot/fluxos/${doComercial.body.id}/duplicar`)
+        .expect(201);
+      expect(copia.body.canalIds).toEqual([]);
+      const publicarCopia = await liderCs
+        .post(`/api/v1/chatbot/fluxos/${copia.body.id}/publicar`)
+        .send({})
+        .expect(400);
+      expect(publicarCopia.body.detalhes.regra).toBe('R18.6');
+
+      // Fluxo de CS ligado (pela diretoria) a canal do comercial: o líder não publica nem ativa.
+      const deCs = await admin
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'CS com canal alheio',
+          area: 'CS',
+          canalIds: [cenario.canal.id],
+          gatilho: 'NOVA_CONVERSA',
+          definicao,
+        })
+        .expect(201);
+      const publicar = await liderCs
+        .post(`/api/v1/chatbot/fluxos/${deCs.body.id}/publicar`)
+        .send({})
+        .expect(400);
+      expect(publicar.body.detalhes.regra).toBe('R18.6');
+      await admin
+        .post(`/api/v1/chatbot/fluxos/${deCs.body.id}/publicar`)
+        .send({})
+        .expect(200);
+      const ativar = await liderCs
+        .post(`/api/v1/chatbot/fluxos/${deCs.body.id}/ativar`)
+        .expect(400);
+      expect(ativar.body.detalhes.regra).toBe('R18.6');
+
+      // Execuções (conversas de quem falou com o bot): só diretoria e líder da área do fluxo.
+      await liderCs
+        .get(`/api/v1/chatbot/fluxos/${doComercial.body.id}/execucoes`)
+        .expect(403);
+      await lider
+        .get(`/api/v1/chatbot/fluxos/${doComercial.body.id}/execucoes`)
+        .expect(200);
+      await admin
+        .get(`/api/v1/chatbot/fluxos/${doComercial.body.id}/execucoes`)
+        .expect(200);
+    });
+
+    it('R11/R18 — a mídia do passo precisa ser arquivo de campanha que quem salva pode ler', async () => {
+      const midia = (arquivoId: string) => ({
+        passos: [{ id: 'm', tipo: 'mensagem', config: { arquivoId } }],
+      });
+      const { body } = await lider
+        .post('/api/v1/chatbot/fluxos')
+        .send({
+          nome: 'Com mídia',
+          canalIds: [cenario.canal.id],
+          gatilho: 'NOVA_CONVERSA',
+        })
+        .expect(201);
+      const rascunho = (arquivoId: string) =>
+        lider
+          .put(`/api/v1/chatbot/fluxos/${body.id}/rascunho`)
+          .send({ definicao: midia(arquivoId) });
+
+      const minha = await criarArquivo(t, {
+        contexto: 'CAMPANHA',
+        mime: 'image/png',
+        criadoPor: cenario.comercial.lider,
+      });
+      const deOutro = await criarArquivo(t, {
+        contexto: 'CAMPANHA',
+        mime: 'image/png',
+        criadoPor: cenario.admin,
+      });
+      const deConversa = await criarArquivo(t, {
+        contexto: 'MENSAGEM',
+        mime: 'image/png',
+        criadoPor: cenario.comercial.lider,
+      });
+      await rascunho(minha.id).expect(200);
+      await rascunho(deOutro.id).expect(400);
+      await rascunho(deConversa.id).expect(400);
+      await rascunho('00000000-0000-4000-8000-000000000000').expect(400);
+      // A publicação reconfere (rascunho gravado por fora, com arquivo de outro contexto).
+      await t.prisma.fluxoChatbot.update({
+        where: { id: body.id },
+        data: { rascunho: midia(deConversa.id) },
+      });
+      await lider
+        .post(`/api/v1/chatbot/fluxos/${body.id}/publicar`)
+        .send({})
+        .expect(400);
     });
 
     it('cenário 54 — R18.2 — rascunho aceita configuração incompleta, mas a publicação aponta cada problema', async () => {
@@ -983,6 +1094,7 @@ describe('Chatbot — fluxos em passos (R18, e2e)', () => {
       const fluxo = await criarFluxoChatbot(t, {
         nome: 'Versionado',
         area: 'COMERCIAL',
+        canais: [cenario.canal],
         definicao: {
           passos: [
             {

@@ -91,6 +91,28 @@ export class SaudeDoSistemaService {
     return this.montar(fatos, emailConfigurado, agora);
   }
 
+  /** Produção rodando com segredo de desenvolvimento por escolha explícita (U4): alerta alto na tela. */
+  private alertasDeConfiguracao(): Alerta[] {
+    if (
+      !this.ambiente.producao ||
+      !this.ambiente.permitirSegredosDeDesenvolvimento
+    ) {
+      return [];
+    }
+    return [
+      {
+        chave: 'configuracao:segredos_de_desenvolvimento',
+        codigo: 'segredos_de_desenvolvimento',
+        gravidade: 'critico',
+        titulo: 'Segredos de desenvolvimento em produção',
+        detalhe:
+          'PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true: a API subiu mesmo com chave, token ou senha públicos de desenvolvimento.',
+        dica: 'Defina valores próprios (veja o README, "Variáveis de ambiente") e remova PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO. Não use dados reais enquanto isso.',
+        porEmail: false,
+      },
+    ];
+  }
+
   /** Só a parte pura: dos fatos ao painel e aos alertas. */
   montar(
     fatos: FatosDoSistema,
@@ -114,6 +136,7 @@ export class SaudeDoSistemaService {
         agora,
       ),
       ...alertasDeDisco(disco),
+      ...this.alertasDeConfiguracao(),
     ].sort(
       (a, b) =>
         Number(b.gravidade === 'critico') - Number(a.gravidade === 'critico'),

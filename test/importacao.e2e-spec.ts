@@ -540,6 +540,14 @@ describe('Importação de contatos e empresas (e2e)', () => {
         estrategiaResponsavel: 'RODIZIO',
       })
       .expect(400);
+    // R16.6: o líder só faz rodízio do próprio setor.
+    await cliente
+      .patch(`/api/v1/importacoes/${criada.id}`, {
+        mapeamento,
+        estrategiaResponsavel: 'RODIZIO',
+        areaRodizio: 'CS',
+      })
+      .expect(403);
 
     const semEstrategia = await importar(
       cliente,

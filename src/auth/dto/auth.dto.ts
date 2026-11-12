@@ -13,6 +13,7 @@ import {
 import type { Escopo } from '../../comum/dominio/permissoes';
 import { Papel, TipoTokenSenha } from '../../generated/prisma/client';
 import type { Area } from '../../comum/dominio/setores';
+import { SenhaNaoComum } from '../senhas-comuns';
 
 const MENSAGEM_TAMANHO_SENHA = `deve ter de ${TAMANHO_MINIMO_SENHA} a ${TAMANHO_MAXIMO_SENHA} caracteres`;
 
@@ -85,6 +86,7 @@ export class TrocarSenhaDto {
   @Length(TAMANHO_MINIMO_SENHA, TAMANHO_MAXIMO_SENHA, {
     message: MENSAGEM_TAMANHO_SENHA,
   })
+  @SenhaNaoComum()
   novaSenha: string;
 }
 
@@ -115,6 +117,7 @@ export class RedefinirSenhaDto extends TokenDeSenhaDto {
   @Length(TAMANHO_MINIMO_SENHA, TAMANHO_MAXIMO_SENHA, {
     message: MENSAGEM_TAMANHO_SENHA,
   })
+  @SenhaNaoComum()
   novaSenha: string;
 }
 
@@ -133,6 +136,16 @@ export class ConsultaTokenDto {
 
   @ApiPropertyOptional({ format: 'date-time' })
   expiraEm?: string;
+}
+
+/** Resposta de `POST /auth/sessoes/encerrar-outras`. */
+export class SessoesEncerradasDto {
+  @ApiProperty({
+    example: 2,
+    description:
+      'Quantas outras sessões (outros navegadores e aparelhos) foram encerradas.',
+  })
+  encerradas: number;
 }
 
 export class MensagemDto {

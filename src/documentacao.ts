@@ -1,7 +1,7 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NextFunction, Response } from 'express';
-import { lerCookie, NOME_COOKIE_SESSAO } from './auth/cookies';
+import { lerCookie, nomeDoCookieDeSessao } from './auth/cookies';
 import { SessoesService } from './auth/sessoes.service';
 import {
   NaoAutenticadoException,
@@ -35,7 +35,7 @@ export function configurarDocumentacao(
         '`{ statusCode, erro, mensagem, detalhes?, requisicaoId }`.',
     )
     .setVersion(versao)
-    .addCookieAuth(NOME_COOKIE_SESSAO)
+    .addCookieAuth(nomeDoCookieDeSessao(ambiente))
     .build();
 
   if (!ambiente.docsPublicas) {
@@ -47,7 +47,7 @@ export function configurarDocumentacao(
         resposta: Response,
         proximo: NextFunction,
       ) => {
-        void exigirAdmin(sessoes, requisicao)
+        void exigirAdmin(sessoes, requisicao, nomeDoCookieDeSessao(ambiente))
           .then(() => proximo())
           .catch((erro: unknown) => {
             const corpo = montarCorpo(
@@ -75,8 +75,9 @@ export function configurarDocumentacao(
 async function exigirAdmin(
   sessoes: SessoesService,
   requisicao: RequisicaoHttp,
+  nomeDoCookie: string,
 ): Promise<void> {
-  const token = lerCookie(requisicao, NOME_COOKIE_SESSAO);
+  const token = lerCookie(requisicao, nomeDoCookie);
   const validada = token ? await sessoes.validar(token) : null;
   if (!validada) {
     throw new NaoAutenticadoException(

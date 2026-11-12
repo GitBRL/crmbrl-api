@@ -1563,6 +1563,43 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
       ).toBe(1);
     });
 
+    it('R29.3/R6.4 — a atividade da ligação precisa ser do mesmo contato e visível a quem liga', async () => {
+      await ativarLigacoes();
+      const contato = await contatoDaMaria();
+      graph.estado.permissoes.set(TELEFONE, { status: 'permanent' });
+      const outroContato = await criarContato(t, {
+        nome: 'João',
+        telefone: '5511966665555',
+      });
+      const deOutroContato = await t.prisma.atividade.create({
+        data: {
+          tipo: 'LIGACAO',
+          titulo: 'Ligar para o João',
+          responsavelId: cenario.comercial.membros[0]!.id,
+          contatoId: outroContato.id,
+        },
+      });
+      await pedidoDeLigacao(contato.id, {
+        atividadeId: deOutroContato.id,
+      }).expect(404);
+      const alheia = await t.prisma.atividade.create({
+        data: {
+          tipo: 'LIGACAO',
+          titulo: 'Ligar para a Maria (de outra pessoa)',
+          responsavelId: cenario.cs.membros[0]!.id,
+          criadoPorId: cenario.cs.membros[0]!.id,
+          contatoId: contato.id,
+        },
+      });
+      await pedidoDeLigacao(contato.id, { atividadeId: alheia.id }).expect(404);
+      expect(
+        await t.prisma.atividade.findUniqueOrThrow({
+          where: { id: alheia.id },
+          select: { status: true },
+        }),
+      ).toEqual({ status: 'PENDENTE' });
+    });
+
     it('cenário 219 — R29.4 — pedido de permissão dentro da janela: mensagem interativa; a resposta do cliente atualiza o registro', async () => {
       await ativarLigacoes();
       const contato = await contatoDaMaria();

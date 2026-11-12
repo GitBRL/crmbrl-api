@@ -223,17 +223,7 @@ export class ModelosMensagemService {
   private visiveis(
     usuario: UsuarioAutenticado,
   ): Prisma.ModeloMensagemWhereInput {
-    if (ehDiretoria(usuario.papel)) {
-      return {};
-    }
-    const area = setorDaPessoa(usuario);
-    return {
-      OR: [
-        { area: null },
-        ...(area ? [{ area }] : []),
-        { criadoPorId: usuario.id },
-      ],
-    };
+    return filtroDeModelosVisiveis(usuario);
   }
 
   private async obter(
@@ -341,4 +331,25 @@ export class ModelosMensagemService {
       atualizadoEm: m.atualizadoEm.toISOString(),
     };
   }
+}
+
+/**
+ * Modelos de mensagem que a pessoa vê (R17): todos para a diretoria; senão os de todas as áreas
+ * (`area` nula), os do próprio setor e os que ela criou. Vale também para quem usa o modelo
+ * numa campanha ou automação.
+ */
+export function filtroDeModelosVisiveis(
+  usuario: Pick<UsuarioAutenticado, 'id' | 'papel' | 'area'>,
+): Prisma.ModeloMensagemWhereInput {
+  if (ehDiretoria(usuario.papel)) {
+    return {};
+  }
+  const area = setorDaPessoa(usuario);
+  return {
+    OR: [
+      { area: null },
+      ...(area ? [{ area }] : []),
+      { criadoPorId: usuario.id },
+    ],
+  };
 }

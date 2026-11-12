@@ -532,13 +532,22 @@ export interface OpcoesDoSegmento {
    * deixa e os de outros setores por acesso, R5.11).
    */
   funisDosNegocios?: readonly string[];
+  /**
+   * Recorte completo de negócios da pessoa (`AcessoAosFunis.filtroDeNegocios`, R5.9/R5.12): além do
+   * funil, quem é só MEMBRO no funil enxerga os negócios que são seus ou não têm responsável.
+   * Quando vem, vale no lugar de `funisDosNegocios`.
+   */
+  visibilidadeDosNegocios?: Prisma.NegocioWhereInput;
   /** Filtro extra (ex.: o escopo de visibilidade), combinado com E. */
   escopo?: Prisma.ContatoWhereInput;
   /** "Agora" das condições relativas (testes). */
   agora?: Date;
 }
 
-type OpcoesDoNegocio = Pick<OpcoesDoSegmento, 'negocioId' | 'funisDosNegocios'>;
+type OpcoesDoNegocio = Pick<
+  OpcoesDoSegmento,
+  'negocioId' | 'funisDosNegocios' | 'visibilidadeDosNegocios'
+>;
 
 /** Monta o `where` de contatos. Sempre exclui os contatos excluídos. Valide antes. */
 export function whereDoSegmento(
@@ -678,11 +687,13 @@ function whereDoNegocio(
     ...(filtro.etapaIds ? { etapaId: { in: filtro.etapaIds } } : {}),
     ...(filtro.status ? { status: { in: filtro.status } } : {}),
     ...(filtro.area ? { funil: { area: filtro.area } } : {}),
-    ...(negocios.funisDosNegocios
-      ? {
-          AND: [{ funilId: { in: [...negocios.funisDosNegocios] } }],
-        }
-      : {}),
+    ...(negocios.visibilidadeDosNegocios
+      ? { AND: [negocios.visibilidadeDosNegocios] }
+      : negocios.funisDosNegocios
+        ? {
+            AND: [{ funilId: { in: [...negocios.funisDosNegocios] } }],
+          }
+        : {}),
   };
 }
 

@@ -96,7 +96,12 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   do Node (`N=32768, r=8, p=3`, chave de 64 bytes, sal de 16 bytes), gravado como
   `scrypt$N$r$p$sal$hash` para permitir trocar parâmetros no futuro.
 - **R2.2** A sessão é um token aleatório de 32 bytes, entregue no cookie `crmbrl_sessao`
-  (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` em produção). O banco guarda só o SHA-256
+  (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` em produção). **U4 (2026-11-12):** quando o cookie é
+  `Secure` ele se chama `__Host-crmbrl_sessao` (o navegador só o aceita de https, sem `Domain`, e um
+  subdomínio não consegue plantar um igual); em http local continua `crmbrl_sessao`. A troca de nome desloga
+  todo mundo uma vez. `POST /auth/sessoes/encerrar-outras` encerra as outras sessões da própria pessoa
+  (menos a atual), audita `usuario.sessoes_encerradas` e tem botão no Meu perfil. Toda resposta de
+  `/api/v1/*` leva `Cache-Control: no-store` (download de arquivo, widget e gravação têm política própria). O banco guarda só o SHA-256
   do token. Expira após 7 dias sem uso e, em qualquer caso, 30 dias após o login. O uso
   renova a validade (gravando no máximo uma vez a cada 5 minutos).
 - **R2.3** Credenciais erradas devolvem sempre a mesma mensagem genérica. Usuário
@@ -110,6 +115,13 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   **sem sucesso** (para não travar um escritório inteiro atrás do mesmo IP); um login
   com sucesso zera as falhas do e-mail; a senha atual errada na troca de senha conta
   como falha.
+  **Ajuste U4 (2026-11-12):** (a) tentativa recusada por já estar bloqueada (`BLOQUEADO_EMAIL` ou
+  `BLOQUEADO_IP`) fica registrada, mas **não conta** no limite por IP nem renova o bloqueio; (b) a conferência
+  do bloqueio e o registro da tentativa são **serializados** por IP e por e-mail (travas do banco) antes do
+  hash lento da senha: N requisições simultâneas não furam o limite de 5 (a tentativa é gravada como falha
+  provisória e trocada pelo desfecho real); vale também para a segunda etapa do 2FA (R2.11); (c) o IP é o
+  do cliente: o Caddy só confia em `X-Forwarded-For` vindo da rede privada e repassa um único valor (veja
+  `docs/DEPLOY-RAILWAY.md`).
 - **R2.6** Primeiro acesso: se não existe nenhum usuário, a API cria o Admin a partir de
   `ADMIN_EMAIL`, `ADMIN_NOME` e `ADMIN_SENHA_INICIAL`, com troca de senha obrigatória.
 - **R2.7** Com troca de senha pendente, só funcionam `auth/eu`, `auth/senha` e
@@ -127,6 +139,11 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   `/api/v1/arquivos/<id>`, que qualquer usuário logado abre; a anterior enviada pelo CRM é
   removida. Trocar e remover (`DELETE /usuarios/eu/foto`) auditam `usuario.atualizado`. O
   Admin continua podendo pôr um endereço externo (`avatarUrl`) no cadastro do usuário.
+- **R2.12** Senhas comuns: a criação, a troca, a redefinição e a senha temporária recusam senhas da lista de
+  mais de 250 senhas mais usadas no Brasil e no mundo (sem diferença de maiúsculas e acentos; 400 com
+  `campos[].mensagens`, ou 400 `R2.12` nos caminhos que passam pelo serviço). A lista fica em
+  `src/auth/senhas-comuns.ts`. "Esqueci minha senha" (R2.8) enfileira o pedido (`auth.redefinicao-de-senha`) e
+  responde sempre igual e no mesmo tempo, exista o e-mail ou não; a busca, o token e o envio rodam no trabalho.
 - **R2.11** Verificação em duas etapas (TOTP), opcional para todos: cada pessoa ativa no Meu perfil.
   TOTP da RFC 6238 (HMAC-SHA1, 30 s, 6 dígitos, janela ±1), feito com `node:crypto`. O segredo fica
   cifrado (R10.3). **Ativar** (`POST /auth/dois-fatores/ativar`) gera o segredo e devolve a chave (base32)
@@ -1034,6 +1051,8 @@ real ("cenário N" no nome do teste).
 - **R16.6** **Responsável:** quem importou (R4.5), uma pessoa fixa ao alcance de quem
   importa, ou rodízio da área (R5.8); só vale para contatos criados, nunca troca o
   responsável de quem já existe. Com a coluna `responsavel` (R16.12) ela tem prioridade.
+  **U4:** quem não é da diretoria só faz rodízio do próprio setor (403). XLSX que descompacta em mais de 100 MB ou
+  com razão de compressão acima de 100:1 é recusado antes de abrir (422, "bomba de zip").
 - **R16.7** **Cancelar e retomar:** cancelar antes de processar não importa nada; depois
   de concluída, não cancela. Se o processo cair, a retomada continua depois da última
   linha gravada e os contadores somam tudo; `filtradas` é recalculado do arquivo (não
@@ -1166,6 +1185,10 @@ Campanhas de WhatsApp e e-mail para um público de contatos, com ritmo anti-bani
   opt-out (R4.6), quem não tem o canal (telefone para WhatsApp, e-mail para e-mail) e
   duplicados. O número que o gateway diz não ter WhatsApp vira `INVALIDO` (com cache) e
   **não consome o ritmo**. Opt-out depois da montagem do público também não recebe.
+  **U4:** a lista importada só vale se a importação for de quem monta o público (a diretoria usa qualquer uma;
+  outra pessoa, 404); nas condições de negócio do segmento, quem é só MEMBRO no funil conta apenas os negócios
+  que são seus ou sem responsável (R5.9/R5.12); modelo de mensagem usado na campanha, ou na automação (pelo acesso
+  de quem a criou), precisa ser visível a essa pessoa (modelo de outro setor: "não encontrado").
 - **R17.3** **Mensagem:** texto com variáveis (`{{contato.primeiro_nome}}`…), valor
   padrão e variações (`{a|b|c}`, sorteadas de forma reprodutível por destinatário);
   variável desconhecida, ritmo invertido, janela ou canal inválidos são recusados. Mídia
@@ -1252,7 +1275,12 @@ o executor de passos compartilhado.
   **quem salva ou publica** o fluxo cria negócios — ao criar o fluxo com a definição, ao salvar
   o rascunho e ao publicar: funil que a pessoa não vê → 422 `R5.9`; visto mas sem criar
   (`VER`) → 422 `R5.12`; `detalhes.passos` traz os ids dos passos, sem nomes. Sem funil nem
-  etapa, o passo usa o funil-base da fila na hora (não há o que conferir).
+  etapa, o passo usa o funil-base da fila na hora (não há o que conferir). **Ajuste U4 (2026-11-12):**
+  quem não é da diretoria, ao **duplicar**, leva para a cópia só os canais da própria área, e ao **publicar** e
+  **ativar** os canais gravados são conferidos de novo (um fluxo de outra área ou sem canais não passa pelo
+  líder); as **execuções** do fluxo (conversas de quem falou com o bot) só aparecem para a diretoria e para o
+  líder da área do fluxo (403 para os demais, que continuam lendo o fluxo); a mídia dos passos (`arquivoId`) precisa
+  ser arquivo de contexto `CAMPANHA` que quem salva ou publica pode ler (400) e o envio só usa arquivo desse contexto.
 - **R18.7** **Versões:** publicar cria uma **versão imutável**; editar muda só o
   rascunho; a conversa em andamento termina na versão em que começou e a nova usa a
   publicada. Restaurar copia uma versão antiga para o rascunho; também há duplicar,
@@ -1503,7 +1531,11 @@ do teste) contra um Postgres real.
   que **o destinatário/usuário vê** (`funisAcessiveis`); fora disso, 404. Ex.: o Líder de CS só
   recebe a sugestão dos ganhos do Comercial se o CS tiver acesso ao funil (R5.11, "Só ver"
   basta). Dentro dos funis que vê, o resto da R22.1 continua (gestor vê todos; membro de CS, os
-  da carteira). Contratos e parcelas já criados seguem a R22.1.
+  da carteira). Contratos e parcelas já criados seguem a R22.1. **U4:** o membro de CS só liga contrato ou título
+  a cliente (empresa ou contato) da própria carteira ou sem responsável; com `contratoId`, o cliente do título é o do
+  contrato (404 nos demais). Na linha do tempo do contato (R3.5), quem não é da diretoria só vê eventos de
+  contato, empresa, passagem, negócio, atividade, conversa (R12.2), ligação (R29.8), contrato e parcela (R22.1)
+  e campanha (R17) pela visibilidade de cada módulo; configuração, integração, usuário e o resto não aparecem.
 - **R22.7** **Atraso:** a parcela aberta vencida antes de hoje aparece como `ATRASADO` na
   hora da consulta; o job diário grava o status, audita (`parcela.atrasada`) e publica o evento
   `parcela.atrasada`.
@@ -2093,7 +2125,8 @@ primeiro teste com a Meta real começa por esses dois arquivos.
   - **Navegador que cai** durante a ligação: tolerância de 15 s para o socket reconectar; passado
     esse prazo sem nenhum socket do atendente, a API manda `terminate` e encerra (`conexao_perdida`).
 - **R29.3** **Ligação feita.** `POST /ligacoes` com a oferta SDP do navegador. A API confere, nesta
-  ordem: ligações ativas e botão visível no canal (422), contato com telefone (ou BSUID), uma
+  ordem (a `atividadeId`, se vier, precisa ser uma atividade de ligação pendente **visível a quem liga
+  (R6.4) e do mesmo contato**, senão 404): ligações ativas e botão visível no canal (422), contato com telefone (ou BSUID), uma
   ligação por atendente e por cliente (409), e **a permissão e os limites na Meta**
   (`GET call_permissions`: a Meta não avisa quando a permissão expira, então confere antes de
   **cada** ligação; sem resposta da Meta, 503: não liga sem conferir). Sem permissão: 422

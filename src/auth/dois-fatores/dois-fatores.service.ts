@@ -420,7 +420,11 @@ export class DoisFatoresService {
     meta: MetaDeRequisicao,
     agora: Date,
     origem: string,
-    opcoes: { motivo?: 'DOIS_FATORES_INCORRETO' | 'SENHA_INCORRETA' } = {},
+    opcoes: {
+      motivo?: 'DOIS_FATORES_INCORRETO' | 'SENHA_INCORRETA';
+      /** Reserva de `ForcaBrutaService.reservar`, trocada pelo desfecho real. */
+      reservaId?: bigint;
+    } = {},
   ): Promise<void> {
     const motivo = opcoes.motivo ?? 'DOIS_FATORES_INCORRETO';
     // No login quem tentou não é, necessariamente, a pessoa do cookie.
@@ -429,6 +433,7 @@ export class DoisFatoresService {
         ? { tipoAtor: 'USUARIO', descricao: usuario.email }
         : undefined;
     await this.prisma.$transaction(async (tx) => {
+      await this.forcaBruta.liberar(tx, opcoes.reservaId);
       await this.forcaBruta.registrar(tx, {
         email: usuario.email,
         ip: meta.ip,

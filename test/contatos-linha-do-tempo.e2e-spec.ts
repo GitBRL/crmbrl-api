@@ -5,6 +5,7 @@ import {
   criarAppTeste,
   criarAtividade,
   criarContato,
+  criarConversa,
   criarEquipe,
   criarNegocio,
   criarUsuario,
@@ -240,6 +241,52 @@ describe('Contatos — linha do tempo (e2e)', () => {
       itens: ['atividade:Da Carla'],
     });
     expect((await visivel(comercial.cLevel)).total).toBe(5);
+  });
+
+  it('R3.5/R12.2/R22.1 — eventos de conversa, contrato, parcela e de entidades fora da lista seguem a visibilidade do módulo', async () => {
+    const comercial = await criarEquipe(t, 'COMERCIAL');
+    const [ana, bruno] = comercial.membros;
+    const contato = await criarContato(t);
+    const deAna = await criarConversa(t, { contato, responsavel: ana });
+    const deBruno = await criarConversa(t, { contato, responsavel: bruno });
+    const evento = (entidade: string, entidadeId: string, acao: string) =>
+      auditoria.registrar(t.prisma, {
+        acao,
+        entidade,
+        entidadeId,
+        resumo: acao,
+        relacionados: { contato: contato.id },
+      });
+    await evento('conversa', deAna.id, 'conversa.da_ana');
+    await evento('conversa', deBruno.id, 'conversa.do_bruno');
+    // Contrato e parcela de que ninguém do Comercial vê além dos próprios negócios ganhos (R22.1).
+    await evento('contrato', deAna.id, 'contrato.alheio');
+    await evento('parcela', deAna.id, 'parcela.alheia');
+    await evento('configuracao', deAna.id, 'configuracao.interna');
+    await evento('contato', contato.id, 'contato.visivel');
+
+    const acoes = async (usuario: Usuario) =>
+      (
+        await linhaDoTempo(
+          usuario,
+          `/api/v1/contatos/${contato.id}/linha-do-tempo`,
+        )
+      ).itens
+        .map((item) => item.evento?.acao)
+        .sort();
+    expect(await acoes(ana)).toEqual(['contato.visivel', 'conversa.da_ana']);
+    expect(await acoes(bruno)).toEqual([
+      'contato.visivel',
+      'conversa.do_bruno',
+    ]);
+    expect(await acoes(comercial.cLevel)).toEqual([
+      'configuracao.interna',
+      'contato.visivel',
+      'contrato.alheio',
+      'conversa.da_ana',
+      'conversa.do_bruno',
+      'parcela.alheia',
+    ]);
   });
 
   it('R3.5/R5.9 — eventos de negócio seguem a visibilidade dos funis', async () => {

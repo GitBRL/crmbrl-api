@@ -267,6 +267,11 @@ export interface Ambiente {
   readonly push: ConfiguracaoPush;
   /** Pasta dos backups, montada só para leitura (`BACKUP_DIR`, padrão `/backups`): a saúde lê `ultimo.json`. */
   readonly backupDir: string;
+  /**
+   * `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`: escape explícito que deixa a produção subir com
+   * segredos públicos de desenvolvimento (só para testes locais; sem isso a subida é recusada).
+   */
+  readonly permitirSegredosDeDesenvolvimento: boolean;
   /** Problemas que não impedem a API de subir, para o log da inicialização. */
   readonly avisos: readonly string[];
 }
@@ -282,6 +287,7 @@ export interface VariaveisDeAmbiente {
   URL_PUBLICA?: string;
   ORIGENS_PERMITIDAS?: string;
   COOKIE_SEGURO?: string;
+  PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO?: string;
   CHAVE_CRIPTOGRAFIA?: string;
   SESSAO_INATIVIDADE_DIAS?: string;
   SESSAO_DURACAO_MAXIMA_DIAS?: string;
@@ -349,6 +355,7 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'URL_PUBLICA',
   'ORIGENS_PERMITIDAS',
   'COOKIE_SEGURO',
+  'PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO',
   'CHAVE_CRIPTOGRAFIA',
   'SESSAO_INATIVIDADE_DIAS',
   'SESSAO_DURACAO_MAXIMA_DIAS',
@@ -437,6 +444,12 @@ export function lerAmbiente(
   const producao = nodeEnv === 'production';
   const urlPublica = lerUrlPublica(variaveis.URL_PUBLICA, producao, problemas);
   const origemPublica = comoOrigem(urlPublica);
+  const permitirSegredosDeDesenvolvimento = lerBooleano(
+    'PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO',
+    variaveis.PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO,
+    false,
+    problemas,
+  );
   const processarFilas = lerBooleano(
     'PROCESSAR_FILAS',
     variaveis.PROCESSAR_FILAS,
@@ -468,6 +481,7 @@ export function lerAmbiente(
       producao,
       problemas,
       avisos,
+      permitirSegredosDeDesenvolvimento,
     ),
     sessao: lerSessao(variaveis, problemas),
     admin: lerAdmin(variaveis, problemas),
@@ -487,7 +501,13 @@ export function lerAmbiente(
     processarFilas,
     logFormato: lerLogFormato(variaveis.LOG_FORMATO, producao, problemas),
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
-    whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
+    whatsapp: lerWhatsapp(
+      variaveis,
+      producao,
+      problemas,
+      avisos,
+      permitirSegredosDeDesenvolvimento,
+    ),
     meta: lerMeta(variaveis, problemas),
     integracoes: lerIntegracoes(variaveis, problemas),
     ligacoes: lerLigacoes(variaveis, problemas),
@@ -497,10 +517,11 @@ export function lerAmbiente(
     ticketHub: lerTicketHub(variaveis, problemas),
     push: lerPush(variaveis, problemas, avisos),
     backupDir: variaveis.BACKUP_DIR?.trim() || '/backups',
+    permitirSegredosDeDesenvolvimento,
     avisos,
   };
 
-  avisosDeProducao(ambiente, variaveis, avisos);
+  avisosDeProducao(ambiente, variaveis, problemas, avisos);
 
   if (problemas.length > 0) {
     throw new AmbienteInvalidoError(problemas);
@@ -513,35 +534,68 @@ export const ARQUIVOS_SEGREDO_DESENVOLVIMENTO =
   'crmbrl-arquivos-desenvolvimento';
 
 /**
- * Configurações que deixam a produção insegura sem impedir a subida (o compose
- * de desenvolvimento usa os padrões públicos): viram aviso no log da inicialização.
- * Nunca incluem o valor do segredo.
+ * Segredo público de desenvolvimento em produção: a subida é recusada (problema), salvo com
+ * `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`, que a deixa subir com um aviso alto no log e na
+ * Saúde do sistema. Nunca inclui o valor do segredo.
+ */
+function segredoDeDesenvolvimento(
+  permitir: boolean,
+  problemas: string[],
+  avisos: string[],
+  descricao: string,
+): void {
+  if (permitir) {
+    avisos.push(
+      `ATENÇÃO: ${descricao} (permitido por PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true: nunca use com dados reais).`,
+    );
+  } else {
+    problemas.push(
+      `${descricao}. Corrija, ou (só em teste local) defina PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true.`,
+    );
+  }
+}
+
+/**
+ * Configurações que deixam a produção insegura: segredo público de desenvolvimento e cookie sem
+ * `Secure` em https recusam a subida (salvo `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true`, que vira
+ * aviso alto); `http` na URL pública só avisa. Nunca incluem o valor do segredo.
  */
 function avisosDeProducao(
   ambiente: Ambiente,
   variaveis: VariaveisDeAmbiente,
+  problemas: string[],
   avisos: string[],
 ): void {
   if (!ambiente.producao) {
     return;
   }
+  const permitir = ambiente.permitirSegredosDeDesenvolvimento;
   if (ambiente.urlPublica.startsWith('http://')) {
     avisos.push(
       'URL_PUBLICA usa http em produção: a sessão e os dados trafegam sem criptografia (use HTTPS pelo Caddy, veja docs/DEPLOY.md).',
     );
   } else if (!ambiente.cookieSeguro) {
-    avisos.push(
-      'COOKIE_SEGURO=false com URL_PUBLICA em https: o cookie de sessão pode vazar em http. Use COOKIE_SEGURO=true.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'COOKIE_SEGURO=false com URL_PUBLICA em https: o cookie de sessão pode vazar em http. Use COOKIE_SEGURO=true',
     );
   }
   if (limpar(variaveis.ARQUIVOS_SEGREDO) === ARQUIVOS_SEGREDO_DESENVOLVIMENTO) {
-    avisos.push(
-      'ARQUIVOS_SEGREDO é o segredo público de desenvolvimento do MinIO: troque-o antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'ARQUIVOS_SEGREDO é o segredo público de desenvolvimento do MinIO',
     );
   }
   if (senhaDoBanco(ambiente.databaseUrl) === 'crmbrl') {
-    avisos.push(
-      'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte.',
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte',
     );
   }
 }
@@ -730,6 +784,7 @@ function lerChaveCriptografia(
   producao: boolean,
   problemas: string[],
   avisos: string[],
+  permitirSegredosDev: boolean,
 ): Buffer {
   const texto = limpar(valor);
   if (!texto) {
@@ -757,8 +812,11 @@ function lerChaveCriptografia(
     return CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO;
   }
   if (producao && chave.equals(CHAVE_CRIPTOGRAFIA_DESENVOLVIMENTO)) {
-    avisos.push(
-      'CHAVE_CRIPTOGRAFIA é a chave pública de desenvolvimento: troque-a antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitirSegredosDev,
+      problemas,
+      avisos,
+      'CHAVE_CRIPTOGRAFIA é a chave pública de desenvolvimento',
     );
   }
   return chave;
@@ -1109,6 +1167,7 @@ function lerWhatsapp(
   producao: boolean,
   problemas: string[],
   avisos: string[],
+  permitirSegredosDev: boolean,
 ): ConfiguracaoWhatsapp {
   const porta = lerPorta(
     variaveis.WHATSAPP_PORTA,
@@ -1141,8 +1200,11 @@ function lerWhatsapp(
       `WHATSAPP_TOKEN_INTERNO precisa ter pelo menos ${TAMANHO_MINIMO_TOKEN_INTERNO} caracteres.`,
     );
   } else if (producao && tokenInterno === TOKEN_INTERNO_DESENVOLVIMENTO) {
-    avisos.push(
-      'WHATSAPP_TOKEN_INTERNO é o token público de desenvolvimento: troque-o antes de usar em produção.',
+    segredoDeDesenvolvimento(
+      permitirSegredosDev,
+      problemas,
+      avisos,
+      'WHATSAPP_TOKEN_INTERNO é o token público de desenvolvimento',
     );
   }
   return {

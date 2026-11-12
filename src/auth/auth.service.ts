@@ -79,17 +79,16 @@ export class AuthService {
     const email = normalizarEmail(dto.email);
     const agora = new Date();
 
-    const bloqueio = await this.forcaBruta.verificar(email, meta.ip, agora);
-    if (bloqueio) {
-      await this.forcaBruta.registrar(this.prisma, {
-        email,
-        ip: meta.ip,
-        sucesso: false,
-        motivo: bloqueio.motivo,
-        userAgent: meta.userAgent,
-      });
-      throw excecaoDeBloqueio(bloqueio, agora);
+    // Confere o bloqueio e reserva a tentativa antes do hash lento, sob trava (R2.5).
+    const reserva = await this.forcaBruta.reservar(
+      { email, ip: meta.ip, userAgent: meta.userAgent },
+      'SENHA_INCORRETA',
+      agora,
+    );
+    if (reserva.bloqueio) {
+      throw excecaoDeBloqueio(reserva.bloqueio, agora);
     }
+    const { reservaId } = reserva;
 
     const usuario = await this.prisma.usuario.findUnique({ where: { email } });
     // Sem usuário (ou sem senha definida) o hash fictício gasta o mesmo tempo.
@@ -103,7 +102,15 @@ export class AuthService {
         : !usuario.senhaHash
           ? 'SEM_SENHA'
           : 'SENHA_INCORRETA';
-      await this.registrarFalha(email, usuario, motivo, meta, agora);
+      await this.registrarFalha(
+        email,
+        usuario,
+        motivo,
+        meta,
+        agora,
+        'login',
+        reservaId,
+      );
       throw new NaoAutenticadoException(MENSAGEM_CREDENCIAIS_INVALIDAS);
     }
 
@@ -114,6 +121,8 @@ export class AuthService {
         'USUARIO_DESLIGADO',
         meta,
         agora,
+        'login',
+        reservaId,
       );
       throw new SemPermissaoException(MENSAGEM_ACESSO_DESATIVADO);
     }
@@ -127,6 +136,7 @@ export class AuthService {
     // falhas (não há registro de sucesso), senão os códigos seriam adivinháveis sem limite.
     if (usuario.doisFatoresAtivadoEm) {
       const desafio = await this.prisma.$transaction(async (tx) => {
+        await this.forcaBruta.liberar(tx, reservaId);
         if (novoHash) {
           await tx.usuario.update({
             where: { id: usuario.id },
@@ -163,7 +173,15 @@ export class AuthService {
     }
 
     const { token, sessao } = await this.prisma.$transaction((tx) =>
-      this.abrirSessao(tx, usuario, meta, agora, novoHash),
+      this.abrirSessao(
+        tx,
+        usuario,
+        meta,
+        agora,
+        novoHash,
+        undefined,
+        reservaId,
+      ),
     );
     return {
       tipo: 'sessao',
@@ -185,22 +203,20 @@ export class AuthService {
     const agora = new Date();
     const desafio = await this.doisFatores.buscarDesafio(dto.desafio, agora);
     const usuario = desafio.usuario;
-    const bloqueio = await this.forcaBruta.verificar(
-      usuario.email,
-      meta.ip,
-      agora,
-    );
-    if (bloqueio) {
-      await this.forcaBruta.registrar(this.prisma, {
+    const reserva = await this.forcaBruta.reservar(
+      {
         email: usuario.email,
         ip: meta.ip,
         usuarioId: usuario.id,
-        sucesso: false,
-        motivo: bloqueio.motivo,
         userAgent: meta.userAgent,
-      });
-      throw excecaoDeBloqueio(bloqueio, agora);
+      },
+      'DOIS_FATORES_INCORRETO',
+      agora,
+    );
+    if (reserva.bloqueio) {
+      throw excecaoDeBloqueio(reserva.bloqueio, agora);
     }
+    const { reservaId } = reserva;
     if (!usuario.ativo) {
       await this.registrarFalha(
         usuario.email,
@@ -208,6 +224,8 @@ export class AuthService {
         'USUARIO_DESLIGADO',
         meta,
         agora,
+        'login',
+        reservaId,
       );
       throw new SemPermissaoException(MENSAGEM_ACESSO_DESATIVADO);
     }
@@ -219,7 +237,9 @@ export class AuthService {
         desafio.id,
         agora,
       );
-      await this.doisFatores.registrarFalha(usuario, meta, agora, 'login');
+      await this.doisFatores.registrarFalha(usuario, meta, agora, 'login', {
+        reservaId,
+      });
       if (restantes <= 0) {
         throw new NaoAutenticadoException(MENSAGEM_DESAFIO_EXPIRADO, {
           regra: 'R2.11',
@@ -228,6 +248,7 @@ export class AuthService {
       throw this.doisFatores.codigoIncorreto(restantes);
     }
     const { token, sessao } = await this.prisma.$transaction(async (tx) => {
+      await this.forcaBruta.liberar(tx, reservaId);
       if (!(await this.doisFatores.consumirDesafio(tx, desafio.id, agora))) {
         throw new NaoAutenticadoException(MENSAGEM_DESAFIO_EXPIRADO, {
           regra: 'R2.11',
@@ -261,7 +282,9 @@ export class AuthService {
     agora: Date,
     novoHash?: string,
     doisFatores?: ViaDoCodigo,
+    reservaId?: bigint,
   ) {
+    await this.forcaBruta.liberar(tx, reservaId);
     if (meta.tokenAnterior) {
       await this.sessoes.revogarPorToken(tx, meta.tokenAnterior, 'novo_login');
     }
@@ -309,6 +332,29 @@ export class AuthService {
         resumo: `${usuario.nome} saiu do CRM`,
         dados: { sessaoId: usuario.sessaoId },
       });
+    });
+  }
+
+  /**
+   * "Encerrar as outras sessões" (R2.2): revoga todas as sessões da pessoa menos a atual (outros
+   * navegadores e aparelhos) e audita `usuario.sessoes_encerradas`.
+   */
+  async encerrarOutrasSessoes(usuario: UsuarioAutenticado): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const encerradas = await this.sessoes.revogarTodas(
+        tx,
+        usuario.id,
+        'encerrar_outras',
+        { exceto: usuario.sessaoId },
+      );
+      await this.auditoria.registrar(tx, {
+        acao: 'usuario.sessoes_encerradas',
+        entidade: 'usuario',
+        entidadeId: usuario.id,
+        resumo: `${usuario.nome} encerrou as outras sessões (${encerradas})`,
+        dados: { sessaoAtualId: usuario.sessaoId, encerradas },
+      });
+      return encerradas;
     });
   }
 
@@ -454,12 +500,14 @@ export class AuthService {
     meta: MetadadosDoLogin,
     agora: Date,
     origem: 'login' | 'troca_de_senha' = 'login',
+    reservaId?: bigint,
   ): Promise<void> {
     const ator: Ator | undefined =
       origem === 'login'
         ? { tipoAtor: 'USUARIO', descricao: email }
         : undefined;
     await this.prisma.$transaction(async (tx) => {
+      await this.forcaBruta.liberar(tx, reservaId);
       await this.forcaBruta.registrar(tx, {
         email,
         ip: meta.ip,

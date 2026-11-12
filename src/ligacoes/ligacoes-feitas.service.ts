@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { filtroDeVisibilidade } from '../atividades/regras-atividades';
 import { exigirAtendimento } from '../atendimento/conversas.service';
 import { ErroDaGraph } from '../canais/meta/graph-api';
 import {
@@ -72,7 +73,11 @@ export class LigacoesFeitasService {
     }
     const cliente = await this.permissoes.destinoDoContato(dto.contatoId);
     await this.exigirLivre(usuario.id, dto.contatoId, canal.id);
-    const atividadeId = await this.validarAtividade(dto.atividadeId);
+    const atividadeId = await this.validarAtividade(
+      usuario,
+      dto.atividadeId,
+      dto.contatoId,
+    );
 
     // A Meta é conferida antes de cada ligação: ela não avisa quando a permissão expira (R29.4).
     await this.permissoes.conferirParaLigar(canal, dto.contatoId, cliente);
@@ -215,17 +220,23 @@ export class LigacoesFeitasService {
     );
   }
 
+  /**
+   * A atividade de ligação que a chamada vai concluir: só uma que a pessoa vê (R6.4) e que é
+   * do contato que está sendo chamado. Qualquer outra é 404, como se não existisse.
+   */
   private async validarAtividade(
+    usuario: UsuarioAutenticado,
     atividadeId: string | undefined,
+    contatoId: string,
   ): Promise<string | null> {
     if (!atividadeId) {
       return null;
     }
     const atividade = await this.prisma.atividade.findFirst({
-      where: { id: atividadeId },
-      select: { id: true, tipo: true, status: true },
+      where: { AND: [{ id: atividadeId }, filtroDeVisibilidade(usuario)] },
+      select: { id: true, tipo: true, status: true, contatoId: true },
     });
-    if (!atividade) {
+    if (!atividade || atividade.contatoId !== contatoId) {
       throw new NaoEncontradoException('Atividade não encontrada.');
     }
     if (atividade.tipo !== 'LIGACAO' || atividade.status !== 'PENDENTE') {
