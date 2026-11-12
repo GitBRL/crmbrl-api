@@ -475,7 +475,10 @@ export class CalculoIndicadoresService {
     const funil = await this.funilDoWidget(usuario, parametros, filtro);
     const fonte = fonteDe('NEGOCIO', usuario, filtro);
     const [linhas, etapas] = await Promise.all([
-      this.prisma.$queryRaw<{ etapa_id: string; valor: number }[]>(Prisma.sql`
+      // "Chegou à etapa N" = alcançou a etapa N ou qualquer uma depois dela (ordem maior): assim a
+      // conversão entre etapas nunca passa de 100%, mesmo quando o negócio pulou etapas. A etapa de perda
+      // não conta como "ter avançado". Cada negócio entra uma vez, na maior ordem que alcançou.
+      this.prisma.$queryRaw<{ ordem: number; negocios: number }[]>(Prisma.sql`
         WITH coorte AS (
           SELECT DISTINCT m.negocio_id
             FROM negocio_movimentacoes m
@@ -486,22 +489,27 @@ export class CalculoIndicadoresService {
            WHERE m.de_etapa_id IS NULL AND m.funil_id = ${funil.id}::uuid
              AND m.criado_em >= ${filtro.de} AND m.criado_em < ${filtro.ate}
              AND ${fonte.onde})
-        SELECT m2.para_etapa_id::text AS etapa_id, count(DISTINCT m2.negocio_id)::float8 AS valor
-          FROM negocio_movimentacoes m2
-          JOIN coorte c ON c.negocio_id = m2.negocio_id
-         WHERE m2.funil_id = ${funil.id}::uuid AND m2.para_etapa_id IS NOT NULL
-         GROUP BY 1`),
+        SELECT max(et.ordem)::int AS ordem, count(*)::float8 AS negocios
+          FROM (
+            SELECT m2.negocio_id, max(e2.ordem) AS ordem
+              FROM negocio_movimentacoes m2
+              JOIN coorte c ON c.negocio_id = m2.negocio_id
+              JOIN etapas e2 ON e2.id = m2.para_etapa_id
+             WHERE m2.funil_id = ${funil.id}::uuid AND e2.tipo <> 'PERDIDO'::tipo_etapa
+             GROUP BY m2.negocio_id) et
+         GROUP BY et.ordem`),
       this.prisma.etapa.findMany({
         where: { funilId: funil.id, tipo: { not: 'PERDIDO' } },
         orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }],
-        select: { id: true, nome: true, tipo: true },
+        select: { id: true, nome: true, tipo: true, ordem: true },
       }),
     ]);
-    const porId = new Map(linhas.map((l) => [l.etapa_id, l.valor]));
     let anterior: number | null = null;
     let primeiro: number | null = null;
     const itens = etapas.map((etapa): LinhaDoWidget => {
-      const valor = porId.get(etapa.id) ?? 0;
+      const valor = linhas
+        .filter((linha) => linha.ordem >= etapa.ordem)
+        .reduce((soma, linha) => soma + linha.negocios, 0);
       const linha: LinhaDoWidget = {
         id: etapa.id,
         rotulo: etapa.nome,

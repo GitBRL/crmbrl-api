@@ -44,7 +44,11 @@ export class AtualizarConexaoDto {
   @IsBoolean(MENSAGEM_BOOLEANO)
   ativa?: boolean;
 
-  @ApiPropertyOptional({ example: 'https://3c.plus/api/v1' })
+  @ApiPropertyOptional({
+    example: 'https://3c.plus/api/v1',
+    description:
+      'Só hosts permitidos (3c.plus, 3c.fluxoti.com e subdomínios, mais os de `TRESC_PLUS_HOSTS_PERMITIDOS`); https fora do desenvolvimento. Trocar o host apaga o token do gestor (informe-o de novo) e desfaz os vínculos dos vendedores.',
+  })
   @IsOptional()
   @Transform(aparar)
   @IsString(MENSAGEM_TEXTO)
@@ -55,7 +59,7 @@ export class AtualizarConexaoDto {
     type: String,
     nullable: true,
     description:
-      'Servidor socket.io (lacuna: o endereço real só se confirma com a conta). Vazio/nulo = o host da API.',
+      'Servidor socket.io (lacuna: o endereço real só se confirma com a conta). Vazio/nulo = o host da API. Mesma lista de hosts permitidos da `urlApi`.',
   })
   @IsOptional()
   @Transform(apararOuNulo)

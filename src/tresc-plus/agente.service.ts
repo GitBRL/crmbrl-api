@@ -7,6 +7,7 @@ import {
   ServicoIndisponivelException,
 } from '../comum/erros/excecoes';
 import { funisAcessiveis } from '../funis/acessos-no-banco';
+import { veNegocio } from '../funis/negocios-visiveis';
 import type { Ligacao, TrescPlusVinculo } from '../generated/prisma/client';
 import { INCLUIR_LIGACAO, paraLigacaoDto } from '../ligacoes/ligacao-dto';
 import type { LigacaoDto } from '../ligacoes/ligacoes.dto';
@@ -20,7 +21,7 @@ import {
   textoDe,
 } from './cliente-tresc-plus';
 import { ConexaoTrescPlusService } from './conexao.service';
-import { ErroTrescPlus } from './erros-tresc-plus';
+import { traduzindo } from './erros-tresc-plus';
 import {
   descricaoDaAtividade,
   LigacoesTrescService,
@@ -40,16 +41,6 @@ import { somenteDigitos, telefoneDoTresc, telefoneParaTresc } from './telefone';
 import { VinculosTrescPlusService } from './vinculos.service';
 import { salas } from '../tempo-real/catalogo';
 import { TempoRealService } from '../tempo-real/tempo-real.service';
-
-/** Converte o erro do 3C+ em erro da API (mensagem em português); o resto sobe como veio. */
-export async function traduzindo<T>(acao: () => Promise<T>): Promise<T> {
-  try {
-    return await acao();
-  } catch (erro) {
-    if (erro instanceof ErroTrescPlus) throw erro.paraErroApi();
-    throw erro;
-  }
-}
 
 /** `YYYY-MM-DD HH:mm:ss` no fuso de São Paulo (o formato do agendamento do 3C+). */
 export function dataParaTresc(data: Date): string {
@@ -459,11 +450,12 @@ export class AgenteTrescPlusService {
     }
     if (!negocioId) {
       // Sem negócio informado: o mais recente aberto do contato (como no receptivo).
-      const encontrado = await this.ligacoes.resolverContato(this.prisma, {
-        telefone: null,
-        identifier: null,
-        contatoId: contato.id,
-      });
+      // R5.9: só entre os negócios que o vendedor vê.
+      const encontrado = await this.ligacoes.resolverContato(
+        this.prisma,
+        { telefone: null, identifier: null, contatoId: contato.id },
+        usuario,
+      );
       negocioId = encontrado?.negocioId ?? null;
     }
     const config = await this.conexao.ler();
@@ -689,7 +681,10 @@ export class AgenteTrescPlusService {
     this.tempoReal.emitir(
       salas.usuario(usuario.id),
       'tresc.ligacao',
-      cargaDaLigacao(atualizada),
+      cargaDaLigacao(
+        atualizada,
+        await veNegocio(this.prisma, usuario, atualizada.negocioId),
+      ),
     );
     return this.dto(id, usuario);
   }
@@ -702,7 +697,12 @@ export class AgenteTrescPlusService {
       where: { id },
       include: INCLUIR_LIGACAO,
     });
-    return paraLigacaoDto(completa, usuario.id, usuario.papel);
+    return paraLigacaoDto(
+      completa,
+      usuario.id,
+      usuario.papel,
+      await veNegocio(this.prisma, usuario, completa.negocioId),
+    );
   }
 
   private async auditar(

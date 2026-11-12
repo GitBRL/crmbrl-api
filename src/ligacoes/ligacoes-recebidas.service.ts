@@ -13,6 +13,7 @@ import {
 } from '../comum/erros/excecoes';
 import { FilaService } from '../fila/fila.service';
 import type { Canal } from '../generated/prisma/client';
+import { veNegocio } from '../funis/negocios-visiveis';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrismaService, type Tx } from '../prisma/prisma.service';
 import { salas } from '../tempo-real/catalogo';
@@ -437,7 +438,12 @@ export class LigacoesRecebidasService implements OnModuleInit {
         { motivo: 'ligacao_encerrada', estado: resultado.ligacao.estado },
       );
     }
-    return paraLigacaoDto(resultado.ligacao, usuario.id);
+    return paraLigacaoDto(
+      resultado.ligacao,
+      usuario.id,
+      null,
+      await veNegocio(this.prisma, usuario, resultado.ligacao.negocioId),
+    );
   }
 
   /** A Meta recusou o `pre_accept`/`accept`: a ligação falha e o atendente recebe o motivo em português. */
@@ -544,7 +550,12 @@ export class LigacoesRecebidasService implements OnModuleInit {
       }
       return resultado.ligacao;
     });
-    return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
+    return paraLigacaoDto(
+      ligacao,
+      usuario.id,
+      usuario.papel,
+      await veNegocio(this.prisma, usuario, ligacao.negocioId),
+    );
   }
 
   // -------------------------------------------------------------------------

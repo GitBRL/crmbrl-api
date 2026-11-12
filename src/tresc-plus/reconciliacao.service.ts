@@ -4,7 +4,8 @@ import { FilaService } from '../fila/fila.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { comoObjeto, listaDe, numeroDe } from './cliente-tresc-plus';
 import { ConexaoTrescPlusService } from './conexao.service';
-import { dataParaTresc, traduzindo } from './agente.service';
+import { dataParaTresc } from './agente.service';
+import { traduzindo } from './erros-tresc-plus';
 import { LigacoesTrescService } from './ligacoes-tresc.service';
 import {
   FILA_RECONCILIAR,

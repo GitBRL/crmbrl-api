@@ -217,6 +217,16 @@ export class AtividadesService {
     lancarSeHouver(problemas);
     const nota = dto.tipo === 'NOTA';
     const concluida = nota || dto.concluida === true;
+    // R6.6: a reunião já concluída (por uma pessoa) precisa do resultado; fora disso o campo é recusado.
+    const novaData =
+      dto.tipo === 'REUNIAO' && concluida
+        ? this.validarResultado(
+            dto.tipo,
+            dto.resultadoReuniao,
+            dto.novaData,
+            true,
+          )
+        : this.recusarResultadoSemConclusao(dto);
 
     const criada = await this.prisma.$transaction(async (tx) => {
       const responsavel = await this.validarResponsavel(
@@ -243,6 +253,10 @@ export class AtividadesService {
           criadoPorId: usuario.id,
           concluidaEm: concluida ? agora : null,
           concluidaPorId: concluida ? usuario.id : null,
+          resultadoReuniao:
+            dto.tipo === 'REUNIAO' && concluida
+              ? (dto.resultadoReuniao ?? null)
+              : null,
           ...vinculos,
         },
       });
@@ -258,11 +272,31 @@ export class AtividadesService {
       await this.eventos.publicar(tx, 'atividade.criada', dados);
       if (concluida && !nota) {
         await this.eventos.publicar(tx, 'atividade.concluida', dados);
+        if (novaData) await this.remarcar(tx, atividade, novaData);
         await this.registrarInteracao(tx, atividade, usuario.id);
       }
       return atividade;
     });
     return this.carregarResposta(criada.id, usuario);
+  }
+
+  /** R6.6 — `resultadoReuniao` e `novaData` só valem ao criar uma reunião já concluída. */
+  private recusarResultadoSemConclusao(dto: CriarAtividadeDto): null {
+    const problemas: ProblemaDeCampo[] = [];
+    if (dto.resultadoReuniao !== undefined) {
+      problemas.push({
+        campo: 'resultadoReuniao',
+        mensagens: ['só vale ao criar uma reunião já concluída'],
+      });
+    }
+    if (dto.novaData !== undefined) {
+      problemas.push({
+        campo: 'novaData',
+        mensagens: ['só vale ao criar uma reunião já concluída e remarcada'],
+      });
+    }
+    lancarSeHouver(problemas);
+    return null;
   }
 
   /** Lista paginada do que o usuário pode ver (R6.4), com os filtros. */
@@ -386,8 +420,26 @@ export class AtividadesService {
       lancarSeHouver(problemas);
 
       let novaData: Date | null = null;
+      // R6.6: uma concluída que vira reunião agora precisa do resultado (a nota não vira reunião: acima).
+      const virouReuniaoConcluida =
+        tipo === 'REUNIAO' &&
+        atual.tipo !== 'REUNIAO' &&
+        atual.status === 'CONCLUIDA';
+      if (virouReuniaoConcluida && dto.resultadoReuniao === undefined) {
+        throw new DadosInvalidosException(
+          'Informe o resultado da reunião para transformar uma atividade concluída em reunião.',
+          {
+            campos: [
+              {
+                campo: 'resultadoReuniao',
+                mensagens: ['é obrigatório para concluir uma reunião'],
+              },
+            ],
+          },
+        );
+      }
       if (dto.resultadoReuniao !== undefined) {
-        if (atual.tipo !== 'REUNIAO' || atual.status !== 'CONCLUIDA') {
+        if (tipo !== 'REUNIAO' || atual.status !== 'CONCLUIDA') {
           throw new DadosInvalidosException(
             'O resultado só se corrige numa reunião concluída.',
             {
@@ -401,7 +453,7 @@ export class AtividadesService {
           );
         }
         novaData = this.validarResultado(
-          atual.tipo,
+          tipo,
           dto.resultadoReuniao,
           dto.novaData,
           false,
@@ -440,30 +492,37 @@ export class AtividadesService {
           dto.empresaId === undefined ? atual.empresaId : dto.empresaId,
         negocioId:
           dto.negocioId === undefined ? atual.negocioId : dto.negocioId,
+        // R6.6: quem deixa de ser reunião perde o resultado (ele só existe na reunião).
         resultadoReuniao:
-          dto.resultadoReuniao === undefined
-            ? atual.resultadoReuniao
-            : dto.resultadoReuniao,
+          tipo !== 'REUNIAO'
+            ? null
+            : dto.resultadoReuniao === undefined
+              ? atual.resultadoReuniao
+              : dto.resultadoReuniao,
       };
       const alteracoes = calcularAlteracoes(atual, depois, CAMPOS_EDITAVEIS);
-      if (Object.keys(alteracoes).length === 0) {
+      // `REMARCADA` de novo com outra data só muda a reunião remarcada (o resultado continua o mesmo).
+      if (Object.keys(alteracoes).length === 0 && !novaData) {
         return;
       }
-      const atualizada = await tx.atividade.update({
-        where: { id },
-        data: {
-          ...depois,
-          ...marcadoresParaRearmar(atual, depois, new Date()),
-        },
-      });
+      const atualizada =
+        Object.keys(alteracoes).length === 0
+          ? atual
+          : await tx.atividade.update({
+              where: { id },
+              data: {
+                ...depois,
+                ...marcadoresParaRearmar(atual, depois, new Date()),
+              },
+            });
       const anterior = novoResponsavel
         ? await tx.usuario.findUnique({
             where: { id: atual.responsavelId },
             select: { nome: true },
           })
         : null;
-      if (novaData && atual.resultadoReuniao !== 'REMARCADA') {
-        await this.criarRemarcacao(tx, atualizada, novaData);
+      if (novaData) {
+        await this.remarcar(tx, atualizada, novaData);
       }
       await this.auditoria.registrar(tx, {
         acao: 'atividade.atualizada',
@@ -534,7 +593,7 @@ export class AtividadesService {
         dadosDoEvento(atualizada),
       );
       if (novaData) {
-        await this.criarRemarcacao(tx, atualizada, novaData);
+        await this.remarcar(tx, atualizada, novaData);
       }
       await this.registrarInteracao(tx, atualizada, usuario.id);
     });
@@ -673,6 +732,65 @@ export class AtividadesService {
     return data;
   }
 
+  /**
+   * R6.6 — a reunião remarcada de `origem` na `novaData`. Uma reunião tem no máximo uma remarcação: se ela
+   * já existe (corrigindo o resultado de novo, ou reabrindo e concluindo outra vez), a pendente é movida
+   * para a nova data; se já foi concluída ou cancelada, a correção é recusada com uma mensagem clara.
+   */
+  private async remarcar(
+    tx: Tx,
+    origem: Atividade,
+    novaData: Date,
+  ): Promise<void> {
+    const existente = await tx.atividade.findFirst({
+      where: { remarcadaDeId: origem.id },
+      orderBy: { criadoEm: 'desc' },
+    });
+    if (!existente) {
+      await this.criarRemarcacao(tx, origem, novaData);
+      return;
+    }
+    if (existente.status !== 'PENDENTE') {
+      throw new ConflitoException(
+        'A reunião remarcada a partir desta já foi concluída ou cancelada: remarque a reunião mais recente.',
+        { status: existente.status, remarcadaId: existente.id },
+      );
+    }
+    const duracao =
+      existente.inicioEm && existente.fimEm
+        ? existente.fimEm.getTime() - existente.inicioEm.getTime()
+        : 60 * 60 * 1000;
+    const novoFim = new Date(novaData.getTime() + duracao);
+    const movida = await tx.atividade.update({
+      where: { id: existente.id },
+      data: {
+        venceEm: novaData,
+        inicioEm: novaData,
+        fimEm: novoFim,
+        ...marcadoresParaRearmar(
+          existente,
+          { ...existente, venceEm: novaData, fimEm: novoFim },
+          new Date(),
+        ),
+      },
+    });
+    await this.auditoria.registrar(tx, {
+      acao: 'atividade.atualizada',
+      entidade: 'atividade',
+      entidadeId: movida.id,
+      resumo: `Reunião "${movida.titulo}" remarcada para outra data`,
+      dados: {
+        alteracoes: {
+          inicioEm: {
+            antes: existente.inicioEm?.toISOString() ?? null,
+            depois: novaData.toISOString(),
+          },
+        },
+      },
+      relacionados: relacionadosDe(movida),
+    });
+  }
+
   /** R6.6 — a nova reunião pendente de uma remarcação (mesma duração e vínculos). */
   private async criarRemarcacao(
     tx: Tx,
@@ -720,6 +838,14 @@ export class AtividadesService {
     usuarioId: string,
   ): Promise<void> {
     if (atividade.tipo === 'NOTA') {
+      return;
+    }
+    // R6.7: a reunião em que o contato não apareceu (ou que foi remarcada) não é contato real.
+    if (
+      atividade.tipo === 'REUNIAO' &&
+      (atividade.resultadoReuniao === 'NAO_COMPARECEU' ||
+        atividade.resultadoReuniao === 'REMARCADA')
+    ) {
       return;
     }
     let contatoId = atividade.contatoId;

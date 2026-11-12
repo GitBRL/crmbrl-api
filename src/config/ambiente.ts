@@ -7,6 +7,7 @@
  * `AMBIENTE` — nenhum outro arquivo de `src/` lê `process.env`.
  */
 import { createHash } from 'node:crypto';
+import { normalizarHostPermitido } from '../tresc-plus/hosts-permitidos';
 
 /** Token de injeção do ambiente já validado. */
 export const AMBIENTE = Symbol('AMBIENTE');
@@ -124,6 +125,8 @@ export interface ConfiguracaoTrescPlus {
   readonly ouvinteAtivo: boolean;
   /** Intervalo da reconciliação por `GET /calls`, em minutos (`TRESC_PLUS_RECONCILIACAO_MIN`, padrão 10). */
   readonly reconciliacaoMinutos: number;
+  /** Hosts do 3C+ além dos padrão (`TRESC_PLUS_HOSTS_PERMITIDOS`: lista separada por vírgula; aceita `*.dominio`). */
+  readonly hostsPermitidos: readonly string[];
 }
 
 /** Ligações pelo WhatsApp oficial (Onda E, R29). */
@@ -319,6 +322,7 @@ export interface VariaveisDeAmbiente {
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
   TRESC_PLUS_OUVINTE?: string;
   TRESC_PLUS_RECONCILIACAO_MIN?: string;
+  TRESC_PLUS_HOSTS_PERMITIDOS?: string;
   TRANSCRICAO_URL?: string;
   WHISPER_MODELO?: string;
   TRANSCRICAO_TEMPO_LIMITE_S?: string;
@@ -385,6 +389,7 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
   'TRESC_PLUS_OUVINTE',
   'TRESC_PLUS_RECONCILIACAO_MIN',
+  'TRESC_PLUS_HOSTS_PERMITIDOS',
   'TRANSCRICAO_URL',
   'WHISPER_MODELO',
   'TRANSCRICAO_TEMPO_LIMITE_S',
@@ -1182,7 +1187,33 @@ function lerTrescPlus(
       problemas,
     ),
     reconciliacaoMinutos: Math.min(minutos, 120),
+    hostsPermitidos: lerHostsTrescPlus(
+      variaveis.TRESC_PLUS_HOSTS_PERMITIDOS,
+      problemas,
+    ),
   };
+}
+
+function lerHostsTrescPlus(
+  valor: string | undefined,
+  problemas: string[],
+): string[] {
+  const itens = (limpar(valor) ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  const hosts: string[] = [];
+  for (const item of itens) {
+    const host = normalizarHostPermitido(item);
+    if (host === null) {
+      problemas.push(
+        `TRESC_PLUS_HOSTS_PERMITIDOS tem um item inválido ("${item}"): use dominio.com, *.dominio.com ou um IP.`,
+      );
+    } else if (!hosts.includes(host)) {
+      hosts.push(host);
+    }
+  }
+  return hosts;
 }
 
 function lerLigacoes(

@@ -271,7 +271,10 @@ export class LinhaDoTempoService {
     );
     // A atividade que a pessoa vê (R6.4) pode ser de um negócio que ela não vê: o vínculo some (R5.9).
     const idsDeNegocios = [
-      ...new Set(atividades.flatMap((a) => (a.negocioId ? [a.negocioId] : []))),
+      ...new Set([
+        ...atividades.flatMap((a) => (a.negocioId ? [a.negocioId] : [])),
+        ...ligacoes.flatMap((l) => (l.negocioId ? [l.negocioId] : [])),
+      ]),
     ];
     const negociosVisiveis = new Set(
       idsDeNegocios.length > 0
@@ -324,7 +327,11 @@ export class LinhaDoTempoService {
             ocorridoEm,
             evento: null,
             atividade: null,
-            ligacao: this.paraLigacao(ligacao),
+            ligacao: this.paraLigacao(
+              ligacao,
+              ligacao.negocioId !== null &&
+                negociosVisiveis.has(ligacao.negocioId),
+            ),
           });
         }
       }
@@ -339,6 +346,8 @@ export class LinhaDoTempoService {
         atendente: { select: typeof SELECIONAR_USUARIO_VINCULADO };
       };
     }>,
+    /** R5.9: a pessoa vê o funil do negócio ligado? */
+    mostrarNegocio: boolean,
   ): LigacaoDaLinhaDoTempoDto {
     const resumo = ligacao.resumo as ResumoGravado | null;
     const terminal = ESTADOS_TERMINAIS.includes(ligacao.estado);
@@ -357,7 +366,7 @@ export class LinhaDoTempoService {
       canalId: ligacao.canal?.id ?? null,
       canalNome: ligacao.canal?.nome ?? null,
       provedor: ligacao.provedor,
-      negocioId: ligacao.negocioId,
+      negocioId: mostrarNegocio ? ligacao.negocioId : null,
       qualificacaoNome: ligacao.qualificacaoNome,
       campanhaNome: ligacao.campanhaNome,
       atendente: ligacao.atendente

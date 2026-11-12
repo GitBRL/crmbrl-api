@@ -407,8 +407,17 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
     transação, uma nova reunião pendente (mesmo título, descrição, responsável, contato,
     empresa, negócio e duração) com `remarcadaDeId`. `novaData` só vale com `REMARCADA`.
     Concluir pelo código (jobs, ligações) não passa pelo corpo e deixa o resultado nulo.
+  - Criar a reunião **já concluída** (`POST /atividades` com `concluida: true`) também exige
+    `resultadoReuniao` (400 no campo; `novaData` com `REMARCADA`); `resultadoReuniao` e `novaData`
+    são recusados (400) quando a atividade não é uma reunião concluída. Trocar o tipo de uma
+    reunião concluída (`PATCH`) apaga o resultado; transformar uma atividade concluída em
+    reunião exige `resultadoReuniao` (400).
   - Correção: `PATCH /atividades/:id` com `{resultadoReuniao}` numa reunião **concluída**
-    (auditado em `atividade.atualizada`); `REMARCADA` exige `novaData` e cria a remarcada.
+    (auditado em `atividade.atualizada`); `REMARCADA` exige `novaData`. Uma reunião tem **no
+    máximo uma remarcação** (achada por `remarcadaDeId`): corrigir para `REMARCADA` de novo
+    (também `REMARCADA` → `REMARCADA` com outra data, ou reabrir e concluir como `REMARCADA`)
+    **move a reunião remarcada pendente** para a nova data, mantendo a duração; se ela já foi
+    concluída ou cancelada, a correção é recusada (409) pedindo para remarcar a mais recente.
     Reabrir apaga o resultado; a reunião remarcada já criada continua.
   - DTO: `resultadoReuniao`, `remarcadaDeId` e o calculado `aguardandoResultado` (reunião
     `PENDENTE` com o **início** no passado; `atrasada` segue pelo fim). Filtros em
@@ -420,11 +429,15 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   `ATIVIDADE`) e `primeiraInteracaoPorId`, gravados **uma única vez**: a primeira ação **de
   uma pessoa** com o contato do negócio depois da criação do negócio. Bot, chatbot,
   automação, disparo, SDR com IA e sistema não contam. Conta:
-  - ligação feita por uma pessoa (WhatsApp, ao iniciar) ou recebida e atendida por ela;
+  - ligação (WhatsApp ou 3C+, feita ou recebida) que uma pessoa **atendeu/conectou**: conta
+    quando a ligação passa a EM_ANDAMENTO (ou, no histórico do 3C+, quando houve fala). Discar
+    não conta; tampouco a que não foi atendida, falhou ou foi cancelada;
   - mensagem enviada por uma pessoa numa conversa do contato (`EMAIL` no canal de e-mail,
     `MENSAGEM` nos demais; nota interna não conta);
   - atividade concluída por uma pessoa (ou criada já concluída) ligada ao contato ou ao
-    negócio, menos `NOTA`.
+    negócio, menos `NOTA`. A **reunião** só conta se o contato apareceu: concluída com
+    `NAO_COMPARECEU` ou `REMARCADA` não conta; `COMPARECEU` conta. O preenchimento retroativo
+    da migration não aplica essa distinção (fica como está).
   - O ponto único de registro é `registrarPrimeiraInteracao(tx, {contatoId, tipo,
     usuarioId, quando?})` (`src/funis/primeira-interacao.ts`), chamado na transação da
     ação. Vale para todos os negócios **abertos** do contato criados antes da ação e ainda
@@ -3286,9 +3299,9 @@ Onda T (T3). Painéis de indicadores que Admin, C-level e líderes montam a part
 - **R33.1** **Catálogo** (`GET /indicadores/catalogo`, constante na API): cada indicador tem chave, nome, descrição, grupo (Leads, Reuniões, Vendas, Ligações, Atividades), unidade (`NUMERO`, `PERCENTUAL`, `MOEDA`, `DURACAO` — duração sempre em **segundos**), parâmetros, dimensões de barras e visualizações aceitas. Definições:
   - *Leads* — `leads_recebidos` (negócios criados no período); `leads_atendidos` (dos criados no período, os com primeira interação, R6.7); `taxa_atendimento` (atendidos ÷ recebidos); `tempo_ate_atendimento` (média ou mediana, parâmetro `estatistica`, de primeira interação − criação, **pela data da interação** no período); `leads_sem_atendimento` (abertos sem primeira interação, **agora**).
   - *Reuniões* — pelo **início** no período, sem as canceladas: `reunioes_agendadas`, `reunioes_realizadas` (`COMPARECEU`), `reunioes_no_show` (`NAO_COMPARECEU`), `reunioes_remarcadas` (`REMARCADA`), `reunioes_sem_resultado` (sem resultado e que já começaram); `taxa_comparecimento` = COMPARECEU ÷ (COMPARECEU + NAO_COMPARECEU) e `taxa_no_show` = NAO_COMPARECEU ÷ (COMPARECEU + NAO_COMPARECEU). Remarcada e sem resultado ficam fora das taxas. A reunião nova criada pela remarcação conta como agendada (R6.6).
-  - *Vendas* — `negocios_ganhos` e `valor_ganho` (pela data do ganho), `ticket_medio` (valor ganho ÷ ganhos), `negocios_perdidos` (pela data da perda), `perdas_por_motivo` (barras por motivo), `taxa_conversao` = ganhos ÷ (ganhos + perdidos) fechados no período, `taxa_conversao_coorte` (dos criados no período, quantos já foram ganhos), `conversao_entre_etapas` (parâmetros etapa de origem e de destino: dos negócios que **entraram na origem no período**, quantos chegaram ao destino depois, pelo histórico de movimentação; como funil, dos que **entraram no funil no período**, quantos passaram por cada etapa — a etapa de perda não entra na sequência), `ciclo_medio` (criação → ganho, dos ganhos do período), `negocios_abertos` e `valor_em_aberto` (agora).
-  - *Ligações* — a tabela de ligações, **sem filtrar por provedor** (WhatsApp hoje; o 3C+ entra na mesma tabela, R34): `ligacoes_feitas` (direção `FEITA`, pela data de início), `ligacoes_atendidas` (feitas com atendimento), `taxa_atendimento_ligacoes` (atendidas ÷ feitas), `duracao_media_ligacao` e `tempo_falado` (ligações atendidas; parâmetro `direcao`: `TODAS`, `FEITA` ou `RECEBIDA`).
-  - *Atividades* — `atividades_concluidas` (pela data de conclusão, sem notas; parâmetro `tipo` opcional) e `atividades_atrasadas` (pendentes com prazo vencido, agora, sem notas).
+  - *Vendas* — `negocios_ganhos` e `valor_ganho` (pela data do ganho), `ticket_medio` (valor ganho ÷ ganhos), `negocios_perdidos` (pela data da perda), `perdas_por_motivo` (barras por motivo), `taxa_conversao` = ganhos ÷ (ganhos + perdidos) fechados no período, `taxa_conversao_coorte` (dos criados no período, quantos já foram ganhos), `conversao_entre_etapas` (parâmetros etapa de origem e de destino: dos negócios que **entraram na origem no período**, quantos chegaram ao destino depois, pelo histórico de movimentação; como funil, dos que **entraram no funil no período**, quantos "chegaram à etapa N" — alcançaram a etapa N **ou qualquer etapa de ordem maior** (quem pulou etapas conta nas anteriores, então a conversão entre etapas nunca passa de 100%) —; a etapa de perda não entra na sequência nem conta como ter avançado), `ciclo_medio` (criação → ganho, dos ganhos do período), `negocios_abertos` e `valor_em_aberto` (agora).
+  - *Ligações* — a tabela de ligações, **sem filtrar por provedor** (WhatsApp hoje; o 3C+ entra na mesma tabela, R34): `ligacoes_feitas` (direção `FEITA` **por pessoas** — `atendente_id` preenchido; o discador sem atendente não entra, nem no ranking como "Sem responsável" —, pela data de início), `ligacoes_atendidas` (feitas com atendimento), `taxa_atendimento_ligacoes` (atendidas ÷ feitas), `duracao_media_ligacao` e `tempo_falado` (ligações atendidas; parâmetro `direcao`: `TODAS`, `FEITA` ou `RECEBIDA`).
+  - *Atividades* — `atividades_concluidas` (pela data de conclusão, sem notas; parâmetro `tipo` opcional) e `atividades_atrasadas` (pendentes com prazo vencido, agora, sem notas, **com a mesma regra da aba "Atrasadas" da agenda** — R6.3, a reunião pelo fim —, para o número bater com a lista que o clique abre; as reuniões passadas sem resultado também têm o indicador próprio `reunioes_sem_resultado`).
   - Taxa ou média sem base (divisão por zero, nenhuma amostra) vale **nulo**, nunca zero. Contagens e somas vazias valem zero.
 - **R33.2** **Visualizações:** `NUMERO` (valor, período anterior de mesma duração, variação e meta; indicadores "de agora" não têm comparação, R20.4), `SERIE` (por dia, semana — de segunda a domingo — ou mês, no fuso de São Paulo, sem buracos: balde vazio é 0 nas contagens e nulo nas médias e taxas), `RANKING` (por pessoa: responsável do negócio ou da atividade, atendente da ligação; até 50 linhas; ordem do melhor ao pior segundo o indicador), `POR_ETAPA` (etapas de um funil, na ordem, inclusive as vazias), `BARRAS` (por motivo, origem, UTM source, funil, tipo, resultado, direção ou como terminou a ligação, conforme o indicador) e `FUNIL`. Cada indicador declara as que aceita; widget com visualização que o indicador não aceita é recusado (400). `POR_ETAPA` e `FUNIL` usam o funil do parâmetro, o único funil do filtro ou o funil-base do Comercial.
 - **R33.3** **Filtros** (do painel, com sobrescrita por widget, chave a chave; o que o usuário escolhe no topo vale sobre o padrão do painel e é vencido pelo do widget): `periodo` (`HOJE`, `ULTIMOS_7_DIAS`, `ULTIMOS_30_DIAS` — padrão —, `MES_ATUAL`, `MES_ANTERIOR`, `TRIMESTRE`, `ANO` ou `PERSONALIZADO` com `de` e `ate`, até 366 dias; os predefinidos seguem o dia de São Paulo e os "até agora" terminam no fim de hoje), `comparar`, `funilIds`, `etapaIds`, `setor`, `equipeId`, `pessoaIds`, `origens`, `utmSource`, `utmCampaign` e `etiquetas` (do contato). Em atividades e ligações, funil, etapa, origem e UTM valem pelo negócio ligado (da atividade, ou do contato da ligação); `setor` vale pelo setor do funil (negócios) ou da pessoa responsável (atividades e ligações). **Filtro fora do alcance é recusado como no BI (R20.3):** funil ou etapa de outro setor ou que a pessoa não vê, e pessoa de outro setor, dão 404; setor ou equipe de outro setor, 403; período maior que 366 dias ou invertido, 400. O filtro escolhido no topo recusa a chamada inteira; um filtro do painel ou do widget que a pessoa não alcança derruba só os widgets afetados (R33.7). Ao salvar, o painel é conferido contra o alcance de **quem salva**.
@@ -3336,13 +3349,24 @@ confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e
   `••••` + os 4 últimos caracteres; a auditoria registra se o token mudou, nunca o valor. Ativar exige o token; limpar o
   token desativa. "Testar conexão" faz `GET /me` com o token do gestor e responde, em português, se funcionou (avisa se o
   token não é de gestor) e guarda o resultado. Alterar a conexão reinicia o ouvinte de eventos.
+  **Hosts permitidos (anti-SSRF e anti-captura de credenciais):** `urlApi` e `urlSocket` só aceitam o 3C+ (`3c.plus` e
+  subdomínios) e `3c.fluxoti.com` (e subdomínios); outros hosts entram pela variável `TRESC_PLUS_HOSTS_PERMITIDOS` (lista
+  separada por vírgula; `*.dominio` libera os subdomínios; é decisão de quem instala, não do Admin do CRM). Fora do
+  desenvolvimento, os hosts padrão exigem `https`/`wss`; nunca IP literal (privado, loopback, link-local ou público) nem
+  usuário/senha na URL, salvo host que o operador liste explicitamente (aí vale como ele escreveu, inclusive IP e `http`,
+  para o 3C+ simulado). Recusado: 400 no campo. A conferência roda também **antes de cada uso** do endereço guardado
+  (testar, vincular, chamadas do agente, ouvinte do socket): um endereço fora da lista nunca recebe o token do gestor
+  nem a senha do vendedor (422 `endereco_nao_permitido`). **Trocar o host** da API ou do socket exige informar o token do
+  gestor de novo (o token guardado é apagado e a integração é desativada, a menos que o mesmo `PATCH` já traga o novo
+  token) e **desfaz os vínculos de todos os vendedores** (eles conectam de novo), cada um com auditoria
+  (`tresc-plus.vinculo-removido`, motivo `endereco_trocado`).
   `GET /tresc-plus/campanhas` e `GET /tresc-plus/campanhas/:id/listas` (Admin, C-level e líder) usam o token do gestor.
 - **R34.2 Vínculo do vendedor** (`GET|POST|DELETE /tresc-plus/vinculo`; Admin: `GET /tresc-plus/vinculos`,
   `DELETE /tresc-plus/vinculos/:usuarioId`). `POST` recebe e-mail ou ramal e a senha do 3C+, chama `POST /authenticate`
   **uma única vez** e guarda só o `api_token` (cifrado), o ramal e o id do usuário no 3C+; **a senha nunca é guardada,
   registrada em log nem auditada**. Exige a integração ativa. Um usuário do 3C+ só pode estar ligado a uma pessoa do CRM
   (409); refazer o próprio vínculo é permitido. Desconectar (o próprio, ou o Admin desvincula) sai da campanha no 3C+ por
-  melhor esforço. Sem vínculo, as rotas do agente respondem 422 pedindo "Conectar ao 3C+".
+  melhor esforço. Sem vínculo, as rotas do agente respondem 422 pedindo "Conectar ao 3C+". O índice único em `tresc_usuario_id` decide as corridas (violação = 409). A ligação é atribuída ao vendedor só pelo **id do agente** no 3C+ (nunca pelo nome); sem id, fica sem atendente.
 - **R34.3 Registro das ligações.** Na mesma tabela e no mesmo histórico das ligações do WhatsApp (R29/R30), com
   `provedor` (`WHATSAPP` ou `TRESC_PLUS`), `idExterno` (id da chamada, único por provedor), `negocioId`, campanha,
   modo da chamada (`manual`, `dialer`, `receptive`), tempo falado e **qualificação** (id, nome, observação, conversão).
@@ -3352,9 +3376,16 @@ confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e
   contato e do negócio e nos indicadores (T3), com a **visibilidade do R29** (atendente, responsável do contato e líder dele,
   diretoria). O fim da ligação cria a atividade `LIGACAO` concluída do vendedor (com a qualificação na descrição), audita
   (`ligacao.<estado>`) e publica `ligacao.encerrada` (automações e webhooks de saída, com `provedor` e `canalId: null`).
-  **Primeira interação (R6.7):** ligação feita por uma pessoa chama `registrarPrimeiraInteracao` (feita pelo CRM, ou pelo
-  3C+ em modo manual, ao ser criada); a do discador e a recebida só contam quando conectam ao agente. A regra "uma ligação
-  ativa por atendente" continua só para o WhatsApp.
+  **Primeira interação (R6.7):** a ligação com atendente chama `registrarPrimeiraInteracao` **só quando conecta ao agente**
+  (EM_ANDAMENTO) ou, no histórico, quando houve fala — discar, não atendida e falha não contam (o discador e o manual
+  seguem a mesma regra). A regra "uma ligação ativa por atendente" continua só para o WhatsApp.
+  **Visibilidade de negócio (R5.9):** o negócio de uma ligação escolhido pelo telefone (receptivo, `ligar` sem negócio)
+  é só entre os que o vendedor vê (sem atendente, o mais recente); o aviso `tresc.recebida` lista só esses; `negocioId`
+  de funil que quem recebe não vê sai como nulo no DTO, na linha do tempo e na carga `tresc.ligacao`; `ligar` com
+  `negocioId` invisível é 404. **Corrida `ligar` × `call-was-created`:** se a ligação já existe quando o CRM registra o
+  `dial`, o contato e o negócio escolhidos no CRM prevalecem sobre os inferidos pelo telefone (inclusive na atividade já
+  criada). **Anotação** (`PATCH /ligacoes/:id`) de ligação do 3C+ usa o texto da atividade do 3C+ e a inclui. O histórico
+  que corrige uma recebida PERDIDA para ENCERRADA cria a atividade `LIGACAO` que faltou (sem republicar `ligacao.encerrada`).
 - **R34.4 Ouvinte de eventos.** Um `socket.io-client` por empresa (o token do gestor vai em `?token=`; não vai a log),
   ligado ao subir a API (`TRESC_PLUS_OUVINTE`, padrão junto de `PROCESSAR_FILAS`). **Reconexão com backoff** exponencial
   de 1 s a 60 s com variação de ±25%; o estado (`conectado`, `reconectando`, `erro`) fica em `GET /tresc-plus/conexao`.
@@ -3370,7 +3401,7 @@ confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e
   ligação (contexto `LIGACAO`) → a **transcrição e o resumo do R30 valem também** (a gravação do 3C+ entra como o áudio original).
   **Reconciliação:** job pg-boss a cada `TRESC_PLUS_RECONCILIACAO_MIN` minutos (padrão 10) e `POST /tresc-plus/reconciliar`
   (Admin): lê `GET /calls` (janela desde a última reconciliação, com 15 min de folga, ou 6 h) e aplica cada registro pelo mesmo
-  caminho do histórico; fecha as ligações sem fim há mais de 3 h (ENCERRADA se falou; senão SEM_RESPOSTA/PERDIDA).
+  caminho do histórico; fecha as ligações sem fim há mais de 3 h (ENCERRADA se falou; senão SEM_RESPOSTA/PERDIDA), com a mesma trava (`tresc:<chamada>` + `FOR UPDATE`) dos eventos e **duração zero** (sem histórico não há duração real).
 - **R34.5 Agente e ligação** (token do próprio vendedor; erros do 3C+ viram mensagens claras em português e **nunca 401**,
   que deslogaria a pessoa do CRM: token recusado, sem permissão, agente não ocioso, sem campanha, limite de requisições,
   3C+ indisponível). `GET /tresc-plus/agente[?atualizar=true]` (estado, campanha, modo, pausa, ligação em curso ou a
@@ -3387,7 +3418,9 @@ confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e
   importados e filtrados com o motivo em português (DND, ligado recentemente, bloqueio, sem telefone válido, negócio sem
   acesso) e fica em `tresc_plus_envios`. **Ação em massa `DISCADOR`** em `POST /negocios/em-massa` (R5.16), `dados: {campanhaId,
   listaId | nomeLista}`: mesma permissão (403 para os demais); `sucesso` = importados, `falhas` = negócios que não entraram
-  (422 `R34`) e `discador` com o relatório.
+  (422 `R34`) e `discador` com o relatório. **Marketing (R4.6):** contato com `optOutMarketing` não é enviado: entra em
+  `filtrados` com o motivo "Pediu para não receber contato de marketing (R4.6)". **Visibilidade (R5.9):** negócio que a
+  pessoa não vê, ou excluído, é "Negócio não encontrado." (na ação em massa: falha 404, sem título nem o motivo real).
 - **R34.7 Receptivo.** Ligação recebida (modo `receptive`) casa o número com o contato: o vendedor que atende recebe
   `tresc.recebida` com o contato, a empresa e os negócios abertos (a tela abre a ficha) e a ligação é registrada como RECEBIDA.
   Número desconhecido: `tresc.recebida` com `contato: null` e `novoContato: true` ("novo contato"); **a ligação sem contato não é

@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
+import { descricaoDaAtividade as descricaoDaLigacaoTresc } from '../tresc-plus/descricao-da-ligacao';
+import { negociosQueVe, veNegocio } from '../funis/negocios-visiveis';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { dadosDoEvento } from '../atividades/atividades.service';
@@ -247,12 +249,9 @@ export class LigacoesService implements OnModuleInit {
         atendidaEm: ligacao.atendidaEm?.toISOString() ?? null,
       });
     }
-    if (
-      decisao.estado === 'EM_ANDAMENTO' &&
-      ligacao.direcao === 'RECEBIDA' &&
-      ligacao.atendenteId
-    ) {
-      // R6.7 — ligação recebida e atendida por uma pessoa.
+    if (decisao.estado === 'EM_ANDAMENTO' && ligacao.atendenteId) {
+      // R6.7 — ligação (feita ou recebida) atendida/conectada, com uma pessoa do lado do CRM: só aí conta
+      // como contato real (não na criação, nem quando falha ou ninguém atende).
       await registrarPrimeiraInteracao(tx, {
         contatoId: ligacao.contatoId,
         tipo: 'LIGACAO',
@@ -565,8 +564,16 @@ export class LigacoesService implements OnModuleInit {
       | 'anotacao'
       | 'atendente'
       | 'iniciadaEm'
+      | 'provedor'
+      | 'telefone'
+      | 'campanhaNome'
+      | 'qualificacaoNome'
+      | 'qualificacaoNota'
     >,
   ): string {
+    // As ligações do 3C+ têm outro texto (campanha, qualificação), mas a anotação vale para as duas.
+    if (ligacao.provedor === 'TRESC_PLUS')
+      return descricaoDaLigacaoTresc(ligacao);
     const linhas = [
       `Direção: ${ligacao.direcao === 'RECEBIDA' ? 'recebida' : 'feita'} pelo WhatsApp.`,
       `Resultado: ${RESULTADO_POR_ESTADO[ligacao.estado]}${
@@ -911,7 +918,12 @@ export class LigacoesService implements OnModuleInit {
     exigirAtendimento(usuario);
     const ligacao = await this.carregar(this.prisma, id);
     await this.exigirAcesso(usuario, ligacao);
-    return paraLigacaoDto(ligacao, usuario.id, usuario.papel);
+    return paraLigacaoDto(
+      ligacao,
+      usuario.id,
+      usuario.papel,
+      await veNegocio(this.prisma, usuario, ligacao.negocioId),
+    );
   }
 
   /** A ligação em curso do usuário e as que ainda tocam para ele (retomar depois de recarregar a página). */
@@ -937,9 +949,24 @@ export class LigacoesService implements OnModuleInit {
       include: INCLUIR_LIGACAO,
       orderBy: { iniciadaEm: 'asc' },
     });
+    const visiveis = await negociosQueVe(this.prisma, usuario, [
+      emAndamento?.negocioId,
+      ...tocando.map((item) => item.negocioId),
+    ]);
+    const ve = (negocioId: string | null) =>
+      !negocioId || visiveis.has(negocioId);
     return {
-      emAndamento: emAndamento ? paraLigacaoDto(emAndamento, usuario.id) : null,
-      tocando: tocando.map((item) => paraLigacaoDto(item, usuario.id)),
+      emAndamento: emAndamento
+        ? paraLigacaoDto(
+            emAndamento,
+            usuario.id,
+            null,
+            ve(emAndamento.negocioId),
+          )
+        : null,
+      tocando: tocando.map((item) =>
+        paraLigacaoDto(item, usuario.id, null, ve(item.negocioId)),
+      ),
     };
   }
 
@@ -1003,7 +1030,12 @@ export class LigacoesService implements OnModuleInit {
       );
     }
     if (ehTerminal(ligacao.estado)) {
-      return paraLigacaoDto(ligacao, usuario.id);
+      return paraLigacaoDto(
+        ligacao,
+        usuario.id,
+        null,
+        await veNegocio(this.prisma, usuario, ligacao.negocioId),
+      );
     }
     if (ligacao.direcao === 'RECEBIDA' && ligacao.estado === 'TOCANDO') {
       throw new ConflitoException(

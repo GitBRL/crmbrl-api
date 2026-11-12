@@ -132,3 +132,13 @@ export function traduzirErroHttp(
     original,
   );
 }
+
+/** Converte o erro do 3C+ em erro da API (mensagem em português); o resto sobe como veio. */
+export async function traduzindo<T>(acao: () => Promise<T>): Promise<T> {
+  try {
+    return await acao();
+  } catch (erro) {
+    if (erro instanceof ErroTrescPlus) throw erro.paraErroApi();
+    throw erro;
+  }
+}

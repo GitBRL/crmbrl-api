@@ -235,4 +235,158 @@ describe('Atividades — resultado da reunião (e2e)', () => {
     ).toEqual([]);
     await cliente.get(URL).query({ resultadoReuniao: 'XPTO' }).expect(400);
   });
+
+  it('R6.6 — criar reunião já concluída exige o resultado (400 no campo); com ele, grava (e REMARCADA cria a nova)', async () => {
+    const inicio = horas(-2);
+    const base = {
+      tipo: 'REUNIAO',
+      titulo: 'Já aconteceu',
+      inicioEm: inicio,
+      fimEm: new Date(new Date(inicio).getTime() + 3_600_000).toISOString(),
+      concluida: true,
+    };
+    const sem = await cliente.post(URL, base).expect(400);
+    expect(JSON.stringify(sem.body.detalhes)).toContain('resultadoReuniao');
+    expect(await t.prisma.atividade.count()).toBe(0);
+    const ok = await cliente
+      .post(URL, { ...base, resultadoReuniao: 'COMPARECEU' })
+      .expect(201);
+    expect(ok.body).toMatchObject({
+      status: 'CONCLUIDA',
+      resultadoReuniao: 'COMPARECEU',
+    });
+    const remarcada = await cliente
+      .post(URL, {
+        ...base,
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(48),
+      })
+      .expect(201);
+    expect(
+      await t.prisma.atividade.count({
+        where: { remarcadaDeId: remarcada.body.id },
+      }),
+    ).toBe(1);
+    // Fora da reunião concluída, o resultado é recusado.
+    await cliente
+      .post(URL, {
+        tipo: 'TAREFA',
+        titulo: 'Tarefa',
+        venceEm: horas(5),
+        resultadoReuniao: 'COMPARECEU',
+      })
+      .expect(400);
+    await cliente
+      .post(URL, { ...base, concluida: false, resultadoReuniao: 'COMPARECEU' })
+      .expect(400);
+  });
+
+  it('R6.6 — trocar o tipo de uma reunião concluída limpa o resultado; uma concluída vira reunião só com resultado', async () => {
+    const { id } = await novaReuniao();
+    await cliente
+      .post(`${URL}/${id}/concluir`, { resultadoReuniao: 'COMPARECEU' })
+      .expect(200);
+    const virou = await cliente
+      .patch(`${URL}/${id}`, { tipo: 'LIGACAO', venceEm: horas(5) })
+      .expect(200);
+    expect(virou.body).toMatchObject({
+      tipo: 'LIGACAO',
+      resultadoReuniao: null,
+    });
+    // O caminho inverso: concluída → reunião sem resultado é recusada.
+    const datas = { inicioEm: horas(-2), fimEm: horas(-1) };
+    const sem = await cliente
+      .patch(`${URL}/${id}`, { tipo: 'REUNIAO', ...datas })
+      .expect(400);
+    expect(JSON.stringify(sem.body.detalhes)).toContain('resultadoReuniao');
+    const com = await cliente
+      .patch(`${URL}/${id}`, {
+        tipo: 'REUNIAO',
+        ...datas,
+        resultadoReuniao: 'NAO_COMPARECEU',
+      })
+      .expect(200);
+    expect(com.body).toMatchObject({
+      tipo: 'REUNIAO',
+      resultadoReuniao: 'NAO_COMPARECEU',
+    });
+  });
+
+  it('R6.6 — REMARCADA → COMPARECEU → REMARCADA não cria uma segunda remarcada: move a primeira', async () => {
+    const { id } = await novaReuniao();
+    await cliente
+      .post(`${URL}/${id}/concluir`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(48),
+      })
+      .expect(200);
+    await cliente
+      .patch(`${URL}/${id}`, { resultadoReuniao: 'COMPARECEU' })
+      .expect(200);
+    const novaData = horas(96);
+    await cliente
+      .patch(`${URL}/${id}`, { resultadoReuniao: 'REMARCADA', novaData })
+      .expect(200);
+    const remarcadas = await t.prisma.atividade.findMany({
+      where: { remarcadaDeId: id },
+    });
+    expect(remarcadas).toHaveLength(1);
+    expect(remarcadas[0].inicioEm?.toISOString()).toBe(
+      new Date(novaData).toISOString(),
+    );
+  });
+
+  it('R6.6 — REMARCADA → REMARCADA com outra data move a reunião remarcada; concluída, recusa (409)', async () => {
+    const { id } = await novaReuniao();
+    await cliente
+      .post(`${URL}/${id}/concluir`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(48),
+      })
+      .expect(200);
+    const outraData = horas(120);
+    await cliente
+      .patch(`${URL}/${id}`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: outraData,
+      })
+      .expect(200);
+    const unica = await t.prisma.atividade.findFirstOrThrow({
+      where: { remarcadaDeId: id },
+    });
+    expect(unica.inicioEm?.toISOString()).toBe(
+      new Date(outraData).toISOString(),
+    );
+    expect(unica.fimEm!.getTime() - unica.inicioEm!.getTime()).toBe(3_600_000);
+    expect(
+      await t.prisma.atividade.count({ where: { remarcadaDeId: id } }),
+    ).toBe(1);
+    // A remarcada já foi concluída: não dá para remarcar a origem de novo.
+    await t.prisma.atividade.update({
+      where: { id: unica.id },
+      data: { status: 'CONCLUIDA', concluidaEm: new Date() },
+    });
+    const conflito = await cliente
+      .patch(`${URL}/${id}`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(150),
+      })
+      .expect(409);
+    expect(conflito.body.mensagem).toMatch(/remarcada/);
+    // Reabrir a origem e concluir como REMARCADA de novo também não duplica.
+    await t.prisma.atividade.update({
+      where: { id: unica.id },
+      data: { status: 'PENDENTE', concluidaEm: null },
+    });
+    await cliente.post(`${URL}/${id}/reabrir`).expect(200);
+    await cliente
+      .post(`${URL}/${id}/concluir`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(200),
+      })
+      .expect(200);
+    expect(
+      await t.prisma.atividade.count({ where: { remarcadaDeId: id } }),
+    ).toBe(1);
+  });
 });

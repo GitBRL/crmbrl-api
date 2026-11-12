@@ -741,6 +741,7 @@ model Negocio {
   @@index([empresaId])
   @@index([negocioOrigemId])
   @@index([funilId, criadoEm], map: "negocios_funil_criado_idx")
+  @@index([criadoEm], map: "negocios_criado_idx")
   @@index([primeiraInteracaoEm], map: "negocios_primeira_interacao_idx", where: raw("primeira_interacao_em IS NOT NULL"))
   @@index([funilId, ganhoEm], map: "negocios_funil_ganho_idx", where: raw("ganho_em IS NOT NULL"))
   @@index([funilId, perdidoEm], map: "negocios_funil_perdido_idx", where: raw("perdido_em IS NOT NULL"))
@@ -912,6 +913,7 @@ model Atividade {
   @@index([criadoPorId])
   @@index([remarcadaDeId])
   @@index([concluidaEm], map: "atividades_concluida_idx", where: raw("status = 'CONCLUIDA'::status_atividade"))
+  @@index([inicioEm], map: "atividades_reuniao_inicio_idx", where: raw("tipo = 'REUNIAO'::tipo_atividade"))
   @@map("atividades")
 }
 
@@ -3753,7 +3755,7 @@ model TrescPlusVinculo {
   usuarioId        String    @unique @map("usuario_id") @db.Uuid
   usuario          Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   /// Id do usuário no 3C+ (`agent.id` dos eventos).
-  trescUsuarioId   Int       @map("tresc_usuario_id")
+  trescUsuarioId   Int       @unique @map("tresc_usuario_id")
   nome3c           String?   @map("nome_3c")
   ramal            String?
   tokenCifrado     String    @map("token_cifrado")
@@ -3770,7 +3772,6 @@ model TrescPlusVinculo {
   vinculadoEm      DateTime  @default(now()) @map("vinculado_em") @db.Timestamptz(3)
   atualizadoEm     DateTime  @updatedAt @map("atualizado_em") @db.Timestamptz(3)
 
-  @@index([trescUsuarioId])
   @@map("tresc_plus_vinculos")
 }
 

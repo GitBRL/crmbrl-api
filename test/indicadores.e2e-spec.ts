@@ -385,12 +385,93 @@ describe('Indicadores configuráveis (R33, e2e)', () => {
       expect(await numero(cAdmin, 'tempo_falado')).toBe(300);
     });
 
+    it('R33.1 — Ligações: o discador sem atendente não entra em feitas nem na taxa, nem no ranking ("Sem responsável")', async () => {
+      const contato = await criarContato(t);
+      const inicio = quando(2, 12);
+      await t.prisma.ligacao.create({
+        data: {
+          provedor: 'TRESC_PLUS',
+          idExterno: 'discador-1',
+          contatoId: contato.id,
+          direcao: 'FEITA',
+          estado: 'SEM_RESPOSTA',
+          atendenteId: null,
+          iniciadaEm: inicio,
+          encerradaEm: inicio,
+          duracaoSegundos: 0,
+        },
+      });
+      expect(await numero(cAdmin, 'ligacoes_feitas')).toBe(4);
+      expect(await numero(cAdmin, 'taxa_atendimento_ligacoes')).toBe(75);
+      const [rank] = await calcular(cAdmin, [
+        { indicador: 'ligacoes_feitas', visualizacao: 'RANKING' },
+      ]);
+      expect(rank.linhas?.map((l) => l.valor)).toEqual([3, 1]);
+      expect(JSON.stringify(rank.linhas)).not.toContain('Sem responsável');
+    });
+
+    it('R33.1 — conversão em FUNIL: "chegou à etapa N" inclui quem pulou etapas (nunca passa de 100%)', async () => {
+      const funil = await funilBase(t, 'COMERCIAL');
+      const etapa = (chave: string) =>
+        funil.etapas.find((e) => e.chave === chave)!;
+      // Entrou em "Novo" e foi direto para "Proposta", sem passar por "Qualificação".
+      const pulou = await criarNegocioBi(t, {
+        area: 'COMERCIAL',
+        etapa: 'proposta',
+        responsavel: v1,
+        criadoEm: quando(1),
+      });
+      await t.prisma.negocioMovimentacao.createMany({
+        data: [
+          {
+            negocioId: pulou.id,
+            funilId: funil.id,
+            deEtapaId: null,
+            paraEtapaId: etapa('novo').id,
+            tipoAtor: 'SISTEMA',
+            criadoEm: pulou.criadoEm,
+          },
+          {
+            negocioId: pulou.id,
+            funilId: funil.id,
+            deEtapaId: etapa('novo').id,
+            paraEtapaId: etapa('proposta').id,
+            tipoAtor: 'USUARIO',
+            criadoEm: new Date(pulou.criadoEm.getTime() + 3_600_000),
+          },
+        ],
+      });
+      const [w] = await calcular(cAdmin, [
+        { indicador: 'conversao_entre_etapas', visualizacao: 'FUNIL' },
+      ]);
+      const linhas = w.linhas ?? [];
+      const valor = (rotulo: string) =>
+        linhas.find((l) => l.rotulo === rotulo)?.valor;
+      // Novo: 5 (os 4 de antes + o que pulou); Qualificação (ordem ≥ 2): n2 e o que pulou = 2;
+      // Proposta: só o que pulou = 1.
+      expect(valor('Novo')).toBe(5);
+      expect(valor('Qualificação')).toBe(2);
+      expect(valor('Apresentação')).toBe(1);
+      expect(valor('Proposta')).toBe(1);
+      for (const l of linhas) {
+        expect(l.conversao === null || (l.conversao as number) <= 100).toBe(
+          true,
+        );
+      }
+      for (let i = 1; i < linhas.length; i += 1) {
+        expect(linhas[i].valor as number).toBeLessThanOrEqual(
+          linhas[i - 1].valor as number,
+        );
+      }
+    });
+
     it('R33.1 — Atividades: concluídas (com parâmetro de tipo) e atrasadas', async () => {
       expect(await numero(cAdmin, 'atividades_concluidas')).toBe(7);
       expect(
         await numero(cAdmin, 'atividades_concluidas', { tipo: 'REUNIAO' }),
       ).toBe(6);
-      // Reunião de v1 pendente com início passado e a tarefa de v2 vencida.
+      // Mesma regra da aba "Atrasadas" da agenda (R6.3): a tarefa vencida de v2 e a reunião pendente de v1
+      // que já terminou (a reunião vale pelo fim).
       expect(await numero(cAdmin, 'atividades_atrasadas')).toBe(2);
     });
   });

@@ -106,7 +106,11 @@ describe('lerAmbiente', () => {
         rdStationDialogoUrl: 'https://api.rd.services',
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
-      trescPlus: { ouvinteAtivo: true, reconciliacaoMinutos: 10 },
+      trescPlus: {
+        ouvinteAtivo: true,
+        reconciliacaoMinutos: 10,
+        hostsPermitidos: [],
+      },
       transcricao: {
         url: null,
         modelo: 'small',
@@ -216,6 +220,27 @@ describe('lerAmbiente', () => {
     expect(ambiente.avisos).toContain(
       'OBSERVE_APP_SECRET não definida: o @nestjs/observe fica desligado (ele precisa das duas chaves).',
     );
+  });
+
+  describe('R34.1 — TRESC_PLUS_HOSTS_PERMITIDOS', () => {
+    it('lê a lista separada por vírgula (aceita *.dominio e IP), sem repetidos', () => {
+      expect(
+        ler({
+          TRESC_PLUS_HOSTS_PERMITIDOS:
+            ' apoio, *.Interno.com ,apoio,127.0.0.1 ',
+        }).trescPlus.hostsPermitidos,
+      ).toEqual(['apoio', '*.interno.com', '127.0.0.1']);
+      expect(ler({}).trescPlus.hostsPermitidos).toEqual([]);
+    });
+
+    it('recusa item inválido', () => {
+      expect(
+        problemasDe({
+          DATABASE_URL: URL_DO_BANCO,
+          TRESC_PLUS_HOSTS_PERMITIDOS: 'ok.com, não é host',
+        }).join(' '),
+      ).toMatch(/TRESC_PLUS_HOSTS_PERMITIDOS/);
+    });
   });
 
   describe('produção', () => {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { CriptografiaService } from '../comum/criptografia/criptografia.service';
@@ -6,6 +6,7 @@ import {
   DadosInvalidosException,
   RegraVioladaException,
 } from '../comum/erros/excecoes';
+import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import type { TrescPlusConfig } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -16,7 +17,12 @@ import {
   numeroDe,
   textoDe,
 } from './cliente-tresc-plus';
-import { ErroTrescPlus } from './erros-tresc-plus';
+import { ErroTrescPlus, traduzindo } from './erros-tresc-plus';
+import {
+  hostDaUrl,
+  motivoDaUrlRecusada,
+  type RegraDeHostsTrescPlus,
+} from './hosts-permitidos';
 import type {
   AtualizarConexaoDto,
   ConexaoTrescPlusDto,
@@ -38,15 +44,17 @@ export function finalDoToken(token: string): string {
   return token.slice(-4);
 }
 
-function urlValida(valor: string, protocolos: readonly string[]): boolean {
-  if (!URL.canParse(valor)) return false;
-  return protocolos.includes(new URL(valor).protocol);
-}
-
 /** Objeto com o usuário de uma resposta do 3C+ (`/me`, `/authenticate`): `{data: {...}}` ou direto. */
 export function usuarioDaResposta(corpo: unknown): Record<string, unknown> {
   const interno = comoObjeto(desembrulhar(corpo));
   return interno ?? {};
+}
+
+/** Os hosts da API e do socket (o do socket é o da API quando não há URL própria), para detectar troca. */
+function hostsEfetivos(urlApi: string, urlSocket: string | null): string {
+  const api = hostDaUrl(urlApi || URL_API_PADRAO);
+  const socket = urlSocket ? hostDaUrl(urlSocket) : api;
+  return `${api ?? ''}|${socket ?? ''}`;
 }
 
 type Observador = () => void | Promise<void>;
@@ -63,7 +71,45 @@ export class ConexaoTrescPlusService {
     private readonly prisma: PrismaService,
     private readonly cripto: CriptografiaService,
     private readonly auditoria: AuditoriaService,
+    @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
+
+  /** Regra de hosts permitidos (padrão + `TRESC_PLUS_HOSTS_PERMITIDOS`). */
+  private get regraDeHosts(): RegraDeHostsTrescPlus {
+    return {
+      producao: this.ambiente.producao,
+      extras: this.ambiente.trescPlus.hostsPermitidos,
+    };
+  }
+
+  /**
+   * Antes de mandar o token (do gestor ou do vendedor) para o endereço guardado: o host precisa estar na
+   * lista de permitidos (R34.1). Protege contra endereço gravado antes da regra ou mudança da lista.
+   */
+  exigirEnderecoPermitido(
+    config: Pick<TrescPlusConfig, 'urlApi' | 'urlSocket'>,
+  ): void {
+    const motivo =
+      motivoDaUrlRecusada(
+        config.urlApi || URL_API_PADRAO,
+        ['http:', 'https:'],
+        this.regraDeHosts,
+      ) ??
+      (config.urlSocket
+        ? motivoDaUrlRecusada(
+            config.urlSocket,
+            ['http:', 'https:', 'ws:', 'wss:'],
+            this.regraDeHosts,
+          )
+        : null);
+    if (motivo) {
+      throw new RegraVioladaException(
+        REGRA_TRESC_PLUS,
+        `O endereço do 3C+ configurado não é aceito (${motivo}). O Admin precisa corrigi-lo em Configurações, Integrações.`,
+        { motivo: 'endereco_nao_permitido' },
+      );
+    }
+  }
 
   /** Quem quer saber quando a conexão muda (o ouvinte reconecta). */
   aoMudar(observador: Observador): void {
@@ -127,14 +173,15 @@ export class ConexaoTrescPlusService {
       atualizadoPorId: usuario.id,
     };
     if (dto.urlApi !== undefined) {
-      if (!urlValida(dto.urlApi, ['http:', 'https:'])) {
+      const motivo = motivoDaUrlRecusada(
+        dto.urlApi,
+        ['http:', 'https:'],
+        this.regraDeHosts,
+      );
+      if (motivo) {
         throw new DadosInvalidosException(
-          'Dados inválidos — urlApi: informe um endereço http(s) completo, como https://3c.plus/api/v1.',
-          {
-            campos: [
-              { campo: 'urlApi', mensagens: ['endereço http(s) inválido'] },
-            ],
-          },
+          `Dados inválidos — urlApi: ${motivo}. Informe um endereço completo, como https://3c.plus/api/v1.`,
+          { campos: [{ campo: 'urlApi', mensagens: [motivo] }] },
         );
       }
       dados.urlApi = dto.urlApi.replace(/\/+$/, '');
@@ -142,16 +189,18 @@ export class ConexaoTrescPlusService {
     if (dto.urlSocket !== undefined) {
       if (dto.urlSocket === null || dto.urlSocket.trim() === '') {
         dados.urlSocket = null;
-      } else if (
-        !urlValida(dto.urlSocket, ['http:', 'https:', 'ws:', 'wss:'])
-      ) {
-        throw new DadosInvalidosException(
-          'Dados inválidos — urlSocket: informe um endereço http(s) ou ws(s) completo.',
-          {
-            campos: [{ campo: 'urlSocket', mensagens: ['endereço inválido'] }],
-          },
-        );
       } else {
+        const motivo = motivoDaUrlRecusada(
+          dto.urlSocket.trim(),
+          ['http:', 'https:', 'ws:', 'wss:'],
+          this.regraDeHosts,
+        );
+        if (motivo) {
+          throw new DadosInvalidosException(
+            `Dados inválidos — urlSocket: ${motivo}.`,
+            { campos: [{ campo: 'urlSocket', mensagens: [motivo] }] },
+          );
+        }
         dados.urlSocket = dto.urlSocket.trim().replace(/\/+$/, '');
       }
     }
@@ -160,12 +209,26 @@ export class ConexaoTrescPlusService {
     }
     if (dto.formatoEnvelope !== undefined)
       dados.formatoEnvelope = dto.formatoEnvelope;
-    if (dto.limparToken) {
+    // Trocou o host da API ou do socket: o token guardado não pode seguir para o novo destino (R34.1). O Admin
+    // precisa informar o token de novo e os vendedores conectam de novo.
+    const urlApiNova =
+      typeof dados.urlApi === 'string' ? dados.urlApi : atual.urlApi;
+    const urlSocketNova =
+      dados.urlSocket === undefined
+        ? atual.urlSocket
+        : typeof dados.urlSocket === 'string'
+          ? dados.urlSocket
+          : null;
+    const hostMudou =
+      hostsEfetivos(urlApiNova, urlSocketNova) !==
+      hostsEfetivos(atual.urlApi, atual.urlSocket);
+    const tokenNovo = dto.token !== undefined && dto.token.trim() !== '';
+    if (dto.limparToken || (hostMudou && !tokenNovo)) {
       dados.tokenCifrado = null;
       dados.tokenFinal = null;
       dados.ativa = false;
     }
-    if (dto.token !== undefined && dto.token.trim() !== '') {
+    if (tokenNovo && dto.token !== undefined) {
       const token = dto.token.trim();
       dados.tokenCifrado = this.cripto.cifrar(token);
       dados.tokenFinal = finalDoToken(token);
@@ -176,7 +239,10 @@ export class ConexaoTrescPlusService {
         dto.campanhaPadraoId === null ? null : (dto.campanhaPadraoNome ?? null);
     }
     if (dto.ativa !== undefined) {
-      const temToken = dados.tokenCifrado ?? atual.tokenCifrado;
+      const temToken =
+        dados.tokenCifrado !== undefined
+          ? dados.tokenCifrado
+          : atual.tokenCifrado;
       if (dto.ativa && !temToken) {
         throw new RegraVioladaException(
           REGRA_TRESC_PLUS,
@@ -190,6 +256,27 @@ export class ConexaoTrescPlusService {
         where: { id: 1 },
         data: dados,
       });
+      if (hostMudou) {
+        const vinculos = await tx.trescPlusVinculo.findMany({
+          select: { id: true, usuarioId: true, trescUsuarioId: true },
+        });
+        for (const vinculo of vinculos) {
+          await tx.trescPlusVinculo.delete({ where: { id: vinculo.id } });
+          await this.auditoria.registrar(tx, {
+            acao: 'tresc-plus.vinculo-removido',
+            entidade: 'tresc_plus_vinculo',
+            entidadeId: vinculo.id,
+            resumo:
+              'Vínculo com o 3C+ desfeito: o endereço do 3C+ da empresa mudou',
+            dados: {
+              regra: REGRA_TRESC_PLUS,
+              motivo: 'endereco_trocado',
+              trescUsuarioId: vinculo.trescUsuarioId,
+            },
+            relacionados: { usuario: vinculo.usuarioId },
+          });
+        }
+      }
       await this.auditoria.registrar(tx, {
         acao: 'tresc-plus.conexao-atualizada',
         entidade: 'tresc_plus',
@@ -199,7 +286,11 @@ export class ConexaoTrescPlusService {
           ativa: gravada.ativa,
           urlApi: gravada.urlApi,
           urlSocket: gravada.urlSocket,
-          tokenAlterado: dto.token !== undefined || dto.limparToken === true,
+          tokenAlterado:
+            dto.token !== undefined ||
+            dto.limparToken === true ||
+            dados.tokenCifrado === null,
+          enderecoTrocado: hostMudou,
           campanhaPadraoId: gravada.campanhaPadraoId,
         },
       });
@@ -257,6 +348,7 @@ export class ConexaoTrescPlusService {
         'A integração com o 3C+ ainda não foi configurada: o Admin precisa informar o token do gestor.',
       );
     }
+    this.exigirEnderecoPermitido(config);
     return new ClienteTrescPlus({
       baseUrl: config.urlApi || URL_API_PADRAO,
       token: this.cripto.decifrar(config.tokenCifrado),
@@ -269,9 +361,10 @@ export class ConexaoTrescPlusService {
 
   /** Cliente com o token de um vendedor (decifrado só aqui, na hora de usar). */
   clienteDoVendedor(
-    config: Pick<TrescPlusConfig, 'urlApi'>,
+    config: Pick<TrescPlusConfig, 'urlApi' | 'urlSocket'>,
     tokenCifrado: string,
   ): ClienteTrescPlus {
+    this.exigirEnderecoPermitido(config);
     return new ClienteTrescPlus({
       baseUrl: config.urlApi || URL_API_PADRAO,
       token: this.cripto.decifrar(tokenCifrado),
@@ -301,7 +394,9 @@ export class ConexaoTrescPlusService {
   async campanhas(): Promise<
     Array<{ id: number; nome: string; pausada: boolean | null }>
   > {
-    const corpo = await (await this.clienteDaEmpresaAtual()).campanhas();
+    const corpo = await traduzindo(async () =>
+      (await this.clienteDaEmpresaAtual()).campanhas(),
+    );
     return listaDe(corpo).flatMap((item) => {
       const c = comoObjeto(item);
       const id = c ? numeroDe(c.id) : null;

@@ -3,8 +3,9 @@
 -- 2. `negocios.primeira_interacao_em|tipo|por_id`, gravados uma única vez por quem registra a interação.
 -- 3. Preenchimento retroativo da primeira interação a partir do que já existe (atividades concluídas
 --    que não são nota, mensagens de saída escritas por pessoas e ligações feitas ou atendidas por
---    pessoas), sempre depois da criação do negócio. É um único UPDATE por chave: só trava as linhas
---    dos negócios atualizados, não a tabela.
+--    pessoas), sempre depois da criação do negócio. São UPDATEs que varrem atividades, mensagens e
+--    ligações e travam as linhas dos negócios atualizados, dentro de uma única transação: aceitável com as
+--    tabelas pequenas desta fase; em bases grandes, rode o preenchimento em lotes fora da migration.
 BEGIN;
 
 CREATE TYPE "resultado_reuniao" AS ENUM ('COMPARECEU', 'NAO_COMPARECEU', 'REMARCADA');

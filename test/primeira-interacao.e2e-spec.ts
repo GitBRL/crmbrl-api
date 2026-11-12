@@ -169,6 +169,74 @@ describe('Negócios — primeira interação (e2e)', () => {
     });
   });
 
+  it('R6.7 — reunião NAO_COMPARECEU ou REMARCADA não conta; COMPARECEU conta (só contato real)', async () => {
+    const cliente = await entrarComo(t, ana());
+    const reuniao = async (contatoId: string, titulo: string) =>
+      (
+        await cliente
+          .post('/api/v1/atividades', {
+            tipo: 'REUNIAO',
+            titulo,
+            contatoId,
+            inicioEm: horas(-2),
+            fimEm: horas(-1),
+          })
+          .expect(201)
+      ).body as { id: string };
+    const naoCompareceu = await criarContato(t);
+    const remarcada = await criarContato(t);
+    const compareceu = await criarContato(t);
+    const n1 = await criarNegocio(t, {
+      contato: naoCompareceu,
+      responsavel: ana(),
+    });
+    const n2 = await criarNegocio(t, {
+      contato: remarcada,
+      responsavel: ana(),
+    });
+    const n3 = await criarNegocio(t, {
+      contato: compareceu,
+      responsavel: ana(),
+    });
+    const r1 = await reuniao(naoCompareceu.id, 'Não veio');
+    const r2 = await reuniao(remarcada.id, 'Remarcou');
+    const r3 = await reuniao(compareceu.id, 'Veio');
+    await cliente
+      .post(`/api/v1/atividades/${r1.id}/concluir`, {
+        resultadoReuniao: 'NAO_COMPARECEU',
+      })
+      .expect(200);
+    await cliente
+      .post(`/api/v1/atividades/${r2.id}/concluir`, {
+        resultadoReuniao: 'REMARCADA',
+        novaData: horas(48),
+      })
+      .expect(200);
+    expect(await primeira(n1.id)).toBeNull();
+    expect(await primeira(n2.id)).toBeNull();
+    await cliente
+      .post(`/api/v1/atividades/${r3.id}/concluir`, {
+        resultadoReuniao: 'COMPARECEU',
+      })
+      .expect(200);
+    expect(await primeira(n3.id)).not.toBeNull();
+    // Criar a reunião já concluída segue a mesma regra.
+    const outro = await criarContato(t);
+    const n4 = await criarNegocio(t, { contato: outro, responsavel: ana() });
+    await cliente
+      .post('/api/v1/atividades', {
+        tipo: 'REUNIAO',
+        titulo: 'Já concluída',
+        contatoId: outro.id,
+        inicioEm: horas(-2),
+        fimEm: horas(-1),
+        concluida: true,
+        resultadoReuniao: 'NAO_COMPARECEU',
+      })
+      .expect(201);
+    expect(await primeira(n4.id)).toBeNull();
+  });
+
   it('R6.7 — ponto de registro: só negócios abertos, criados antes da ação, do contato; ligação do 3C+ usa o mesmo ponto', async () => {
     const contato = await criarContato(t);
     const aberto = await criarNegocio(t, { contato });

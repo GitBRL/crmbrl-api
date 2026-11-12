@@ -69,6 +69,7 @@ describe('ouvinte de eventos do 3C+ (R34.4)', () => {
         aoMudar: jest.fn(),
         ler: () => Promise.resolve(config),
         tokenDaEmpresa: () => 'tok',
+        exigirEnderecoPermitido: jest.fn(),
         registrarEstadoDoOuvinte: (e: string) => {
           estados.push(e);
           return Promise.resolve();

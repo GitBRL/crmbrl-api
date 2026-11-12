@@ -112,6 +112,13 @@ export class OuvinteDeEventosTrescPlus
       await this.conexao.registrarEstadoDoOuvinte('desconectado');
       return;
     }
+    try {
+      // O token do gestor só vai para um host permitido (R34.1).
+      this.conexao.exigirEnderecoPermitido(config);
+    } catch {
+      await this.conexao.registrarEstadoDoOuvinte('endereco_nao_permitido');
+      return;
+    }
     this.parado = false;
     this.formato = config.formatoEnvelope as FormatoDeEnvelope;
     this.conectar(

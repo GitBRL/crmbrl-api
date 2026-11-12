@@ -1260,12 +1260,24 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
     it('cenário 212 — R29.3 — com permissão: connect com a oferta, resposta SDP pelo tempo real, RINGING → TOCANDO, ACCEPTED → EM_ANDAMENTO, encerrar e atividade', async () => {
       await ativarLigacoes();
       const contato = await contatoDaMaria();
+      const negocioDaMaria = await criarNegocio(t, {
+        contato,
+        responsavel: cenario.comercial.membros[0]!,
+      });
+      const primeiraInteracao = async () =>
+        (
+          await t.prisma.negocio.findUniqueOrThrow({
+            where: { id: negocioDaMaria.id },
+          })
+        ).primeiraInteracaoEm;
       graph.estado.permissoes.set(TELEFONE, {
         status: 'temporary',
         expiration: Math.floor(Date.now() / 1000) + 3 * 86_400,
       });
       const socketAna = await conectar(ana);
       const criada = await pedidoDeLigacao(contato.id).expect(201);
+      // R6.7 — discar não é contato real: só conta quando a ligação é atendida.
+      expect(await primeiraInteracao()).toBeNull();
       expect(criada.body).toMatchObject({
         direcao: 'FEITA',
         estado: 'CHAMANDO',
@@ -1310,6 +1322,7 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
       const aceita = esperarEvento(socketAna, 'ligacao.estado');
       await entregar(statusDeChamada(idMeta, 'ACCEPTED'));
       expect(await aceita).toMatchObject({ estado: 'EM_ANDAMENTO' });
+      expect(await primeiraInteracao()).not.toBeNull();
       expect(
         await t.prisma.ligacao.findUniqueOrThrow({
           where: { id: criada.body.id },
@@ -1454,10 +1467,22 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
     it('cenário 216 — R29.3 — cancelar enquanto chama: terminate na Meta e SEM_RESPOSTA (cancelada pelo atendente); e o botão desligado bloqueia', async () => {
       await ativarLigacoes();
       const contato = await contatoDaMaria();
+      const negocioDaMaria = await criarNegocio(t, {
+        contato,
+        responsavel: cenario.comercial.membros[0]!,
+      });
       graph.estado.permissoes.set(TELEFONE, { status: 'permanent' });
       const criada = await pedidoDeLigacao(contato.id).expect(201);
       await ana.post(`/api/v1/ligacoes/${criada.body.id}/encerrar`).expect(200);
       expect(chamadasNaMeta('terminate')).toHaveLength(1);
+      // R6.7 — ligação que ninguém atendeu não é primeira interação.
+      expect(
+        (
+          await t.prisma.negocio.findUniqueOrThrow({
+            where: { id: negocioDaMaria.id },
+          })
+        ).primeiraInteracaoEm,
+      ).toBeNull();
       expect(
         await t.prisma.ligacao.findUniqueOrThrow({
           where: { id: criada.body.id },

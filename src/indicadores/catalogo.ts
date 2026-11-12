@@ -638,7 +638,7 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
     chave: 'ligacoes_feitas',
     nome: 'Ligações feitas',
     descricao:
-      'Ligações que as pessoas fizeram no período, por qualquer provedor.',
+      'Ligações que as pessoas fizeram no período, por qualquer provedor (o discador sem atendente não entra).',
     grupo: 'LIGACOES',
     unidade: 'NUMERO',
     visualizacoes: [...COM_BARRAS],
@@ -646,7 +646,11 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
     calculo: {
       ...LIGACAO,
       tempo: 'l.iniciada_em',
-      onde: () => Prisma.raw(`l.direcao = 'FEITA'::direcao_ligacao`),
+      // Só ligações de pessoas: o discador sem atendente não vira "Sem responsável" no ranking.
+      onde: () =>
+        Prisma.raw(
+          `l.direcao = 'FEITA'::direcao_ligacao AND l.atendente_id IS NOT NULL`,
+        ),
       a: contar,
       formula: identidade,
     },
@@ -663,7 +667,7 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
       tempo: 'l.iniciada_em',
       onde: () =>
         Prisma.raw(
-          `l.direcao = 'FEITA'::direcao_ligacao AND l.atendida_em IS NOT NULL`,
+          `l.direcao = 'FEITA'::direcao_ligacao AND l.atendente_id IS NOT NULL AND l.atendida_em IS NOT NULL`,
         ),
       a: contar,
       formula: identidade,
@@ -679,7 +683,10 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
     calculo: {
       ...LIGACAO,
       tempo: 'l.iniciada_em',
-      onde: () => Prisma.raw(`l.direcao = 'FEITA'::direcao_ligacao`),
+      onde: () =>
+        Prisma.raw(
+          `l.direcao = 'FEITA'::direcao_ligacao AND l.atendente_id IS NOT NULL`,
+        ),
       a: () => contarOnde('l.atendida_em IS NOT NULL'),
       b: contar,
       formula: (a, b) => taxa(a ?? 0, b ?? 0),
@@ -757,7 +764,8 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
   indicador({
     chave: 'atividades_atrasadas',
     nome: 'Atividades atrasadas',
-    descricao: 'Atividades pendentes com o prazo vencido, agora (sem notas).',
+    descricao:
+      'Atividades pendentes com o prazo vencido, agora (sem notas e sem reuniões: a reunião passada aguarda resultado).',
     grupo: 'ATIVIDADES',
     unidade: 'NUMERO',
     melhorQuando: 'menor',
@@ -768,7 +776,11 @@ export const CATALOGO: readonly IndicadorDoCatalogo[] = [
       tempo: null,
       onde: () =>
         Prisma.raw(
-          `a.status = 'PENDENTE'::status_atividade AND a.vence_em < now() AND a.tipo <> 'NOTA'::tipo_atividade`,
+          // A mesma regra da aba "Atrasadas" da agenda (R6.3, `condicaoAtrasada` sem notas), para o número
+          // bater com a lista que o clique abre (R20.2): a reunião vale pelo fim.
+          `a.status = 'PENDENTE'::status_atividade AND a.tipo <> 'NOTA'::tipo_atividade AND (` +
+            `(a.tipo <> 'REUNIAO'::tipo_atividade AND a.vence_em < now()) OR ` +
+            `(a.tipo = 'REUNIAO'::tipo_atividade AND coalesce(a.fim_em, a.vence_em) < now()))`,
         ),
       a: contar,
       formula: identidade,

@@ -152,20 +152,41 @@ export class NegociosEmMassaService {
       nomeLista: dados.nomeLista,
       negocioIds: dto.negocioIds,
     });
+    // R5.9: só os negócios que a pessoa vê e que não foram excluídos têm título no relatório; os demais
+    // são "não encontrados" (404), sem título nem o motivo real.
+    const acesso = await funisAcessiveis(this.prisma, usuario);
     const titulos = new Map(
       (
         await this.prisma.negocio.findMany({
-          where: { id: { in: dto.negocioIds } },
-          select: { id: true, titulo: true },
+          where: { id: { in: dto.negocioIds }, excluidoEm: null },
+          select: {
+            id: true,
+            titulo: true,
+            funilId: true,
+            responsavelId: true,
+          },
         })
-      ).map((n) => [n.id, n.titulo]),
+      )
+        .filter((n) => acesso.podeVerNegocio(n))
+        .map((n) => [n.id, n.titulo]),
     );
     const falhas: FalhaEmMassaDto[] = [];
     for (const detalhe of relatorio.detalhes) {
       if (detalhe.identifier === null) continue;
+      const titulo = titulos.get(detalhe.identifier);
+      if (titulo === undefined) {
+        falhas.push({
+          negocioId: detalhe.identifier,
+          titulo: null,
+          statusCode: 404,
+          regra: null,
+          mensagem: 'Negócio não encontrado.',
+        });
+        continue;
+      }
       falhas.push({
         negocioId: detalhe.identifier,
-        titulo: titulos.get(detalhe.identifier) ?? null,
+        titulo,
         statusCode: 422,
         regra: 'R34',
         mensagem: detalhe.motivo,

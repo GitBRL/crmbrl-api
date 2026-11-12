@@ -8,6 +8,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Server as ServidorSocketIo } from 'socket.io';
 import type { Usuario } from '../src/generated/prisma/client';
+import { LigacoesTrescService } from '../src/tresc-plus/ligacoes-tresc.service';
 import { OuvinteDeEventosTrescPlus } from '../src/tresc-plus/ouvinte-eventos.service';
 import { FILA_BAIXAR_GRAVACAO } from '../src/tresc-plus/tresc-plus.constantes';
 import {
@@ -375,6 +376,7 @@ describe('3C+ — ligações pelo discador (R34)', () => {
     t = await criarAppTeste({
       variaveis: {
         TRESC_PLUS_OUVINTE: 'true',
+        TRESC_PLUS_HOSTS_PERMITIDOS: '127.0.0.1,localhost',
         TRANSCRICAO_URL: whisper.url,
         WHISPER_MODELO: 'base',
       },
@@ -620,7 +622,7 @@ describe('3C+ — ligações pelo discador (R34)', () => {
   });
 
   describe('R34.3 a R34.5 — ligar, eventos, qualificar e histórico', () => {
-    it('R34.5 — liga (entra na campanha e no modo manual), registra no contato e no negócio, e a primeira interação', async () => {
+    it('R34.5 — liga (entra na campanha e no modo manual), registra no contato e no negócio; R6.7 — a primeira interação só quando conecta', async () => {
       const { contato, negocio } = await prepararVendedora();
       const socket = await conectarTempoReal(t, clienteAna);
       sockets.push(socket);
@@ -666,6 +668,22 @@ describe('3C+ — ligações pelo discador (R34)', () => {
         campanhaId: 1,
         telefone: '5511987654321',
       });
+      // R6.7 — discar não é contato real: a primeira interação só vale quando a ligação conecta.
+      const aoDiscar = await t.prisma.negocio.findUniqueOrThrow({
+        where: { id: negocio.id },
+      });
+      expect(aoDiscar.primeiraInteracaoEm).toBeNull();
+      const chamada = {
+        id: ligacao.idExterno,
+        phone: '11987654321',
+        mode: 'manual',
+        agent: { id: 101, name: 'Ana 3C' },
+        campaign: { id: 1, name: 'Prospecção' },
+      };
+      falso.emitir('call-was-connected', { call: chamada });
+      await esperar(
+        async () => (await ligacaoPorExterno('7001')).estado === 'EM_ANDAMENTO',
+      );
       const gravado = await t.prisma.negocio.findUniqueOrThrow({
         where: { id: negocio.id },
       });
@@ -677,7 +695,7 @@ describe('3C+ — ligações pelo discador (R34)', () => {
       const estado = await clienteAna.get(`${BASE}/agente`).expect(200);
       expect(estado.body).toMatchObject({
         vinculado: true,
-        estado: 'manual',
+        estado: 'em_ligacao',
         campanha: { id: 1 },
         modo: 'manual',
       });
@@ -1653,6 +1671,576 @@ describe('3C+ — ligações pelo discador (R34)', () => {
             })
           ).primeiraInteracaoEm !== null,
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Correções da revisão da Onda T
+  // -------------------------------------------------------------------------
+
+  /** Um negócio de outro setor (MARKETING) do mesmo contato: a Ana (COMERCIAL) não o vê (R5.9). */
+  async function negocioInvisivelParaAna(contatoId: string) {
+    return criarNegocio(t, {
+      contato: contatoId,
+      area: 'MARKETING',
+      responsavel: lider,
+      titulo: 'Segredo do Marketing',
+    });
+  }
+
+  describe('revisão T — R34.1: hosts permitidos (anti-SSRF e anti-captura de credenciais)', () => {
+    it('R34.1 — recusa hosts fora da lista, IP privado e usuário na URL; a lista da variável vale', async () => {
+      for (const urlApi of [
+        'https://evil.example.com/api/v1',
+        'https://3c.plus.evil.com/api/v1',
+        'https://169.254.169.254/latest',
+        'http://10.0.0.5/api/v1',
+        'https://user:senha@3c.plus/api/v1',
+      ]) {
+        const r = await clienteAdmin
+          .patch(`${BASE}/conexao`, { urlApi })
+          .expect(400);
+        expect(r.body.detalhes.campos[0].campo).toBe('urlApi');
+      }
+      await clienteAdmin
+        .patch(`${BASE}/conexao`, { urlSocket: 'https://evil.example.com' })
+        .expect(400);
+      // Os padrão (3c.plus e subdomínios, 3c.fluxoti.com) passam; só https fora da lista do operador.
+      await clienteAdmin
+        .patch(`${BASE}/conexao`, { urlApi: 'https://app.3c.plus/api/v1' })
+        .expect(200);
+      await clienteAdmin
+        .patch(`${BASE}/conexao`, { urlApi: 'https://3c.fluxoti.com/api/v1' })
+        .expect(200);
+      expect(falso.pedidos).toHaveLength(0);
+    });
+
+    it('R34.1 — um endereço já guardado fora da lista nunca recebe o token (testar e vincular)', async () => {
+      await ativarIntegracao();
+      await t.prisma.trescPlusConfig.update({
+        where: { id: 1 },
+        data: { urlApi: 'https://evil.example.com/api/v1', urlSocket: null },
+      });
+      falso.pedidos.length = 0;
+      const teste = await clienteAdmin
+        .post(`${BASE}/conexao/testar`)
+        .expect(422);
+      expect(teste.body.detalhes.motivo).toBe('endereco_nao_permitido');
+      const vinculo = await vincular(clienteAna, AGENTES[0]).expect(422);
+      expect(vinculo.body.detalhes.motivo).toBe('endereco_nao_permitido');
+      expect(falso.pedidos).toHaveLength(0);
+    });
+
+    it('R34.1 — trocar o host exige o token de novo e desfaz os vínculos dos vendedores (com auditoria)', async () => {
+      await ativarIntegracao();
+      await vincular(clienteAna, AGENTES[0]).expect(201);
+      await vincular(clienteBia, AGENTES[1]).expect(201);
+      const porta = new URL(falso.url).port;
+      const r = await clienteAdmin
+        .patch(`${BASE}/conexao`, {
+          urlApi: `http://localhost:${porta}/api/v1`,
+          urlSocket: `http://localhost:${porta}`,
+        })
+        .expect(200);
+      expect(r.body).toMatchObject({
+        ativa: false,
+        tokenConfigurado: false,
+        token: null,
+      });
+      const config = await t.prisma.trescPlusConfig.findUniqueOrThrow({
+        where: { id: 1 },
+      });
+      expect(config.tokenCifrado).toBeNull();
+      expect(await t.prisma.trescPlusVinculo.count()).toBe(0);
+      const auditoria = await t.prisma.eventoAuditoria.findMany({
+        where: { acao: 'tresc-plus.vinculo-removido' },
+      });
+      expect(auditoria).toHaveLength(2);
+      // Mesma pessoa informando o token junto: o Admin assumiu o novo destino.
+      await ativarIntegracao();
+      await vincular(clienteAna, AGENTES[0]).expect(201);
+      const mesmo = await clienteAdmin
+        .patch(`${BASE}/conexao`, { campanhaPadraoId: 1 })
+        .expect(200);
+      expect(mesmo.body.tokenConfigurado).toBe(true);
+      expect(await t.prisma.trescPlusVinculo.count()).toBe(1);
+    });
+  });
+
+  describe('revisão T — erros da 3C+ nunca viram o status do CRM', () => {
+    it('R34.1 — GET /tresc-plus/campanhas: 401/404/429 da 3C+ viram 422 em português (nunca 401)', async () => {
+      await ativarIntegracao();
+      for (const [status, esperado] of [
+        [401, 422],
+        [404, 422],
+        [429, 422],
+      ] as const) {
+        falso.estado.forcar.set('GET /campaigns', [status, { message: 'x' }]);
+        const r = await clienteAdmin.get(`${BASE}/campanhas`).expect(esperado);
+        expect(r.body.statusCode).toBe(esperado);
+        expect(r.body.mensagem).toBeTruthy();
+      }
+    });
+  });
+
+  describe('revisão T — R5.9: negócios de funis que o vendedor não vê', () => {
+    it('R5.9 — o aviso do receptivo e a ligação só carregam negócios que o vendedor vê', async () => {
+      const { contato, negocio } = await prepararVendedora();
+      // Mais recente que o negócio da Ana: antes da correção, era o escolhido.
+      const escondido = await negocioInvisivelParaAna(contato.id);
+      const socket = await conectarTempoReal(t, clienteAna);
+      sockets.push(socket);
+      const aviso = esperarEvento<{
+        negocios: Array<{ id: string; titulo: string }>;
+      }>(socket, 'tresc.recebida');
+      falso.emitir('call-was-created', {
+        call: {
+          id: '6001',
+          phone: '11987654321',
+          mode: 'receptive',
+          agent: { id: 101, name: 'Ana 3C' },
+        },
+      });
+      const recebido = await aviso;
+      expect(recebido.negocios.map((n) => n.id)).toEqual([negocio.id]);
+      expect(JSON.stringify(recebido)).not.toContain('Segredo do Marketing');
+      expect((await ligacaoPorExterno('6001')).negocioId).toBe(negocio.id);
+      // Sem atendente (nenhum vínculo no evento), vale o mais recente.
+      falso.emitir('call-was-created', {
+        call: { id: '6002', phone: '11987654321', mode: 'receptive' },
+      });
+      await esperar(
+        async () =>
+          (await t.prisma.ligacao.count({ where: { idExterno: '6002' } })) ===
+          1,
+      );
+      expect((await ligacaoPorExterno('6002')).negocioId).toBe(escondido.id);
+    });
+
+    it('R5.9 — o negocioId de funil invisível sai do DTO, da linha do tempo e do tempo real', async () => {
+      const { contato } = await prepararVendedora();
+      const escondido = await negocioInvisivelParaAna(contato.id);
+      const ligacao = await t.prisma.ligacao.create({
+        data: {
+          provedor: 'TRESC_PLUS',
+          idExterno: '6100',
+          contatoId: contato.id,
+          negocioId: escondido.id,
+          direcao: 'FEITA',
+          estado: 'ENCERRADA',
+          atendenteId: ana.id,
+          telefone: '5511987654321',
+          atendidaEm: new Date(),
+          encerradaEm: new Date(),
+          duracaoSegundos: 10,
+        },
+      });
+      const dto = await clienteAna
+        .get(`/api/v1/ligacoes/${ligacao.id}`)
+        .expect(200);
+      expect(dto.body.negocioId).toBeNull();
+      const lista = await clienteAna.get('/api/v1/ligacoes').expect(200);
+      expect(lista.body.itens[0].negocioId).toBeNull();
+      const tempo = await clienteAna
+        .get(`/api/v1/contatos/${contato.id}/linha-do-tempo`)
+        .query({ incluir: 'ligacoes' })
+        .expect(200);
+      expect(tempo.body.itens[0].ligacao.negocioId).toBeNull();
+      // Quem vê o funil (o líder do Marketing... aqui o Admin) continua vendo.
+      const doAdmin = await clienteAdmin
+        .get(`/api/v1/ligacoes/${ligacao.id}`)
+        .expect(200);
+      expect(doAdmin.body.negocioId).toBe(escondido.id);
+      // Tempo real da Ana: a carga da ligação vai sem o id do negócio invisível.
+      const socket = await conectarTempoReal(t, clienteAna);
+      sockets.push(socket);
+      const carga = esperarEvento<{ negocioId: string | null }>(
+        socket,
+        'tresc.ligacao',
+      );
+      await t.prisma.ligacao.update({
+        where: { id: ligacao.id },
+        data: { estado: 'CHAMANDO', encerradaEm: null },
+      });
+      falso.emitir('call-was-answered', {
+        call: {
+          id: '6100',
+          phone: '11987654321',
+          mode: 'manual',
+          agent: { id: 101 },
+        },
+      });
+      expect((await carga).negocioId).toBeNull();
+    });
+
+    it('R5.9 — ligar: o negócio informado precisa ser visível e, sem negócio, só se escolhe entre os visíveis', async () => {
+      const { contato, negocio } = await prepararVendedora();
+      const escondido = await negocioInvisivelParaAna(contato.id);
+      await clienteAna
+        .post(`${BASE}/ligacoes`, { negocioId: escondido.id })
+        .expect(404);
+      const r = await clienteAna
+        .post(`${BASE}/ligacoes`, { contatoId: contato.id })
+        .expect(201);
+      expect(r.body.negocioId).toBe(negocio.id);
+      await t.prisma.negocio.update({
+        where: { id: negocio.id },
+        data: { status: 'PERDIDO', perdidoEm: new Date() },
+      });
+      falso.pedidos.length = 0;
+      const sem = await clienteAna
+        .post(`${BASE}/ligacoes`, { contatoId: contato.id })
+        .expect(201);
+      expect(sem.body.negocioId).toBeNull();
+    });
+
+    it('R5.9 — ação em massa DISCADOR: negócio invisível ou excluído é "não encontrado" (404), sem título', async () => {
+      await ativarIntegracao();
+      const bom = await criarContato(t, {
+        nome: 'Visível',
+        telefone: '5511988880001',
+      });
+      const oculto = await criarContato(t, {
+        nome: 'Oculto',
+        telefone: '5511988880002',
+      });
+      const visivel = await criarNegocio(t, {
+        contato: bom,
+        titulo: 'Negócio visível',
+      });
+      const escondido = await criarNegocio(t, {
+        contato: oculto,
+        area: 'MARKETING',
+        titulo: 'Título secreto',
+      });
+      const r = await clienteLider
+        .post('/api/v1/negocios/em-massa', {
+          acao: 'DISCADOR',
+          negocioIds: [visivel.id, escondido.id],
+          dados: { campanhaId: 1, nomeLista: 'Lista X' },
+        })
+        .expect(200);
+      const falha = r.body.falhas.find(
+        (f: { negocioId: string }) => f.negocioId === escondido.id,
+      );
+      expect(falha).toMatchObject({
+        statusCode: 404,
+        titulo: null,
+        mensagem: 'Negócio não encontrado.',
+      });
+      expect(JSON.stringify(r.body.falhas)).not.toContain('Título secreto');
+    });
+  });
+
+  describe('revisão T — ligações e atividade: corrida, trava e atribuição', () => {
+    it('R34.3 — se o call-was-created chega antes do dial, o contato e o negócio escolhidos no CRM prevalecem (inclusive na atividade)', async () => {
+      const { contato } = await prepararVendedora();
+      const outro = await criarContato(t, {
+        nome: 'Outro Contato',
+        telefone: '5511977776666',
+        responsavel: ana,
+      });
+      const negocioOutro = await criarNegocio(t, {
+        contato: outro,
+        responsavel: ana,
+        titulo: 'Negócio do outro',
+      });
+      const chamada = {
+        id: '6200',
+        phone: '11987654321',
+        mode: 'manual',
+        agent: { id: 101 },
+      };
+      falso.emitir('call-was-created', { call: chamada });
+      await esperar(
+        async () =>
+          (await t.prisma.ligacao.count({ where: { idExterno: '6200' } })) ===
+          1,
+      );
+      expect((await ligacaoPorExterno('6200')).contatoId).toBe(contato.id);
+      // O dial respondeu depois, com o contato que a Ana escolheu no CRM.
+      await t.get(LigacoesTrescService).registrarFeita({
+        idExterno: '6200',
+        usuarioId: ana.id,
+        contatoId: outro.id,
+        negocioId: negocioOutro.id,
+        telefone: '5511987654321',
+        campanhaId: 1,
+        campanhaNome: 'Prospecção',
+      });
+      expect(await ligacaoPorExterno('6200')).toMatchObject({
+        contatoId: outro.id,
+        negocioId: negocioOutro.id,
+      });
+      // A atividade criada ao fim também fica com o contato escolhido.
+      falso.emitir('call-was-connected', { call: chamada });
+      falso.emitir('call-was-finished', { call: chamada });
+      await esperar(
+        async () => (await ligacaoPorExterno('6200')).estado === 'ENCERRADA',
+      );
+      const final = await ligacaoPorExterno('6200');
+      expect(
+        await t.prisma.atividade.findUniqueOrThrow({
+          where: { id: final.atividadeId ?? '' },
+        }),
+      ).toMatchObject({ contatoId: outro.id, negocioId: negocioOutro.id });
+      // E a primeira interação foi do negócio certo.
+      expect(
+        (
+          await t.prisma.negocio.findUniqueOrThrow({
+            where: { id: negocioOutro.id },
+          })
+        ).primeiraInteracaoEm,
+      ).not.toBeNull();
+    });
+
+    it('R34.4 — fechar ligação presa usa a mesma trava dos eventos e não inventa duração (zero, não 3 h)', async () => {
+      const { contato, negocio } = await prepararVendedora();
+      const quatroHoras = new Date(Date.now() - 4 * 3_600_000);
+      const presa = await t.prisma.ligacao.create({
+        data: {
+          provedor: 'TRESC_PLUS',
+          idExterno: '6300',
+          contatoId: contato.id,
+          negocioId: negocio.id,
+          direcao: 'FEITA',
+          estado: 'EM_ANDAMENTO',
+          atendenteId: ana.id,
+          telefone: '5511987654321',
+          iniciadaEm: quatroHoras,
+          atendidaEm: quatroHoras,
+        },
+      });
+      // Um evento da mesma chamada em processamento (segura a trava `tresc:<chamada>`): o fechamento espera.
+      let liberar: () => void = () => undefined;
+      const segurando = new Promise<void>((r) => (liberar = r));
+      let travou: () => void = () => undefined;
+      const aTrava = new Promise<void>((r) => (travou = r));
+      const evento = t.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'tresc:6300'}, 0))`;
+        travou();
+        await segurando;
+      });
+      await aTrava;
+      let fechou = false;
+      const fechando = t
+        .get(LigacoesTrescService)
+        .fecharPresas()
+        .then(() => (fechou = true));
+      await new Promise((r) => setTimeout(r, 400));
+      expect(fechou).toBe(false);
+      liberar();
+      await evento;
+      await fechando;
+      const depois = await t.prisma.ligacao.findUniqueOrThrow({
+        where: { id: presa.id },
+      });
+      expect(depois.estado).toBe('ENCERRADA');
+      expect(depois.duracaoSegundos).toBe(0);
+    });
+
+    it('R34.3 — não atribui pelo nome do agente: sem o id, a ligação fica sem atendente', async () => {
+      const { contato } = await prepararVendedora();
+      falso.emitir('call-was-created', {
+        call: {
+          id: '6400',
+          phone: '11987654321',
+          mode: 'manual',
+          agent: 'Ana 3C',
+        },
+      });
+      await esperar(
+        async () =>
+          (await t.prisma.ligacao.count({ where: { idExterno: '6400' } })) ===
+          1,
+      );
+      expect(await ligacaoPorExterno('6400')).toMatchObject({
+        contatoId: contato.id,
+        atendenteId: null,
+      });
+    });
+
+    it('R34.2 — o usuário do 3C+ é único nos vínculos (índice no banco; a violação é 409)', async () => {
+      await ativarIntegracao();
+      await vincular(clienteAna, AGENTES[0]).expect(201);
+      await expect(
+        t.prisma.trescPlusVinculo.create({
+          data: {
+            usuarioId: bia.id,
+            trescUsuarioId: AGENTES[0].id,
+            tokenCifrado: 'x',
+            tokenFinal: 'xxxx',
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+      await vincular(clienteBia, AGENTES[0]).expect(409);
+    });
+  });
+
+  describe('revisão T — R6.7: só conta contato real (ligação atendida)', () => {
+    it('R6.7 — ligação que não foi atendida ou falhou não conta como primeira interação; a atendida conta', async () => {
+      const { negocio } = await prepararVendedora();
+      const primeira = async () =>
+        (
+          await t.prisma.negocio.findUniqueOrThrow({
+            where: { id: negocio.id },
+          })
+        ).primeiraInteracaoEm;
+      const ligacao = await ligarComoAna(negocio.id);
+      const chamada = {
+        id: ligacao.idExterno,
+        phone: '11987654321',
+        mode: 'manual',
+        agent: { id: 101 },
+      };
+      falso.emitir('call-was-not-answered', { call: chamada });
+      await esperar(
+        async () =>
+          (await ligacaoPorExterno(ligacao.idExterno)).estado ===
+          'SEM_RESPOSTA',
+      );
+      expect(await primeira()).toBeNull();
+      // Histórico de uma ligação que o CRM não viu e sem fala: também não conta.
+      falso.emitir('call-history-was-created', {
+        call: {
+          id: '6500',
+          number: '11987654321',
+          agent: { id: 101 },
+          call_date_rfc3339: new Date().toISOString(),
+          speaking_time: 0,
+          hangup_cause: 'NO ANSWER',
+        },
+      });
+      await esperar(
+        async () =>
+          (await t.prisma.ligacao.count({ where: { idExterno: '6500' } })) ===
+          1,
+      );
+      expect(await primeira()).toBeNull();
+      // Com fala, conta.
+      falso.emitir('call-history-was-created', {
+        call: {
+          id: '6501',
+          number: '11987654321',
+          agent: { id: 101 },
+          call_date_rfc3339: new Date().toISOString(),
+          speaking_time: 40,
+          billed_time: 45,
+          hangup_cause: 'NORMAL_CLEARING',
+        },
+      });
+      await esperar(async () => (await primeira()) !== null);
+    });
+  });
+
+  describe('revisão T — R34.6 e R34.3: discador sem marketing, anotação e histórico', () => {
+    it('R4.6 — o discador não envia contato que pediu para não receber marketing: entra em filtrados com o motivo', async () => {
+      await ativarIntegracao();
+      const ok = await criarContato(t, {
+        nome: 'Aceita',
+        telefone: '5511988880011',
+      });
+      const nao = await criarContato(t, {
+        nome: 'Não quer',
+        telefone: '5511988880012',
+      });
+      await t.prisma.contato.update({
+        where: { id: nao.id },
+        data: { optOutMarketing: true },
+      });
+      const nOk = await criarNegocio(t, { contato: ok, titulo: 'Aceita' });
+      const nNao = await criarNegocio(t, { contato: nao, titulo: 'Não quer' });
+      const r = await clienteAdmin
+        .post(`${BASE}/discador/enviar`, {
+          campanhaId: 1,
+          nomeLista: 'Lista opt-out',
+          negocioIds: [nOk.id, nNao.id],
+          contatoIds: [nao.id],
+        })
+        .expect(200);
+      expect(r.body.importados).toBe(1);
+      const filtrados = r.body.detalhes.filter((d: { motivo: string }) =>
+        /marketing/.test(d.motivo),
+      );
+      expect(filtrados).toHaveLength(2);
+      expect(filtrados[0].motivo).toBe(
+        'Pediu para não receber contato de marketing (R4.6)',
+      );
+      expect(JSON.stringify(falso.estado.mailing)).not.toContain('11988880012');
+    });
+
+    it('R34.3 — anotar a ligação do 3C+ (PATCH /ligacoes/:id) usa o texto do 3C+ e inclui a anotação', async () => {
+      const { negocio } = await prepararVendedora();
+      const ligacao = await ligarComoAna(negocio.id);
+      const chamada = {
+        id: ligacao.idExterno,
+        phone: '11987654321',
+        mode: 'manual',
+        agent: { id: 101 },
+      };
+      for (const tipo of ['call-was-connected', 'call-was-finished'])
+        falso.emitir(tipo, { call: chamada });
+      await esperar(
+        async () =>
+          (await ligacaoPorExterno(ligacao.idExterno)).estado === 'ENCERRADA',
+      );
+      await clienteAna
+        .patch(`/api/v1/ligacoes/${ligacao.id}`, {
+          anotacao: 'Ligar na segunda',
+        })
+        .expect(200);
+      const atividade = await t.prisma.atividade.findFirstOrThrow({
+        where: { tipo: 'LIGACAO', negocioId: negocio.id },
+      });
+      expect(atividade.descricao).toContain('pelo 3C+');
+      expect(atividade.descricao).not.toContain('pelo WhatsApp');
+      expect(atividade.descricao).toContain('Anotação: Ligar na segunda');
+    });
+
+    it('R34.4 — o histórico que corrige a recebida PERDIDA para ENCERRADA completa o registro (atividade) sem republicar o encerramento', async () => {
+      const { contato } = await prepararVendedora();
+      const chamada = {
+        id: '6600',
+        phone: '11987654321',
+        mode: 'receptive',
+        agent: { id: 101, name: 'Ana 3C' },
+      };
+      falso.emitir('call-was-created', { call: chamada });
+      await esperar(
+        async () =>
+          (await t.prisma.ligacao.count({ where: { idExterno: '6600' } })) ===
+          1,
+      );
+      falso.emitir('call-was-finished', { call: chamada });
+      await esperar(
+        async () => (await ligacaoPorExterno('6600')).estado === 'PERDIDA',
+      );
+      expect((await ligacaoPorExterno('6600')).atividadeId).toBeNull();
+      const encerramentos = () =>
+        t.prisma.eventoDominio.count({ where: { tipo: 'ligacao.encerrada' } });
+      const antes = await encerramentos();
+      falso.emitir('call-history-was-created', {
+        call: {
+          id: '6600',
+          number: '11987654321',
+          agent: { id: 101, name: 'Ana 3C' },
+          call_date_rfc3339: new Date().toISOString(),
+          speaking_time: 30,
+          billed_time: 33,
+          hangup_cause: 'NORMAL_CLEARING',
+        },
+      });
+      await esperar(
+        async () => (await ligacaoPorExterno('6600')).estado === 'ENCERRADA',
+      );
+      const final = await ligacaoPorExterno('6600');
+      expect(final.atividadeId).not.toBeNull();
+      expect(
+        await t.prisma.atividade.findUniqueOrThrow({
+          where: { id: final.atividadeId ?? '' },
+        }),
+      ).toMatchObject({ tipo: 'LIGACAO', contatoId: contato.id });
+      expect(await encerramentos()).toBe(antes);
     });
   });
 });

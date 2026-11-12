@@ -17,7 +17,7 @@ import {
   textoDe,
 } from './cliente-tresc-plus';
 import { ConexaoTrescPlusService } from './conexao.service';
-import { traduzindo } from './agente.service';
+import { traduzindo } from './erros-tresc-plus';
 import {
   LIMITE_ENVIO_DISCADOR,
   REGRA_TRESC_PLUS,
@@ -70,6 +70,10 @@ interface RegistroDoMailing {
   identifier: string;
   data: Record<string, unknown>;
 }
+
+/** R4.6: o discador é contato de marketing/prospecção; quem pediu para não receber fica de fora. */
+const MOTIVO_SEM_MARKETING =
+  'Pediu para não receber contato de marketing (R4.6)';
 
 /**
  * Envio ao discador (R34.6): negócios/contatos viram um `mailing.json` (`identifier` = id do negócio
@@ -255,7 +259,14 @@ export class DiscadorTrescPlusService {
       const negocios = await this.prisma.negocio.findMany({
         where: { id: { in: negocioIds }, excluidoEm: null },
         include: {
-          contato: { select: { nome: true, telefone: true, email: true } },
+          contato: {
+            select: {
+              nome: true,
+              telefone: true,
+              email: true,
+              optOutMarketing: true,
+            },
+          },
           empresa: { select: { nome: true } },
           funil: { select: { nome: true } },
           etapa: { select: { nome: true } },
@@ -270,6 +281,14 @@ export class DiscadorTrescPlusService {
             identifier: identifierDoDiscador(id),
             telefone: null,
             motivo: 'Negócio não encontrado.',
+          });
+          continue;
+        }
+        if (negocio.contato.optOutMarketing) {
+          naoEnviados.push({
+            identifier: identifierDoDiscador(id),
+            telefone: negocio.contato.telefone,
+            motivo: MOTIVO_SEM_MARKETING,
           });
           continue;
         }
@@ -309,6 +328,14 @@ export class DiscadorTrescPlusService {
             identifier: identifierDoDiscador(id),
             telefone: null,
             motivo: 'Contato não encontrado.',
+          });
+          continue;
+        }
+        if (contato.optOutMarketing) {
+          naoEnviados.push({
+            identifier: identifierDoDiscador(id),
+            telefone: contato.telefone,
+            motivo: MOTIVO_SEM_MARKETING,
           });
           continue;
         }

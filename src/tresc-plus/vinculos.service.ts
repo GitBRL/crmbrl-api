@@ -98,6 +98,8 @@ export class VinculosTrescPlusService {
         { motivo: 'integracao_inativa' },
       );
     }
+    // A senha do vendedor só vai para um host permitido (R34.1, anti-captura de credenciais).
+    this.conexao.exigirEnderecoPermitido(config);
     let corpo: unknown;
     try {
       corpo = await new ClienteTrescPlus({
@@ -128,18 +130,16 @@ export class VinculosTrescPlusService {
         { motivo: 'resposta_inesperada' },
       );
     }
+    const jaConectado = () =>
+      new ConflitoException(
+        'Este usuário do 3C+ já está conectado a outra pessoa do CRM.',
+        { regra: REGRA_TRESC_PLUS },
+      );
     const outro = await this.prisma.trescPlusVinculo.findFirst({
       where: { trescUsuarioId, NOT: { usuarioId: usuario.id } },
       select: { id: true },
     });
-    if (outro) {
-      throw new ConflitoException(
-        'Este usuário do 3C+ já está conectado a outra pessoa do CRM.',
-        {
-          regra: REGRA_TRESC_PLUS,
-        },
-      );
-    }
+    if (outro) throw jaConectado();
     const ramal = textoDe(dados.extension) ?? textoDe(dados.extension_number);
     const nome = textoDe(dados.name) ?? textoDe(dados.email);
     const gravados = {
@@ -149,32 +149,44 @@ export class VinculosTrescPlusService {
       tokenCifrado: this.cripto.cifrar(token),
       tokenFinal: finalDoToken(token),
     };
-    const vinculo = await this.prisma.$transaction(async (tx) => {
-      const gravado = await tx.trescPlusVinculo.upsert({
-        where: { usuarioId: usuario.id },
-        create: { usuarioId: usuario.id, ...gravados },
-        update: {
-          ...gravados,
-          estado: 'desconectado',
-          estadoDesde: new Date(),
-          campanhaId: null,
-          campanhaNome: null,
-          modo: null,
-          pausaId: null,
-          pausaNome: null,
-          vinculadoEm: new Date(),
-        },
+    const vinculo = await this.prisma
+      .$transaction(async (tx) => {
+        const gravado = await tx.trescPlusVinculo.upsert({
+          where: { usuarioId: usuario.id },
+          create: { usuarioId: usuario.id, ...gravados },
+          update: {
+            ...gravados,
+            estado: 'desconectado',
+            estadoDesde: new Date(),
+            campanhaId: null,
+            campanhaNome: null,
+            modo: null,
+            pausaId: null,
+            pausaNome: null,
+            vinculadoEm: new Date(),
+          },
+        });
+        await this.auditoria.registrar(tx, {
+          acao: 'tresc-plus.vinculo-criado',
+          entidade: 'tresc_plus_vinculo',
+          entidadeId: gravado.id,
+          resumo: `${usuario.nome} conectou o usuário ao 3C+`,
+          dados: { regra: REGRA_TRESC_PLUS, trescUsuarioId, ramal },
+          relacionados: { usuario: usuario.id },
+        });
+        return gravado;
+      })
+      .catch((erro: unknown) => {
+        // Corrida entre duas pessoas conectando o mesmo usuário do 3C+: o índice único decide.
+        if (
+          typeof erro === 'object' &&
+          erro !== null &&
+          (erro as { code?: unknown }).code === 'P2002'
+        ) {
+          throw jaConectado();
+        }
+        throw erro;
       });
-      await this.auditoria.registrar(tx, {
-        acao: 'tresc-plus.vinculo-criado',
-        entidade: 'tresc_plus_vinculo',
-        entidadeId: gravado.id,
-        resumo: `${usuario.nome} conectou o usuário ao 3C+`,
-        dados: { regra: REGRA_TRESC_PLUS, trescUsuarioId, ramal },
-        relacionados: { usuario: usuario.id },
-      });
-      return gravado;
-    });
     return this.paraDto(vinculo);
   }
 

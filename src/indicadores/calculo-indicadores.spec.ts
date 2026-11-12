@@ -214,16 +214,17 @@ describe('cálculo dos widgets (R33.2, R33.5)', () => {
   it('R33.2 — funil calcula a conversão sobre a etapa anterior e sobre a primeira', async () => {
     const s = servico(
       [
+        // Quantos negócios pararam em cada ordem (a maior que alcançaram): "chegou à etapa N" soma ordem ≥ N.
         [
-          { etapa_id: 'e1', valor: 10 },
-          { etapa_id: 'e2', valor: 5 },
-          { etapa_id: 'e3', valor: 1 },
+          { ordem: 1, negocios: 5 },
+          { ordem: 2, negocios: 4 },
+          { ordem: 3, negocios: 1 },
         ],
       ],
       [
-        { id: 'e1', nome: 'Novo', tipo: 'ABERTA' },
-        { id: 'e2', nome: 'Proposta', tipo: 'ABERTA' },
-        { id: 'e3', nome: 'Ganho', tipo: 'GANHO' },
+        { id: 'e1', nome: 'Novo', tipo: 'ABERTA', ordem: 1 },
+        { id: 'e2', nome: 'Proposta', tipo: 'ABERTA', ordem: 2 },
+        { id: 'e3', nome: 'Ganho', tipo: 'GANHO', ordem: 3 },
       ],
     );
     const r = await s.calcular(
@@ -240,6 +241,32 @@ describe('cálculo dos widgets (R33.2, R33.5)', () => {
       [10, null, null],
       [5, 50, 50],
       [1, 20, 10],
+    ]);
+  });
+
+  it('R33.2 — funil: quem pulou etapas conta nas anteriores, então a conversão nunca passa de 100%', async () => {
+    const s = servico(
+      [
+        [
+          { ordem: 1, negocios: 3 },
+          { ordem: 3, negocios: 2 },
+        ],
+      ],
+      [
+        { id: 'e1', nome: 'Novo', tipo: 'ABERTA', ordem: 1 },
+        { id: 'e2', nome: 'Qualificação', tipo: 'ABERTA', ordem: 2 },
+        { id: 'e3', nome: 'Proposta', tipo: 'ABERTA', ordem: 3 },
+      ],
+    );
+    const r = await s.calcular(
+      USUARIO,
+      widget({ indicador: 'conversao_entre_etapas', visualizacao: 'FUNIL' }),
+      filtro(),
+    );
+    expect(r.linhas?.map((l) => [l.valor, l.conversao])).toEqual([
+      [5, null],
+      [2, 40],
+      [2, 100],
     ]);
   });
 

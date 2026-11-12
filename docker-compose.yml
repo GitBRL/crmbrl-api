@@ -83,6 +83,8 @@ x-ambiente-da-imagem: &ambiente-da-imagem
   LIGACOES_GRAVACAO_MAX_MB: ${LIGACOES_GRAVACAO_MAX_MB:-200}
   LIGACOES_GRAVACAO_MAX_MIN: ${LIGACOES_GRAVACAO_MAX_MIN:-180}
   LIGACOES_RESUMO_MODELO: ${LIGACOES_RESUMO_MODELO:-claude-sonnet-5-5}
+  # 3C+ (R34): hosts aceitos além de 3c.plus e 3c.fluxoti.com (lista por vírgula; no ambiente dos agentes, o simulado).
+  TRESC_PLUS_HOSTS_PERMITIDOS: ${TRESC_PLUS_HOSTS_PERMITIDOS:-}
   PROCESSAR_FILAS: ${PROCESSAR_FILAS:-true}
   LOG_FORMATO: ${LOG_FORMATO:-json}
 

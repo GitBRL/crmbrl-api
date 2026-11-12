@@ -8,7 +8,10 @@ import { ErroApi } from '../comum/erros/excecoes';
 import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import { EventosDominioService } from '../eventos/eventos-dominio.service';
 import { FilaService } from '../fila/fila.service';
+import type { QuemAcessa } from '../funis/acesso-funis';
+import { negociosQueVe, veNegocio } from '../funis/negocios-visiveis';
 import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
+import type { Area } from '../comum/dominio/setores';
 import type {
   Ligacao,
   Prisma,
@@ -61,7 +64,10 @@ import {
   GRAVACAO_MAX_BYTES_PADRAO,
   REGRA_TRESC_PLUS,
 } from './tresc-plus.constantes';
+import { descricaoDaAtividade } from './descricao-da-ligacao';
 import { identifierDoDiscador, variantesDoTelefone } from './telefone';
+
+export { descricaoDaAtividade };
 
 /** Em quanto tempo uma ligação sem fim é fechada pela reconciliação. */
 const PRAZO_DE_LIGACAO_PRESA_MS = 3 * 3_600_000;
@@ -147,24 +153,46 @@ export class LigacoesTrescService implements OnModuleInit {
     }
   }
 
-  /** O vínculo do vendedor pelo id (ou, sem id, pelo nome) do agente no 3C+. */
+  /**
+   * O vínculo do vendedor pelo id do agente no 3C+ (R34.3). Nunca pelo nome: dois agentes podem ter o
+   * mesmo nome e a ligação seria atribuída à pessoa errada; sem id, a ligação fica sem atendente.
+   */
   async vinculoDoAgente(
     agente: AgenteDoEvento,
     tx: Tx | PrismaService = this.prisma,
   ): Promise<TrescPlusVinculo | null> {
-    if (agente.id !== null) {
-      return tx.trescPlusVinculo.findFirst({
-        where: { trescUsuarioId: agente.id },
-      });
-    }
-    if (agente.nome) {
-      const candidatos = await tx.trescPlusVinculo.findMany({
-        where: { nome3c: { equals: agente.nome, mode: 'insensitive' } },
-        take: 2,
-      });
-      return candidatos.length === 1 ? candidatos[0] : null;
-    }
-    return null;
+    if (agente.id === null) return null;
+    return tx.trescPlusVinculo.findUnique({
+      where: { trescUsuarioId: agente.id },
+    });
+  }
+
+  /** A pessoa (papel e setor) de um usuário, para as regras de visibilidade (R5.9). */
+  private async pessoaDe(
+    tx: Tx | PrismaService,
+    usuarioId: string,
+  ): Promise<QuemAcessa | null> {
+    const usuario = await tx.usuario.findUnique({
+      where: { id: usuarioId },
+      select: { id: true, papel: true, area: true },
+    });
+    return usuario
+      ? {
+          id: usuario.id,
+          papel: usuario.papel,
+          area: usuario.area as Area | null,
+        }
+      : null;
+  }
+
+  /** R5.9: o atendente da ligação vê o funil do negócio ligado? (Sem atendente ou sem negócio: sim.) */
+  private async atendenteVeONegocio(
+    tx: Tx | PrismaService,
+    ligacao: Pick<Ligacao, 'atendenteId' | 'negocioId'>,
+  ): Promise<boolean> {
+    if (!ligacao.negocioId || !ligacao.atendenteId) return true;
+    const pessoa = await this.pessoaDe(tx, ligacao.atendenteId);
+    return pessoa ? veNegocio(tx, pessoa, ligacao.negocioId) : false;
   }
 
   private async registrarChave(tx: Tx, chave: string | null): Promise<boolean> {
@@ -292,10 +320,11 @@ export class LigacoesTrescService implements OnModuleInit {
       const receptiva = ehReceptiva(dados);
       let ligacao = await this.buscar(tx, chamada.id);
       if (!ligacao) {
-        const contato = await this.resolverContato(tx, {
-          telefone: chamada.telefone,
-          identifier: chamada.identifier,
-        });
+        const contato = await this.resolverContato(
+          tx,
+          { telefone: chamada.telefone, identifier: chamada.identifier },
+          vinculo ? await this.pessoaDe(tx, vinculo.usuarioId) : null,
+        );
         if (!contato) {
           if (receptiva) this.avisarReceptivoSemContato(ctx, chamada, vinculo);
           return;
@@ -328,14 +357,7 @@ export class LigacoesTrescService implements OnModuleInit {
             ...(vinculo ? { usuario: vinculo.usuarioId } : {}),
           },
         });
-        if (direcao === 'FEITA' && vinculo && chamada.modo !== 'dialer') {
-          // R6.7 — ligação feita por uma pessoa.
-          await registrarPrimeiraInteracao(tx, {
-            contatoId: contato.contatoId,
-            tipo: 'LIGACAO',
-            usuarioId: vinculo.usuarioId,
-          });
-        }
+        // R6.7: a primeira interação só conta quando a ligação é atendida (em `aplicarDecisao`).
       }
       ligacao = await this.completarAtendente(tx, ligacao, vinculo, chamada);
       await this.avisarReceptivo(tx, ctx, ligacao, vinculo);
@@ -343,7 +365,7 @@ export class LigacoesTrescService implements OnModuleInit {
       if (decisao) {
         ligacao = await this.aplicarDecisao(tx, ctx, ligacao, decisao);
       } else if (ligacao.atendenteId && !ehEstadoFinal(ligacao.estado)) {
-        this.emitirLigacao(ctx, ligacao);
+        await this.emitirLigacao(tx, ctx, ligacao);
       }
       const estado = estadoDoAgente(tipo);
       if (vinculo && estado && estado !== vinculo.estado) {
@@ -407,11 +429,16 @@ export class LigacoesTrescService implements OnModuleInit {
       where: { id: ligacao.id },
       data: { tocouPara: { push: vinculo.usuarioId } },
     });
-    const contato = await this.resolverContato(tx, {
-      telefone: ligacao.telefone,
-      identifier: null,
-      contatoId: ligacao.contatoId,
-    });
+    // R5.9: os negócios do aviso são só os que o vendedor que atende enxerga.
+    const contato = await this.resolverContato(
+      tx,
+      {
+        telefone: ligacao.telefone,
+        identifier: null,
+        contatoId: ligacao.contatoId,
+      },
+      await this.pessoaDe(tx, vinculo.usuarioId),
+    );
     ctx.emitir(salas.usuario(vinculo.usuarioId), 'tresc.recebida', {
       ligacaoId: ligacao.id,
       telefone: ligacao.telefone,
@@ -461,6 +488,11 @@ export class LigacoesTrescService implements OnModuleInit {
       identifier: string | null;
       contatoId?: string;
     },
+    /**
+     * Quem vai ver o resultado (R5.9): só entram os negócios que a pessoa vê e a escolha do negócio
+     * se restringe a eles. Sem pessoa (ligação sem atendente), vale o mais recente.
+     */
+    pessoa: QuemAcessa | null = null,
   ): Promise<ContatoEncontrado | null> {
     let contatoId: string | null = busca.contatoId ?? null;
     let negocioId: string | null = null;
@@ -497,12 +529,21 @@ export class LigacoesTrescService implements OnModuleInit {
       select: { id: true, nome: true, empresa: { select: { nome: true } } },
     });
     if (!contato) return null;
-    const negocios = await tx.negocio.findMany({
+    const abertos = await tx.negocio.findMany({
       where: { contatoId, status: 'ABERTO', excluidoEm: null },
       orderBy: { criadoEm: 'desc' },
       select: { id: true, titulo: true },
       take: 20,
     });
+    let negocios = abertos;
+    if (pessoa) {
+      const visiveis = await negociosQueVe(tx, pessoa, [
+        negocioId,
+        ...abertos.map(({ id }) => id),
+      ]);
+      negocios = abertos.filter(({ id }) => visiveis.has(id));
+      if (negocioId && !visiveis.has(negocioId)) negocioId = null;
+    }
     return {
       contatoId,
       nome: contato.nome,
@@ -523,6 +564,8 @@ export class LigacoesTrescService implements OnModuleInit {
     ligacao: Ligacao,
     decisao: { estado: Ligacao['estado']; motivo: string | null },
     quando: Date = new Date(),
+    /** Fechamento sem informação do 3C+ (ligação presa): não inventa duração. */
+    semDuracao = false,
   ): Promise<Ligacao> {
     const terminal = ehEstadoFinal(decisao.estado);
     const dados: Prisma.LigacaoUncheckedUpdateInput = {
@@ -540,9 +583,13 @@ export class LigacoesTrescService implements OnModuleInit {
       dados.encerradaEm = quando;
       dados.motivo = decisao.motivo;
       const inicio = ligacao.atendidaEm;
-      dados.duracaoSegundos = inicio
-        ? Math.max(0, Math.round((quando.getTime() - inicio.getTime()) / 1000))
-        : 0;
+      dados.duracaoSegundos =
+        inicio && !semDuracao
+          ? Math.max(
+              0,
+              Math.round((quando.getTime() - inicio.getTime()) / 1000),
+            )
+          : 0;
     }
     const atualizada = await tx.ligacao.update({
       where: { id: ligacao.id },
@@ -560,26 +607,33 @@ export class LigacoesTrescService implements OnModuleInit {
     if (terminal) {
       await this.finalizar(tx, ctx, atualizada);
     } else {
-      this.emitirLigacao(ctx, atualizada);
+      await this.emitirLigacao(tx, ctx, atualizada);
     }
     return atualizada;
   }
 
-  private emitirLigacao(ctx: ContextoDaLigacao, ligacao: Ligacao): void {
+  /** `tresc.ligacao` para o atendente; o negócio de um funil que ele não vê vai sem id (R5.9). */
+  private async emitirLigacao(
+    tx: Tx | PrismaService,
+    ctx: ContextoDaLigacao,
+    ligacao: Ligacao,
+  ): Promise<void> {
     if (!ligacao.atendenteId) return;
     ctx.emitir(
       salas.usuario(ligacao.atendenteId),
       'tresc.ligacao',
-      cargaDaLigacao(ligacao),
+      cargaDaLigacao(ligacao, await this.atendenteVeONegocio(tx, ligacao)),
     );
   }
 
-  /** Estado terminal: atividade do contato, auditoria, evento de domínio e aviso ao vendedor. */
-  private async finalizar(
+  /**
+   * Cria a atividade `LIGACAO` do contato (uma vez) quando a ligação foi feita ou atendida por uma pessoa.
+   * Devolve o id da atividade (a existente ou a nova), ou `null` quando não há o que registrar.
+   */
+  private async garantirAtividade(
     tx: Tx,
-    ctx: ContextoDaLigacao,
     ligacao: Ligacao,
-  ): Promise<void> {
+  ): Promise<string | null> {
     const atendida = ligacao.atendidaEm !== null;
     let atividadeId = ligacao.atividadeId;
     const contato = await tx.contato.findUnique({
@@ -633,6 +687,17 @@ export class LigacoesTrescService implements OnModuleInit {
         dadosDoEvento(criada),
       );
     }
+    return atividadeId;
+  }
+
+  /** Estado terminal: atividade do contato, auditoria, evento de domínio e aviso ao vendedor. */
+  private async finalizar(
+    tx: Tx,
+    ctx: ContextoDaLigacao,
+    ligacao: Ligacao,
+  ): Promise<void> {
+    const atendida = ligacao.atendidaEm !== null;
+    await this.garantirAtividade(tx, ligacao);
     await this.auditoria.registrar(tx, {
       acao: `ligacao.${ligacao.estado.toLowerCase()}`,
       entidade: 'ligacao',
@@ -666,7 +731,7 @@ export class LigacoesTrescService implements OnModuleInit {
       EVENTOS_DE_LIGACAO.ENCERRADA,
       dadosDoEventoDeLigacao(completa as LigacaoCompleta, false),
     );
-    this.emitirLigacao(ctx, completa);
+    await this.emitirLigacao(tx, ctx, completa);
     if (completa.atendenteId && atendida && completa.qualificadaEm === null) {
       ctx.emitir(salas.usuario(completa.atendenteId), 'tresc.qualificar', {
         ligacaoId: completa.id,
@@ -710,10 +775,11 @@ export class LigacoesTrescService implements OnModuleInit {
     const vinculo = await this.vinculoDoAgente(chamada.agente, tx);
     let ligacao = await this.buscar(tx, chamada.id);
     if (!ligacao) {
-      const contato = await this.resolverContato(tx, {
-        telefone: chamada.telefone,
-        identifier: chamada.identifier,
-      });
+      const contato = await this.resolverContato(
+        tx,
+        { telefone: chamada.telefone, identifier: chamada.identifier },
+        vinculo ? await this.pessoaDe(tx, vinculo.usuarioId) : null,
+      );
       if (!contato) return null;
       const direcao =
         chamada.modo && ehReceptiva({ mode: chamada.modo })
@@ -736,14 +802,7 @@ export class LigacoesTrescService implements OnModuleInit {
           tocouPara: vinculo ? [vinculo.usuarioId] : [],
         },
       });
-      if (vinculo && direcao === 'FEITA' && chamada.modo !== 'dialer') {
-        await registrarPrimeiraInteracao(tx, {
-          contatoId: contato.contatoId,
-          tipo: 'LIGACAO',
-          usuarioId: vinculo.usuarioId,
-          quando: h.dataDaChamada ?? undefined,
-        });
-      }
+      // R6.7: a primeira interação só conta quando houve conversa (abaixo, `falou`).
     }
     ligacao = await this.completarAtendente(tx, ligacao, vinculo, chamada);
     const falou = (h.faladoSegundos ?? 0) > 0;
@@ -838,6 +897,17 @@ export class LigacoesTrescService implements OnModuleInit {
         quando: atualizada.atendidaEm ?? undefined,
       });
     }
+    if (
+      reabrir &&
+      atualizada.estado === 'ENCERRADA' &&
+      !atualizada.atividadeId
+    ) {
+      // Recebida que o evento deu como perdida e o histórico mostrou que foi atendida: faltava a atividade
+      // `LIGACAO` (o fechamento como perdida não cria). Só completa o registro; o evento de encerramento
+      // antigo não é publicado de novo.
+      const atividadeId = await this.garantirAtividade(tx, atualizada);
+      if (atividadeId) atualizada = { ...atualizada, atividadeId };
+    }
     if (atualizada.atividadeId) {
       await tx.atividade.updateMany({
         where: { id: atualizada.atividadeId },
@@ -858,7 +928,7 @@ export class LigacoesTrescService implements OnModuleInit {
         relacionados: { contato: atualizada.contatoId },
       });
     }
-    this.emitirLigacao(ctx, atualizada);
+    await this.emitirLigacao(tx, ctx, atualizada);
     return h.temGravacao && !atualizada.gravacaoOriginalArquivoId
       ? atualizada.id
       : null;
@@ -999,24 +1069,34 @@ export class LigacoesTrescService implements OnModuleInit {
         estado: { in: ['CHAMANDO', 'TOCANDO', 'EM_ANDAMENTO'] },
         iniciadaEm: { lt: limite },
       },
-      select: { id: true },
+      select: { id: true, idExterno: true },
       take: 200,
     });
-    for (const { id } of presas) {
+    for (const { id, idExterno } of presas) {
       const ctx = new ContextoDaLigacao();
       await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ligacao3c:${id}`}, 0))`;
+        // A mesma trava dos eventos (`tresc:<chamada>`): um evento atrasado e o fechamento não se cruzam.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`tresc:${idExterno ?? id}`}, 0))`;
+        await tx.$queryRaw`SELECT id FROM ligacoes WHERE id = ${id}::uuid FOR UPDATE`;
         const ligacao = await tx.ligacao.findUniqueOrThrow({ where: { id } });
+        // Um evento ou o histórico pode ter fechado a ligação enquanto esperávamos a trava.
+        if (ehEstadoFinal(ligacao.estado)) return;
         const decisao = decidirChamada(
           ligacao.estado,
           ligacao.direcao,
           'call-was-finished',
         );
-        if (decisao)
-          await this.aplicarDecisao(tx, ctx, ligacao, {
-            ...decisao,
-            motivo: 'sem_retorno_do_3c',
-          });
+        if (decisao) {
+          // Sem histórico, não há duração conhecida: fecha com duração zero (não com as 3 h de espera).
+          await this.aplicarDecisao(
+            tx,
+            ctx,
+            ligacao,
+            { ...decisao, motivo: 'sem_retorno_do_3c' },
+            ligacao.atendidaEm ?? ligacao.iniciadaEm,
+            true,
+          );
+        }
       });
       await ctx.concluir(this.tempoReal);
     }
@@ -1055,10 +1135,16 @@ export class LigacoesTrescService implements OnModuleInit {
       const existente = await this.buscar(tx, dados.idExterno);
       let criada: Ligacao;
       if (existente) {
+        // O contato e o negócio escolhidos no CRM prevalecem sobre os inferidos pelo telefone quando o
+        // evento `call-was-created` chegou antes da resposta do `dial`.
+        const mudouDeContato = existente.contatoId !== dados.contatoId;
+        const negocioEscolhido =
+          dados.negocioId ?? (mudouDeContato ? null : existente.negocioId);
         criada = await tx.ligacao.update({
           where: { id: existente.id },
           data: {
-            negocioId: existente.negocioId ?? dados.negocioId,
+            contatoId: dados.contatoId,
+            negocioId: negocioEscolhido,
             atendenteId: existente.atendenteId ?? dados.usuarioId,
             campanhaId: existente.campanhaId ?? dados.campanhaId,
             campanhaNome: existente.campanhaNome ?? dados.campanhaNome,
@@ -1094,17 +1180,56 @@ export class LigacoesTrescService implements OnModuleInit {
           relacionados: { contato: dados.contatoId, usuario: dados.usuarioId },
         });
       }
-      // R6.7 — ligação feita por uma pessoa.
-      await registrarPrimeiraInteracao(tx, {
-        contatoId: dados.contatoId,
-        tipo: 'LIGACAO',
-        usuarioId: dados.usuarioId,
-      });
-      this.emitirLigacao(ctx, criada);
+      if (existente) {
+        await this.corrigirVinculos(tx, criada, existente);
+      }
+      // R6.7: a primeira interação só conta quando a ligação é atendida. Se ela já foi atendida antes desta
+      // correção (o evento correu na frente), o contato certo é o escolhido no CRM.
+      if (existente && criada.atendidaEm && criada.atendenteId) {
+        await registrarPrimeiraInteracao(tx, {
+          contatoId: criada.contatoId,
+          tipo: 'LIGACAO',
+          usuarioId: criada.atendenteId,
+          quando: criada.atendidaEm,
+        });
+      }
+      await this.emitirLigacao(tx, ctx, criada);
       return criada;
     });
     await ctx.concluir(this.tempoReal);
     return ligacao;
+  }
+
+  /** A atividade já criada acompanha o contato e o negócio que o CRM escolheu para a ligação. */
+  private async corrigirVinculos(
+    tx: Tx,
+    ligacao: Ligacao,
+    antes: Ligacao,
+  ): Promise<void> {
+    if (
+      !ligacao.atividadeId ||
+      (antes.contatoId === ligacao.contatoId &&
+        antes.negocioId === ligacao.negocioId)
+    ) {
+      return;
+    }
+    const contato = await tx.contato.findUnique({
+      where: { id: ligacao.contatoId },
+      select: { nome: true, empresaId: true },
+    });
+    if (!contato) return;
+    await tx.atividade.updateMany({
+      where: { id: ligacao.atividadeId },
+      data: {
+        contatoId: ligacao.contatoId,
+        negocioId: ligacao.negocioId,
+        empresaId: contato.empresaId,
+        titulo:
+          ligacao.direcao === 'RECEBIDA'
+            ? `Ligação recebida de ${contato.nome} (3C+)`
+            : `Ligação feita para ${contato.nome} (3C+)`,
+      },
+    });
   }
 
   /** `identifier` do discador para um negócio/contato (o próprio id). */
@@ -1118,14 +1243,17 @@ export class LigacoesTrescService implements OnModuleInit {
 // ---------------------------------------------------------------------------
 
 /** O que o front recebe em `tresc.ligacao`. */
-export function cargaDaLigacao(ligacao: Ligacao): Record<string, unknown> {
+export function cargaDaLigacao(
+  ligacao: Ligacao,
+  negocioVisivel: boolean,
+): Record<string, unknown> {
   return {
     ligacaoId: ligacao.id,
     estado: ligacao.estado,
     direcao: ligacao.direcao,
     telefone: ligacao.telefone,
     contatoId: ligacao.contatoId,
-    negocioId: ligacao.negocioId,
+    negocioId: negocioVisivel ? ligacao.negocioId : null,
     campanhaId: ligacao.campanhaId,
     motivo: ligacao.motivo,
     motivoTexto: textoDoMotivo(ligacao.motivo),
@@ -1134,40 +1262,6 @@ export function cargaDaLigacao(ligacao: Ligacao): Record<string, unknown> {
     duracaoSegundos: ligacao.duracaoSegundos,
     qualificacao: ligacao.qualificacaoNome,
   };
-}
-
-/** Texto da atividade `LIGACAO` do contato. */
-export function descricaoDaAtividade(
-  ligacao: Pick<
-    Ligacao,
-    | 'direcao'
-    | 'estado'
-    | 'motivo'
-    | 'duracaoSegundos'
-    | 'campanhaNome'
-    | 'qualificacaoNome'
-    | 'qualificacaoNota'
-    | 'telefone'
-  >,
-): string {
-  const linhas = [
-    `Direção: ${ligacao.direcao === 'RECEBIDA' ? 'recebida' : 'feita'} pelo 3C+.`,
-    ligacao.telefone ? `Telefone: ${ligacao.telefone}.` : null,
-    `Resultado: ${RESULTADO_POR_ESTADO[ligacao.estado]}${
-      ligacao.motivo && ligacao.estado !== 'ENCERRADA'
-        ? ` (${textoDoMotivo(ligacao.motivo)})`
-        : ''
-    }`,
-    ligacao.estado === 'ENCERRADA'
-      ? `Duração: ${formatarDuracao(ligacao.duracaoSegundos ?? 0)}.`
-      : null,
-    ligacao.campanhaNome ? `Campanha: ${ligacao.campanhaNome}.` : null,
-    ligacao.qualificacaoNome
-      ? `Qualificação: ${ligacao.qualificacaoNome}.`
-      : null,
-    ligacao.qualificacaoNota ? `Observação: ${ligacao.qualificacaoNota}` : null,
-  ];
-  return linhas.filter(Boolean).join('\n');
 }
 
 /** A pausa de um evento `agent-entered-work-break` (`work_break`, `interval` ou `break`). */
