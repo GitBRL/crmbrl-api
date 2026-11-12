@@ -130,7 +130,7 @@ describe('Indicadores configuráveis (R33, e2e)', () => {
     const funil = await funilBase(t, 'COMERCIAL');
     const etapa = (chave: string) =>
       funil.etapas.find((e) => e.chave === chave)!;
-    const n = (dados: Parameters<typeof criarNegocioBi>[1]) =>
+    const n = (dados: Omit<Parameters<typeof criarNegocioBi>[1], 'area'>) =>
       criarNegocioBi(t, { area: 'COMERCIAL', ...dados });
     const n1 = await n({
       etapa: 'novo',

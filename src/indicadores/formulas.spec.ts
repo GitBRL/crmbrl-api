@@ -12,7 +12,9 @@ describe('fórmulas dos indicadores (R33.1)', () => {
   it('R33.1 — comparecimento e no-show usam compareceu + não compareceu como base (remarcada e sem resultado ficam de fora)', () => {
     expect(taxaDeComparecimento(3, 1)).toBe(75);
     expect(taxaDeNoShow(3, 1)).toBe(25);
-    expect(taxaDeComparecimento(2, 2) + (taxaDeNoShow(2, 2) ?? 0)).toBe(100);
+    expect((taxaDeComparecimento(2, 2) ?? 0) + (taxaDeNoShow(2, 2) ?? 0)).toBe(
+      100,
+    );
   });
 
   it('R33.1 — sem base não há taxa (nulo, nunca 0 nem NaN)', () => {
