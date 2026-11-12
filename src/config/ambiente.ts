@@ -118,6 +118,14 @@ export interface ConfiguracaoMeta {
   readonly dialogoUrl: string;
 }
 
+/** Ligações pelo 3C+ (Onda T, R34). */
+export interface ConfiguracaoTrescPlus {
+  /** Ouvinte do socket e reconciliação ligados (`TRESC_PLUS_OUVINTE`; padrão: o mesmo de `PROCESSAR_FILAS`). */
+  readonly ouvinteAtivo: boolean;
+  /** Intervalo da reconciliação por `GET /calls`, em minutos (`TRESC_PLUS_RECONCILIACAO_MIN`, padrão 10). */
+  readonly reconciliacaoMinutos: number;
+}
+
 /** Ligações pelo WhatsApp oficial (Onda E, R29). */
 export interface ConfiguracaoLigacoes {
   /** Servidores STUN que o navegador usa na ligação (`LIGACOES_STUN_URLS`, separados por vírgula; vazio = nenhum). */
@@ -247,6 +255,8 @@ export interface Ambiente {
   readonly integracoes: ConfiguracaoIntegracoes;
   /** Ligações pelo WhatsApp oficial (Onda E, R29). */
   readonly ligacoes: ConfiguracaoLigacoes;
+  /** Ligações pelo 3C+ (Onda T, R34). */
+  readonly trescPlus: ConfiguracaoTrescPlus;
   /** Gravação, transcrição e resumo das ligações (Onda E, R30). */
   readonly transcricao: ConfiguracaoTranscricao;
   readonly anthropic: ConfiguracaoAnthropic;
@@ -307,6 +317,8 @@ export interface VariaveisDeAmbiente {
   RD_STATION_DIALOGO_URL?: string;
   LIGACOES_STUN_URLS?: string;
   LIGACOES_ESPERA_PRE_ACEITE_MS?: string;
+  TRESC_PLUS_OUVINTE?: string;
+  TRESC_PLUS_RECONCILIACAO_MIN?: string;
   TRANSCRICAO_URL?: string;
   WHISPER_MODELO?: string;
   TRANSCRICAO_TEMPO_LIMITE_S?: string;
@@ -371,6 +383,8 @@ const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'RD_STATION_DIALOGO_URL',
   'LIGACOES_STUN_URLS',
   'LIGACOES_ESPERA_PRE_ACEITE_MS',
+  'TRESC_PLUS_OUVINTE',
+  'TRESC_PLUS_RECONCILIACAO_MIN',
   'TRANSCRICAO_URL',
   'WHISPER_MODELO',
   'TRANSCRICAO_TEMPO_LIMITE_S',
@@ -418,6 +432,12 @@ export function lerAmbiente(
   const producao = nodeEnv === 'production';
   const urlPublica = lerUrlPublica(variaveis.URL_PUBLICA, producao, problemas);
   const origemPublica = comoOrigem(urlPublica);
+  const processarFilas = lerBooleano(
+    'PROCESSAR_FILAS',
+    variaveis.PROCESSAR_FILAS,
+    true,
+    problemas,
+  );
 
   const ambiente: Ambiente = {
     databaseUrl: lerDatabaseUrl(variaveis.DATABASE_URL, problemas),
@@ -459,18 +479,14 @@ export function lerAmbiente(
       !producao,
       problemas,
     ),
-    processarFilas: lerBooleano(
-      'PROCESSAR_FILAS',
-      variaveis.PROCESSAR_FILAS,
-      true,
-      problemas,
-    ),
+    processarFilas,
     logFormato: lerLogFormato(variaveis.LOG_FORMATO, producao, problemas),
     arquivos: lerArquivos(variaveis, producao, problemas, avisos),
     whatsapp: lerWhatsapp(variaveis, producao, problemas, avisos),
     meta: lerMeta(variaveis, problemas),
     integracoes: lerIntegracoes(variaveis, problemas),
     ligacoes: lerLigacoes(variaveis, problemas),
+    trescPlus: lerTrescPlus(variaveis, processarFilas, problemas),
     transcricao: lerTranscricao(variaveis, problemas),
     anthropic: lerAnthropic(variaveis, problemas),
     ticketHub: lerTicketHub(variaveis, problemas),
@@ -1141,6 +1157,34 @@ function lerWhatsapp(
  * `LIGACOES_*` (R29): STUN opcional do navegador (vazio por padrão: o áudio vai
  * direto entre o navegador e a Meta, sem TURN) e a espera entre `pre_accept` e `accept`.
  */
+/** `TRESC_PLUS_*` (R34): ouvinte do socket (padrão: junto das filas) e intervalo da reconciliação. */
+function lerTrescPlus(
+  variaveis: VariaveisDeAmbiente,
+  processarFilas: boolean,
+  problemas: string[],
+): ConfiguracaoTrescPlus {
+  const minutos = lerInteiroPositivo(
+    'TRESC_PLUS_RECONCILIACAO_MIN',
+    variaveis.TRESC_PLUS_RECONCILIACAO_MIN,
+    10,
+    problemas,
+  );
+  if (minutos > 120) {
+    problemas.push(
+      `TRESC_PLUS_RECONCILIACAO_MIN precisa ser de 1 a 120 (recebido: "${minutos}").`,
+    );
+  }
+  return {
+    ouvinteAtivo: lerBooleano(
+      'TRESC_PLUS_OUVINTE',
+      variaveis.TRESC_PLUS_OUVINTE,
+      processarFilas,
+      problemas,
+    ),
+    reconciliacaoMinutos: Math.min(minutos, 120),
+  };
+}
+
 function lerLigacoes(
   variaveis: VariaveisDeAmbiente,
   problemas: string[],

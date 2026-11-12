@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AtividadesModule } from '../atividades/atividades.module';
 import { ContatosModule } from '../contatos/contatos.module';
+import { TrescPlusModule } from '../tresc-plus/tresc-plus.module';
 import { DistribuicaoController } from './distribuicao.controller';
 import { DistribuicaoService } from './distribuicao.service';
 import { FunisController } from './funis.controller';
@@ -29,7 +30,7 @@ import { PassagensService } from './passagens.service';
  * `LinhaDoTempoService` do módulo de contatos.
  */
 @Module({
-  imports: [ContatosModule, AtividadesModule],
+  imports: [ContatosModule, AtividadesModule, TrescPlusModule],
   controllers: [
     FunisController,
     NegociosController,

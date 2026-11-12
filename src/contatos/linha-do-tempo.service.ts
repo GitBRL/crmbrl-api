@@ -135,11 +135,14 @@ export class LinhaDoTempoService {
            AND NOT (a.status = 'CONCLUIDA'::status_atividade AND EXISTS (
                  SELECT 1 FROM ligacoes la WHERE la.atividade_id = a.id))`);
     }
-    if (so('ligacoes') && entidade !== 'negocio') {
+    if (so('ligacoes')) {
+      // R34.3: no negócio entram só as ligações do 3C+ ligadas a ele (`negocio_id`).
       const coluna =
-        entidade === 'contato'
-          ? Prisma.sql`l.contato_id = ${id}::uuid`
-          : Prisma.sql`l.contato_id IN (SELECT ct.id FROM contatos ct WHERE ct.empresa_id = ${id}::uuid)`;
+        entidade === 'negocio'
+          ? Prisma.sql`l.negocio_id = ${id}::uuid`
+          : entidade === 'contato'
+            ? Prisma.sql`l.contato_id = ${id}::uuid`
+            : Prisma.sql`l.contato_id IN (SELECT ct.id FROM contatos ct WHERE ct.empresa_id = ${id}::uuid)`;
       ramos.push(Prisma.sql`
         SELECT 'ligacao'::text AS tipo, NULL::bigint AS evento_id, NULL::uuid AS atividade_id,
                l.id AS ligacao_id, COALESCE(l.encerrada_em, l.iniciada_em) AS ocorrido_em
@@ -351,8 +354,12 @@ export class LinhaDoTempoService {
       motivoTexto: textoDoMotivo(ligacao.motivo),
       duracaoSegundos: ligacao.duracaoSegundos,
       conversaId: ligacao.conversaId,
-      canalId: ligacao.canal.id,
-      canalNome: ligacao.canal.nome,
+      canalId: ligacao.canal?.id ?? null,
+      canalNome: ligacao.canal?.nome ?? null,
+      provedor: ligacao.provedor,
+      negocioId: ligacao.negocioId,
+      qualificacaoNome: ligacao.qualificacaoNome,
+      campanhaNome: ligacao.campanhaNome,
       atendente: ligacao.atendente
         ? UsuarioVinculadoDto.de(ligacao.atendente)
         : null,

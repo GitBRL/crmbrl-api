@@ -53,6 +53,27 @@ export function paraLigacaoDto(
     motivo: ligacao.motivo,
     motivoTexto: textoDoMotivo(ligacao.motivo),
     canal: ligacao.canal,
+    provedor: ligacao.provedor,
+    idExterno: ligacao.idExterno,
+    negocioId: ligacao.negocioId,
+    qualificacao:
+      ligacao.qualificacaoNome !== null
+        ? {
+            id: ligacao.qualificacaoId,
+            nome: ligacao.qualificacaoNome,
+            observacao: ligacao.qualificacaoNota,
+            conversao: ligacao.qualificacaoConversao,
+            qualificadaEm: iso(ligacao.qualificadaEm),
+          }
+        : null,
+    campanha:
+      ligacao.campanhaId !== null
+        ? {
+            id: ligacao.campanhaId,
+            nome: ligacao.campanhaNome,
+            modo: ligacao.modoChamada,
+          }
+        : null,
     contato: {
       id: ligacao.contato.id,
       nome: ligacao.contato.nome,

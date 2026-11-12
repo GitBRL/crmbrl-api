@@ -106,6 +106,7 @@ describe('lerAmbiente', () => {
         rdStationDialogoUrl: 'https://api.rd.services',
       },
       ligacoes: { stunUrls: [], esperaPreAceiteMs: 800 },
+      trescPlus: { ouvinteAtivo: true, reconciliacaoMinutos: 10 },
       transcricao: {
         url: null,
         modelo: 'small',

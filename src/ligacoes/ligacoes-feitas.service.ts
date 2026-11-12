@@ -200,6 +200,7 @@ export class LigacoesFeitasService {
   ): Promise<void> {
     const ativa = await this.prisma.ligacao.findFirst({
       where: {
+        provedor: 'WHATSAPP',
         estado: { in: [...ESTADOS_ATIVOS] },
         OR: [{ atendenteId: usuarioId }, { contatoId, canalId }],
       },

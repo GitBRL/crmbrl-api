@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsUUID,
 } from 'class-validator';
+import { RelatorioDoDiscadorDto } from '../../tresc-plus/tresc-plus.dto';
 
 /** Máximo de negócios por pedido de ação em massa (R5.16). */
 export const LIMITE_NEGOCIOS_EM_MASSA = 500;
@@ -22,6 +23,7 @@ export const ACOES_EM_MASSA = [
   'DESETIQUETAR',
   'ATIVIDADE',
   'EXCLUIR',
+  'DISCADOR',
 ] as const;
 export type AcaoEmMassa = (typeof ACOES_EM_MASSA)[number];
 
@@ -55,7 +57,8 @@ export class AcaoEmMassaDto {
     additionalProperties: true,
     description:
       'Parâmetros da ação: `MOVER` {etapaId, motivoPerda?}; `RESPONSAVEL` {responsavelId|null}; `PERDER` {motivoPerda}; ' +
-      '`ETIQUETAR`/`DESETIQUETAR` {etiquetas}; `ATIVIDADE` {tipo, titulo, vencimento?, descricao?}; `GANHAR` e `EXCLUIR` sem dados.',
+      '`ETIQUETAR`/`DESETIQUETAR` {etiquetas}; `ATIVIDADE` {tipo, titulo, vencimento?, descricao?}; ' +
+      '`DISCADOR` {campanhaId, listaId? | nomeLista?} (R34.6: só Admin, C-level e líder); `GANHAR` e `EXCLUIR` sem dados.',
   })
   @IsOptional()
   @IsObject({ message: 'deve ser um objeto' })
@@ -92,4 +95,11 @@ export class ResultadoEmMassaDto {
 
   @ApiProperty({ type: [FalhaEmMassaDto] })
   falhas: FalhaEmMassaDto[];
+
+  @ApiPropertyOptional({
+    type: RelatorioDoDiscadorDto,
+    description:
+      'Só na ação `DISCADOR` (R34.6): o relatório do 3C+ (importados e filtrados, com o motivo). `sucesso` = importados; `falhas` = os negócios que não entraram.',
+  })
+  discador?: RelatorioDoDiscadorDto;
 }

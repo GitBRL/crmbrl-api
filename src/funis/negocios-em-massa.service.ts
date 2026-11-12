@@ -24,6 +24,7 @@ import {
   validarDadosEmMassa,
 } from './negocios-em-massa.dados';
 import { NegociosService } from './negocios.service';
+import { DiscadorTrescPlusService } from '../tresc-plus/discador.service';
 
 interface NegocioAlvo {
   id: string;
@@ -49,6 +50,7 @@ export class NegociosEmMassaService {
     private readonly contatos: ContatosService,
     private readonly atividades: AtividadesService,
     private readonly auditoria: AuditoriaService,
+    private readonly discador: DiscadorTrescPlusService,
   ) {}
 
   async executar(
@@ -74,6 +76,10 @@ export class NegociosEmMassaService {
           },
         );
       }
+    }
+
+    if (dados.acao === 'DISCADOR') {
+      return this.enviarAoDiscador(usuario, dto, dados);
     }
 
     const encontrados = await this.prisma.negocio.findMany({
@@ -130,6 +136,65 @@ export class NegociosEmMassaService {
     return { total: dto.negocioIds.length, sucesso, falhas };
   }
 
+  /**
+   * R34.6: `DISCADOR` envia todos os negócios de uma vez ao 3C+ (um `mailing.json`), só Admin, C-level
+   * e líder (403 para os demais). `sucesso` = importados; `falhas` = os que ficaram de fora (sem
+   * telefone, sem acesso, filtrados pelo 3C+), com o motivo.
+   */
+  private async enviarAoDiscador(
+    usuario: UsuarioAutenticado,
+    dto: AcaoEmMassaDto,
+    dados: Extract<DadosValidados, { acao: 'DISCADOR' }>,
+  ): Promise<ResultadoEmMassaDto> {
+    const relatorio = await this.discador.enviar(usuario, {
+      campanhaId: dados.campanhaId,
+      listaId: dados.listaId,
+      nomeLista: dados.nomeLista,
+      negocioIds: dto.negocioIds,
+    });
+    const titulos = new Map(
+      (
+        await this.prisma.negocio.findMany({
+          where: { id: { in: dto.negocioIds } },
+          select: { id: true, titulo: true },
+        })
+      ).map((n) => [n.id, n.titulo]),
+    );
+    const falhas: FalhaEmMassaDto[] = [];
+    for (const detalhe of relatorio.detalhes) {
+      if (detalhe.identifier === null) continue;
+      falhas.push({
+        negocioId: detalhe.identifier,
+        titulo: titulos.get(detalhe.identifier) ?? null,
+        statusCode: 422,
+        regra: 'R34',
+        mensagem: detalhe.motivo,
+      });
+    }
+    // Filtrados pelo 3C+ sem identificar o número entram só no relatório (`discador.detalhes`).
+    const sucesso = relatorio.importados;
+    await this.prisma.$transaction((tx) =>
+      this.auditoria.registrar(tx, {
+        acao: 'negocio.acao_em_massa',
+        entidade: 'negocio',
+        resumo: `Ação em massa DISCADOR: ${relatorio.importados} de ${dto.negocioIds.length} negócios importados no 3C+`,
+        dados: {
+          acao: dto.acao,
+          total: dto.negocioIds.length,
+          sucesso,
+          falhas: falhas.length,
+          campanhaId: dados.campanhaId,
+        },
+      }),
+    );
+    return {
+      total: dto.negocioIds.length,
+      sucesso,
+      falhas,
+      discador: relatorio,
+    };
+  }
+
   private async aplicar(
     usuario: UsuarioAutenticado,
     acesso: AcessoAosFunis,
@@ -162,6 +227,8 @@ export class NegociosEmMassaService {
       case 'EXCLUIR':
         await this.negocios.excluir(usuario, alvo.id);
         return;
+      case 'DISCADOR':
+        return; // tratada em `enviarAoDiscador`, antes do laço
       case 'ETIQUETAR':
       case 'DESETIQUETAR':
         this.exigirAcao(acesso, alvo);

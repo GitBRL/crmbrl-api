@@ -33,6 +33,8 @@ import {
   IDADE_MAXIMA_DO_CONNECT_MS,
   REGRA_LIGACOES,
   TIPOS_NOTIFICACAO_LIGACAO,
+  canalDaLigacao,
+  exigirWhatsapp,
 } from './ligacoes.constantes';
 import type { AtenderLigacaoDto, LigacaoDto } from './ligacoes.dto';
 import { LigacoesService } from './ligacoes.service';
@@ -331,6 +333,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
       reivindicada = await this.nucleo.executar(async (tx, ctx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ligacao:${id}`}, 0))`;
         const atual = await this.nucleo.carregar(tx, id);
+        exigirWhatsapp(atual);
         if (atual.direcao !== 'RECEBIDA') {
           throw new ConflitoException(
             'Só ligações recebidas são atendidas: para uma ligação feita, aguarde o cliente.',
@@ -390,7 +393,9 @@ export class LigacoesRecebidasService implements OnModuleInit {
     }
 
     try {
-      const canal = await this.config.canalOficial(reivindicada.canalId);
+      const canal = await this.config.canalOficial(
+        canalDaLigacao(reivindicada),
+      );
       const { token, phoneNumberId } = await this.config.credenciais(canal);
       const idMeta = reivindicada.idMeta as string;
       await this.graph.agir(
@@ -485,6 +490,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
     const ligacao = await this.nucleo.executar(async (tx, ctx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ligacao:${id}`}, 0))`;
       const atual = await this.nucleo.carregar(tx, id);
+      exigirWhatsapp(atual);
       if (atual.direcao !== 'RECEBIDA') {
         throw new ConflitoException(
           'Só ligações recebidas podem ser recusadas.',
@@ -533,7 +539,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
       if (resultado.aplicada && atual.idMeta) {
         const idMeta = atual.idMeta;
         ctx.aposCommit(() =>
-          this.nucleo.agirNaMeta(atual.canalId, 'reject', idMeta),
+          this.nucleo.agirNaMeta(canalDaLigacao(atual), 'reject', idMeta),
         );
       }
       return resultado.ligacao;
@@ -564,7 +570,7 @@ export class LigacoesRecebidasService implements OnModuleInit {
       if (resultado.aplicada && atual.idMeta) {
         const idMeta = atual.idMeta;
         ctx.aposCommit(() =>
-          this.nucleo.agirNaMeta(atual.canalId, 'reject', idMeta),
+          this.nucleo.agirNaMeta(canalDaLigacao(atual), 'reject', idMeta),
         );
       }
     });

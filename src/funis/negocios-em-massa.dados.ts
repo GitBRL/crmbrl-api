@@ -21,6 +21,12 @@ export type DadosValidados =
       vencimento?: string;
       descricao?: string;
     }
+  | {
+      acao: 'DISCADOR';
+      campanhaId: number;
+      listaId?: number;
+      nomeLista?: string;
+    }
   | { acao: 'EXCLUIR' };
 
 interface Problema {
@@ -136,6 +142,35 @@ export function validarDadosEmMassa(
         vencimento,
         descricao,
       };
+      break;
+    }
+    case 'DISCADOR': {
+      const inteiro = (
+        campo: string,
+        obrigatorio: boolean,
+      ): number | undefined => {
+        const valor = dados[campo];
+        if (valor === undefined || valor === null) {
+          if (obrigatorio) erro(campo, 'é obrigatório');
+          return undefined;
+        }
+        if (
+          typeof valor !== 'number' ||
+          !Number.isInteger(valor) ||
+          valor < 1
+        ) {
+          erro(campo, 'deve ser um número inteiro maior que zero');
+          return undefined;
+        }
+        return valor;
+      };
+      const campanhaId = inteiro('campanhaId', true) ?? 0;
+      const listaId = inteiro('listaId', false);
+      const nomeLista = texto('nomeLista', 120, false);
+      if (listaId === undefined && !nomeLista) {
+        erro('listaId', 'informe a lista ou o nome de uma lista nova');
+      }
+      resultado = { acao, campanhaId, listaId, nomeLista };
       break;
     }
     case 'GANHAR':

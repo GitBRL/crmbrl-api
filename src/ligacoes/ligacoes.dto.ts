@@ -406,6 +406,25 @@ export class PessoaDaLigacaoDto {
   @ApiProperty() nome: string;
 }
 
+export class QualificacaoDaLigacaoDto {
+  @ApiProperty({ type: Number, nullable: true }) id: number | null;
+  @ApiProperty() nome: string;
+  @ApiProperty({ type: String, nullable: true }) observacao: string | null;
+  @ApiProperty({ type: Boolean, nullable: true }) conversao: boolean | null;
+  @ApiProperty({ type: String, nullable: true }) qualificadaEm: string | null;
+}
+
+export class CampanhaDaLigacaoDto {
+  @ApiProperty() id: number;
+  @ApiProperty({ type: String, nullable: true }) nome: string | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: '`manual`, `dialer` ou `receptive`.',
+  })
+  modo: string | null;
+}
+
 export class ContatoDaLigacaoDto {
   @ApiProperty() id: string;
   @ApiProperty() nome: string;
@@ -441,7 +460,42 @@ export class LigacaoDto {
     description: 'O motivo em português.',
   })
   motivoTexto: string | null;
-  @ApiProperty({ type: PessoaDaLigacaoDto }) canal: PessoaDaLigacaoDto;
+  @ApiProperty({
+    type: PessoaDaLigacaoDto,
+    nullable: true,
+    description: 'Canal do WhatsApp; `null` nas ligações do 3C+.',
+  })
+  canal: PessoaDaLigacaoDto | null;
+  @ApiProperty({
+    enum: ['WHATSAPP', 'TRESC_PLUS'],
+    description: 'R34.3: de onde vem a ligação.',
+  })
+  provedor: 'WHATSAPP' | 'TRESC_PLUS';
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Id da chamada no 3C+ (`provedor = TRESC_PLUS`).',
+  })
+  idExterno: string | null;
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description: 'Negócio da ligação (3C+), quando identificado.',
+  })
+  negocioId: string | null;
+  @ApiProperty({
+    type: QualificacaoDaLigacaoDto,
+    nullable: true,
+    description: 'Qualificação dada no 3C+ (R34.3).',
+  })
+  qualificacao: QualificacaoDaLigacaoDto | null;
+  @ApiProperty({
+    type: CampanhaDaLigacaoDto,
+    nullable: true,
+    description: 'Campanha do 3C+ e modo da chamada.',
+  })
+  campanha: CampanhaDaLigacaoDto | null;
   @ApiProperty({ type: ContatoDaLigacaoDto }) contato: ContatoDaLigacaoDto;
   @ApiProperty({ type: String, nullable: true }) conversaId: string | null;
   @ApiProperty({
