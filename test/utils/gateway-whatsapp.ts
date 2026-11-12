@@ -20,6 +20,7 @@ import {
   TransporteSimulado,
 } from '../../src/whatsapp/transporte/transporte-simulado';
 import type { AppTeste } from './app-teste';
+import { servicoComoSistema } from './contexto';
 import { TOKEN_INTERNO_DE_TESTE } from './ambiente-teste';
 
 /** O processo do gateway de WhatsApp, em modo simulado, dentro do teste. */
@@ -85,7 +86,10 @@ export async function criarGatewayTeste(
   configurarGateway(app);
   await app.init();
   const servidor = app.getHttpServer() as App;
-  const gerenciador = app.get(GerenciadorDeNumeros);
+  // R35.2: chamado direto pelo teste, roda como a fila do gateway rodaria (sistema).
+  const gerenciador = servicoComoSistema(app.get(GerenciadorDeNumeros), {
+    sempreSistema: true,
+  });
   const fila = app.get(FilaService);
   return {
     app: app as INestApplication<App>,

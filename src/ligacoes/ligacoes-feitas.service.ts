@@ -4,6 +4,7 @@ import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { filtroDeVisibilidade } from '../atividades/regras-atividades';
 import { exigirAtendimento } from '../atendimento/conversas.service';
 import { ErroDaGraph } from '../canais/meta/graph-api';
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import {
   ConflitoException,
   DadosInvalidosException,
@@ -197,14 +198,17 @@ export class LigacoesFeitasService {
     contatoId: string,
     canalId: string,
   ): Promise<void> {
-    const ativa = await this.prisma.ligacao.findFirst({
-      where: {
-        provedor: 'WHATSAPP',
-        estado: { in: [...ESTADOS_ATIVOS] },
-        OR: [{ atendenteId: usuarioId }, { contatoId, canalId }],
-      },
-      select: { atendenteId: true, contatoId: true },
-    });
+    // R35.2: a ligação do cliente pode ser de um colega que a pessoa não vê.
+    const ativa = await executarComoSistemaNoBanco(() =>
+      this.prisma.ligacao.findFirst({
+        where: {
+          provedor: 'WHATSAPP',
+          estado: { in: [...ESTADOS_ATIVOS] },
+          OR: [{ atendenteId: usuarioId }, { contatoId, canalId }],
+        },
+        select: { atendenteId: true, contatoId: true },
+      }),
+    );
     if (!ativa) {
       return;
     }

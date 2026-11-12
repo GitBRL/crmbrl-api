@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AdministracaoModule } from './administracao/administracao.module';
 import { ArquivosHttpModule, ArquivosModule } from './arquivos/arquivos.module';
 import { AtendimentoModule } from './atendimento/atendimento.module';
@@ -33,6 +34,7 @@ import { TrescPlusModule } from './tresc-plus/tresc-plus.module';
 import { LogsModule } from './logs/logs.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { BancoDaRotaPublicaInterceptor } from './prisma/rota-publica.interceptor';
 import { MonitoramentoModule } from './saude/monitoramento/monitoramento.module';
 import { SaudeModule } from './saude/saude.module';
 import { SdrModule } from './sdr/sdr.module';
@@ -116,6 +118,10 @@ export class AppModule {
         SdrModule,
         // Onda D: notificações push.
         PushModule,
+      ],
+      // R35.2: rotas públicas falam com o banco como sistema.
+      providers: [
+        { provide: APP_INTERCEPTOR, useClass: BancoDaRotaPublicaInterceptor },
       ],
     };
   }

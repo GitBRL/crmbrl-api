@@ -9,7 +9,12 @@
 name: crmbrl
 
 x-ambiente-de-producao: &ambiente-de-producao
-  DATABASE_URL: 'postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA_CODIFICADA:?defina BANCO_SENHA_CODIFICADA (a BANCO_SENHA com caracteres especiais codificados para URL; sem especiais, igual à BANCO_SENHA)}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public'
+  # R35.1: a API e o gateway conectam com o papel próprio da aplicação (sem superusuário, só DML, com
+  # RLS), criado na subida pelo dono do banco (DATABASE_URL_MIGRACAO, que também roda as migrations).
+  DATABASE_URL: 'postgresql://${BANCO_APP_USUARIO:-crmbrl_app}:${BANCO_APP_SENHA:?defina BANCO_APP_SENHA (senha do papel da aplicação no banco, só letras e dígitos: openssl rand -hex 32)}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public'
+  DATABASE_URL_MIGRACAO: 'postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA_CODIFICADA:?defina BANCO_SENHA_CODIFICADA (a BANCO_SENHA com caracteres especiais codificados para URL; sem especiais, igual à BANCO_SENHA)}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public'
+  BANCO_APP_USUARIO: '${BANCO_APP_USUARIO:-crmbrl_app}'
+  BANCO_APP_SENHA: '${BANCO_APP_SENHA:?defina BANCO_APP_SENHA (senha do papel da aplicação no banco, só letras e dígitos: openssl rand -hex 32)}'
   URL_PUBLICA: '${URL_PUBLICA:?defina URL_PUBLICA (ex.: https://crm.suaempresa.com.br)}'
   ORIGENS_PERMITIDAS: '${ORIGENS_PERMITIDAS:?defina ORIGENS_PERMITIDAS (a mesma origem da URL_PUBLICA)}'
   CHAVE_CRIPTOGRAFIA: '${CHAVE_CRIPTOGRAFIA:?defina CHAVE_CRIPTOGRAFIA (openssl rand -base64 32)}'

@@ -1,4 +1,5 @@
 import {
+  alertaDoPapelDoBanco,
   alertaDoGateway,
   alertasDeBackup,
   alertasDeCanais,
@@ -281,5 +282,25 @@ describe('Saúde do sistema — regras (R27)', () => {
     expect(duracaoEmTexto(45)).toBe('45 s');
     expect(duracaoEmTexto(125 * 60)).toBe('2 h 5 min');
     expect(duracaoEmTexto(28 * 3600)).toBe('1 d 4 h');
+  });
+});
+
+describe('alertaDoPapelDoBanco (R35.1)', () => {
+  it('avisa quando a API usa um papel que ignora a RLS (o dono); com o papel próprio, nada', () => {
+    expect(
+      alertaDoPapelDoBanco({ usuario: 'crmbrl_app', ignoraRls: false }),
+    ).toEqual([]);
+    expect(alertaDoPapelDoBanco(null)).toEqual([]);
+    const [alerta] = alertaDoPapelDoBanco({
+      usuario: 'crmbrl',
+      ignoraRls: true,
+    });
+    expect(alerta).toMatchObject({
+      codigo: 'banco_sem_papel_proprio',
+      gravidade: 'aviso',
+      porEmail: false,
+    });
+    expect(alerta.detalhe).toContain('crmbrl');
+    expect(alerta.dica).toContain('BANCO_APP_SENHA');
   });
 });

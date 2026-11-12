@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
-import { contextoAtual } from '../comum/contexto/contexto-requisicao';
+import {
+  contextoAtual,
+  executarComoSistemaNoBanco,
+} from '../comum/contexto/contexto-requisicao';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import { lerValor } from '../comum/dominio/dinheiro';
 import { normalizarUtm, type Utm } from '../comum/dominio/utm';
@@ -164,17 +167,23 @@ export class NegociosService {
       funilId: true,
       funil: { select: { area: true } },
     } satisfies Prisma.NegocioSelect;
+    // R35.2: a jornada mostra que existe um negócio ligado em outro setor (só
+    // o id, a área e se a pessoa o vê): lida como sistema; o recorte é o abaixo.
     const origem = negocio.negocioOrigemId
-      ? await this.prisma.negocio.findFirst({
-          where: { id: negocio.negocioOrigemId, excluidoEm: null },
-          select: LIGADO,
-        })
+      ? await executarComoSistemaNoBanco(() =>
+          this.prisma.negocio.findFirst({
+            where: { id: negocio.negocioOrigemId as string, excluidoEm: null },
+            select: LIGADO,
+          }),
+        )
       : null;
-    const gerados = await this.prisma.negocio.findMany({
-      where: { negocioOrigemId: negocio.id, excluidoEm: null },
-      orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
-      select: LIGADO,
-    });
+    const gerados = await executarComoSistemaNoBanco(() =>
+      this.prisma.negocio.findMany({
+        where: { negocioOrigemId: negocio.id, excluidoEm: null },
+        orderBy: [{ criadoEm: 'asc' }, { id: 'asc' }],
+        select: LIGADO,
+      }),
+    );
     const daJornada = (
       ligado: Prisma.NegocioGetPayload<{ select: typeof LIGADO }>,
     ): NegocioDaJornadaDto => ({

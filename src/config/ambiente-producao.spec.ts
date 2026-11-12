@@ -60,6 +60,23 @@ describe('Ambiente — avisos de produção', () => {
     expect(texto).not.toContain(ARQUIVOS_SEGREDO_DESENVOLVIMENTO);
   });
 
+  it('R35.1 — o dono do banco (DATABASE_URL_MIGRACAO) com a senha de desenvolvimento também recusa a subida', () => {
+    const texto = problemasDe({
+      ...PRODUCAO,
+      DATABASE_URL:
+        'postgresql://crmbrl_app:senha-forte-do-papel-123@banco:5432/crmbrl',
+      DATABASE_URL_MIGRACAO: 'postgresql://crmbrl:crmbrl@banco:5432/crmbrl',
+    });
+    expect(texto).toMatch(/dono do banco \(DATABASE_URL_MIGRACAO\)/);
+    expect(
+      lerAmbiente({
+        ...PRODUCAO,
+        DATABASE_URL_MIGRACAO:
+          'postgresql://crmbrl:outra-forte-456@banco:5432/crmbrl',
+      }).avisos,
+    ).toEqual([]);
+  });
+
   it('chave de criptografia e token do gateway de desenvolvimento recusam a subida', () => {
     const texto = problemasDe({
       ...PRODUCAO,

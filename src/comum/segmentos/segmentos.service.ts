@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../../auth/usuario-autenticado';
 import type { Prisma } from '../../generated/prisma/client';
+import { NoBancoComoSistema } from '../../prisma/no-banco-como-sistema';
 import { ehDiretoria } from '../dominio/papeis';
 import { funisAcessiveis } from '../../funis/acessos-no-banco';
 import { DadosInvalidosException } from '../erros/excecoes';
@@ -157,6 +158,9 @@ export class SegmentosService {
     return whereDoSegmento(segmento, opcoes);
   }
 
+  // R35.2: os contatos são de todos; as condições de negócio já levam os funis
+  // de quem pergunta (R5.14) e a última interação conta todas as conversas.
+  @NoBancoComoSistema()
   contar(
     segmento: Segmento,
     opcoes?: OpcoesDoSegmento,
@@ -168,6 +172,7 @@ export class SegmentosService {
   }
 
   /** Primeiros contatos do segmento (mais recentes primeiro). */
+  @NoBancoComoSistema()
   amostra(
     segmento: Segmento,
     opcoes: OpcoesDoSegmento & { limite?: number } = {},
@@ -188,6 +193,7 @@ export class SegmentosService {
   }
 
   /** O contato está no segmento? (condições de automação, critério "saiu do segmento"). */
+  @NoBancoComoSistema()
   async contem(
     segmento: Segmento,
     contatoId: string,

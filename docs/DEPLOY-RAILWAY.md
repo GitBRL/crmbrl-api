@@ -55,13 +55,18 @@ WHATSAPP_PORTA=3100
 WHATSAPP_TOKEN_INTERNO=<openssl rand -base64 32>      # API <-> gateway, 32+ caracteres
 WHATSAPP_SIMULADO=false
 LOG_FORMATO=json
+BANCO_APP_SENHA=<openssl rand -hex 32>                # papel próprio da aplicação no banco (R35.1): só letras e dígitos (vai na URL)
 ```
 
 **De cada serviço** (aba Variables):
 
 ```bash
 # --- api ---
-DATABASE_URL=${{Postgres.DATABASE_URL}}               # endereço privado do banco
+# Banco (R35.1): as migrations e o papel da aplicação com o dono (o usuário `postgres` do Railway, superusuário);
+# a API conecta com o papel próprio, crmbrl_app (sem superusuário, só DML, com a RLS valendo), que ela mesma
+# cria ao subir com a BANCO_APP_SENHA das Shared Variables.
+DATABASE_URL_MIGRACAO=${{Postgres.DATABASE_URL}}      # o dono: só migrations e o papel da aplicação
+DATABASE_URL=postgresql://crmbrl_app:${{shared.BANCO_APP_SENHA}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
 PORT=3000
 COOKIE_SEGURO=true
 DOCS_PUBLICAS=false
@@ -86,7 +91,8 @@ WHISPER_MODELO=small
 #            META_DIALOGO_URL (padrão https://www.facebook.com, diálogo de login do Facebook Lead Ads)
 
 # --- whatsapp ---
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+# O mesmo papel da aplicação da api (não use ${{api.DATABASE_URL}}: veja a seção 7.1).
+DATABASE_URL=postgresql://crmbrl_app:${{shared.BANCO_APP_SENHA}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
 PORT=3100                                             # a porta que o healthcheck do Railway consulta
 
 # --- transcricao (opcional) ---
@@ -155,13 +161,32 @@ passo a passo de criar os apps está em `docs/ajuda/integracoes-apps-de-login.md
 ## 5. Primeira subida
 
 1. Suba o `Postgres` e o `arquivos` e espere ficarem ativos.
-2. Suba a `api`. Nos Deploy Logs devem aparecer "aplicando migrations pendentes" e, se a
+2. Suba a `api`. Nos Deploy Logs devem aparecer "aplicando migrations pendentes", "papel crmbrl_app
+   criado" (nas subidas seguintes, "atualizado") e, se a
    `ADMIN_SENHA_INICIAL` estava vazia, a senha inicial do Admin. Procure também "aviso" nos logs: deve vir
    vazio (a API avisa de configuração insegura, como na seção 3 do `DEPLOY.md`).
 3. Suba o `whatsapp` e o `web`.
 4. Teste: `curl -sI https://crm.suaempresa.com.br/api/saude` deve mostrar `200`.
 5. Entre com o Admin (a troca de senha é obrigatória), conecte os canais em **Configurações > Canais**
    (WhatsApp por QR) e convide a equipe.
+
+**Instalação que já existia (antes da R35, passo do Railway):**
+
+1. Faça um backup manual do `Postgres` (aba Backups).
+2. Em Shared Variables, crie `BANCO_APP_SENHA` (`openssl rand -hex 32`).
+3. Na `api`: crie `DATABASE_URL_MIGRACAO=${{Postgres.DATABASE_URL}}` (o valor que a `DATABASE_URL` tinha) e troque
+   a `DATABASE_URL` pela do papel, como acima. Faça o deploy **só da `api`** e confira nos Deploy Logs
+   "preparar-banco: papel crmbrl_app criado" e, na tela **Saúde do sistema**, a ausência do alerta "A API conecta ao
+   banco como dono". A `api` cria o papel no banco que já existe, dá as permissões e passa a ela o esquema do
+   pg-boss.
+4. No `whatsapp`, troque a `DATABASE_URL` pela do papel e faça o deploy dele.
+
+Sem essas variáveis tudo continua pelo dono, como antes, com o alerta "A API conecta ao banco como dono" na Saúde
+do sistema. **Para voltar atrás**, basta a configuração: na `api` e no `whatsapp`, a `DATABASE_URL` volta a
+`${{Postgres.DATABASE_URL}}`; na `api`, apague `DATABASE_URL_MIGRACAO` (sem a `BANCO_APP_SENHA` o entrypoint
+também volta ao dono). A migration da RLS pode ficar: o dono é superusuário e a RLS não o recorta. Se o deploy da
+`api` falhar no "preparar-banco", o log diz o motivo (senha fora do formato, dono sem permissão) e o deploy
+anterior continua no ar.
 
 ## 6. Atualização
 
@@ -206,7 +231,8 @@ programas escrevem tudo na saída de erro, inclusive as mensagens normais de in�
   https (`X-Forwarded-Proto: https`, posto pelo proxy de borda); o endereço local em http (`:8080`) não recebe.
 - **Segredos de desenvolvimento (U4):** com `NODE_ENV=production` (a imagem Docker) a API **recusa subir** com a
   chave `CHAVE_CRIPTOGRAFIA`, o `WHATSAPP_TOKEN_INTERNO` ou o `ARQUIVOS_SEGREDO` públicos de desenvolvimento,
-  com a senha do banco `crmbrl` ou com `COOKIE_SEGURO=false` e `URL_PUBLICA` em https. Só
+  com a senha do banco `crmbrl` (na `DATABASE_URL` ou, no dono, na `DATABASE_URL_MIGRACAO`: aí quem recusa é o
+  `preparar-banco`, na subida) ou com `COOKIE_SEGURO=false` e `URL_PUBLICA` em https. Só
   `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true` deixa subir (teste local: vira aviso alto no log e em
   `GET /api/saude` do Admin). No Railway, defina valores próprios e não use essa variável.
 - **`GET /api/saude` (U4):** responde só `{ "status": "ok" | "degradado" }` (200 ou 503) para qualquer pessoa; versão, banco,

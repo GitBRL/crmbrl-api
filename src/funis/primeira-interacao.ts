@@ -1,3 +1,4 @@
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import type { TipoPrimeiraInteracao } from '../generated/prisma/client';
 import type { Tx } from '../prisma/prisma.service';
 
@@ -33,7 +34,10 @@ export async function registrarPrimeiraInteracao(
   // Horários de fora (Meta, 3C+) vêm truncados no segundo: um negócio criado no mesmo segundo da ação
   // ainda é "anterior" a ela. A tolerância de 1 s cobre isso, e o registro nunca fica antes da criação
   // (o tempo até o atendimento não sai negativo).
-  return tx.$executeRaw`
+  // R35.2: vale para todos os negócios abertos do contato, inclusive os de
+  // funis que quem agiu não vê (efeito colateral do sistema).
+  return executarComoSistemaNoBanco(
+    () => tx.$executeRaw`
     UPDATE negocios
        SET primeira_interacao_em = greatest(${quando}::timestamptz, criado_em),
            primeira_interacao_tipo = ${interacao.tipo}::tipo_primeira_interacao,
@@ -42,5 +46,6 @@ export async function registrarPrimeiraInteracao(
        AND status = 'ABERTO'
        AND excluido_em IS NULL
        AND primeira_interacao_em IS NULL
-       AND criado_em < ${quando}::timestamptz + interval '1 second'`;
+       AND criado_em < ${quando}::timestamptz + interval '1 second'`,
+  );
 }

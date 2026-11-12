@@ -81,7 +81,9 @@ docker compose down -v         # desliga e apaga os dados do banco
 
 Portas, credenciais do banco e a pasta do front mudam por variável, no ambiente
 ou num `.env` nesta pasta: `BANCO_PORTA`, `API_PORTA`, `WEB_PORTA`,
-`BANCO_USUARIO`, `BANCO_SENHA`, `BANCO_NOME` e `FRONT_DIR` (veja o
+`BANCO_USUARIO`, `BANCO_SENHA`, `BANCO_NOME`, `BANCO_APP_USUARIO`,
+`BANCO_APP_SENHA` (o papel próprio da aplicação, seção "Segurança do banco") e
+`FRONT_DIR` (veja o
 [`.env.example`](.env.example)). As variáveis da API (abaixo) também vêm desse
 `.env`, com padrões para uso local em http: `URL_PUBLICA` e
 `ORIGENS_PERMITIDAS` em `http://localhost:8080`, `COOKIE_SEGURO=false` e uma
@@ -210,7 +212,10 @@ definida.
 
 | Variável                                                                                 | Padrão                                   | Para que serve                                                                                                                                                                             |
 | ---------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                                                                           | — (obrigatória)                          | Conexão com o PostgreSQL. Lida também pelo CLI do Prisma (`prisma.config.ts`) e pelo pg-boss.                                                                                              |
+| `DATABASE_URL`                                                                           | — (obrigatória)                          | Conexão com o PostgreSQL da API, do gateway e do pg-boss: com a R35, a do papel da aplicação (`crmbrl_app`). O CLI do Prisma (`prisma.config.ts`) a usa só quando não há `DATABASE_URL_MIGRACAO`. |
+| `DATABASE_URL_MIGRACAO` | — | R35.1: conexão do **dono** do banco (superusuário do container): só as migrations (`prisma.config.ts` a prefere) e a criação do papel da aplicação (`dist/banco/preparar-banco.js`). O entrypoint não a repassa à API nem ao gateway. |
+| `BANCO_APP_USUARIO` | `crmbrl_app` | R35.1: nome do papel próprio da aplicação (sem superusuário, só DML, auditoria só leitura e inclusão, com a RLS valendo). |
+| `BANCO_APP_SENHA` | — | R35.1: senha desse papel (16+ caracteres, só letras, dígitos e `. _ ~ -`: `openssl rand -hex 32`). Com ela e a `DATABASE_URL_MIGRACAO`, o entrypoint cria ou acerta o papel a cada subida; a `DATABASE_URL` passa a ser a do papel. Sem ela, a API usa o dono, como antes, e avisa no log e na Saúde do sistema. |
 | `PORT`                                                                                   | `3000`                                   | Porta HTTP.                                                                                                                                                                                |
 | `NODE_ENV`                                                                               | `development`                            | Ambiente; aparece em `GET /api/saude`. A imagem Docker usa `production`, que torna obrigatórias `URL_PUBLICA` e `CHAVE_CRIPTOGRAFIA`.                                                      |
 | `CORS_ORIGENS`                                                                           | vazio                                    | Origens liberadas no CORS (com credenciais), separadas por vírgula. Vazio: CORS desligado.                                                                                                 |
@@ -299,6 +304,63 @@ clonar o repositório ou de mudar o schema. `build`, `test`, `test:e2e` e `lint`
 já geram antes de rodar, e `prisma:migrar` gera depois (no Prisma 7 o
 `migrate dev` não faz isso sozinho).
 
+## Segurança do banco (R35)
+
+A API não conecta como superusuário: o **dono** do banco (`BANCO_USUARIO`, pela
+`DATABASE_URL_MIGRACAO`) roda as migrations e cria o **papel da aplicação**
+(`BANCO_APP_USUARIO`, padrão `crmbrl_app`, senha `BANCO_APP_SENHA`), que só faz
+DML, não altera a estrutura e, na auditoria, só lê e inclui. Por cima, a **RLS**
+(`ENABLE` + `FORCE`) em negócios, contatos, empresas, atividades, conversas,
+mensagens, ligações e arquivos espelha as regras de visibilidade: cada consulta
+leva o contexto da requisição (o usuário) ou do job (sistema), e sem contexto o
+banco não devolve nada. Regras completas: `docs/REGRAS-DE-NEGOCIO.md`, seção
+"Segurança do banco (R35)".
+
+**Compose (este diretório):** acrescente ao `.env` só `BANCO_APP_SENHA=<openssl
+rand -hex 32>` (e, se quiser outro nome, `BANCO_APP_USUARIO`) e suba de novo
+(`docker compose up -d --build`). Na subida, o entrypoint aplica as migrations
+com o dono, cria o papel no banco que já existe (ou só acerta senha e
+permissões, se ele já existir) e passa o esquema do pg-boss para ele; a API e o
+gateway conectam com o papel. Confira: `docker compose logs api | grep
+preparar-banco` mostra "papel crmbrl_app criado" e a Saúde do sistema não
+mostra o alerta "A API conecta ao banco como dono". Faça um backup antes
+(`docker compose exec backup sh /backup.sh uma-vez`).
+
+- **Se algo falhar:** se o `preparar-banco` recusar (senha fora do formato; em
+  produção, o dono ainda com a senha de desenvolvimento `crmbrl`), a API não
+  sobe e o log diz o motivo; corrija e suba de novo. Se a API subir mas algo
+  não funcionar, volte ao modo compatível (abaixo) e relate.
+- **Voltar atrás:** apague (ou comente) `BANCO_APP_SENHA` no `.env` e rode
+  `docker compose up -d`: o entrypoint volta a conectar a API e o gateway pelo
+  dono (superusuário, que a RLS não recorta), como antes, com o alerta na
+  Saúde. A migration da RLS e o papel podem ficar. Para apagar o papel:
+  `REASSIGN OWNED BY crmbrl_app TO crmbrl; DROP OWNED BY crmbrl_app; DROP ROLE
+  crmbrl_app;` (com o dono — `crmbrl` é o `BANCO_USUARIO` — no `psql` do
+  serviço `banco`; devolve o esquema do pg-boss ao dono).
+
+**Railway:** `BANCO_APP_SENHA=<openssl rand -hex 32>` nas Shared Variables; na
+`api`, `DATABASE_URL_MIGRACAO=${{Postgres.DATABASE_URL}}` e, na `api` e no
+`whatsapp`,
+`DATABASE_URL=postgresql://crmbrl_app:${{shared.BANCO_APP_SENHA}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}`.
+Faça o deploy da `api` primeiro (ela cria o papel ao subir). Detalhes em
+`docs/DEPLOY-RAILWAY.md`, seções 3 e 5.
+
+**Fora do Docker:** `DATABASE_URL_MIGRACAO=<url do dono> BANCO_APP_SENHA=<senha>
+node dist/banco/preparar-banco.js` cria o papel; depois aponte a `DATABASE_URL`
+para ele.
+
+**Backup e restauração:** o `pg_dump` do serviço `backup` roda com o dono
+(superusuário: a RLS não o recorta) e leva as políticas e as funções `rls.*`,
+mas não os papéis nem as permissões (`--no-owner --no-privileges`). Depois de
+restaurar com `scripts/restaurar-backup.sh` (que também usa `--no-owner
+--no-privileges`), suba a API: o entrypoint recria ou acerta o papel da
+aplicação, as permissões e o dono do esquema do pg-boss no banco restaurado
+(num servidor novo, o papel é criado do zero com a `BANCO_APP_SENHA` do `.env`).
+Sem subir a API, rode `node dist/banco/preparar-banco.js` dentro do container
+(`docker compose run --rm --entrypoint node api dist/banco/preparar-banco.js`).
+O dono precisa ser superusuário (ou ter `BYPASSRLS`) para o `pg_dump` não
+esbarrar na RLS.
+
 ## Testes e lint
 
 ```bash
@@ -312,7 +374,10 @@ bun run format      # prettier
 Os testes de integração sobem a API inteira contra o banco de
 `DATABASE_URL_TESTE` — **um PostgreSQL descartável**: eles aplicam as
 migrations e apagam todos os dados a cada teste. A URL do banco do compose
-(porta 5434) é recusada.
+(porta 5434) é recusada. A `DATABASE_URL_TESTE` é a do dono (superusuário):
+o `global-setup` aplica as migrations e cria o papel da aplicação, e a API dos
+testes conecta como `crmbrl_app`, com a RLS valendo (R35); `t.prisma` fala como
+dono (preparar e conferir dados) e `t.apiPrisma`, como a API.
 
 ```bash
 docker run -d --name crmbrl-teste -e POSTGRES_USER=crmbrl -e POSTGRES_PASSWORD=crmbrl \

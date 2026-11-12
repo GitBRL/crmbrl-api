@@ -6,6 +6,7 @@ import {
   RegistroCanais,
   ROTULO_DO_TIPO_DE_CANAL,
 } from '../canais/registro-canais';
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import { calcularAlteracoes } from '../comum/dados/sanitizar';
 import { normalizarEtiquetas } from '../comum/dominio/etiquetas';
 import { rotuloDoPapel, setorDaPessoa } from '../comum/dominio/papeis';
@@ -284,8 +285,12 @@ export class ConversasService {
     usuario: UsuarioAutenticado,
     conversa: ConversaDetalhada,
   ): Promise<boolean> {
-    if (!conversa.negocio) {
+    if (!conversa.negocioId) {
       return true;
+    }
+    // R35.2: o negócio ligado que a pessoa não vê nem vem do banco (a RLS o esconde).
+    if (!conversa.negocio) {
+      return false;
     }
     return (await funisAcessiveis(this.prisma, usuario)).podeVerNegocio({
       funilId: conversa.negocio.funil.id,
@@ -377,14 +382,18 @@ export class ConversasService {
       },
       orderBy: [{ nome: 'asc' }, { id: 'asc' }],
     });
-    const cargas = await this.prisma.conversa.groupBy({
-      by: ['responsavelId'],
-      where: {
-        responsavelId: { in: pessoas.map((pessoa) => pessoa.id) },
-        status: { not: 'RESOLVIDA' },
-      },
-      _count: { _all: true },
-    });
+    // A carga de cada pessoa conta as conversas dela, inclusive as que quem
+    // pergunta não vê (só o número sai; R35.2: contada como sistema).
+    const cargas = await executarComoSistemaNoBanco(() =>
+      this.prisma.conversa.groupBy({
+        by: ['responsavelId'],
+        where: {
+          responsavelId: { in: pessoas.map((pessoa) => pessoa.id) },
+          status: { not: 'RESOLVIDA' },
+        },
+        _count: { _all: true },
+      }),
+    );
     const porPessoa = new Map(
       cargas.map((carga) => [carga.responsavelId, carga._count._all]),
     );
@@ -596,10 +605,13 @@ export class ConversasService {
       if (!pessoa) {
         atualizada = await this.motor.distribuir(tx, atualizada);
       }
-      const destino = await tx.conversa.findUniqueOrThrow({
-        where: { id },
-        include: INCLUIR_CONVERSA,
-      });
+      // R35.2: a conversa pode ter saído do alcance de quem transferiu (a API já autorizou).
+      const destino = await executarComoSistemaNoBanco(() =>
+        tx.conversa.findUniqueOrThrow({
+          where: { id },
+          include: INCLUIR_CONVERSA,
+        }),
+      );
       const descricao = [
         destino.responsavel ? `para ${destino.responsavel.nome}` : null,
         filaDestino ? `na fila ${filaDestino.nome}` : null,
@@ -654,14 +666,17 @@ export class ConversasService {
     // Quem deixou de ver a conversa (inclusive quem transferiu) sai da sala dela.
     await this.podarSala(id);
     if (!continuaVendo) {
-      const conversa = await this.prisma.conversa.findUniqueOrThrow({
-        where: { id },
-        include: INCLUIR_CONVERSA_DETALHE,
-      });
+      // Quem transferiu para fora do próprio alcance recebe a última foto da
+      // conversa (R35.2: lida como sistema, porque a pessoa já não a vê).
+      const conversa = await executarComoSistemaNoBanco(() =>
+        this.prisma.conversa.findUniqueOrThrow({
+          where: { id },
+          include: INCLUIR_CONVERSA_DETALHE,
+        }),
+      );
       const canal = await this.prisma.canal.findUniqueOrThrow({
         where: { id: conversa.canalId },
       });
-      // Quem transferiu para fora do próprio alcance recebe a última foto da conversa.
       return {
         ...this.montarDetalhe(
           conversa,

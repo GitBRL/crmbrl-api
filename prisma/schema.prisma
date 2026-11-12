@@ -1916,6 +1916,8 @@ model Mensagem {
   @@index([conversaId, ocorridaEm])
   @@index([autorId, criadoEm])
   @@index([status, criadoEm])
+  /// R35.2: a RLS dos arquivos procura por arquivo_id.
+  @@index([arquivoId], map: "mensagens_arquivo_idx", where: raw("(arquivo_id IS NOT NULL)"))
   @@map("mensagens")
 }
 
@@ -1970,6 +1972,8 @@ model RespostaRapida {
 
   @@unique([atalho], map: "respostas_rapidas_atalho_global_key", where: raw("((area IS NULL) AND (excluido_em IS NULL))"))
   @@unique([area, atalho], map: "respostas_rapidas_area_atalho_key", where: raw("((area IS NOT NULL) AND (excluido_em IS NULL))"))
+  /// R35.2: a RLS dos arquivos procura por arquivo_id.
+  @@index([arquivoId], map: "respostas_rapidas_arquivo_idx", where: raw("(arquivo_id IS NOT NULL)"))
   @@map("respostas_rapidas")
 }
 
@@ -2174,6 +2178,8 @@ model ChatMensagem {
   @@index([canalId, criadoEm])
   @@index([autorId, criadoEm])
   @@index([mencoes], type: Gin)
+  /// R35.2: a RLS dos arquivos procura por arquivo_id.
+  @@index([arquivoId], map: "chat_mensagens_arquivo_idx", where: raw("(arquivo_id IS NOT NULL)"))
   @@map("chat_mensagens")
 }
 
@@ -2424,6 +2430,8 @@ model Importacao {
 
   @@index([criadoPorId, criadoEm])
   @@index([status])
+  /// R35.2: a RLS dos arquivos procura por arquivo_id.
+  @@index([arquivoId], map: "importacoes_arquivo_idx", where: raw("(arquivo_id IS NOT NULL)"))
   @@map("importacoes")
 }
 
@@ -3651,6 +3659,9 @@ model Ligacao {
   @@index([atendenteId, criadoEm])
   @@index([canalId, criadoEm])
   @@index([conversaId])
+  /// R35.2: a RLS dos arquivos procura por arquivo_id.
+  @@index([gravacaoArquivoId], map: "ligacoes_gravacao_arquivo_idx", where: raw("(gravacao_arquivo_id IS NOT NULL)"))
+  @@index([gravacaoOriginalArquivoId], map: "ligacoes_gravacao_original_idx", where: raw("(gravacao_original_arquivo_id IS NOT NULL)"))
   @@map("ligacoes")
 }
 

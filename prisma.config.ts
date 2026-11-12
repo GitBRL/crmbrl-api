@@ -16,6 +16,9 @@ export default defineConfig({
     // `env('DATABASE_URL')` do Prisma falharia sem a variável, e o
     // `prisma generate` (que roda no build, sem banco) não precisa dela. Os
     // comandos que falam com o banco (migrate, db) acusam a falta com clareza.
-    url: process.env.DATABASE_URL,
+    // R35.1: as migrations rodam com o dono do banco (`DATABASE_URL_MIGRACAO`);
+    // a aplicação usa `DATABASE_URL` (o papel dela, sem DDL). Sem a variável
+    // nova, vale a `DATABASE_URL` (como antes).
+    url: process.env.DATABASE_URL_MIGRACAO || process.env.DATABASE_URL,
   },
 });

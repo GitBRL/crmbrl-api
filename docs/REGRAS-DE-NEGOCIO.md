@@ -3524,3 +3524,111 @@ confirmam com a conta real (lista no fim desta seção). Eventos de tempo real e
 7. Erros do 3C+ (não ocioso, sem campanha, token inválido, indisponível) viram mensagens claras e nunca 401 (R34.5).
 8. Líder envia negócios ao discador (pela tela ou em massa) e vê o relatório de importados e filtrados; membro recebe 403 (R34.6).
 9. Ligação recebida avisa o vendedor com o contato e os negócios; número desconhecido avisa "novo contato" (R34.7).
+
+## 47. Segurança do banco (R35)
+
+Pedido em 11/11/2026 ("temos RLS?"), decidido em 12/11 (Onda U, fatia U1): a aplicação deixa
+de falar com o banco como superusuário e a RLS do PostgreSQL vira a **segunda barreira** das
+tabelas principais. A API continua sendo a primeira: ela aplica todas as regras (R1–R34); o
+banco só impede que um erro da API (uma consulta sem filtro, um id trocado) leia ou altere o
+que a pessoa não veria.
+
+- **R35.1** **Papéis.** Dois papéis no PostgreSQL:
+  - **dono** (`BANCO_USUARIO`, o superusuário do container): só as migrations e a manutenção,
+    pela `DATABASE_URL_MIGRACAO`. Também cria e acerta o papel da aplicação na subida
+    (`node dist/banco/preparar-banco.js`, rodado pelo `docker-entrypoint.sh` depois do
+    `prisma migrate deploy`). A URL do dono e a senha do papel não chegam aos processos Node.
+  - **aplicação** (`BANCO_APP_USUARIO`, padrão `crmbrl_app`, senha `BANCO_APP_SENHA`):
+    `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION`; só `SELECT`,
+    `INSERT`, `UPDATE` e `DELETE` nas tabelas, uso das sequências e das funções, nada de DDL
+    nem `TRUNCATE`; na **auditoria (`eventos_auditoria`) só `SELECT` e `INSERT`** (UPDATE e
+    DELETE dão "permissão negada", além do gatilho da R3.3); nas migrations do Prisma, só
+    leitura. Privilégios padrão cobrem as tabelas das migrations seguintes, e a preparação
+    roda de novo a cada subida (idempotente). O esquema do pg-boss (`pgboss`) é do papel da
+    aplicação (ele cria as filas e as partições); a aplicação não cria esquemas (a fila só o
+    cria quando não existe, no modo compatível).
+  - A senha vai ao banco já como verificador SCRAM-SHA-256 (o texto não chega ao servidor nem
+    a log) e precisa ter 16+ caracteres só com letras, dígitos e `. _ ~ -` (vai na URL; use
+    `openssl rand -hex 32`). Trocar a senha = trocar `BANCO_APP_SENHA` e subir de novo.
+  - **Compatível:** sem `BANCO_APP_SENHA` (ou sem `DATABASE_URL_MIGRACAO`), tudo continua pela
+    `DATABASE_URL` como antes. A API confere com que papel conectou: se ele for superusuário
+    ou tiver `BYPASSRLS`, avisa no log da subida e na **Saúde do sistema** (alerta
+    `banco_sem_papel_proprio`, aviso, sem e-mail). Voltar ao modo compatível é só tirar
+    `BANCO_APP_SENHA` e subir de novo: o dono é superusuário e a RLS não o recorta.
+  - **Senha de desenvolvimento (com a U4):** em produção (`NODE_ENV=production`), o dono com a
+    senha `crmbrl` recusa a subida como a `DATABASE_URL` com ela: como o entrypoint não repassa a
+    `DATABASE_URL_MIGRACAO` à API, quem confere é o `preparar-banco` (e a API, quando a recebe,
+    fora do Docker). `PERMITIR_SEGREDOS_DE_DESENVOLVIMENTO=true` troca a recusa por aviso alto.
+  - **Backup e restauração:** o `pg_dump` roda com o dono (superusuário: a RLS não o recorta) e
+    sem papéis nem permissões (`--no-owner --no-privileges`); a restauração também. Na subida
+    seguinte, o `preparar-banco` recria ou acerta o papel, as permissões e o dono do esquema do
+    pg-boss no banco restaurado.
+- **R35.2** **RLS** (`ENABLE` + `FORCE ROW LEVEL SECURITY`) em `negocios`, `contatos`,
+  `empresas`, `atividades`, `conversas`, `mensagens`, `ligacoes` e `arquivos`. As políticas leem
+  o contexto que a API põe em **cada consulta** (`crm.ator`: o id do usuário, `sistema` ou
+  vazio; `crm.escrita`: a tabela de um INSERT/UPDATE/DELETE, só durante ele; `crm.escritos`: os
+  ids que a transação corrente gravou):
+  - **Sem contexto, o banco nega:** nenhuma linha volta e nada é gravado. O contexto vem do
+    contexto assíncrono da requisição ou do job: usuário autenticado → ele; jobs da fila,
+    eventos, automações, passagens, webhooks de entrada, rotas públicas (`@Publico`: chat do
+    site, Meta, Facebook, login), tempo real (autorização de sala e reavaliação) e o gateway do
+    WhatsApp → sistema; requisição sem login → nenhum.
+  - **Ler** = visível para a pessoa; **alterar e excluir** = só linha visível (a linha antiga);
+    **incluir** e a linha nova de uma alteração = o que a pessoa poderia gravar. Admin, C-level
+    e sistema veem tudo (menos o chat interno dos outros).
+  - | Tabela | Visível (ler, alterar, excluir) | Gravável (incluir, linha nova) |
+    | --- | --- | --- |
+    | negócios | funis que a pessoa vê (R5.9/R5.11, mesmo cálculo de `funisAcessiveis`): todos os negócios onde vê todos (`VER`, `GESTOR`, `CONFIGURAR`); só `MEMBRO`, os seus e os sem responsável | qualquer negócio de funil que ela vê |
+    | contatos, empresas | todos (matriz §12) | todos |
+    | atividades | R6.4: responsável, quem criou, o líder direto do responsável | qualquer (passar a atividade a outra pessoa é da regra) |
+    | conversas | R12.5: as que estão com ela (se usa o Atendimento); o líder, as das filas do setor; o membro, as sem responsável das filas do setor | qualquer (transferir é da regra, R12.7) |
+    | mensagens | as das conversas que ela vê | qualquer |
+    | ligações | R29.8: atendeu, foi chamado, vê a conversa ou tem o contato no alcance (o seu ou da equipe) | qualquer |
+    | arquivos | R11.4 por contexto: quem enviou; foto de perfil, mídia de campanha e relatório, todos; mídia de mensagem, quem vê a conversa (ou o anexo de resposta rápida, quem usa o Atendimento); gravação, quem vê a ligação (o áudio de aviso do canal, quem usa o Atendimento, R30.14); anexo do chat interno, só os membros do canal (nem o Admin); planilha de importação, Admin, C-level e quem importou; `OUTRO`, só o Admin | qualquer |
+  - **Folga de escrita:** o PostgreSQL confere a linha nova de um UPDATE também pela política
+    de leitura. Durante o INSERT/UPDATE/DELETE numa tabela protegida, a leitura **daquela tabela**
+    aceita o que é gravável (as subconsultas em outras tabelas continuam estritas), e a linha que
+    a transação acabou de gravar pode ser relida e alterada de novo até o fim dela (o Prisma relê o que grava e a API
+    devolve a quem gravou) — assim o membro passa o próprio negócio a um colega, transfere a
+    conversa ou passa a atividade adiante (e depois deixa de vê-los), sem que a RLS barre o fluxo;
+    a linha antiga continua tendo de ser visível.
+  - O que a regra mostra pela metade, ou que o sistema faz por conta própria depois de a API
+    autorizar, roda explicitamente como sistema (`executarComoSistemaNoBanco`, sem trocar o
+    ator da auditoria): a jornada do negócio (R5.7: existe um negócio de outro setor), a
+    primeira interação nos negócios do contato (R6.7), a carga de cada atendente, a última foto
+    da conversa transferida para fora do alcance, o motor do Atendimento (distribuir, avisar,
+    contar para os outros), quem vê um negócio ou uma conversa quando a pergunta é sobre outra
+    pessoa (tempo real, notificações).
+  - O BI e os indicadores (R20.2, R33.4, inclusive "Mensagens enviadas") continuam com os recortes
+    deles, mais estreitos que a RLS (acessos extras não ampliam o BI); a RLS só soma a garantia por
+    baixo.
+  - **Fora da RLS** (só a API protege, como antes): usuários, sessões, tentativas de login, 2FA
+    (`desafios_dois_fatores`, `codigos_recuperacao`), configurações, funis, filas, canais, chat
+    interno (a não ser os anexos, em `arquivos`), financeiro, automações e as demais tabelas. O
+    login, o 2FA e o "esqueci a senha" rodam antes de haver usuário (rota pública ou job: sistema)
+    e não tocam nas tabelas protegidas.
+  - **Desempenho:** as funções (`rls.*`) são `STABLE`, com `search_path` fixo, em PL/pgSQL (o
+    plano fica guardado na conexão), e as políticas as chamam dentro de `(SELECT …)` — calculadas
+    uma vez por consulta (os funis que a pessoa vê, as filas do setor, a equipe), não por linha.
+    Índices por `arquivo_id` nas tabelas que os arquivos consultam. O papel da aplicação roda com
+    `jit = off`: as políticas encarecem a estimativa das agregações do BI e o JIT compilaria
+    (~100 ms) consultas que rodam em dezenas de milissegundos. Medido (12/11, 50 mil negócios,
+    200 mil mensagens): as listas e o quadro ganham de 0,5 a 2 ms; o BI de mensagens, ~2×.
+
+### Cenários de aceitação (Onda U, U1: segurança do banco)
+
+Em `test/seguranca-banco.e2e-spec.ts`; o resto da suíte de integração roda com a API conectada
+como `crmbrl_app` e a RLS ligada (o `global-setup` cria o papel no banco de teste).
+
+1. A API conecta como `crmbrl_app`, sem superusuário nem `BYPASSRLS`, e a Saúde não alerta.
+2. A auditoria não aceita UPDATE nem DELETE pelo papel da aplicação (permissão negada), nem como sistema.
+3. O papel da aplicação não muda a estrutura do banco (DDL negado).
+4. Sem contexto, nenhuma tabela protegida devolve linhas nem aceita inclusão.
+5. Uma consulta sem filtro no contexto de um membro devolve só o que ele vê, em cada tabela protegida.
+6. Pelo id também não: o membro não lê, não altera e não exclui a linha que não vê.
+7. O membro não cria negócio num funil que não vê.
+8. Fluxos legítimos: o membro passa o próprio negócio a um colega, e o responsável passa a atividade
+   a outra pessoa (e os dois deixam de vê-los).
+9. Contextos diferentes no mesmo instante não se misturam; a transação interativa leva o contexto, e
+   um ROLLBACK não deixa contexto velho na conexão.
+10. A RLS dos negócios bate com `funisAcessiveis` (acessos extras, funil restrito, `VER`).

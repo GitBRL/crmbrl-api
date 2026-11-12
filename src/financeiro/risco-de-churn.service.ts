@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { deDataDoBanco, diasEntre, hojeLocal } from './datas';
@@ -181,20 +182,36 @@ export class RiscoDeChurnService {
               OR (p.contato_id IS NULL AND p.empresa_id IN (${Prisma.join(idsEmpresas.map((i) => Prisma.sql`${i}::uuid`))})))
             AND ${sqlParcelasVisiveis(usuario)}
           GROUP BY 1, 2`,
-        this.prisma.$queryRaw<{ contato_id: string; ultima: Date | null }[]>`
+        // R35.2: sinal do sistema (só a data/nota agregada sai), como sistema.
+        executarComoSistemaNoBanco(
+          () =>
+            this.prisma.$queryRaw<
+              { contato_id: string; ultima: Date | null }[]
+            >`
           SELECT contato_id, MAX(ultima_mensagem_em) AS ultima FROM conversas
           WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
           GROUP BY 1`,
-        this.prisma.$queryRaw<{ contato_id: string; nota: number }[]>`
+        ),
+        // R35.2: sinal do sistema (só a data/nota agregada sai), como sistema.
+        executarComoSistemaNoBanco(
+          () =>
+            this.prisma.$queryRaw<{ contato_id: string; nota: number }[]>`
           SELECT DISTINCT ON (contato_id) contato_id, satisfacao_nota AS nota FROM conversas
           WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
             AND satisfacao_nota IS NOT NULL AND satisfacao_respondida_em IS NOT NULL
           ORDER BY contato_id, satisfacao_respondida_em DESC`,
-        this.prisma.$queryRaw<{ contato_id: string; ultima: Date | null }[]>`
+        ),
+        // R35.2: sinal do sistema (só a data/nota agregada sai), como sistema.
+        executarComoSistemaNoBanco(
+          () =>
+            this.prisma.$queryRaw<
+              { contato_id: string; ultima: Date | null }[]
+            >`
           SELECT contato_id, MAX(concluida_em) AS ultima FROM atividades
           WHERE contato_id IN (${Prisma.join(idsContatos.map((i) => Prisma.sql`${i}::uuid`))})
             AND status::text = 'CONCLUIDA'
           GROUP BY 1`,
+        ),
       ]);
     for (const c of contatos) {
       const contratosDele = contratos.filter(

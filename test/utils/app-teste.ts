@@ -14,8 +14,9 @@ import { FilaService } from '../../src/fila/fila.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { configurarTempoReal } from '../../src/tempo-real/adaptador-socket-io';
 import { TempoRealService } from '../../src/tempo-real/tempo-real.service';
-import { ambienteDeTeste } from './ambiente-teste';
+import { ambienteDeTeste, urlDoBancoDeTeste } from './ambiente-teste';
 import { limparBanco } from './banco';
+import { servicoComoSistema } from './contexto';
 import { EmailFalso } from './email-falso';
 
 export interface OpcoesAppTeste {
@@ -35,7 +36,13 @@ export interface OpcoesAppTeste {
 export interface AppTeste {
   readonly app: INestApplication<App>;
   readonly ambiente: Ambiente;
+  /**
+   * Cliente do **dono** do banco de teste (R35.1): prepara dados e confere o
+   * resultado sem passar pela RLS. A API usa o papel da aplicação (`apiPrisma`).
+   */
   readonly prisma: PrismaService;
+  /** O `PrismaService` da própria API (papel da aplicação, com a RLS valendo). */
+  readonly apiPrisma: PrismaService;
   readonly fila: FilaService;
   readonly eventos: EventosDominioService;
   /** O `EmailService` falso: `email.enviados`, `email.tokenDoUltimo(para)`. */
@@ -98,19 +105,28 @@ export async function criarAppTeste(
   await app.init();
 
   let base: Promise<string> | undefined;
+  // R35.1: o dono, para preparar e conferir (a API conecta como crmbrl_app).
+  const dono = new PrismaService({
+    ...ambiente,
+    databaseUrl: urlDoBancoDeTeste(),
+  });
+  await dono.$connect();
 
   const appTeste: AppTeste = {
     app: app as INestApplication<App>,
     ambiente,
-    prisma: app.get(PrismaService),
+    prisma: dono,
+    apiPrisma: app.get(PrismaService),
     fila: app.get(FilaService),
     eventos: app.get(EventosDominioService),
     email,
     arquivos: app.get<DriverMemoria>(DRIVER_DE_ARQUIVOS),
     tempoReal: app.get(TempoRealService),
     servidor: app.getHttpServer() as App,
+    // R35.2: o serviço chamado direto pelo teste (fora de requisição) roda como
+    // a fila o rodaria, no contexto de sistema.
     get: <T>(token: Type<T> | string | symbol) =>
-      app.get<T>(token, { strict: false }),
+      servicoComoSistema(app.get<T>(token, { strict: false })),
     escutar: () => {
       base ??= app.listen(0, '127.0.0.1').then(async () => {
         const url = await app.getUrl();
@@ -119,7 +135,10 @@ export async function criarAppTeste(
       return base;
     },
     limparBanco: () => limparBanco(appTeste),
-    fechar: () => app.close(),
+    fechar: async () => {
+      await app.close();
+      await dono.$disconnect();
+    },
   };
   if (opcoes.limpar ?? true) {
     await appTeste.limparBanco();

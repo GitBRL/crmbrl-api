@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Namespace, Socket } from 'socket.io';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import {
   type CargaNaoLidas,
   type CargaSessaoEncerrada,
@@ -241,7 +242,9 @@ export class TempoRealService {
     if (!autorizador) {
       return false;
     }
-    return autorizador(usuario, id);
+    // R35.2: o socket (e a reavaliação feita para outra pessoa) consulta como
+    // sistema; quem decide é o autorizador, com a regra da API.
+    return executarComoSistemaNoBanco(() => autorizador(usuario, id));
   }
 
   /** Recebe os "digitando" da equipe (ex.: o WhatsApp repassa "digitando…" ao contato). */
@@ -258,7 +261,7 @@ export class TempoRealService {
   avisarDesconexao(usuarioId: string): void {
     for (const ouvinte of this.ouvintesDeDesconexao) {
       Promise.resolve()
-        .then(() => ouvinte(usuarioId))
+        .then(() => executarComoSistemaNoBanco(() => ouvinte(usuarioId)))
         .catch((erro: unknown) =>
           this.logger.warn(
             `Ouvinte de desconexão falhou: ${erro instanceof Error ? erro.message : String(erro)}`,
@@ -271,7 +274,7 @@ export class TempoRealService {
   avisarDigitando(aviso: AvisoDeDigitando): void {
     for (const ouvinte of this.ouvintesDeDigitando) {
       Promise.resolve()
-        .then(() => ouvinte(aviso))
+        .then(() => executarComoSistemaNoBanco(() => ouvinte(aviso)))
         .catch((erro: unknown) =>
           this.logger.warn(
             `Ouvinte de "digitando" falhou: ${erro instanceof Error ? erro.message : String(erro)}`,

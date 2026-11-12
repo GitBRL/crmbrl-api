@@ -12,6 +12,7 @@ import type {
   TipoMensagem,
 } from '../generated/prisma/client';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { NoBancoComoSistema } from '../prisma/no-banco-como-sistema';
 import type { Tx } from '../prisma/prisma.service';
 import { EVENTOS_DO_SERVIDOR } from '../tempo-real/catalogo';
 import { TempoRealPublicador } from '../tempo-real/tempo-real.publicador';
@@ -114,6 +115,7 @@ export class MotorDoAtendimento {
    * atual. `salasAntes` (quem acompanhava antes de mudar de mãos) também
    * recebe, para tirar a conversa da lista se não a vê mais.
    */
+  @NoBancoComoSistema()
   async emitirConversa(
     tx: Tx,
     conversaId: string,
@@ -135,6 +137,7 @@ export class MotorDoAtendimento {
   }
 
   /** `mensagem.nova` depois do commit, para quem acompanha a conversa. */
+  @NoBancoComoSistema()
   async emitirMensagem(
     tx: Tx,
     conversa: {
@@ -160,6 +163,7 @@ export class MotorDoAtendimento {
   }
 
   /** `mensagem.status` depois do commit (envio, falha, nova tentativa). */
+  @NoBancoComoSistema()
   async emitirStatus(
     tx: Tx,
     mensagem: {
@@ -198,6 +202,7 @@ export class MotorDoAtendimento {
    * Aviso do sistema na conversa ("Ana transferiu para Bruno", "Conversa
    * resolvida"): só a equipe vê; não mexe na prévia da lista.
    */
+  @NoBancoComoSistema()
   async avisoDeSistema(
     tx: Tx,
     conversa: {
@@ -231,6 +236,7 @@ export class MotorDoAtendimento {
    * marca a primeira resposta (se o contato já tinha escrito), zera as não
    * lidas e o "aguardando". Automática (`autorId` nulo): só vai ao contato.
    */
+  @NoBancoComoSistema()
   async criarSaida(
     tx: Tx,
     conversa: Conversa,
@@ -311,6 +317,7 @@ export class MotorDoAtendimento {
   }
 
   /** Job de envio da mensagem (na transação de quem chama). */
+  @NoBancoComoSistema()
   async enfileirarEnvio(tx: Tx, mensagemId: string): Promise<void> {
     await this.fila.enviar<PedidoDeEnvioDoAtendimento>(
       FILA_ENVIO_ATENDIMENTO,
@@ -328,6 +335,7 @@ export class MotorDoAtendimento {
    * Muda o responsável (e/ou a fila) e grava o histórico. Notifica o novo
    * responsável quando não foi ele mesmo que fez. Devolve a conversa atualizada.
    */
+  @NoBancoComoSistema()
   async atribuir(
     tx: Tx,
     conversa: Conversa,
@@ -401,6 +409,7 @@ export class MotorDoAtendimento {
    * disponível (ou fila manual), ela fica na fila sem responsável. Devolve a
    * conversa (atualizada ou como estava).
    */
+  @NoBancoComoSistema()
   async distribuir(
     tx: Tx,
     conversa: Conversa,
@@ -423,6 +432,7 @@ export class MotorDoAtendimento {
    * Grava o pedido de recontagem do menu (`nao-lidas.atendimento`) de quem foi
    * afetado: as pessoas e, para conversas sem responsável, as áreas das filas.
    */
+  @NoBancoComoSistema()
   async publicarContagens(
     tx: Tx,
     afetados: {

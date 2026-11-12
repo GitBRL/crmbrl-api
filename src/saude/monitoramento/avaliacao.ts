@@ -417,6 +417,29 @@ export function alertaDaTranscricao(foraDoAr: boolean): Alerta[] {
   ];
 }
 
+/**
+ * R35.1: a API conecta ao banco com um papel que ignora a RLS (superusuário ou
+ * BYPASSRLS — o dono do banco, no modo compatível, sem `BANCO_APP_SENHA`).
+ */
+export function alertaDoPapelDoBanco(
+  papel: { usuario: string; ignoraRls: boolean } | null | undefined,
+): Alerta[] {
+  if (!papel?.ignoraRls) {
+    return [];
+  }
+  return [
+    {
+      chave: 'banco_papel',
+      codigo: 'banco_sem_papel_proprio',
+      gravidade: 'aviso',
+      titulo: 'A API conecta ao banco como dono',
+      detalhe: `A API fala com o banco como "${papel.usuario}", um papel com superusuário ou BYPASSRLS: a segunda barreira de acesso do banco (RLS) não vale e a aplicação pode alterar a estrutura do banco.`,
+      dica: 'Defina BANCO_APP_SENHA no .env (openssl rand -hex 32) e suba a API de novo: o papel próprio da aplicação (crmbrl_app) é criado na subida. Veja "Segurança do banco" no README.',
+      porEmail: false,
+    },
+  ];
+}
+
 /** `3 min`, `2 h 5 min`, `1 d 4 h`. */
 export function duracaoEmTexto(segundos: number): string {
   const minutos = Math.floor(segundos / 60);

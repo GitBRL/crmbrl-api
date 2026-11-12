@@ -21,6 +21,7 @@ export * from './ambiente-teste';
 export * from './app-teste';
 export * from './banco';
 export * from './clientes';
+export * from './contexto';
 export * from './drenar';
 export * from './email-falso';
 export * from './fabricas';

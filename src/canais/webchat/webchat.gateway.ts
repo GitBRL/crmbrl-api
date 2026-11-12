@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import type { Namespace } from 'socket.io';
 import { ErroApi } from '../../comum/erros/excecoes';
+import { NoBancoComoSistema } from '../../prisma/no-banco-como-sistema';
 import { OPCOES_DO_SOCKET_IO } from '../../tempo-real/catalogo';
 import {
   type DadosDoSocketDoVisitante,
@@ -89,6 +90,7 @@ export class WebchatGateway
   }
 
   @SubscribeMessage(PEDIDOS_DO_VISITANTE.DIGITANDO)
+  @NoBancoComoSistema()
   async digitando(
     @ConnectedSocket() socket: SocketDoVisitante,
     @MessageBody() dados: unknown,
@@ -114,6 +116,7 @@ export class WebchatGateway
   }
 
   @SubscribeMessage(PEDIDOS_DO_VISITANTE.LIDO)
+  @NoBancoComoSistema()
   async lido(@ConnectedSocket() socket: SocketDoVisitante): Promise<Resposta> {
     try {
       await this.webchat.marcarLidas({ id: socket.data.visitanteId });
@@ -123,6 +126,8 @@ export class WebchatGateway
     }
   }
 
+  // R35.2: o visitante do chat do site não é usuário do CRM; o canal confere o token.
+  @NoBancoComoSistema()
   private async autenticar(
     socket: SocketDoVisitante,
   ): Promise<DadosDoSocketDoVisitante> {

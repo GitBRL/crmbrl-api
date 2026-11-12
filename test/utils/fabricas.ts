@@ -1,3 +1,4 @@
+import { executarComoAtor } from '../../src/comum/contexto/contexto-requisicao';
 import { randomUUID } from 'node:crypto';
 import { ArquivosService } from '../../src/arquivos/arquivos.service';
 import { CriptografiaService } from '../../src/comum/criptografia/criptografia.service';
@@ -428,18 +429,21 @@ export function criarArquivo(
       : typeof dados.conteudo === 'string'
         ? Buffer.from(dados.conteudo)
         : dados.conteudo;
-  return t.get(ArquivosService).salvar(conteudo, {
-    nome:
-      dados.nome ??
-      (mime === 'image/png'
-        ? 'imagem.png'
-        : mime === 'application/pdf'
-          ? 'documento.pdf'
-          : 'teste.txt'),
-    mime,
-    contexto: dados.contexto ?? 'MENSAGEM',
-    criadoPorId: idDe(dados.criadoPor) ?? null,
-  });
+  // R35.2: o serviço da API grava pelo papel da aplicação; como sistema (sem usuário no contexto).
+  return executarComoAtor({ tipoAtor: 'SISTEMA', descricao: 'Teste' }, () =>
+    t.get(ArquivosService).salvar(conteudo, {
+      nome:
+        dados.nome ??
+        (mime === 'image/png'
+          ? 'imagem.png'
+          : mime === 'application/pdf'
+            ? 'documento.pdf'
+            : 'teste.txt'),
+      mime,
+      contexto: dados.contexto ?? 'MENSAGEM',
+      criadoPorId: idDe(dados.criadoPor) ?? null,
+    }),
+  );
 }
 
 export interface DadosDeFila {

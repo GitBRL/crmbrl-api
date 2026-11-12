@@ -1,3 +1,4 @@
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import type { Tx } from '../prisma/prisma.service';
 import type { QuemAcessa } from './acesso-funis';
 import { funisAcessiveis, type LeitorDeAcessos } from './acessos-no-banco';
@@ -20,10 +21,14 @@ export async function negociosQueVe(
   if (unicos.length === 0) return new Set();
   const acesso = await funisAcessiveis(db, pessoa);
   if (acesso.todos) return new Set(unicos);
-  const negocios = await db.negocio.findMany({
-    where: { id: { in: unicos } },
-    select: { id: true, funilId: true, responsavelId: true },
-  });
+  // R35.2: a pessoa pode não ser quem pergunta (tempo real, notificações):
+  // carrega como sistema e decide pela regra de `pessoa`, abaixo.
+  const negocios = await executarComoSistemaNoBanco(() =>
+    db.negocio.findMany({
+      where: { id: { in: unicos } },
+      select: { id: true, funilId: true, responsavelId: true },
+    }),
+  );
   return new Set(
     negocios.filter((n) => acesso.podeVerNegocio(n)).map(({ id }) => id),
   );

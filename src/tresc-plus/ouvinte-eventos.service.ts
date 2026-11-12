@@ -6,6 +6,7 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { io, type ManagerOptions, type SocketOptions } from 'socket.io-client';
+import { executarComoAtor } from '../comum/contexto/contexto-requisicao';
 import { AMBIENTE, type Ambiente } from '../config/ambiente';
 import { ConexaoTrescPlusService } from './conexao.service';
 import { type EventoNormalizado, normalizarEvento } from './eventos';
@@ -210,7 +211,11 @@ export class OuvinteDeEventosTrescPlus
   private enfileirar(evento: EventoNormalizado): void {
     this.serie = this.serie.then(async () => {
       try {
-        await this.ligacoes.processarEvento(evento);
+        // R35.2: evento do 3C+ (fora de requisição): o sistema aplica.
+        await executarComoAtor(
+          { tipoAtor: 'SISTEMA', descricao: '3C+ (tempo real)' },
+          () => this.ligacoes.processarEvento(evento),
+        );
       } catch (erro) {
         this.logger.warn(
           `Evento ${evento.tipo} do 3C+ falhou: ${mensagemDe(erro)}`,

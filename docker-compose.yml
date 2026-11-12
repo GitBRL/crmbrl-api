@@ -38,9 +38,17 @@ name: crmbrl
 # WhatsApp): banco, chave de criptografia, endereço público, arquivos e o
 # contrato entre os dois (endereço interno e token do gateway).
 x-ambiente-da-imagem: &ambiente-da-imagem
-  # Mesmas credenciais do serviço banco. Senha com caractere especial de URL
-  # (@ : / ? #) precisa ir codificada (ex.: %40 no lugar de @).
-  DATABASE_URL: postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA:-crmbrl}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+  # Banco (R35.1). DATABASE_URL_MIGRACAO: o dono (as credenciais do serviço banco),
+  # só para as migrations e o papel da aplicação. DATABASE_URL: o papel próprio da
+  # aplicação (BANCO_APP_USUARIO, sem superusuário, só DML, com a RLS valendo),
+  # criado na subida com a senha BANCO_APP_SENHA (openssl rand -hex 32). Sem
+  # BANCO_APP_SENHA, a API usa o dono, como antes (com aviso no log e na Saúde).
+  # Senha com caractere especial de URL (@ : / ? #) precisa ir codificada
+  # (ex.: %40 no lugar de @).
+  DATABASE_URL: postgresql://${BANCO_APP_USUARIO:-crmbrl_app}:${BANCO_APP_SENHA:-}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+  DATABASE_URL_MIGRACAO: postgresql://${BANCO_USUARIO:-crmbrl}:${BANCO_SENHA:-crmbrl}@banco:5432/${BANCO_NOME:-crmbrl}?schema=public
+  BANCO_APP_USUARIO: ${BANCO_APP_USUARIO:-crmbrl_app}
+  BANCO_APP_SENHA: ${BANCO_APP_SENHA:-}
   # Endereço do front (Caddy): base dos links de e-mail e dos endereços de webhook.
   URL_PUBLICA: ${URL_PUBLICA:-http://localhost:8080}
   # Origens aceitas em POST/PUT/PATCH/DELETE e no tempo real (proteção CSRF, R2.9).

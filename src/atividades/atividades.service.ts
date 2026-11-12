@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
+import { executarComoSistemaNoBanco } from '../comum/contexto/contexto-requisicao';
 import { type Alteracao, calcularAlteracoes } from '../comum/dados/sanitizar';
 import {
   ConflitoException,
@@ -874,10 +875,15 @@ export class AtividadesService {
     id: string,
     usuario: QuemConsulta,
   ): Promise<AtividadeDto> {
-    const atividade = await this.prisma.atividade.findUniqueOrThrow({
-      where: { id },
-      include: INCLUSOES_DA_ATIVIDADE,
-    });
+    // R35.2: a resposta de uma gravação já autorizada — quem passou a atividade
+    // a outra pessoa pode não vê-la mais (lida como sistema; o negócio ligado
+    // continua recortado abaixo pelos funis de quem pediu).
+    const atividade = await executarComoSistemaNoBanco(() =>
+      this.prisma.atividade.findUniqueOrThrow({
+        where: { id },
+        include: INCLUSOES_DA_ATIVIDADE,
+      }),
+    );
     return AtividadeDto.de(
       semNegocioInvisivel(
         atividade,

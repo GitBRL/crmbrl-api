@@ -45,6 +45,14 @@ export interface ContextoRequisicao {
   readonly atorDescricao?: string;
   /** Encadeamento de automações em curso (Onda B). */
   readonly cadeia?: CadeiaDeAutomacao;
+  /**
+   * R35.2: as consultas ao banco rodam com o contexto de sistema (a RLS não
+   * recorta), mesmo com um usuário no contexto. Só para o que a API já
+   * autorizou e precisa enxergar além do que a pessoa vê (rotas públicas,
+   * efeitos colaterais, conferências feitas para outra pessoa). Veja
+   * `executarComoSistemaNoBanco`.
+   */
+  readonly bancoComoSistema?: boolean;
 }
 
 /** O que muda ao trocar de ator (`executarComoAtor`). */
@@ -54,6 +62,8 @@ export interface Ator {
   readonly usuario?: UsuarioDoContexto;
   /** Encadeamento de automações; sem ele, herda o do contexto atual. */
   readonly cadeia?: CadeiaDeAutomacao;
+  /** R35.2: o banco no contexto de sistema mesmo com um usuário como ator (gateway do WhatsApp). */
+  readonly bancoComoSistema?: boolean;
 }
 
 const armazenamento = new AsyncLocalStorage<ContextoRequisicao>();
@@ -75,6 +85,62 @@ export function contextoAtual(): ContextoRequisicao {
 /** Há um contexto aberto (requisição, job…)? */
 export function haContexto(): boolean {
   return armazenamento.getStore() !== undefined;
+}
+
+/** O contexto aberto, sem inventar um (`undefined` fora de requisição e job). */
+export function contextoSeHouver(): ContextoRequisicao | undefined {
+  return armazenamento.getStore();
+}
+
+/**
+ * R35.2: roda `fn` com o banco no contexto de sistema (a RLS não recorta), sem
+ * trocar o ator da auditoria. Use só depois de a API autorizar a ação, quando
+ * ela precisa ler ou gravar além do que a pessoa vê: efeitos colaterais (ex.: a
+ * primeira interação nos negócios do contato), conferências feitas para outra
+ * pessoa (quem continua vendo a conversa) e o que a regra mostra pela metade
+ * (a jornada diz que existe um negócio de outro setor).
+ */
+export function executarComoSistemaNoBanco<T>(fn: () => T): T {
+  const atual = armazenamento.getStore();
+  return armazenamento.run(
+    {
+      ...(atual ?? { requisicaoId: randomUUID(), tipoAtor: 'SISTEMA' }),
+      bancoComoSistema: true,
+    },
+    () => iniciarAgora(fn()),
+  );
+}
+
+/**
+ * As consultas do Prisma são preguiçosas: `prisma.x.findMany()` só vai ao banco
+ * quando alguém chama `then` — e, se for depois de sair do contexto, vai sem
+ * ele. Aqui o `then` é chamado já, dentro do contexto (vira uma `Promise`).
+ */
+function iniciarAgora<T>(valor: T): T {
+  if (
+    valor !== null &&
+    typeof valor === 'object' &&
+    typeof (valor as { then?: unknown }).then === 'function' &&
+    !(valor instanceof Promise)
+  ) {
+    const preguicosa = valor as unknown as PromiseLike<unknown>;
+    return new Promise((resolver, rejeitar) => {
+      preguicosa.then(resolver, rejeitar);
+    }) as T;
+  }
+  return valor;
+}
+
+/**
+ * R35.2: a requisição corrente passa a falar com o banco como sistema (rotas
+ * públicas: webhooks, chat do site, login). Altera o próprio contexto, como
+ * `definirUsuarioDoContexto`.
+ */
+export function marcarBancoComoSistema(): void {
+  const atual = armazenamento.getStore() as ContextoMutavel | undefined;
+  if (atual) {
+    atual.bancoComoSistema = true;
+  }
 }
 
 /** Roda `fn` dentro de um contexto novo. Usado pelo middleware HTTP. */
@@ -111,8 +177,9 @@ export function executarComoAtor<T>(
       usuario: ator.usuario,
       atorDescricao: ator.descricao ?? ator.usuario?.nome,
       cadeia: ator.cadeia ?? atual?.cadeia,
+      bancoComoSistema: ator.bancoComoSistema,
     },
-    fn,
+    () => iniciarAgora(fn()),
   );
 }
 

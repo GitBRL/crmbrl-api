@@ -5,6 +5,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { Client } from 'pg';
 import {
   fromPrisma,
   type Job,
@@ -346,12 +347,19 @@ export class FilaService implements OnModuleInit, OnModuleDestroy {
 
   private async iniciar(): Promise<void> {
     const processar = this.ambiente.processarFilas;
+    // R35.1: o papel da aplicação não cria esquemas; o esquema do pg-boss é
+    // criado (e passado a ele) pelo dono, em src/banco/papel-da-aplicacao.ts.
+    const criarEsquema = !(await esquemaExiste(
+      this.ambiente.databaseUrl,
+      ESQUEMA_DA_FILA,
+    ));
     const boss = new PgBoss({
       connectionString: this.ambiente.databaseUrl,
       schema: ESQUEMA_DA_FILA,
       application_name: 'crmbrl-api-fila',
       max: 4,
       connectionTimeoutMillis: 5_000,
+      createSchema: criarEsquema,
       migrate: true,
       supervise: processar,
       schedule: processar,
@@ -529,4 +537,23 @@ function semIndefinidos<T extends object>(objeto: T): T {
 
 function mensagemDe(erro: unknown): string {
   return erro instanceof Error ? erro.message : String(erro);
+}
+
+/** O esquema já existe no banco? (Conexão curta, só na subida da fila.) */
+async function esquemaExiste(url: string, esquema: string): Promise<boolean> {
+  const cliente = new Client({
+    connectionString: url,
+    connectionTimeoutMillis: 5_000,
+    application_name: 'crmbrl-api-fila',
+  });
+  await cliente.connect();
+  try {
+    const { rows } = await cliente.query<{ existe: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1) AS existe',
+      [esquema],
+    );
+    return rows[0]?.existe ?? false;
+  } finally {
+    await cliente.end().catch(() => undefined);
+  }
 }

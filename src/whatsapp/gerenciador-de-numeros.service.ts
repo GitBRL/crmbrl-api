@@ -78,6 +78,7 @@ import {
 const ATOR_DO_GATEWAY = {
   tipoAtor: 'SISTEMA',
   descricao: 'Gateway de WhatsApp',
+  bancoComoSistema: true,
 } as const;
 
 /** Validade do primeiro QR e dos seguintes (como o WhatsApp Web). */
@@ -1541,13 +1542,17 @@ export function tipoPelaMidia(mime: string): TipoMensagem {
   return 'DOCUMENTO';
 }
 
-/** Quem pediu o comando na API (auditoria em nome dele), ou o próprio gateway. */
+/**
+ * Quem pediu o comando na API (auditoria em nome dele), ou o próprio gateway.
+ * O banco fica sempre no contexto de sistema (R35.2): a API já autorizou o comando.
+ */
 function atorDe(ator: AtorDoComando | null | undefined): Ator {
   return ator
     ? {
         tipoAtor: 'USUARIO',
         descricao: ator.nome,
         usuario: { id: ator.id, nome: ator.nome, papel: ator.papel },
+        bancoComoSistema: true,
       }
     : ATOR_DO_GATEWAY;
 }

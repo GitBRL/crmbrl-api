@@ -279,6 +279,8 @@ export interface Ambiente {
 /** As variáveis que a API lê. Ficam todas aqui para ser fácil saber o que é usado. */
 export interface VariaveisDeAmbiente {
   DATABASE_URL?: string;
+  /** R35.1: o dono do banco (migrations). Só conferida aqui (senha de desenvolvimento em produção). */
+  DATABASE_URL_MIGRACAO?: string;
   PORT?: string;
   NODE_ENV?: string;
   CORS_ORIGENS?: string;
@@ -347,6 +349,7 @@ export interface VariaveisDeAmbiente {
 
 const NOMES_DAS_VARIAVEIS: readonly (keyof VariaveisDeAmbiente)[] = [
   'DATABASE_URL',
+  'DATABASE_URL_MIGRACAO',
   'PORT',
   'NODE_ENV',
   'CORS_ORIGENS',
@@ -596,6 +599,21 @@ function avisosDeProducao(
       problemas,
       avisos,
       'A senha do banco (DATABASE_URL) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte',
+    );
+  }
+  // R35.1: fora do Docker a API também recebe a URL do dono (no Docker, o
+  // entrypoint a tira e quem confere é o preparar-banco).
+  const urlDoDono = limpar(variaveis.DATABASE_URL_MIGRACAO);
+  if (
+    urlDoDono &&
+    urlDoDono !== ambiente.databaseUrl &&
+    senhaDoBanco(urlDoDono) === 'crmbrl'
+  ) {
+    segredoDeDesenvolvimento(
+      permitir,
+      problemas,
+      avisos,
+      'A senha do dono do banco (DATABASE_URL_MIGRACAO) é a de desenvolvimento ("crmbrl"): defina BANCO_SENHA com um valor forte',
     );
   }
 }

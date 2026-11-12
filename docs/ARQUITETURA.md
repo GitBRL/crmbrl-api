@@ -2085,3 +2085,25 @@ Decisões da Onda C (2026-10-31):
 - **Cliques do BI levam a listas filtradas por query** (`?etapaId`, `?canalId`, `?filaId`): as
   telas de destino aplicam o filtro e o mostram (quadro com uma coluna e aviso; caixa de
   entrada com o painel de filtros aberto), em vez de o BI montar listas próprias.
+
+Decisões da Onda U — segurança do banco (2026-11-12, R35):
+
+- **Dois papéis no PostgreSQL**: o dono (`DATABASE_URL_MIGRACAO`) só roda migrations e cria o papel
+  da aplicação (`src/banco/papel-da-aplicacao.ts`, idempotente, chamado pelo entrypoint); a API e o
+  gateway conectam com `crmbrl_app` (só DML, auditoria só `SELECT`/`INSERT`, `jit = off`, dono do
+  esquema `pgboss`). A senha vai como verificador SCRAM. Sem `BANCO_APP_SENHA`, modo compatível
+  (dono), com alerta na Saúde.
+- **RLS com contexto por consulta, não por transação**: o adapter do Prisma só fala com o banco pelo
+  `pg.Pool`, então um pool próprio (`src/prisma/pool-com-contexto.ts`) põe `crm.ator` (e as folgas
+  `crm.escrita`/`crm.escritos`) antes de cada consulta, a partir do `AsyncLocalStorage`, com cache por
+  conexão e uma consulta por vez por conexão. Cobre modelos, `$queryRaw`, transações interativas,
+  jobs e o gateway sem mudar o tipo do `PrismaService`. Descartado: extensão do Prisma (`$extends`
+  muda o tipo injetado em todo lugar e não cobre o lote de `findUnique`) e `SET LOCAL` por transação
+  (as consultas soltas exigiriam BEGIN/COMMIT a mais em cada uma).
+- **Lote de `findUnique` desligado fora de `$transaction([...])`**: o DataLoader do Prisma despacha o
+  lote no contexto de quem chegou primeiro; com RLS, duas requisições no mesmo instante se
+  misturariam (`separarLotesPorContexto`, com teste que acusa mudança do interno numa versão nova).
+- **Elevação explícita** (`executarComoSistemaNoBanco`, `@NoBancoComoSistema()`) para o que a regra
+  mostra pela metade ou o sistema faz depois de a API autorizar (jornada, primeira interação, carga
+  dos atendentes, motor do Atendimento, sinais do risco de churn, segmentos). Ela inicia na hora as
+  consultas preguiçosas do Prisma (senão rodariam fora do contexto).

@@ -54,6 +54,7 @@ URL_PUBLICA=https://crm.suaempresa.com.br
 ORIGENS_PERMITIDAS=https://crm.suaempresa.com.br     # a mesma origem da URL_PUBLICA
 BANCO_SENHA=<senha forte do PostgreSQL>
 BANCO_SENHA_CODIFICADA=<a mesma senha; se tiver @ : / ? # ou %, codifique para URL (%40 …)>
+BANCO_APP_SENHA=<openssl rand -hex 32>                # papel próprio da API no banco (R35.1), só letras e dígitos
 CHAVE_CRIPTOGRAFIA=<openssl rand -base64 32>          # cifra os segredos gravados no banco
 ARQUIVOS_CHAVE=<usuário do MinIO>
 ARQUIVOS_SEGREDO=<senha do MinIO, 12+ caracteres>
@@ -295,7 +296,9 @@ recebeu dados depois do backup, a diferença é esperada). Apague o ensaio depoi
      postgres:17-alpine sh /scripts/restaurar-backup.sh /backups/$ARQ --banco crmbrl --substituir
    ```
 
-3. Suba de novo: `crm up -d`. A API confere as migrations (o dump já traz o histórico delas).
+3. Suba de novo: `crm up -d`. A API confere as migrations (o dump já traz o histórico delas) e recria ou
+   acerta o papel da aplicação (`crmbrl_app`), as permissões dele e o dono do esquema do pg-boss (R35.1): o
+   dump não leva papéis nem permissões. Confira nos logs da `api` a linha do `preparar-banco`.
 4. Arquivos do MinIO (se perdidos): com `arquivos` parado, restaure o tar copiado para fora:
    `crm stop arquivos`
    `docker run --rm -v crmbrl_arquivos-dados:/dados -v /caminho/da/copia:/entrada:ro alpine sh -c 'rm -rf /dados/* /dados/.[!.]* ; tar xzf /entrada/minio.tar.gz -C /dados'`

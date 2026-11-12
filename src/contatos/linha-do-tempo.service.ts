@@ -234,11 +234,15 @@ export class LinhaDoTempoService {
              WHERE en.id = ${idDaEntidade}
                AND ${acesso.sqlDeNegocios(Prisma.raw('en'))}))
     ) AND NOT EXISTS (
+      -- Some o evento ligado a um negócio que a pessoa não vê. Escrito como "não
+      -- há um negócio visível com esse id" (e não "há um invisível"): com a RLS
+      -- (R35.2) o negócio invisível nem aparece na subconsulta.
       SELECT 1 FROM unnest(e.relacionados) AS r(ref)
-        JOIN negocios rn
-          ON rn.id = (CASE WHEN r.ref ~ ${PADRAO_REFERENCIA_DE_NEGOCIO}
-                           THEN substr(r.ref, 9)::uuid END)
-       WHERE NOT ${acesso.sqlDeNegocios(Prisma.raw('rn'))}
+       WHERE r.ref ~ ${PADRAO_REFERENCIA_DE_NEGOCIO}
+         AND NOT EXISTS (
+           SELECT 1 FROM negocios rn
+            WHERE rn.id = substr(r.ref, 9)::uuid
+              AND ${acesso.sqlDeNegocios(Prisma.raw('rn'))})
     ))`;
   }
 

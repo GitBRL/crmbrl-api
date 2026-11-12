@@ -156,7 +156,7 @@ describe('Financeiro — agregações em SQL equivalem ao filtro de visibilidade
 
   it('cenário 148: inadimplência, previsto × realizado e MRR agregados no banco respeitam a carteira de cada pessoa', async () => {
     const e = await montar();
-    const ind = t.app.get(IndicadoresFinanceirosService);
+    const ind = t.get(IndicadoresFinanceirosService);
     const gestor = await ind.inadimplencia(e.lider);
     expect(
       gestor.faixas.map((f) => [f.faixa, f.quantidade, f.valor, f.clientes]),
@@ -195,7 +195,7 @@ describe('Financeiro — agregações em SQL equivalem ao filtro de visibilidade
 
   it('cenário 149: o risco de churn agregado no banco pontua atraso e silêncio e respeita a carteira', async () => {
     const e = await montar();
-    const risco = t.app.get(RiscoDeChurnService);
+    const risco = t.get(RiscoDeChurnService);
     const todos = await risco.ranking(e.lider, { nivelMinimo: 'BAIXO' });
     expect(todos).toHaveLength(3);
     const c2 = todos.find((r) =>

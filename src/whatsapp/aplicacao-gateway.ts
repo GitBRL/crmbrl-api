@@ -1,4 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { marcarBancoComoSistema } from '../comum/contexto/contexto-requisicao';
 import { reabrirContexto } from '../comum/contexto/contexto.middleware';
 import { criarValidationPipe } from '../comum/validacao/validacao';
 import { criarMiddlewareDeRequisicao } from '../logs/requisicao.middleware';
@@ -12,5 +13,11 @@ export function configurarGateway(app: NestExpressApplication): void {
   app.use(criarMiddlewareDeRequisicao());
   app.useBodyParser('json', { limit: LIMITE_CORPO_DO_GATEWAY });
   app.use(reabrirContexto);
+  // R35.2: o gateway só recebe comandos já autorizados pela API (token interno):
+  // fala com o banco como sistema.
+  app.use((_req: unknown, _res: unknown, proximo: () => void) => {
+    marcarBancoComoSistema();
+    proximo();
+  });
   app.useGlobalPipes(criarValidationPipe());
 }

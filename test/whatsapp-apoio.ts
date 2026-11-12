@@ -46,10 +46,11 @@ import {
   type SessaoWhatsapp,
 } from '../src/whatsapp/transporte/transporte';
 import { telefoneSimulado } from '../src/whatsapp/transporte/transporte-simulado';
-import type { AppTeste } from './utils';
+import { type AppTeste, servicoComoSistema } from './utils';
 import {
   ambienteDeTeste,
   TOKEN_INTERNO_DE_TESTE,
+  urlDoBancoDeTeste,
 } from './utils/ambiente-teste';
 
 // ---------------------------------------------------------------------------
@@ -272,15 +273,26 @@ export async function criarGatewayIsolado(
   configurarGateway(app);
   await app.init();
   const servidor = app.getHttpServer() as App;
-  const gerenciador = app.get(GerenciadorDeNumeros);
+  // R35.2: chamado direto pelo teste, roda como a fila do gateway rodaria (sistema).
+  const gerenciador = servicoComoSistema(app.get(GerenciadorDeNumeros), {
+    sempreSistema: true,
+  });
   const fila = app.get(FilaService);
-  const prisma = app.get(PrismaService);
+  // R35.1: o dono do banco de teste prepara e confere (o gateway usa o papel da aplicação).
+  const prisma = new PrismaService({
+    ...ambiente,
+    databaseUrl: urlDoBancoDeTeste(),
+  });
+  await prisma.$connect();
   const t = {
     prisma,
     ambiente,
     arquivos,
     fila,
-    get: <T>(token: unknown) => app.get<T>(token as never, { strict: false }),
+    get: <T>(token: unknown) =>
+      servicoComoSistema(app.get<T>(token as never, { strict: false }), {
+        sempreSistema: true,
+      }),
   } as unknown as AppTeste;
 
   return {
@@ -366,6 +378,9 @@ export async function criarGatewayIsolado(
       conversor.miniaturas.splice(0);
       conversor.falharVoz = null;
     },
-    fechar: () => app.close(),
+    fechar: async () => {
+      await app.close();
+      await prisma.$disconnect();
+    },
   };
 }

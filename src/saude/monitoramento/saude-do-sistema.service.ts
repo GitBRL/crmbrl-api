@@ -1,6 +1,7 @@
 import { readFile, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { PapelDaConexao } from '../../banco/papel-da-aplicacao';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClienteWhisper } from '../../transcricao/cliente-whisper';
@@ -11,6 +12,7 @@ import {
 import {
   type Alerta,
   alertaDaTranscricao,
+  alertaDoPapelDoBanco,
   alertaDoGateway,
   alertasDeBackup,
   alertasDeCanais,
@@ -61,6 +63,8 @@ export interface FatosDoSistema {
   disco: { caminho: string; total: number; livre: number } | null;
   bancoBytes: number | null;
   backupTexto: string | null;
+  /** R35.1: o papel com que a API conecta ao banco (`null` = não deu para ler). */
+  papelDoBanco?: PapelDaConexao | null;
 }
 
 export interface SaudeDoGatewayLida {
@@ -137,6 +141,7 @@ export class SaudeDoSistemaService {
       ),
       ...alertasDeDisco(disco),
       ...this.alertasDeConfiguracao(),
+      ...alertaDoPapelDoBanco(fatos.papelDoBanco),
     ].sort(
       (a, b) =>
         Number(b.gravidade === 'critico') - Number(a.gravidade === 'critico'),
@@ -232,6 +237,7 @@ export class SaudeDoSistemaService {
       disco,
       bancoBytes,
       backup,
+      papelDoBanco,
     ] = await Promise.all([
       this.coletarFilas(),
       this.coletarGateway(),
@@ -242,6 +248,7 @@ export class SaudeDoSistemaService {
       this.coletarDisco(),
       this.coletarTamanhoDoBanco(),
       this.lerBackup(),
+      this.prisma.papelDaConexao().catch(() => null),
     ]);
     return {
       filas,
@@ -254,6 +261,7 @@ export class SaudeDoSistemaService {
       disco,
       bancoBytes,
       backupTexto: backup,
+      papelDoBanco,
     };
   }
 

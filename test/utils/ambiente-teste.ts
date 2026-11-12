@@ -14,6 +14,11 @@ export const CHAVE_DE_TESTE = '0f'.repeat(32);
 export const TOKEN_INTERNO_DE_TESTE =
   'token-interno-dos-testes-de-integracao-0123456789';
 
+/** R35.1: o papel da aplicação nos testes (criado pelo `global-setup` no banco de teste). */
+export const PAPEL_DA_APLICACAO_DE_TESTE = 'crmbrl_app';
+export const SENHA_DO_PAPEL_DE_TESTE =
+  'papel-da-aplicacao-dos-testes-0123456789';
+
 /** Porta do banco do docker compose (ambiente do usuário): os testes nunca a usam. */
 const PORTA_DO_BANCO_DO_COMPOSE = '5434';
 
@@ -50,7 +55,19 @@ export function urlDoBancoDeTeste(): string {
 }
 
 /**
- * Ambiente dos testes: banco de teste, origem e URL pública `http://localhost:4200`,
+ * R35.1: a URL do banco de teste com o papel da aplicação (sem superusuário,
+ * com a RLS valendo) — a que a API dos testes usa. `DATABASE_URL_TESTE` é a do
+ * dono: migrations, preparação de dados e conferências (`t.prisma`).
+ */
+export function urlDaAplicacaoDeTeste(): string {
+  const url = new URL(urlDoBancoDeTeste());
+  url.username = PAPEL_DA_APLICACAO_DE_TESTE;
+  url.password = SENHA_DO_PAPEL_DE_TESTE;
+  return url.toString();
+}
+
+/**
+ * Ambiente dos testes: banco de teste (pelo papel da aplicação, R35), origem e URL pública `http://localhost:4200`,
  * cookie sem `Secure`, chave fixa e `PROCESSAR_FILAS=false` (filas e eventos
  * só rodam quando o teste drena). Arquivos na memória (`ARQUIVOS_DRIVER=memoria`,
  * sem MinIO) e WhatsApp simulado com token interno fixo. `variaveis`
@@ -58,7 +75,7 @@ export function urlDoBancoDeTeste(): string {
  */
 export function ambienteDeTeste(variaveis: VariaveisDeAmbiente = {}): Ambiente {
   return lerAmbiente({
-    DATABASE_URL: urlDoBancoDeTeste(),
+    DATABASE_URL: urlDaAplicacaoDeTeste(),
     NODE_ENV: 'test',
     URL_PUBLICA: ORIGEM_DE_TESTE,
     ORIGENS_PERMITIDAS: ORIGEM_DE_TESTE,
