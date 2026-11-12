@@ -112,7 +112,8 @@ abstract class AdaptadorMeta implements AdaptadorCanal, OnModuleInit {
     if (!janela.pode) {
       throw new FalhaDefinitivaDeEnvio(MOTIVO_JANELA_FECHADA, 'janela_fechada');
     }
-    const { tokenPagina } = await this.segredos.ler<SegredosMeta>(canal);
+    const { tokenPagina, appSecret } =
+      await this.segredos.ler<SegredosMeta>(canal);
     if (!tokenPagina) {
       throw new FalhaDefinitivaDeEnvio(
         `O token da página deste canal do ${ROTULO_DO_TIPO_DE_CANAL[canal.tipo]} não está configurado.`,
@@ -168,7 +169,7 @@ abstract class AdaptadorMeta implements AdaptadorCanal, OnModuleInit {
       }
       try {
         const resposta = await this.graph.enviarMensagem(
-          tokenPagina,
+          { token: tokenPagina, appSecret },
           destinatario,
           corpo,
         );

@@ -12,6 +12,7 @@ import { LimitadorDeRequisicoes } from '../src/canais/comum/limitador';
 import { RegistroCanais } from '../src/canais/registro-canais';
 import { FILA_ENVIO_ATENDIMENTO } from '../src/atendimento/atendimento.constantes';
 import { type CenarioDoAtendimento, montarCenario } from './atendimento-apoio';
+import { caminhoSemProva, ConferenciaDeProva } from './utils/prova-da-chave';
 import {
   type AppTeste,
   type ClienteHttp,
@@ -54,6 +55,7 @@ interface TemplateFalso {
 /** Graph API falsa (Cloud API do WhatsApp), numa porta livre. */
 async function subirGraphFalsa() {
   const pedidos: PedidoRecebido[] = [];
+  const prova = new ConferenciaDeProva(APP_SECRET);
   const estado = {
     sequencia: 0,
     /** Respostas de erro por destinatário (`to`). */
@@ -80,7 +82,7 @@ async function subirGraphFalsa() {
           : null;
       pedidos.push({
         metodo: req.method ?? '',
-        caminho: `${url.pathname}${url.search}`,
+        caminho: caminhoSemProva(url),
         autorizacao: req.headers.authorization,
         tipo,
         corpo,
@@ -109,6 +111,14 @@ async function subirGraphFalsa() {
             code: 190,
           },
         });
+        return;
+      }
+      // "Exigir chave secreta do aplicativo" ligado: toda chamada com token traz o appsecret_proof (a CDN não).
+      const recusa = url.pathname.startsWith('/cdn/')
+        ? null
+        : prova.conferir(url, token);
+      if (recusa) {
+        responder(recusa.status, { error: recusa.erro });
         return;
       }
       if (url.pathname === '/cdn/foto.png') {
@@ -196,6 +206,7 @@ async function subirGraphFalsa() {
     url: `http://127.0.0.1:${port}`,
     pedidos,
     estado,
+    prova,
     fechar: () =>
       new Promise<void>((resolver) => servidor.close(() => resolver())),
   };
@@ -257,6 +268,7 @@ describe('Canal WhatsApp oficial (e2e)', () => {
   beforeEach(async () => {
     await t.limparBanco();
     graph.pedidos.length = 0;
+    graph.prova.limpar();
     graph.estado.sequencia = 0;
     graph.estado.erroPara.clear();
     graph.estado.instaveis.clear();
@@ -270,9 +282,15 @@ describe('Canal WhatsApp oficial (e2e)', () => {
     cenario = await montarCenario(t);
     admin = await entrarComo(t, cenario.admin);
   });
+  afterEach(() => {
+    // R14.10 — nenhuma chamada com token saiu sem o appsecret_proof certo.
+    expect(graph.prova.recusadas).toEqual([]);
+  });
   afterAll(async () => {
     await t?.fechar();
     await graph?.fechar();
+    // R14.10 — a conferência da prova rodou de verdade (não passou em branco).
+    expect(graph.prova.totalAceitas).toBeGreaterThan(0);
   });
 
   async function criarOficial(corpo: object = {}) {

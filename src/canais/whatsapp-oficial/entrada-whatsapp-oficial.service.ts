@@ -448,7 +448,7 @@ export class EntradaWhatsappOficialService implements OnModuleInit {
     }
     try {
       const { conteudo: bytes, mime } = await this.graph.baixarMidia(
-        segredos.token,
+        { token: segredos.token, appSecret: segredos.appSecret },
         conteudo.mediaId,
       );
       const tipoMime =

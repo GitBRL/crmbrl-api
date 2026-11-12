@@ -426,7 +426,7 @@ export class WebhookMetaService implements OnModuleInit {
     if (!conhecido && segredos.tokenPagina) {
       try {
         const perfil = await this.graph.obter<Record<string, unknown>>(
-          segredos.tokenPagina,
+          { token: segredos.tokenPagina, appSecret: segredos.appSecret },
           id,
           tipo === 'INSTAGRAM'
             ? ['name', 'username']

@@ -82,7 +82,8 @@ export class TemplatesOficiaisService implements OnModuleInit {
    * motivo no canal (`ultimoErro`) e relança.
    */
   async sincronizar(canal: Canal): Promise<ResultadoDaSincronizacao> {
-    const { token } = await this.segredos.ler<SegredosOficiais>(canal);
+    const { token, appSecret } =
+      await this.segredos.ler<SegredosOficiais>(canal);
     const { wabaId } = lerConfiguracaoOficial(canal.configuracao);
     if (!token || !wabaId) {
       throw new ServicoIndisponivelException(
@@ -91,7 +92,10 @@ export class TemplatesOficiaisService implements OnModuleInit {
     }
     let templates;
     try {
-      templates = await this.graph.listarTemplates(token, wabaId);
+      templates = await this.graph.listarTemplates(
+        { token, appSecret },
+        wabaId,
+      );
     } catch (erro) {
       const motivo =
         erro instanceof ErroDaGraph && erro.tokenInvalido

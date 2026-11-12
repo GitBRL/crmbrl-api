@@ -45,6 +45,7 @@ import {
   type ValoresDoTemplate,
   valoresQueFaltam,
 } from './formato-meta';
+import { type AcessoMeta } from '../../comum/meta/prova-da-chave';
 import { GraphWhatsappOficial } from './graph-whatsapp-oficial';
 import { TemplatesOficiaisService } from './templates-oficiais.service';
 
@@ -244,14 +245,16 @@ export class AdaptadorWhatsappOficial implements AdaptadorCanal, OnModuleInit {
     if (mensagem.idExterno) {
       return { idExterno: mensagem.idExterno, enviadaEm: new Date() };
     }
-    const { token } = await this.segredos.ler<SegredosOficiais>(canal);
+    const { token: tokenDoCanal, appSecret } =
+      await this.segredos.ler<SegredosOficiais>(canal);
     const { phoneNumberId } = lerConfiguracaoOficial(canal.configuracao);
-    if (!token || !phoneNumberId) {
+    if (!tokenDoCanal || !phoneNumberId) {
       throw new FalhaDefinitivaDeEnvio(
         'O token ou o id do número deste canal do WhatsApp oficial não estão configurados.',
         'canal_incompleto',
       );
     }
+    const token: AcessoMeta = { token: tokenDoCanal, appSecret };
     const template = lerTemplateDaMensagem(mensagem.metadados);
     const janelaAberta = permissaoNaJanelaOficial(conversa).pode;
     if (!template && !janelaAberta) {
@@ -287,7 +290,7 @@ export class AdaptadorWhatsappOficial implements AdaptadorCanal, OnModuleInit {
   }
 
   private async enviarTemplate(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     destino: DestinoOficial,
     mensagem: Mensagem,
@@ -336,7 +339,7 @@ export class AdaptadorWhatsappOficial implements AdaptadorCanal, OnModuleInit {
   }
 
   private async enviarLivre(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     destino: DestinoOficial,
     mensagem: Mensagem,
@@ -398,7 +401,7 @@ export class AdaptadorWhatsappOficial implements AdaptadorCanal, OnModuleInit {
 
   /** Sobe o arquivo do CRM para a Meta; devolve o id da mídia. */
   private async subir(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     arquivoId: string,
     voz: boolean,

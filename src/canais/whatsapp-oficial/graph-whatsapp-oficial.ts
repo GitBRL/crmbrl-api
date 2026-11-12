@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { type AcessoMeta, tokenDe } from '../../comum/meta/prova-da-chave';
 import { GraphApi } from '../meta/graph-api';
 import { LIMITE_DE_DOWNLOAD_BYTES } from './formato-meta';
 
@@ -38,7 +39,7 @@ export class GraphWhatsappOficial {
 
   /** Envia uma mensagem; devolve o wamid. */
   async enviar(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     corpo: Record<string, unknown>,
   ): Promise<string> {
@@ -56,7 +57,7 @@ export class GraphWhatsappOficial {
 
   /** Sobe uma mídia para o número; devolve o id dela (vale 30 dias). */
   async subirMidia(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     midia: { conteudo: Buffer; mime: string; nome: string },
   ): Promise<string> {
@@ -84,7 +85,7 @@ export class GraphWhatsappOficial {
    * (vale 5 minutos) e o arquivo vem de `GET <url>` com o token (§6.3).
    */
   async baixarMidia(
-    token: string,
+    token: AcessoMeta,
     mediaId: string,
   ): Promise<{ conteudo: Buffer; mime: string | null }> {
     const dados = await this.graph.consultar<{
@@ -97,7 +98,7 @@ export class GraphWhatsappOficial {
     const baixada = await this.graph.baixar(
       dados.url,
       LIMITE_DE_DOWNLOAD_BYTES,
-      token,
+      tokenDe(token),
     );
     return {
       conteudo: baixada.conteudo,
@@ -106,7 +107,10 @@ export class GraphWhatsappOficial {
   }
 
   /** Número exibido, nome verificado e qualidade (teste de conexão). */
-  dadosDoNumero(token: string, phoneNumberId: string): Promise<DadosDoNumero> {
+  dadosDoNumero(
+    token: AcessoMeta,
+    phoneNumberId: string,
+  ): Promise<DadosDoNumero> {
     return this.graph.obter<DadosDoNumero>(token, phoneNumberId, [
       'display_phone_number',
       'verified_name',
@@ -116,7 +120,7 @@ export class GraphWhatsappOficial {
 
   /** Todos os templates da WABA (segue a paginação por cursor). */
   async listarTemplates(
-    token: string,
+    token: AcessoMeta,
     wabaId: string,
   ): Promise<TemplateDaMeta[]> {
     const templates: TemplateDaMeta[] = [];

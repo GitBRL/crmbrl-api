@@ -24,6 +24,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RETENCAO_PADRAO_DIAS } from './gravacao/gravacao.constantes';
 import { CAMPO_DE_CHAMADAS, traduzirErroDeChamada } from './formato-chamadas';
+import { type AcessoMeta } from '../comum/meta/prova-da-chave';
 import { GraphLigacoes } from './graph-ligacoes';
 import type {
   AtualizarConfiguracaoLigacoesDto,
@@ -39,7 +40,8 @@ import {
 
 /** O que as chamadas à Graph precisam de um canal do WhatsApp oficial. */
 export interface CredenciaisDoCanal {
-  token: string;
+  /** Token do canal com a chave secreta do app que o emitiu (`appsecret_proof`). */
+  token: AcessoMeta;
   phoneNumberId: string;
 }
 
@@ -109,14 +111,15 @@ export class ConfiguracaoDeLigacoesService {
 
   /** Token e `phone_number_id` do canal (503 se o canal não pode ser lido). */
   async credenciais(canal: Canal): Promise<CredenciaisDoCanal> {
-    const { token } = await this.segredos.ler<SegredosOficiais>(canal);
+    const { token, appSecret } =
+      await this.segredos.ler<SegredosOficiais>(canal);
     if (!token || !canal.idExterno) {
       throw new ServicoIndisponivelException(
         `O canal "${canal.nome}" não tem o token da Meta configurado.`,
         { motivo: 'canal_sem_token' },
       );
     }
-    return { token, phoneNumberId: canal.idExterno };
+    return { token: { token, appSecret }, phoneNumberId: canal.idExterno };
   }
 
   /** A configuração gravada, ou o padrão para o canal que nunca foi configurado. */

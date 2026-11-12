@@ -11,6 +11,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { caminhoSemProva, ConferenciaDeProva } from './prova-da-chave';
 
 export interface PedidoFalso {
   metodo: string;
@@ -45,7 +46,7 @@ abstract class ServidorFalso {
         }
         this.pedidos.push({
           metodo: req.method ?? 'GET',
-          caminho: `${url.pathname}${url.search}`,
+          caminho: caminhoSemProva(url),
           autorizacao: req.headers.authorization,
           corpo,
         });
@@ -437,8 +438,12 @@ export class GraphFalsa extends ServidorFalso {
   private codigos = new Map<string, string>();
   private sequencia = 0;
   apps = [APP_META, APP_META_2];
+  /** "Exigir chave secreta do aplicativo" ligado: toda chamada com token traz o appsecret_proof (R14.10). */
+  prova = new ConferenciaDeProva(APP_META.segredo);
+  private segredoDoUltimoApp = APP_META.segredo;
 
   limpar(): void {
+    this.prova.limpar();
     this.pedidos = [];
     this.codigos.clear();
     this.apps = [APP_META, APP_META_2];
@@ -467,9 +472,12 @@ export class GraphFalsa extends ServidorFalso {
       if (!app || app.segredo !== url.searchParams.get('client_secret')) {
         return erro(1, 'Invalid client_id or client_secret');
       }
+      this.segredoDoUltimoApp = app.segredo;
       if (url.searchParams.get('grant_type') === 'fb_exchange_token') {
+        const longo = `longo-${++this.sequencia}`;
+        this.prova.segredoPorToken.set(longo, app.segredo);
         return this.responder(res, 200, {
-          access_token: `longo-${++this.sequencia}`,
+          access_token: longo,
           token_type: 'bearer',
           expires_in: 5183944,
         });
@@ -484,6 +492,18 @@ export class GraphFalsa extends ServidorFalso {
         token_type: 'bearer',
         expires_in: 5400,
       });
+    }
+    const token = /^Bearer (.+)$/.exec(_req.headers.authorization ?? '')?.[1];
+    if (token) {
+      // O token de página é do app que fez o login.
+      this.prova.segredoPorToken.set(
+        'pg-300000000000001',
+        this.segredoDoUltimoApp,
+      );
+      const recusa = this.prova.conferir(url, token);
+      if (recusa) {
+        return this.responder(res, recusa.status, { error: recusa.erro });
+      }
     }
     if (a === 'me' && !b) {
       return this.responder(res, 200, { id: 'u-1', name: 'Maria Gestora' });

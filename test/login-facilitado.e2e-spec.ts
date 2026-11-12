@@ -79,6 +79,11 @@ describe('Login facilitado (e2e, R32.22 a R32.26)', () => {
     admin = await entrarComo(t, adminUsuario);
   });
 
+  afterEach(() => {
+    // R14.10 — nenhuma chamada com token saiu sem o appsecret_proof certo.
+    expect(graph.prova.recusadas).toEqual([]);
+  });
+
   afterAll(async () => {
     await t.fechar();
     await Promise.all([graph.parar(), typeform.parar(), rd.parar()]);

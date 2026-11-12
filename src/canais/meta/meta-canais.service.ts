@@ -157,7 +157,8 @@ export class MetaCanaisService {
     const canal = await this.configuracao.obter(id, TIPOS_META);
     const tipo = canal.tipo as TipoCanalMeta;
     const config = lerConfiguracaoMeta(canal.configuracao);
-    const { tokenPagina } = await this.segredos.ler<SegredosMeta>(canal);
+    const { tokenPagina, appSecret } =
+      await this.segredos.ler<SegredosMeta>(canal);
     if (!tokenPagina) {
       return { ok: false, mensagem: 'Informe o token da página.', nome: null };
     }
@@ -167,7 +168,7 @@ export class MetaCanaisService {
         name?: string;
         username?: string;
       }>(
-        tokenPagina,
+        { token: tokenPagina, appSecret },
         alvo,
         tipo === 'INSTAGRAM' ? ['id', 'name', 'username'] : ['id', 'name'],
       );

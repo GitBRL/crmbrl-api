@@ -909,6 +909,19 @@ Cada cenário vira um teste automatizado contra um Postgres real.
   redirecionamento), com limite de tamanho, e não são baixados de novo numa nova
   tentativa; os enviados vão por link assinado da API. Numa mensagem com anexo e texto, a
   parte que já chegou ao contato não é reenviada.
+- **R14.10** **Prova da chave secreta (`appsecret_proof`):** toda chamada à Graph API da Meta feita
+  com **token de acesso** leva `appsecret_proof` (HMAC-SHA256 do token com a chave secreta do app que o
+  emitiu, em hexadecimal), para o app da Meta poder ligar "Exigir chave secreta do aplicativo". Vale para
+  o WhatsApp oficial (mensagens, mídia, templates, número e ligações, R28/R29), o Instagram e o Messenger
+  (R14.7) e o Facebook Lead Ads (R32.14: páginas, formulários, assinatura, leads e reconciliação), sempre com a
+  chave do app **da própria conexão** (canal ou conexão do Facebook; no token de página colado, o app
+  informado). O token continua só no cabeçalho `Authorization`; a prova vai na query (GET, POST e DELETE).
+  Ficam sem prova, por não usarem token de acesso: a troca do código do OAuth (`client_secret`), a conferência
+  do par ID + segredo (token de app `id|segredo`, R32.22) e o download do arquivo na CDN da Meta (a URL
+  devolvida pelo `GET /{media_id}`, que já vem assinada pela Meta). **Conexão sem a chave secreta guardada:**
+  a chamada segue sem a prova (como antes) e a API registra um aviso, sem dados sensíveis, no máximo a cada
+  10 minutos; com a opção ligada na Meta, essa conexão deixaria de funcionar. O ponto único é
+  `src/comum/meta/prova-da-chave.ts`.
 
 ## 18. Chat interno da equipe (R15)
 

@@ -1,3 +1,4 @@
+import { provaDaChaveSecreta } from '../../comum/meta/prova-da-chave';
 import {
   ClienteDaGraphFacebook,
   ErroDaGraph,
@@ -12,6 +13,7 @@ interface Pedido {
 
 function cliente(
   respostas: Array<{ status?: number; corpo: unknown } | Error>,
+  appSecret?: string,
 ) {
   const pedidos: Pedido[] = [];
   const buscar = (async (url: string, init?: RequestInit) => {
@@ -37,6 +39,7 @@ function cliente(
       buscar,
       graphUrl: 'https://graph.teste',
       versao: 'v24.0',
+      appSecret,
     }),
   };
 }
@@ -223,6 +226,44 @@ describe('Cliente da Graph do Facebook (R32.14)', () => {
     ]);
     expect(new URL(pedidos[1].url).searchParams.get('subscribed_fields')).toBe(
       'messages,leadgen',
+    );
+  });
+
+  it('R14.10 — com a chave do app, GET, POST e DELETE com token levam appsecret_proof; a troca do código (client_secret) e o token de app não', async () => {
+    const { graph, pedidos } = cliente(
+      [
+        { corpo: { id: '1', name: 'X' } },
+        { corpo: { success: true } },
+        { corpo: { success: true } },
+        { corpo: { access_token: 't', expires_in: 10 } },
+        { corpo: { id: '123', name: 'App' } },
+      ],
+      'segredo-do-app',
+    );
+    await graph.eu('pg-token');
+    await graph.assinar('pg-token', '300', ['leadgen']);
+    await graph.desassinar('pg-token', '300');
+    await graph.trocarCodigo('123', 'segredo-do-app', 'https://r', 'codigo');
+    await graph.validarApp('123', 'segredo-do-app');
+    const prova = provaDaChaveSecreta('pg-token', 'segredo-do-app');
+    for (const pedido of pedidos.slice(0, 3)) {
+      expect(new URL(pedido.url).searchParams.get('appsecret_proof')).toBe(
+        prova,
+      );
+      expect(pedido.url).not.toContain('pg-token');
+    }
+    for (const pedido of pedidos.slice(3)) {
+      expect(new URL(pedido.url).searchParams.has('appsecret_proof')).toBe(
+        false,
+      );
+    }
+  });
+
+  it('R14.10 — sem a chave do app, a chamada segue sem a prova', async () => {
+    const { graph, pedidos } = cliente([{ corpo: { id: '1', name: 'X' } }]);
+    await graph.eu('pg-token');
+    expect(new URL(pedidos[0].url).searchParams.has('appsecret_proof')).toBe(
+      false,
     );
   });
 });

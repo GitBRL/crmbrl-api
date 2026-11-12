@@ -18,6 +18,7 @@ import {
   entrarComo,
   funilBase,
 } from './utils';
+import { caminhoSemProva, ConferenciaDeProva } from './utils/prova-da-chave';
 
 const FILA_LEAD = 'facebook.lead';
 const FILA_PROCESSAR = 'webhooks-entrada.processar';
@@ -57,6 +58,8 @@ const iso = (data: Date) => data.toISOString().replace(/\.\d+Z$/, '+0000');
  */
 class GraphDoFacebook {
   url = '';
+  /** "Exigir chave secreta do aplicativo" ligado: toda chamada com token traz o appsecret_proof (R14.10). */
+  prova = new ConferenciaDeProva(APP_SECRET);
   pedidos: { metodo: string; caminho: string; autorizacao?: string }[] = [];
   assinadas = new Map<string, string[]>();
   leads: LeadFalso[] = [];
@@ -89,6 +92,7 @@ class GraphDoFacebook {
     this.revogados.clear();
     this.erroNosLeads = null;
     this.codigos.clear();
+    this.prova.limpar();
   }
 
   /** O que o diálogo faz ao clicar em "Continuar": um `code` de uso único para o `redirect_uri`. */
@@ -138,7 +142,7 @@ class GraphDoFacebook {
     const autorizacao = req.headers.authorization;
     this.pedidos.push({
       metodo,
-      caminho: `${url.pathname}${url.search}`,
+      caminho: caminhoSemProva(url),
       autorizacao,
     });
     const responder = (status: number, corpo: unknown) => {
@@ -190,6 +194,10 @@ class GraphDoFacebook {
         190,
         'Invalid OAuth access token - Cannot parse access token',
       );
+    }
+    const recusa = this.prova.conferir(url, token);
+    if (recusa) {
+      return responder(recusa.status, { error: recusa.erro });
     }
     if (a === 'me' && !b) {
       const doTipoPagina = /^pg-(\d+)$/.exec(token);
@@ -319,9 +327,16 @@ describe('Facebook Lead Ads (e2e, R32.14)', () => {
     admin = await entrarComo(t, adminUsuario);
   });
 
+  afterEach(() => {
+    // R14.10 — nenhuma chamada com token saiu sem o appsecret_proof certo.
+    expect(graph.prova.recusadas).toEqual([]);
+  });
+
   afterAll(async () => {
     await t.fechar();
     await graph.parar();
+    // R14.10 — a conferência da prova rodou de verdade (não passou em branco).
+    expect(graph.prova.totalAceitas).toBeGreaterThan(0);
   });
 
   /** "Entrar com o Facebook" completo: iniciar, diálogo (o `code` falso) e retorno. */

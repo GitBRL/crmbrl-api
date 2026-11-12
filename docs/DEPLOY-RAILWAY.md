@@ -195,6 +195,33 @@ subir; se uma falhar, o deploy novo não fica saudável e o anterior continua no
 muda o banco, faça um backup manual do `Postgres` (seção 7). O gateway fica alguns segundos fora a cada
 deploy (efeito do volume da seção 4) e as conexões dos números voltam sozinhas.
 
+## 6.1 App da Meta: segurança
+
+O Railway não tem IP de saída fixo no plano comum, então a "Lista de permissão de IP do servidor" do app da Meta
+(App → Configurações → Avançado → Segurança) **fica vazia**: ela só serve com IP de saída fixo (Railway Pro com
+IP estático). A proteção é a **prova da chave secreta** (`appsecret_proof`): a API a manda em toda chamada
+à Graph API feita com token de acesso (WhatsApp oficial, ligações, Instagram, Messenger e Facebook Lead Ads),
+sempre com a chave secreta do app da própria conexão (regra R14.10).
+
+Depois de publicar esta versão:
+
+1. **Antes de ligar,** confira que toda conexão tem a chave secreta do app preenchida: em Canais (WhatsApp
+   oficial, Instagram, Messenger) o campo "Chave secreta do app" aparece mascarado; em Integrações, a conexão do
+   Facebook mostra o segredo mascarado. Conexão sem a chave segue funcionando, mas sem a prova, e o log da API
+   mostra o aviso `Chamada à Graph API ... sem a chave secreta do app (appsecret_proof)`: preencha a chave nela
+   antes de ligar a opção.
+2. Em developers.facebook.com → seu app → Configurações → Avançado → Segurança, ligue **"Exigir chave secreta do
+   aplicativo"** (Require App Secret). Deixe a lista de IP vazia.
+3. **Conferir que nada quebrou:** em cada canal do WhatsApp oficial, Instagram e Messenger use "Testar conexão";
+   envie uma mensagem de teste; no WhatsApp oficial sincronize os templates; na integração do Facebook Lead
+   Ads, veja se as páginas e os formulários carregam. No log da API não deve haver erros da Meta como
+   `API calls from the server require an appsecret_proof argument` ou `Invalid appsecret_proof provided`.
+4. **Voltar atrás:** desligue "Exigir chave secreta do aplicativo" no mesmo lugar. Não precisa mexer na API
+   nem republicar: ela continua mandando a prova, que a Meta ignora com a opção desligada.
+
+Cada app tem a sua chave: um canal que usa "outro app" precisa da chave desse app. Se trocar a chave secreta
+do app na Meta ("Redefinir"), atualize-a nos canais e na conexão do Facebook que usam esse app.
+
 ## 7. Backups
 
 - **Banco:** no serviço `Postgres`, aba Backups, agende backups diários e semanais (cópias do volume).

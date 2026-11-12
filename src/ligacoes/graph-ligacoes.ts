@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { type AcessoMeta } from '../comum/meta/prova-da-chave';
 import { GraphApi } from '../canais/meta/graph-api';
 import {
   type AcaoDeChamada,
@@ -36,7 +37,7 @@ export class GraphLigacoes {
 
   /** `POST /{phone_number_id}/calls` com uma ação sobre uma ligação existente. */
   async agir(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     acao: AcaoDeChamada,
     idMeta: string,
@@ -51,7 +52,7 @@ export class GraphLigacoes {
 
   /** `connect`: inicia a ligação feita com a oferta SDP do navegador; devolve o `wacid`. */
   async conectar(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     cliente: ClienteNaGraph,
     sdp: string,
@@ -71,7 +72,7 @@ export class GraphLigacoes {
 
   /** `POST /{phone_number_id}/settings`: liga ou desliga as chamadas no número. */
   async configurar(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     ativa: boolean,
   ): Promise<void> {
@@ -84,7 +85,7 @@ export class GraphLigacoes {
 
   /** `GET /{phone_number_id}/call_permissions`: a permissão do cliente e os limites, agora. */
   async permissoes(
-    token: string,
+    token: AcessoMeta,
     phoneNumberId: string,
     cliente: ClienteNaGraph,
   ): Promise<PermissaoNaMeta> {

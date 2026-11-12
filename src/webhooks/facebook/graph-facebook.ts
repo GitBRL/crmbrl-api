@@ -9,7 +9,9 @@
  * Tudo aqui é sem banco: quem chama decide o que fazer com `ErroDaGraph`
  * (`tokenInvalido`, `passageiro`).
  */
+import { Logger } from '@nestjs/common';
 import { ErroDaGraph } from '../../canais/meta/graph-api';
+import { provaDaChaveSecreta } from '../../comum/meta/prova-da-chave';
 
 export { ErroDaGraph };
 
@@ -24,7 +26,17 @@ export interface ConfiguracaoDaGraph {
   readonly graphUrl: string;
   /** `META_GRAPH_VERSAO` (`v24.0`). */
   readonly versao: string;
+  /**
+   * Chave secreta do app que emitiu os tokens usados nas chamadas: com ela,
+   * toda chamada com token leva `appsecret_proof` (R14.10). Sem ela segue sem a
+   * prova (e avisa).
+   */
+  readonly appSecret?: string | null;
 }
+
+const logger = new Logger('GraphFacebook');
+const INTERVALO_DO_AVISO_MS = 10 * 60_000;
+let ultimoAviso = 0;
 
 export interface PaginaDoFacebook {
   readonly id: string;
@@ -444,7 +456,19 @@ export class ClienteDaGraphFacebook {
     token: string | null,
     parametros: Record<string, string> = {},
   ): Promise<unknown> {
-    const consulta = new URLSearchParams(parametros).toString();
+    const comProva = { ...parametros };
+    if (token && this.configuracao.appSecret) {
+      comProva.appsecret_proof = provaDaChaveSecreta(
+        token,
+        this.configuracao.appSecret,
+      );
+    } else if (token && Date.now() - ultimoAviso >= INTERVALO_DO_AVISO_MS) {
+      ultimoAviso = Date.now();
+      logger.warn(
+        'Chamada à Graph API do Facebook sem a chave secreta do app (appsecret_proof): com "Exigir chave secreta do aplicativo" ligado na Meta, uma conexão sem a chave deixa de funcionar.',
+      );
+    }
+    const consulta = new URLSearchParams(comProva).toString();
     const url = `${this.configuracao.graphUrl}/${this.configuracao.versao}/${caminho}${consulta ? `?${consulta}` : ''}`;
     let resposta: Response;
     try {

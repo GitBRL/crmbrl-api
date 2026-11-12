@@ -111,12 +111,21 @@ export class ConexoesFacebookService {
     @Inject(AMBIENTE) private readonly ambiente: Ambiente,
   ) {}
 
-  graph(): ClienteDaGraphFacebook {
+  /** `appSecret`: chave do app que emitiu os tokens das chamadas (vira `appsecret_proof`). */
+  graph(appSecret: string | null = null): ClienteDaGraphFacebook {
     return new ClienteDaGraphFacebook({
       buscar: (...argumentos) => globalThis.fetch(...argumentos),
       graphUrl: this.ambiente.meta.graphUrl,
       versao: this.ambiente.meta.graphVersao,
+      appSecret,
     });
+  }
+
+  /** A Graph com a chave secreta do app da conexão. */
+  graphDaConexao(
+    conexao: Pick<ConexaoFacebook, 'appSecretCifrado'>,
+  ): ClienteDaGraphFacebook {
+    return this.graph(this.appSecretDe(conexao));
   }
 
   enderecoDeRetorno(): string {
@@ -408,7 +417,7 @@ export class ConexoesFacebookService {
       }
       try {
         const segredos = this.segredosDe(conexao);
-        const graph = this.graph();
+        const graph = this.graph(segredos.appSecret);
         const curto = await graph.trocarCodigo(
           conexao.appId,
           segredos.appSecret,
@@ -548,8 +557,11 @@ export class ConexoesFacebookService {
     let pagina: { id: string; nome: string; categoria: string | null };
     try {
       pagina = dto.paginaId
-        ? await this.graph().pagina(dto.tokenPagina, dto.paginaId)
-        : { ...(await this.graph().eu(dto.tokenPagina)), categoria: null };
+        ? await this.graph(app.appSecret).pagina(dto.tokenPagina, dto.paginaId)
+        : {
+            ...(await this.graph(app.appSecret).eu(dto.tokenPagina)),
+            categoria: null,
+          };
     } catch (erro) {
       throw this.traduzirErroDoToken(erro);
     }
@@ -699,7 +711,7 @@ export class ConexoesFacebookService {
     }
     let paginas: PaginaDoFacebook[];
     try {
-      paginas = await this.graph().paginas(segredos.token);
+      paginas = await this.graph(segredos.appSecret).paginas(segredos.token);
     } catch (erro) {
       throw await this.traduzirFalha(erro, conexao);
     }
@@ -843,7 +855,7 @@ export class ConexoesFacebookService {
     }
     const token = this.tokenDaPagina(conexao, paginaId);
     try {
-      return await chamada(this.graph(), token);
+      return await chamada(this.graphDaConexao(conexao), token);
     } catch (erro) {
       throw await this.traduzirFalha(erro, conexao);
     }

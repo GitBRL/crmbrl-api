@@ -273,7 +273,7 @@ export class FacebookLeadAdsService
     let lead: LeadDoFacebook;
     try {
       lead = await this.conexoes
-        .graph()
+        .graphDaConexao(conexao)
         .lead(this.conexoes.tokenDaPagina(conexao, paginaId), leadgenId);
     } catch (erro) {
       if (await this.tratarFalhaDaMeta(erro, integracao, conexao)) {
@@ -344,7 +344,7 @@ export class FacebookLeadAdsService
     let completo: boolean;
     try {
       ({ leads, completo } = await this.conexoes
-        .graph()
+        .graphDaConexao(conexao)
         .leadsDoFormulario(
           this.conexoes.tokenDaPagina(conexao, paginaId),
           formularioId,
@@ -694,7 +694,7 @@ export class FacebookLeadAdsService
       }
       conexao = await this.conexoes.carregar(desejada.conexaoId);
       const token = this.conexoes.tokenDaPagina(conexao, desejada.paginaId);
-      const graph = this.conexoes.graph();
+      const graph = this.conexoes.graphDaConexao(conexao);
       // O formulário precisa ser da página: sem isso, o webhook nunca casaria com a integração.
       const formularios = await graph.formularios(token, desejada.paginaId);
       const formulario = formularios.find(
@@ -805,7 +805,7 @@ export class FacebookLeadAdsService
       return;
     }
     const token = this.conexoes.tokenDaPagina(conexao, paginaId);
-    const graph = this.conexoes.graph();
+    const graph = this.conexoes.graphDaConexao(conexao);
     const campos = await graph.camposAssinados(token, paginaId, conexao.appId);
     if (!campos.includes(CAMPO_ASSINADO)) {
       return;

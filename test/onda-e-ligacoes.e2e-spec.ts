@@ -14,6 +14,7 @@ import {
 import { LigacoesService } from '../src/ligacoes/ligacoes.service';
 import { WebhookDeLigacoesService } from '../src/ligacoes/webhook-ligacoes.service';
 import { type CenarioDoAtendimento, montarCenario } from './atendimento-apoio';
+import { caminhoSemProva, ConferenciaDeProva } from './utils/prova-da-chave';
 import {
   type AppTeste,
   type ClienteHttp,
@@ -60,6 +61,7 @@ interface PermissaoFalsa {
 /** Graph/Calling API falsa, numa porta livre: ações de chamada, settings, permissões, mensagens e templates. */
 async function subirGraphFalsa() {
   const pedidos: PedidoRecebido[] = [];
+  const prova = new ConferenciaDeProva(APP_SECRET);
   const estado = {
     sequencia: 0,
     permissoes: new Map<string, PermissaoFalsa>(),
@@ -83,7 +85,7 @@ async function subirGraphFalsa() {
           : null;
       pedidos.push({
         metodo: req.method ?? '',
-        caminho: `${url.pathname}${url.search}`,
+        caminho: caminhoSemProva(url),
         corpo,
       });
       const responder = (status: number, dados: unknown) => {
@@ -97,8 +99,15 @@ async function subirGraphFalsa() {
         responder(falha.status, { error: falha.erro });
         return true;
       };
-      if (!/^Bearer .+/.test(req.headers.authorization ?? '')) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+      if (!token) {
         responder(401, { error: { message: 'Sem token', code: 190 } });
+        return;
+      }
+      // "Exigir chave secreta do aplicativo" ligado: toda chamada com token traz o appsecret_proof.
+      const recusa = prova.conferir(url, token);
+      if (recusa) {
+        responder(recusa.status, { error: recusa.erro });
         return;
       }
       const caminho = url.pathname.split('/').filter(Boolean);
@@ -185,6 +194,7 @@ async function subirGraphFalsa() {
   return {
     url: `http://127.0.0.1:${port}`,
     pedidos,
+    prova,
     estado,
     fechar: () =>
       new Promise<void>((resolver) => servidor.close(() => resolver())),
@@ -231,6 +241,7 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
   beforeEach(async () => {
     await t.limparBanco();
     graph.pedidos.length = 0;
+    graph.prova.limpar();
     graph.estado.sequencia = 0;
     graph.estado.permissoes.clear();
     graph.estado.falhas.clear();
@@ -259,9 +270,15 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
   afterEach(() => {
     fecharSockets(...sockets.splice(0));
   });
+  afterEach(() => {
+    // R14.10 — nenhuma chamada com token saiu sem o appsecret_proof certo.
+    expect(graph.prova.recusadas).toEqual([]);
+  });
   afterAll(async () => {
     await t?.fechar();
     await graph?.fechar();
+    // R14.10 — a conferência da prova rodou de verdade (não passou em branco).
+    expect(graph.prova.totalAceitas).toBeGreaterThan(0);
   });
 
   // ---- apoio ---------------------------------------------------------------

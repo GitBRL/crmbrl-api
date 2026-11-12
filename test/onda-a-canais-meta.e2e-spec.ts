@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
+import { caminhoSemProva, ConferenciaDeProva } from './utils/prova-da-chave';
 import {
   AdaptadorMessenger,
   MOTIVO_JANELA_FECHADA,
@@ -41,9 +42,11 @@ interface PedidoRecebido {
 async function subirGraphFalsa(): Promise<{
   url: string;
   pedidos: PedidoRecebido[];
+  prova: ConferenciaDeProva;
   fechar: () => Promise<void>;
 }> {
   const pedidos: PedidoRecebido[] = [];
+  const prova = new ConferenciaDeProva(APP_SECRET);
   let sequencia = 0;
   /** Textos que já falharam uma vez (a próxima tentativa passa). */
   const instaveis = new Set<string>();
@@ -58,7 +61,7 @@ async function subirGraphFalsa(): Promise<{
         : null;
       pedidos.push({
         metodo: req.method ?? '',
-        caminho: `${url.pathname}${url.search}`,
+        caminho: caminhoSemProva(url),
         autorizacao: req.headers.authorization,
         corpo,
       });
@@ -88,6 +91,12 @@ async function subirGraphFalsa(): Promise<{
             code: 190,
           },
         });
+        return;
+      }
+      // "Exigir chave secreta do aplicativo" ligado: toda chamada com token traz o appsecret_proof.
+      const recusa = prova.conferir(url, token);
+      if (recusa) {
+        responder(recusa.status, { error: recusa.erro });
         return;
       }
       if (req.method === 'POST' && url.pathname === '/v24.0/me/messages') {
@@ -145,6 +154,7 @@ async function subirGraphFalsa(): Promise<{
   return {
     url: `http://127.0.0.1:${port}`,
     pedidos,
+    prova,
     fechar: () => new Promise((resolver) => servidor.close(() => resolver())),
   };
 }
@@ -166,11 +176,18 @@ describe('Canais — Instagram e Messenger (e2e)', () => {
   beforeEach(async () => {
     await t.limparBanco();
     graph.pedidos.length = 0;
+    graph.prova.limpar();
     t.get(LimitadorDeRequisicoes).zerar();
+  });
+  afterEach(() => {
+    // R14.10 — nenhuma chamada com token saiu sem o appsecret_proof certo.
+    expect(graph.prova.recusadas).toEqual([]);
   });
   afterAll(async () => {
     await t?.fechar();
     await graph?.fechar();
+    // R14.10 — a conferência da prova rodou de verdade (não passou em branco).
+    expect(graph.prova.totalAceitas).toBeGreaterThan(0);
   });
 
   async function criarMessenger(corpo: object = {}) {

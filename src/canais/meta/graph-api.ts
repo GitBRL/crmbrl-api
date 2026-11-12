@@ -1,10 +1,18 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AMBIENTE, type Ambiente } from '../../config/ambiente';
+import {
+  type AcessoMeta,
+  semChaveSecreta,
+  tokenDe,
+  urlComProva,
+} from '../../comum/meta/prova-da-chave';
 
 /** Prazo de uma chamada à Graph API. */
 const PRAZO_MS = 15_000;
 /** Redirecionamentos seguidos no download de um anexo (a CDN da Meta redireciona). */
 const MAXIMO_DE_REDIRECIONAMENTOS = 5;
+/** Intervalo mínimo entre dois avisos de "chamada sem chave secreta". */
+const INTERVALO_DO_AVISO_MS = 10 * 60_000;
 
 /** O corpo da resposta, parando (413) se passar do limite. */
 async function lerAte(
@@ -78,15 +86,20 @@ export interface RespostaDoEnvio {
  * Cliente da Graph API da Meta (Instagram e Messenger, R14). O endereço vem
  * de `META_GRAPH_URL` (a Graph de verdade em produção; a falsa do ambiente dos
  * agentes e a dos testes) e a versão de `META_GRAPH_VERSAO`. O token vai no
- * cabeçalho `Authorization` (nunca na URL).
+ * cabeçalho `Authorization` (nunca na URL). Com a chave secreta do app que
+ * emitiu o token (`AcessoMeta`), toda chamada leva também `appsecret_proof`
+ * na query (R14.10); sem ela a chamada segue sem a prova e registra um aviso.
  */
 @Injectable()
 export class GraphApi {
+  private readonly logger = new Logger(GraphApi.name);
+  private ultimoAviso = 0;
+
   constructor(@Inject(AMBIENTE) private readonly ambiente: Ambiente) {}
 
   /** Envia uma mensagem (texto ou anexo) a um PSID/IGSID. */
   enviarMensagem(
-    token: string,
+    token: AcessoMeta,
     destinatario: string,
     mensagem: Record<string, unknown>,
   ): Promise<RespostaDoEnvio> {
@@ -99,7 +112,7 @@ export class GraphApi {
 
   /** Um objeto da Graph (perfil do contato, página, conta do Instagram). */
   obter<T = Record<string, unknown>>(
-    token: string,
+    token: AcessoMeta,
     id: string,
     campos: readonly string[],
   ): Promise<T> {
@@ -112,7 +125,7 @@ export class GraphApi {
 
   /** `POST /<caminho>` com corpo JSON (WhatsApp oficial: mensagens). */
   postar<T = Record<string, unknown>>(
-    token: string,
+    token: AcessoMeta,
     caminho: string,
     corpo: unknown,
   ): Promise<T> {
@@ -121,7 +134,7 @@ export class GraphApi {
 
   /** `POST /<caminho>` multipart (WhatsApp oficial: upload de mídia). */
   postarArquivo<T = Record<string, unknown>>(
-    token: string,
+    token: AcessoMeta,
     caminho: string,
     formulario: FormData,
   ): Promise<T> {
@@ -130,7 +143,7 @@ export class GraphApi {
 
   /** `GET /<caminho>` (com a query já no caminho). */
   consultar<T = Record<string, unknown>>(
-    token: string,
+    token: AcessoMeta,
     caminho: string,
   ): Promise<T> {
     return this.pedir<T>('GET', caminho, token);
@@ -203,13 +216,33 @@ export class GraphApi {
     );
   }
 
+  /** Aviso (sem dados sensíveis, no máximo um a cada 10 minutos) de chamada sem a prova. */
+  private avisarSeSemChave(acesso: AcessoMeta): void {
+    const agora = Date.now();
+    if (
+      !semChaveSecreta(acesso) ||
+      agora - this.ultimoAviso < INTERVALO_DO_AVISO_MS
+    ) {
+      return;
+    }
+    this.ultimoAviso = agora;
+    this.logger.warn(
+      'Chamada à Graph API sem a chave secreta do app (appsecret_proof): com "Exigir chave secreta do aplicativo" ligado na Meta, uma conexão sem a chave deixa de funcionar.',
+    );
+  }
+
   private async pedir<T>(
     metodo: 'GET' | 'POST',
     caminho: string,
-    token: string,
+    acesso: AcessoMeta,
     corpo?: unknown,
   ): Promise<T> {
-    const url = `${this.ambiente.meta.graphUrl}/${this.ambiente.meta.graphVersao}/${caminho}`;
+    const token = tokenDe(acesso);
+    const url = urlComProva(
+      `${this.ambiente.meta.graphUrl}/${this.ambiente.meta.graphVersao}/${caminho}`,
+      acesso,
+    );
+    this.avisarSeSemChave(acesso);
     let resposta: Response;
     try {
       const pedido: RequestInit =

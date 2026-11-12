@@ -163,7 +163,8 @@ export class WhatsappOficialCanaisService {
   async testar(id: string): Promise<TesteDoCanalOficialDto> {
     const canal = await this.configuracao.obter(id, TIPOS);
     const { phoneNumberId } = lerConfiguracaoOficial(canal.configuracao);
-    const { token } = await this.segredos.ler<SegredosOficiais>(canal);
+    const { token, appSecret } =
+      await this.segredos.ler<SegredosOficiais>(canal);
     const falhar = async (
       mensagem: string,
     ): Promise<TesteDoCanalOficialDto> => {
@@ -180,7 +181,10 @@ export class WhatsappOficialCanaisService {
       return falhar('Informe o token do canal.');
     }
     try {
-      const dados = await this.graph.dadosDoNumero(token, phoneNumberId);
+      const dados = await this.graph.dadosDoNumero(
+        { token, appSecret },
+        phoneNumberId,
+      );
       const numeroExibido = dados.display_phone_number ?? null;
       const nomeVerificado = dados.verified_name ?? null;
       const qualidade = dados.quality_rating ?? null;
