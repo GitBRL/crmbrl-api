@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { exigirAtendimento } from '../atendimento/conversas.service';
@@ -110,6 +111,12 @@ export class LigacoesFeitasService {
           resumo: `Ligação do WhatsApp iniciada por ${usuario.nome}`,
           dados: { canalId: canal.id, regra: REGRA_LIGACOES },
           relacionados: { contato: dto.contatoId, usuario: usuario.id },
+        });
+        // R6.7 — ligação feita por uma pessoa.
+        await registrarPrimeiraInteracao(tx, {
+          contatoId: dto.contatoId,
+          tipo: 'LIGACAO',
+          usuarioId: usuario.id,
         });
         return ligacao;
       });

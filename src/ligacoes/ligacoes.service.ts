@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { registrarPrimeiraInteracao } from '../funis/primeira-interacao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { UsuarioAutenticado } from '../auth/usuario-autenticado';
 import { dadosDoEvento } from '../atividades/atividades.service';
@@ -241,6 +242,19 @@ export class LigacoesService implements OnModuleInit {
         estado: ligacao.estado,
         motivo: ligacao.motivo,
         atendidaEm: ligacao.atendidaEm?.toISOString() ?? null,
+      });
+    }
+    if (
+      decisao.estado === 'EM_ANDAMENTO' &&
+      ligacao.direcao === 'RECEBIDA' &&
+      ligacao.atendenteId
+    ) {
+      // R6.7 — ligação recebida e atendida por uma pessoa.
+      await registrarPrimeiraInteracao(tx, {
+        contatoId: ligacao.contatoId,
+        tipo: 'LIGACAO',
+        usuarioId: ligacao.atendenteId,
+        quando: agora,
       });
     }
     if (decisao.estado === 'EM_ANDAMENTO') {

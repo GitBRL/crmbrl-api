@@ -128,6 +128,25 @@ enum TipoAtividade {
   @@map("tipo_atividade")
 }
 
+/// R6.6 — como terminou uma reunião concluída (nulo = sem resultado).
+enum ResultadoReuniao {
+  COMPARECEU
+  NAO_COMPARECEU
+  REMARCADA
+
+  @@map("resultado_reuniao")
+}
+
+/// R6.7 — o que foi a primeira interação humana com o contato do negócio.
+enum TipoPrimeiraInteracao {
+  LIGACAO
+  MENSAGEM
+  EMAIL
+  ATIVIDADE
+
+  @@map("tipo_primeira_interacao")
+}
+
 enum StatusAtividade {
   PENDENTE
   CONCLUIDA
@@ -305,6 +324,7 @@ model Usuario {
   contatosCriados            Contato[]                       @relation("ContatoCriadoPor")
   negociosResponsavel        Negocio[]                       @relation("NegocioResponsavel")
   negociosCriados            Negocio[]                       @relation("NegocioCriadoPor")
+  negociosPrimeiraInteracao  Negocio[]                       @relation("NegocioPrimeiraInteracaoPor")
   movimentacoes              NegocioMovimentacao[]
   passagensResponsavelFixo   Passagem[]                      @relation("PassagemResponsavelFixo")
   regrasDistribuicaoUltimo   RegraDistribuicao[]             @relation("RegraDistribuicaoUltimo")
@@ -682,6 +702,11 @@ model Negocio {
   reconversoes         Int           @default(0)
   ultimaReconversaoEm  DateTime?     @map("ultima_reconversao_em") @db.Timestamptz(3)
   camposPersonalizados Json          @default("{}") @map("campos_personalizados")
+  /// R6.7 — primeira ação de uma pessoa com o contato depois da criação do negócio (gravada uma vez).
+  primeiraInteracaoEm     DateTime?              @map("primeira_interacao_em") @db.Timestamptz(3)
+  primeiraInteracaoTipo   TipoPrimeiraInteracao? @map("primeira_interacao_tipo")
+  primeiraInteracaoPorId  String?                @map("primeira_interacao_por_id") @db.Uuid
+  primeiraInteracaoPor    Usuario?               @relation("NegocioPrimeiraInteracaoPor", fields: [primeiraInteracaoPorId], references: [id], onDelete: SetNull)
   /// Id do negócio no sistema de origem (importação, ex.: Clint); índice único parcial (não nulo e não excluído).
   idExterno            String?       @map("id_externo")
   criadoPorId          String?       @map("criado_por_id") @db.Uuid
@@ -709,6 +734,7 @@ model Negocio {
   @@index([empresaId])
   @@index([negocioOrigemId])
   @@index([funilId, criadoEm], map: "negocios_funil_criado_idx")
+  @@index([primeiraInteracaoEm], map: "negocios_primeira_interacao_idx", where: raw("primeira_interacao_em IS NOT NULL"))
   @@index([funilId, ganhoEm], map: "negocios_funil_ganho_idx", where: raw("ganho_em IS NOT NULL"))
   @@index([funilId, perdidoEm], map: "negocios_funil_perdido_idx", where: raw("perdido_em IS NOT NULL"))
   @@index([previsaoFechamento], map: "negocios_previsao_aberto_idx", where: raw("(status = 'ABERTO'::status_negocio) AND (previsao_fechamento IS NOT NULL)"))
@@ -859,6 +885,12 @@ model Atividade {
   encaminhadaEm      DateTime?           @map("encaminhada_em") @db.Timestamptz(3)
   /// Onda E: ligações do WhatsApp ligadas a esta atividade (a perdida gera "Retornar ligação"; o retorno a conclui).
   ligacoes           Ligacao[]
+  /// R6.6 — resultado da reunião concluída; nulo = sem resultado.
+  resultadoReuniao   ResultadoReuniao?   @map("resultado_reuniao")
+  /// R6.6 — a reunião de origem, quando esta nasceu de uma remarcação.
+  remarcadaDeId      String?             @map("remarcada_de_id") @db.Uuid
+  remarcadaDe        Atividade?          @relation("AtividadeRemarcada", fields: [remarcadaDeId], references: [id], onDelete: SetNull)
+  remarcacoes        Atividade[]         @relation("AtividadeRemarcada")
   /// Lembretes (R6.5).
   lembreteEnviadoEm  DateTime?           @map("lembrete_enviado_em") @db.Timestamptz(3)
   atrasoNotificadoEm DateTime?           @map("atraso_notificado_em") @db.Timestamptz(3)
@@ -871,6 +903,7 @@ model Atividade {
   @@index([empresaId])
   @@index([negocioId])
   @@index([criadoPorId])
+  @@index([remarcadaDeId])
   @@index([concluidaEm], map: "atividades_concluida_idx", where: raw("status = 'CONCLUIDA'::status_atividade"))
   @@map("atividades")
 }

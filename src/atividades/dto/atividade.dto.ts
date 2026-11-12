@@ -2,10 +2,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   type Prisma,
   PrioridadeAtividade,
+  ResultadoReuniao,
   StatusAtividade,
   TipoAtividade,
 } from '../../generated/prisma/client';
 import {
+  ehAguardandoResultado,
   ehAtrasada,
   GRUPOS_DE_ATIVIDADES,
   type GrupoAtividade,
@@ -146,6 +148,30 @@ export class AtividadeDto {
   atrasada: boolean;
 
   @ApiPropertyOptional({
+    enum: ResultadoReuniao,
+    enumName: 'ResultadoReuniao',
+    nullable: true,
+    description:
+      'R6.6 — resultado da reunião concluída; nulo = sem resultado (e em outros tipos).',
+  })
+  resultadoReuniao: ResultadoReuniao | null;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    type: String,
+    description:
+      'R6.6 — a reunião de origem, quando esta nasceu de uma remarcação.',
+  })
+  remarcadaDeId: string | null;
+
+  @ApiProperty({
+    description:
+      'R6.6 — reunião pendente com o início no passado. Calculado na hora da resposta.',
+  })
+  aguardandoResultado: boolean;
+
+  @ApiPropertyOptional({
     enum: GRUPOS_DE_ATIVIDADES,
     enumName: 'GrupoAtividade',
     nullable: true,
@@ -216,6 +242,9 @@ export class AtividadeDto {
       inicioEm: iso(atividade.inicioEm),
       fimEm: iso(atividade.fimEm),
       atrasada: ehAtrasada(atividade, referencia.agora),
+      aguardandoResultado: ehAguardandoResultado(atividade, referencia.agora),
+      resultadoReuniao: atividade.resultadoReuniao,
+      remarcadaDeId: atividade.remarcadaDeId,
       grupo: grupoDaAtividade(atividade, referencia),
       responsavel: resumoDoUsuario(atividade.responsavel),
       criadoPor: resumoDoUsuario(atividade.criadoPor),

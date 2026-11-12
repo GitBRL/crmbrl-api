@@ -350,6 +350,36 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   segmento" e o passo de condição), contam os funis que **quem criou** a campanha ou a
   automação vê **na hora** (o acesso atual dele, não o do momento da criação). Quem criou
   e foi desligado (ou registro sem autor): nenhum negócio de funil `RESTRITA` conta.
+- **R5.15** **Responsável pelo cartão (quadro):** no cartão do kanban, o avatar e o nome do
+  responsável (ou "Sem responsável") são um botão que abre um seletor com busca, com as
+  mesmas opções e regras do campo "Responsável" do detalhe: só quem pode ser responsável no
+  funil (`MEMBRO` ou mais, R5.13) e "Sem responsável". Quem pode trocar segue o
+  `PATCH /negocios/:id` (R5.12): `GESTOR` e `CONFIGURAR` em qualquer negócio, `MEMBRO` nos
+  que age (os seus e os sem responsável); `VER`, e o membro no negócio de outra pessoa, veem
+  só o texto. Troca otimista: volta, com aviso, se a API recusar. Sem rota nova; os outros
+  quadros abertos recebem a troca pelo evento `negocio.atualizado`.
+- **R5.16** **Ações em massa:** `POST /negocios/em-massa` `{negocioIds (1 a 500, sem
+  repetidos), acao, dados}` → `200 {total, sucesso, falhas[{negocioId, titulo|null,
+  statusCode, regra|null, mensagem}]}`. Ações: `MOVER` (`dados.etapaId`; etapa de perda exige
+  `dados.motivoPerda`, 400 antes de tudo), `RESPONSAVEL` (`dados.responsavelId` ou `null`),
+  `GANHAR` (etapa de ganho do funil de cada negócio), `PERDER` (`dados.motivoPerda`),
+  `ETIQUETAR` e `DESETIQUETAR` (`dados.etiquetas`, nas etiquetas **do contato**, pelas regras
+  de edição de contato, R4), `ATIVIDADE` (`dados {tipo, titulo, vencimento?, descricao?}`,
+  tipos TAREFA, LIGACAO, EMAIL, WHATSAPP e NOTA, uma por negócio, para o responsável dele ou,
+  sem responsável, para quem pede; exige poder agir no negócio, R5.12) e `EXCLUIR` (só
+  `CONFIGURAR`, R5.12). Cada negócio passa pelos serviços de domínio existentes (mesmas
+  regras, auditoria, eventos, automações e tempo real), cada um na sua transação: o sucesso é
+  **parcial** e o que falha volta em `falhas` com o `statusCode` e a `regra` que a chamada
+  individual daria. Negócio que a pessoa não vê, ou que não existe, entra em `falhas` como
+  404 "Negócio não encontrado." e `titulo: null` (sem revelar). Corpo inválido (lista vazia,
+  repetidos, mais de 500, ação desconhecida, `dados` faltando) é 400 e não toca em nada. No
+  fim, uma auditoria-resumo `negocio.acao_em_massa` `{acao, total, sucesso, falhas}`, além das
+  de cada negócio. No quadro: botão "Selecionar" (ou Ctrl/Cmd+clique no cartão), caixa em cada
+  cartão e "Selecionar todos desta etapa" (os carregados), barra no rodapé com Mover para
+  etapa, Trocar responsável, Ganho, Perdido (pede o motivo), Etiquetas, Criar atividade e
+  Excluir (só quem configura o funil); o resultado mostra "N de M negócios atualizados" e a
+  lista das falhas (título e motivo). Esc ou "Cancelar" sai e limpa; a seleção vale só no
+  funil aberto.
 
 ## 6. Atividades
 
@@ -368,6 +398,43 @@ converteu `LIDER_X` → (`LIDER`, `X`) e `X` → (`MEMBRO`, `X`).
   reabre.
 - **R6.5** Lembrete: um job a cada 15 minutos notifica o responsável 1 hora antes do
   vencimento e, depois, uma vez quando a atividade atrasa.
+- **R6.6** Resultado da reunião. A `REUNIAO` tem `resultadoReuniao` (`COMPARECEU`,
+  `NAO_COMPARECEU` ou `REMARCADA`; nulo = sem resultado) e `remarcadaDeId` (a reunião de
+  origem, quando nasceu de uma remarcação).
+  - `POST /atividades/:id/concluir` aceita `{resultadoReuniao, novaData?}`. Reunião concluída
+    **por uma pessoa** exige o resultado (400 no campo `resultadoReuniao`); o campo é
+    recusado (400) nos outros tipos. `REMARCADA` exige `novaData` futura e cria, na mesma
+    transação, uma nova reunião pendente (mesmo título, descrição, responsável, contato,
+    empresa, negócio e duração) com `remarcadaDeId`. `novaData` só vale com `REMARCADA`.
+    Concluir pelo código (jobs, ligações) não passa pelo corpo e deixa o resultado nulo.
+  - Correção: `PATCH /atividades/:id` com `{resultadoReuniao}` numa reunião **concluída**
+    (auditado em `atividade.atualizada`); `REMARCADA` exige `novaData` e cria a remarcada.
+    Reabrir apaga o resultado; a reunião remarcada já criada continua.
+  - DTO: `resultadoReuniao`, `remarcadaDeId` e o calculado `aguardandoResultado` (reunião
+    `PENDENTE` com o **início** no passado; `atrasada` segue pelo fim). Filtros em
+    `GET /atividades`: `resultadoReuniao` (lista; aceita `SEM_RESULTADO`) e
+    `aguardandoResultado=true|false`. O evento e a auditoria `atividade.concluida` levam o
+    resultado (`resultadoReuniao`, `remarcadaDeId` em `dados`).
+- **R6.7** Primeira interação do negócio (lead atendido). O negócio guarda
+  `primeiraInteracaoEm`, `primeiraInteracaoTipo` (`LIGACAO`, `MENSAGEM`, `EMAIL` ou
+  `ATIVIDADE`) e `primeiraInteracaoPorId`, gravados **uma única vez**: a primeira ação **de
+  uma pessoa** com o contato do negócio depois da criação do negócio. Bot, chatbot,
+  automação, disparo, SDR com IA e sistema não contam. Conta:
+  - ligação feita por uma pessoa (WhatsApp, ao iniciar) ou recebida e atendida por ela;
+  - mensagem enviada por uma pessoa numa conversa do contato (`EMAIL` no canal de e-mail,
+    `MENSAGEM` nos demais; nota interna não conta);
+  - atividade concluída por uma pessoa (ou criada já concluída) ligada ao contato ou ao
+    negócio, menos `NOTA`.
+  - O ponto único de registro é `registrarPrimeiraInteracao(tx, {contatoId, tipo,
+    usuarioId, quando?})` (`src/funis/primeira-interacao.ts`), chamado na transação da
+    ação. Vale para todos os negócios **abertos** do contato criados antes da ação e ainda
+    sem primeira interação; idempotente. A T4 (3C+) o usa nas ligações.
+  - A migration preenche o histórico: para cada negócio não excluído, a primeira ação
+    humana existente (atividade concluída, mensagem de saída com autor, ligação feita ou
+    atendida) em ou depois da criação do negócio.
+  - DTO do negócio: `primeiraInteracao: {em, tipo, por: {id, nome, avatarUrl}|null} | null`;
+    filtro `atendido=true|false` em `GET /negocios` (e no quadro). Tela: "Primeiro
+    atendimento" na ficha do detalhe; "Ainda não atendido" quando nulo.
 
 ## 7. Desligamento e encaminhamento
 

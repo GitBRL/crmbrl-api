@@ -20,6 +20,7 @@ import {
   conectarTempoReal,
   criarAppTeste,
   criarContato,
+  criarNegocio,
   drenarFilas,
   drenarTudo,
   entrarComo,
@@ -916,6 +917,25 @@ describe('Ligações pelo WhatsApp oficial (e2e)', () => {
         motivo: 'sem_atendente',
       });
       expect(chamadasNaMeta('reject')).toHaveLength(2);
+    });
+
+    it('R6.7 — a ligação atendida por uma pessoa grava a primeira interação dos negócios abertos do contato', async () => {
+      await ativarLigacoes();
+      const contato = await contatoDaMaria(cenario.comercial.membros[0]!);
+      const negocio = await criarNegocio(t, {
+        contato,
+        responsavel: cenario.comercial.membros[0]!,
+      });
+      const socketAna = await conectar(ana);
+      await receberEAtender('wacid.R6A', ana, socketAna);
+      const depois = await t.prisma.negocio.findUniqueOrThrow({
+        where: { id: negocio.id },
+      });
+      expect(depois.primeiraInteracaoTipo).toBe('LIGACAO');
+      expect(depois.primeiraInteracaoPorId).toBe(
+        cenario.comercial.membros[0]!.id,
+      );
+      expect(depois.primeiraInteracaoEm).not.toBeNull();
     });
 
     it('cenário 204 — R29.2 — "livre" = sem ligação em andamento: o responsável ocupado deixa a ligação para a fila', async () => {
