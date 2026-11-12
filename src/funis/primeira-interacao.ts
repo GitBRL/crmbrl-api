@@ -30,14 +30,17 @@ export async function registrarPrimeiraInteracao(
     return 0;
   }
   const quando = interacao.quando ?? new Date();
+  // Horários de fora (Meta, 3C+) vêm truncados no segundo: um negócio criado no mesmo segundo da ação
+  // ainda é "anterior" a ela. A tolerância de 1 s cobre isso, e o registro nunca fica antes da criação
+  // (o tempo até o atendimento não sai negativo).
   return tx.$executeRaw`
     UPDATE negocios
-       SET primeira_interacao_em = ${quando},
+       SET primeira_interacao_em = greatest(${quando}::timestamptz, criado_em),
            primeira_interacao_tipo = ${interacao.tipo}::tipo_primeira_interacao,
            primeira_interacao_por_id = ${interacao.usuarioId}::uuid
      WHERE contato_id = ${interacao.contatoId}::uuid
        AND status = 'ABERTO'
        AND excluido_em IS NULL
        AND primeira_interacao_em IS NULL
-       AND criado_em <= ${quando}`;
+       AND criado_em < ${quando}::timestamptz + interval '1 second'`;
 }

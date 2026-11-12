@@ -267,6 +267,34 @@ describe('Negócios — primeira interação (e2e)', () => {
     expect(await primeira(ganho.id)).toBeNull();
   });
 
+  it('R6.7 — horário de fora truncado no segundo (Meta, 3C+): negócio criado no mesmo segundo conta, sem tempo negativo', async () => {
+    const contato = await criarContato(t);
+    const quando = new Date(Math.floor(Date.now() / 1000) * 1000); // como a Meta manda: segundos
+    const mesmoSegundo = await criarNegocio(t, { contato });
+    const criadoEm = new Date(quando.getTime() + 600);
+    await t.prisma.negocio.update({
+      where: { id: mesmoSegundo.id },
+      data: { criadoEm },
+    });
+    const bemDepois = await criarNegocio(t, { contato });
+    await t.prisma.negocio.update({
+      where: { id: bemDepois.id },
+      data: { criadoEm: new Date(quando.getTime() + 2_000) },
+    });
+    const afetados = await t.prisma.$transaction((tx) =>
+      registrarPrimeiraInteracao(tx, {
+        contatoId: contato.id,
+        tipo: 'LIGACAO',
+        usuarioId: ana().id,
+        quando,
+      }),
+    );
+    expect(afetados).toBe(1);
+    // Nunca antes da criação: o tempo até o atendimento não fica negativo.
+    expect(await primeira(mesmoSegundo.id)).toEqual(criadoEm);
+    expect(await primeira(bemDepois.id)).toBeNull();
+  });
+
   it('R6.7 — GET /negocios traz primeiraInteracao e filtra por atendido', async () => {
     const { negocio, conversa } = await conversaComNegocio();
     const parado = await criarNegocio(t, { responsavel: ana() });
