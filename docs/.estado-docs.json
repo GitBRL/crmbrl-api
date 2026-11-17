@@ -1,7 +1,7 @@
 {
-  "atualizadoEm": "2026-10-21T19:47:02.784Z",
-  "commit": "8ea7e657f5fc1cf0017e9e4b60929da3275e9b06",
-  "commitCurto": "8ea7e65",
+  "atualizadoEm": "2026-11-17T18:14:24.430Z",
+  "commit": "ac24fb84fdde5c8ef8601e7f5ae3250f71690fd5",
+  "commitCurto": "ac24fb8",
   "inventario": {
     "nome": "crmbrl-api",
     "versao": "0.0.1",
@@ -21,6 +21,7 @@
       "start:dev": "nest start --watch",
       "start:debug": "nest start --debug --watch",
       "start:prod": "node dist/main",
+      "start:whatsapp": "node dist/whatsapp/main",
       "prisma:gerar": "prisma generate",
       "prisma:migrar": "prisma migrate dev",
       "postprisma:migrar": "prisma generate",
@@ -36,21 +37,33 @@
       "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
     },
     "dependencias": {
+      "@anthropic-ai/sdk": "^1.3.0",
+      "@aws-sdk/client-s3": "3.1145.0",
       "@nestjs/common": "^12.0.1",
       "@nestjs/core": "^12.0.1",
       "@nestjs/observe": "^0.3.0",
       "@nestjs/platform-express": "^12.0.1",
+      "@nestjs/platform-socket.io": "^12.2.0",
       "@nestjs/swagger": "^12.0.2",
+      "@nestjs/websockets": "^12.2.0",
       "@prisma/adapter-pg": "7.10.1",
       "@prisma/client": "7.10.1",
+      "baileys": "7.0.0-rc14",
       "class-transformer": "^0.5.1",
       "class-validator": "^0.15.1",
+      "exceljs": "^4.4.0",
+      "imapflow": "2.2.11",
+      "mailparser": "3.9.37",
       "nodemailer": "^10.1.7",
       "pg": "^8.23.1",
       "pg-boss": "12.35.1",
       "prisma": "7.10.1",
+      "qrcode": "^1.5.4",
       "reflect-metadata": "^0.2.2",
-      "rxjs": "^7.8.1"
+      "rxjs": "^7.8.1",
+      "socket.io": "4.8.4",
+      "socket.io-client": "4.8.4",
+      "web-push": "^3.6.7"
     },
     "dependenciasDev": {
       "@nestjs/cli": "^12.0.0",
@@ -59,8 +72,12 @@
       "@nestjs/testing": "^12.0.1",
       "@types/express": "^5.0.0",
       "@types/jest": "^30.0.0",
+      "@types/mailparser": "^3.9.0",
+      "@types/multer": "^2.1.0",
       "@types/node": "^24.0.0",
+      "@types/qrcode": "^1.5.6",
       "@types/supertest": "^7.0.0",
+      "@types/web-push": "^3.6.4",
       "jest": "^30.0.0",
       "oxlint": "^1.58.0",
       "oxlint-tsgolint": "^7.0.2001",
@@ -73,20 +90,23 @@
       "tsconfig-paths": "^4.2.0",
       "typescript": "^6.0.2"
     },
-    "totalDeArquivos": 269,
-    "linhasDeCodigo": 54010,
+    "totalDeArquivos": 981,
+    "linhasDeCodigo": 271253,
     "porExtensao": {
       "": 5,
       ".example": 1,
-      ".json": 6,
-      ".md": 1,
+      ".json": 7,
       ".lock": 1,
-      ".yml": 1,
-      ".sh": 1,
-      ".ts": 249,
-      ".sql": 2,
-      ".toml": 1,
-      ".prisma": 1
+      ".toml": 2,
+      ".md": 5,
+      ".producao": 1,
+      ".yml": 2,
+      ".sh": 4,
+      ".transcricao": 1,
+      ".ts": 920,
+      ".sql": 29,
+      ".prisma": 1,
+      ".mjs": 2
     },
     "modulos": [
       {
@@ -96,6 +116,22 @@
       {
         "classe": "AppModule",
         "arquivo": "src/app.module.ts"
+      },
+      {
+        "classe": "ArquivosModule",
+        "arquivo": "src/arquivos/arquivos.module.ts"
+      },
+      {
+        "classe": "ArquivosHttpModule",
+        "arquivo": "src/arquivos/arquivos.module.ts"
+      },
+      {
+        "classe": "AssistenteModule",
+        "arquivo": "src/assistente/assistente.module.ts"
+      },
+      {
+        "classe": "AtendimentoModule",
+        "arquivo": "src/atendimento/atendimento.module.ts"
       },
       {
         "classe": "AtividadesModule",
@@ -114,6 +150,66 @@
         "arquivo": "src/auth/auth.module.ts"
       },
       {
+        "classe": "AutomacoesModule",
+        "arquivo": "src/automacoes/automacoes.module.ts"
+      },
+      {
+        "classe": "AnaliseModule",
+        "arquivo": "src/bi/analise/analise.module.ts"
+      },
+      {
+        "classe": "BiModule",
+        "arquivo": "src/bi/bi.module.ts"
+      },
+      {
+        "classe": "RegistroCanaisModule",
+        "arquivo": "src/canais/canais.module.ts"
+      },
+      {
+        "classe": "CanaisModule",
+        "arquivo": "src/canais/canais.module.ts"
+      },
+      {
+        "classe": "CanaisComumModule",
+        "arquivo": "src/canais/comum/canais-comum.module.ts"
+      },
+      {
+        "classe": "EmailCanalModule",
+        "arquivo": "src/canais/email/email-canal.module.ts"
+      },
+      {
+        "classe": "MetaModule",
+        "arquivo": "src/canais/meta/meta.module.ts"
+      },
+      {
+        "classe": "WebchatNucleoModule",
+        "arquivo": "src/canais/webchat/webchat.module.ts"
+      },
+      {
+        "classe": "WebchatModule",
+        "arquivo": "src/canais/webchat/webchat.module.ts"
+      },
+      {
+        "classe": "WhatsappCanalModule",
+        "arquivo": "src/canais/whatsapp/whatsapp-canal.module.ts"
+      },
+      {
+        "classe": "WhatsappOficialModule",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial.module.ts"
+      },
+      {
+        "classe": "ChatInternoModule",
+        "arquivo": "src/chat-interno/chat-interno.module.ts"
+      },
+      {
+        "classe": "ChatbotModule",
+        "arquivo": "src/chatbot/chatbot.module.ts"
+      },
+      {
+        "classe": "AutomacaoComumModule",
+        "arquivo": "src/comum/automacao-comum.module.ts"
+      },
+      {
         "classe": "ComumModule",
         "arquivo": "src/comum/comum.module.ts"
       },
@@ -124,6 +220,10 @@
       {
         "classe": "ContatosModule",
         "arquivo": "src/contatos/contatos.module.ts"
+      },
+      {
+        "classe": "DisparosModule",
+        "arquivo": "src/disparos/disparos.module.ts"
       },
       {
         "classe": "EmailModule",
@@ -138,8 +238,28 @@
         "arquivo": "src/fila/fila.module.ts"
       },
       {
+        "classe": "FinanceiroModule",
+        "arquivo": "src/financeiro/financeiro.module.ts"
+      },
+      {
         "classe": "FunisModule",
         "arquivo": "src/funis/funis.module.ts"
+      },
+      {
+        "classe": "ImportacaoModule",
+        "arquivo": "src/importacao/importacao.module.ts"
+      },
+      {
+        "classe": "IndicadoresModule",
+        "arquivo": "src/indicadores/indicadores.module.ts"
+      },
+      {
+        "classe": "GravacaoModule",
+        "arquivo": "src/ligacoes/gravacao/gravacao.module.ts"
+      },
+      {
+        "classe": "LigacoesModule",
+        "arquivo": "src/ligacoes/ligacoes.module.ts"
       },
       {
         "classe": "LogsModule",
@@ -154,12 +274,40 @@
         "arquivo": "src/prisma/prisma.module.ts"
       },
       {
+        "classe": "PushModule",
+        "arquivo": "src/push/push.module.ts"
+      },
+      {
+        "classe": "MonitoramentoModule",
+        "arquivo": "src/saude/monitoramento/monitoramento.module.ts"
+      },
+      {
         "classe": "SaudeModule",
         "arquivo": "src/saude/saude.module.ts"
       },
       {
+        "classe": "SdrModule",
+        "arquivo": "src/sdr/sdr.module.ts"
+      },
+      {
         "classe": "SeedsModule",
         "arquivo": "src/seeds/seeds.module.ts"
+      },
+      {
+        "classe": "SetoresModule",
+        "arquivo": "src/setores/setores.module.ts"
+      },
+      {
+        "classe": "TempoRealModule",
+        "arquivo": "src/tempo-real/tempo-real.module.ts"
+      },
+      {
+        "classe": "TranscricaoModule",
+        "arquivo": "src/transcricao/transcricao.module.ts"
+      },
+      {
+        "classe": "TrescPlusModule",
+        "arquivo": "src/tresc-plus/tresc-plus.module.ts"
       },
       {
         "classe": "UsuariosModule",
@@ -168,6 +316,10 @@
       {
         "classe": "WebhooksModule",
         "arquivo": "src/webhooks/webhooks.module.ts"
+      },
+      {
+        "classe": "GatewayWhatsappModule",
+        "arquivo": "src/whatsapp/gateway-whatsapp.module.ts"
       }
     ],
     "controllers": [
@@ -175,6 +327,46 @@
         "classe": "AdministracaoController",
         "arquivo": "src/administracao/administracao.controller.ts",
         "prefixo": "administracao"
+      },
+      {
+        "classe": "ArquivosController",
+        "arquivo": "src/arquivos/arquivos.controller.ts",
+        "prefixo": "arquivos"
+      },
+      {
+        "classe": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts",
+        "prefixo": "assistente/admin"
+      },
+      {
+        "classe": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts",
+        "prefixo": "assistente"
+      },
+      {
+        "classe": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts",
+        "prefixo": "atendimento/filas"
+      },
+      {
+        "classe": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts",
+        "prefixo": "atendimento/respostas-rapidas"
+      },
+      {
+        "classe": "CanaisDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts",
+        "prefixo": "atendimento/canais"
+      },
+      {
+        "classe": "MetricasDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts",
+        "prefixo": "atendimento/metricas"
+      },
+      {
+        "classe": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts",
+        "prefixo": "atendimento"
       },
       {
         "classe": "AtividadesController",
@@ -192,6 +384,81 @@
         "prefixo": "auth"
       },
       {
+        "classe": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts",
+        "prefixo": "auth/dois-fatores"
+      },
+      {
+        "classe": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts",
+        "prefixo": "automacoes"
+      },
+      {
+        "classe": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts",
+        "prefixo": "bi/analise"
+      },
+      {
+        "classe": "BiController",
+        "arquivo": "src/bi/bi.controller.ts",
+        "prefixo": "bi"
+      },
+      {
+        "classe": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts",
+        "prefixo": "email/canais"
+      },
+      {
+        "classe": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts",
+        "prefixo": "meta/canais"
+      },
+      {
+        "classe": "WebhookMetaController",
+        "arquivo": "src/canais/meta/webhook-meta.controller.ts",
+        "prefixo": "publico/meta"
+      },
+      {
+        "classe": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts",
+        "prefixo": "webchat/canais"
+      },
+      {
+        "classe": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts",
+        "prefixo": "publico/webchat"
+      },
+      {
+        "classe": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts",
+        "prefixo": "whatsapp/numeros"
+      },
+      {
+        "classe": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts",
+        "prefixo": "whatsapp-oficial/canais"
+      },
+      {
+        "classe": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts",
+        "prefixo": "chat"
+      },
+      {
+        "classe": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts",
+        "prefixo": "chatbot"
+      },
+      {
+        "classe": "ModelosController",
+        "arquivo": "src/comum/modelos/modelos.controller.ts",
+        "prefixo": "modelos"
+      },
+      {
+        "classe": "SegmentosController",
+        "arquivo": "src/comum/segmentos/segmentos.controller.ts",
+        "prefixo": "segmentos"
+      },
+      {
         "classe": "ContatosController",
         "arquivo": "src/contatos/contatos.controller.ts",
         "prefixo": "contatos"
@@ -200,6 +467,21 @@
         "classe": "EmpresasController",
         "arquivo": "src/contatos/empresas.controller.ts",
         "prefixo": "empresas"
+      },
+      {
+        "classe": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts",
+        "prefixo": "disparos"
+      },
+      {
+        "classe": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts",
+        "prefixo": "modelos-mensagem"
+      },
+      {
+        "classe": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts",
+        "prefixo": "financeiro"
       },
       {
         "classe": "DistribuicaoController",
@@ -222,9 +504,44 @@
         "prefixo": "passagens"
       },
       {
+        "classe": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts",
+        "prefixo": "importacoes"
+      },
+      {
+        "classe": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts",
+        "prefixo": "indicadores"
+      },
+      {
+        "classe": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts",
+        "prefixo": "ligacoes"
+      },
+      {
+        "classe": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts",
+        "prefixo": "ligacoes"
+      },
+      {
+        "classe": "ConfiguracaoLigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts",
+        "prefixo": "whatsapp-oficial/canais/:canalId/ligacoes"
+      },
+      {
         "classe": "NotificacoesController",
         "arquivo": "src/notificacoes/notificacoes.controller.ts",
         "prefixo": "notificacoes"
+      },
+      {
+        "classe": "PushController",
+        "arquivo": "src/push/push.controller.ts",
+        "prefixo": "push"
+      },
+      {
+        "classe": "SaudeDoSistemaController",
+        "arquivo": "src/saude/monitoramento/saude-do-sistema.controller.ts",
+        "prefixo": "administracao/saude-do-sistema"
       },
       {
         "classe": "SaudeController",
@@ -232,9 +549,49 @@
         "prefixo": "saude"
       },
       {
+        "classe": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts",
+        "prefixo": "sdr"
+      },
+      {
+        "classe": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts",
+        "prefixo": "sdr"
+      },
+      {
+        "classe": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts",
+        "prefixo": "setores"
+      },
+      {
+        "classe": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts",
+        "prefixo": "tresc-plus"
+      },
+      {
+        "classe": "VinculoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts",
+        "prefixo": "tresc-plus/vinculo"
+      },
+      {
+        "classe": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts",
+        "prefixo": "tresc-plus"
+      },
+      {
+        "classe": "DiscadorTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts",
+        "prefixo": "tresc-plus"
+      },
+      {
         "classe": "DesligamentoController",
         "arquivo": "src/usuarios/desligamento.controller.ts",
         "prefixo": "usuarios"
+      },
+      {
+        "classe": "FotoDePerfilController",
+        "arquivo": "src/usuarios/foto-de-perfil.controller.ts",
+        "prefixo": "usuarios/eu/foto"
       },
       {
         "classe": "UsuariosController",
@@ -252,9 +609,49 @@
         "prefixo": "webhooks/entrada"
       },
       {
+        "classe": "AplicativosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts",
+        "prefixo": "webhooks/aplicativos"
+      },
+      {
+        "classe": "HistoricoDeRecebimentosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts",
+        "prefixo": "webhooks/recebimentos"
+      },
+      {
+        "classe": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts",
+        "prefixo": "webhooks/facebook"
+      },
+      {
+        "classe": "FacebookPublicoController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts",
+        "prefixo": "publico/facebook"
+      },
+      {
+        "classe": "AppsDeLoginController",
+        "arquivo": "src/webhooks/login/apps-de-login.controller.ts",
+        "prefixo": "configuracoes/apps-de-login"
+      },
+      {
+        "classe": "ConexoesAplicativoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts",
+        "prefixo": "conexoes-aplicativo"
+      },
+      {
+        "classe": "ConexoesAplicativoPublicoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts",
+        "prefixo": "publico/conexoes"
+      },
+      {
         "classe": "WebhooksSaidaController",
         "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts",
         "prefixo": "webhooks/saidas"
+      },
+      {
+        "classe": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts",
+        "prefixo": ""
       }
     ],
     "servicos": [
@@ -269,6 +666,98 @@
       {
         "classe": "RetencaoService",
         "arquivo": "src/administracao/retencao.service.ts"
+      },
+      {
+        "classe": "ArquivosService",
+        "arquivo": "src/arquivos/arquivos.service.ts"
+      },
+      {
+        "classe": "AssistenteService",
+        "arquivo": "src/assistente/assistente.service.ts"
+      },
+      {
+        "classe": "BaseDeConhecimentoService",
+        "arquivo": "src/assistente/base-de-conhecimento.ts"
+      },
+      {
+        "classe": "ChamadosAssistenteService",
+        "arquivo": "src/assistente/chamados/chamados-assistente.service.ts"
+      },
+      {
+        "classe": "ConectorChamadosService",
+        "arquivo": "src/assistente/chamados/conector-chamados.service.ts"
+      },
+      {
+        "classe": "ConfiguracaoAssistenteService",
+        "arquivo": "src/assistente/configuracao-assistente.service.ts"
+      },
+      {
+        "classe": "HistoricoAssistenteService",
+        "arquivo": "src/assistente/historico-assistente.service.ts"
+      },
+      {
+        "classe": "AcessoAtendimentoService",
+        "arquivo": "src/atendimento/acesso-atendimento.service.ts"
+      },
+      {
+        "classe": "AtendimentoService",
+        "arquivo": "src/atendimento/atendimento.service.ts"
+      },
+      {
+        "classe": "AvisoDeMensagem",
+        "arquivo": "src/atendimento/aviso-de-mensagem.service.ts"
+      },
+      {
+        "classe": "CanaisDoAtendimentoService",
+        "arquivo": "src/atendimento/canais-atendimento.service.ts"
+      },
+      {
+        "classe": "ContagensDoAtendimento",
+        "arquivo": "src/atendimento/contagens.service.ts"
+      },
+      {
+        "classe": "ConversasService",
+        "arquivo": "src/atendimento/conversas.service.ts"
+      },
+      {
+        "classe": "DesligamentoNoAtendimento",
+        "arquivo": "src/atendimento/desligamento-atendimento.service.ts"
+      },
+      {
+        "classe": "DistribuicaoDaFila",
+        "arquivo": "src/atendimento/distribuicao-fila.service.ts"
+      },
+      {
+        "classe": "EnvioDoAtendimento",
+        "arquivo": "src/atendimento/envio.service.ts"
+      },
+      {
+        "classe": "FilasService",
+        "arquivo": "src/atendimento/filas.service.ts"
+      },
+      {
+        "classe": "GanchosDoAtendimento",
+        "arquivo": "src/atendimento/ganchos-do-atendimento.ts"
+      },
+      {
+        "classe": "MensagensService",
+        "arquivo": "src/atendimento/mensagens.service.ts"
+      },
+      {
+        "classe": "MetricasDoAtendimentoService",
+        "arquivo": "src/atendimento/metricas-atendimento.service.ts"
+      },
+      {
+        "classe": "MotorDoAtendimento",
+        "arquivo": "src/atendimento/motor-do-atendimento.service.ts"
+      },
+      {
+        "classe": "RespostasRapidasService",
+        "arquivo": "src/atendimento/respostas-rapidas.service.ts"
+      },
+      {
+        "classe": "SlaDoAtendimento",
+        "arquivo": "src/atendimento/sla.service.ts"
       },
       {
         "classe": "AtividadesService",
@@ -295,6 +784,10 @@
         "arquivo": "src/auth/auth.service.ts"
       },
       {
+        "classe": "DoisFatoresService",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.service.ts"
+      },
+      {
         "classe": "ForcaBrutaService",
         "arquivo": "src/auth/forca-bruta.service.ts"
       },
@@ -319,8 +812,280 @@
         "arquivo": "src/auth/sessoes.service.ts"
       },
       {
+        "classe": "AcoesDeAutomacao",
+        "arquivo": "src/automacoes/acoes-de-automacao.service.ts"
+      },
+      {
+        "classe": "AgendasDeAutomacao",
+        "arquivo": "src/automacoes/agendas-de-automacao.service.ts"
+      },
+      {
+        "classe": "AutomacoesService",
+        "arquivo": "src/automacoes/automacoes.service.ts"
+      },
+      {
+        "classe": "EnvioDeMensagemDaAutomacao",
+        "arquivo": "src/automacoes/envio-de-mensagem-da-automacao.service.ts"
+      },
+      {
+        "classe": "ExecucoesDeAutomacao",
+        "arquivo": "src/automacoes/execucoes-de-automacao.service.ts"
+      },
+      {
+        "classe": "GatilhosDeAutomacao",
+        "arquivo": "src/automacoes/gatilhos-de-automacao.service.ts"
+      },
+      {
+        "classe": "IniciadorDeExecucao",
+        "arquivo": "src/automacoes/iniciador-de-execucao.service.ts"
+      },
+      {
+        "classe": "AnaliseService",
+        "arquivo": "src/bi/analise/analise.service.ts"
+      },
+      {
+        "classe": "ChamadaClaudeService",
+        "arquivo": "src/bi/analise/chamada-claude.service.ts"
+      },
+      {
+        "classe": "BiService",
+        "arquivo": "src/bi/bi.service.ts"
+      },
+      {
+        "classe": "ExportacaoBiService",
+        "arquivo": "src/bi/exportacao-bi.service.ts"
+      },
+      {
+        "classe": "FiltrosBiService",
+        "arquivo": "src/bi/filtros-bi.service.ts"
+      },
+      {
+        "classe": "PainelAtendimentoService",
+        "arquivo": "src/bi/painel-atendimento.service.ts"
+      },
+      {
+        "classe": "PainelComercialService",
+        "arquivo": "src/bi/painel-comercial.service.ts"
+      },
+      {
+        "classe": "PainelCsService",
+        "arquivo": "src/bi/painel-cs.service.ts"
+      },
+      {
+        "classe": "PainelFinanceiroService",
+        "arquivo": "src/bi/painel-financeiro.service.ts"
+      },
+      {
+        "classe": "PainelMarketingService",
+        "arquivo": "src/bi/painel-marketing.service.ts"
+      },
+      {
+        "classe": "PainelSdrService",
+        "arquivo": "src/bi/painel-sdr.service.ts"
+      },
+      {
+        "classe": "ArquivosPublicos",
+        "arquivo": "src/canais/comum/arquivos-publicos.ts"
+      },
+      {
+        "classe": "ConfiguracaoDeCanais",
+        "arquivo": "src/canais/comum/configuracao-de-canais.service.ts"
+      },
+      {
+        "classe": "LimitadorDeRequisicoes",
+        "arquivo": "src/canais/comum/limitador.ts"
+      },
+      {
+        "classe": "SegredosDoCanal",
+        "arquivo": "src/canais/comum/segredos-do-canal.ts"
+      },
+      {
+        "classe": "AdaptadorEmail",
+        "arquivo": "src/canais/email/adaptador-email.ts"
+      },
+      {
+        "classe": "EmailCanaisService",
+        "arquivo": "src/canais/email/email-canais.service.ts"
+      },
+      {
+        "classe": "LeitorDeEmail",
+        "arquivo": "src/canais/email/leitor-de-email.service.ts"
+      },
+      {
+        "classe": "AdaptadorMeta",
+        "arquivo": "src/canais/meta/adaptadores-meta.ts"
+      },
+      {
+        "classe": "AdaptadorInstagram",
+        "arquivo": "src/canais/meta/adaptadores-meta.ts"
+      },
+      {
+        "classe": "AdaptadorMessenger",
+        "arquivo": "src/canais/meta/adaptadores-meta.ts"
+      },
+      {
+        "classe": "GraphApi",
+        "arquivo": "src/canais/meta/graph-api.ts"
+      },
+      {
+        "classe": "MetaCanaisService",
+        "arquivo": "src/canais/meta/meta-canais.service.ts"
+      },
+      {
+        "classe": "WebhookMetaService",
+        "arquivo": "src/canais/meta/webhook-meta.service.ts"
+      },
+      {
+        "classe": "RegistroCanais",
+        "arquivo": "src/canais/registro-canais.ts"
+      },
+      {
+        "classe": "AcessoDoWidgetGuard",
+        "arquivo": "src/canais/webchat/acesso-do-widget.ts"
+      },
+      {
+        "classe": "AdaptadorWebchat",
+        "arquivo": "src/canais/webchat/adaptador-webchat.ts"
+      },
+      {
+        "classe": "WebchatCanaisService",
+        "arquivo": "src/canais/webchat/webchat-canais.service.ts"
+      },
+      {
+        "classe": "WebchatTempoReal",
+        "arquivo": "src/canais/webchat/webchat-tempo-real.ts"
+      },
+      {
+        "classe": "WebchatService",
+        "arquivo": "src/canais/webchat/webchat.service.ts"
+      },
+      {
+        "classe": "WidgetDoSite",
+        "arquivo": "src/canais/webchat/widget.service.ts"
+      },
+      {
+        "classe": "AdaptadorWhatsapp",
+        "arquivo": "src/canais/whatsapp/adaptador-whatsapp.ts"
+      },
+      {
+        "classe": "ClienteGatewayWhatsapp",
+        "arquivo": "src/canais/whatsapp/cliente-gateway.ts"
+      },
+      {
+        "classe": "DigitandoWhatsappService",
+        "arquivo": "src/canais/whatsapp/digitando-whatsapp.service.ts"
+      },
+      {
+        "classe": "EventosWhatsappService",
+        "arquivo": "src/canais/whatsapp/eventos-whatsapp.service.ts"
+      },
+      {
+        "classe": "NumerosWhatsappService",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.service.ts"
+      },
+      {
+        "classe": "AdaptadorWhatsappOficial",
+        "arquivo": "src/canais/whatsapp-oficial/adaptador-whatsapp-oficial.ts"
+      },
+      {
+        "classe": "EntradaWhatsappOficialService",
+        "arquivo": "src/canais/whatsapp-oficial/entrada-whatsapp-oficial.service.ts"
+      },
+      {
+        "classe": "GraphWhatsappOficial",
+        "arquivo": "src/canais/whatsapp-oficial/graph-whatsapp-oficial.ts"
+      },
+      {
+        "classe": "TemplatesOficiaisService",
+        "arquivo": "src/canais/whatsapp-oficial/templates-oficiais.service.ts"
+      },
+      {
+        "classe": "WebhookWhatsappOficialService",
+        "arquivo": "src/canais/whatsapp-oficial/webhook-whatsapp-oficial.service.ts"
+      },
+      {
+        "classe": "WhatsappOficialCanaisService",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.service.ts"
+      },
+      {
+        "classe": "AcessoChatService",
+        "arquivo": "src/chat-interno/acesso-chat.service.ts"
+      },
+      {
+        "classe": "CanaisChatService",
+        "arquivo": "src/chat-interno/canais-chat.service.ts"
+      },
+      {
+        "classe": "MensagensChatService",
+        "arquivo": "src/chat-interno/mensagens-chat.service.ts"
+      },
+      {
+        "classe": "MontagemChatService",
+        "arquivo": "src/chat-interno/montagem-chat.service.ts"
+      },
+      {
+        "classe": "PublicacaoChatService",
+        "arquivo": "src/chat-interno/publicacao-chat.service.ts"
+      },
+      {
+        "classe": "SincronizacaoChatService",
+        "arquivo": "src/chat-interno/sincronizacao-chat.service.ts"
+      },
+      {
+        "classe": "TempoRealChatService",
+        "arquivo": "src/chat-interno/tempo-real-chat.service.ts"
+      },
+      {
+        "classe": "AcessoChatbot",
+        "arquivo": "src/chatbot/acesso-chatbot.service.ts"
+      },
+      {
+        "classe": "AcoesDoBot",
+        "arquivo": "src/chatbot/acoes-do-bot.service.ts"
+      },
+      {
+        "classe": "EntradaDoBot",
+        "arquivo": "src/chatbot/entrada-do-bot.service.ts"
+      },
+      {
+        "classe": "FluxosChatbotService",
+        "arquivo": "src/chatbot/fluxos.service.ts"
+      },
+      {
+        "classe": "MensagensDoBot",
+        "arquivo": "src/chatbot/mensagens-do-bot.service.ts"
+      },
+      {
+        "classe": "PassosDoChatbot",
+        "arquivo": "src/chatbot/passos-do-chatbot.service.ts"
+      },
+      {
+        "classe": "SimuladorDoChatbot",
+        "arquivo": "src/chatbot/simulador.service.ts"
+      },
+      {
+        "classe": "TransferenciaDoBot",
+        "arquivo": "src/chatbot/transferencia-do-bot.service.ts"
+      },
+      {
         "classe": "CriptografiaService",
         "arquivo": "src/comum/criptografia/criptografia.service.ts"
+      },
+      {
+        "classe": "GatilhosService",
+        "arquivo": "src/comum/gatilhos/gatilhos.service.ts"
+      },
+      {
+        "classe": "ModelosService",
+        "arquivo": "src/comum/modelos/modelos.service.ts"
+      },
+      {
+        "classe": "PassosService",
+        "arquivo": "src/comum/passos/passos.service.ts"
+      },
+      {
+        "classe": "SegmentosService",
+        "arquivo": "src/comum/segmentos/segmentos.service.ts"
       },
       {
         "classe": "ParseIdPipe",
@@ -343,6 +1108,62 @@
         "arquivo": "src/contatos/permissoes-contatos.service.ts"
       },
       {
+        "classe": "AcessoDisparos",
+        "arquivo": "src/disparos/acesso-disparos.service.ts"
+      },
+      {
+        "classe": "AgendadorDeEnvio",
+        "arquivo": "src/disparos/agendador-de-envio.service.ts"
+      },
+      {
+        "classe": "CampanhasService",
+        "arquivo": "src/disparos/campanhas.service.ts"
+      },
+      {
+        "classe": "CanaisDaCampanha",
+        "arquivo": "src/disparos/canais-da-campanha.service.ts"
+      },
+      {
+        "classe": "CicloDaCampanha",
+        "arquivo": "src/disparos/ciclo-da-campanha.service.ts"
+      },
+      {
+        "classe": "ConfiguracaoDisparosService",
+        "arquivo": "src/disparos/configuracao-disparos.service.ts"
+      },
+      {
+        "classe": "EntregaDeCampanha",
+        "arquivo": "src/disparos/entrega-de-campanha.service.ts"
+      },
+      {
+        "classe": "EnvioDeCampanha",
+        "arquivo": "src/disparos/envio-de-campanha.service.ts"
+      },
+      {
+        "classe": "ModelosMensagemService",
+        "arquivo": "src/disparos/modelos-mensagem.service.ts"
+      },
+      {
+        "classe": "ProgressoDaCampanha",
+        "arquivo": "src/disparos/progresso-da-campanha.service.ts"
+      },
+      {
+        "classe": "PublicoDaCampanha",
+        "arquivo": "src/disparos/publico.service.ts"
+      },
+      {
+        "classe": "RelatorioDeCampanha",
+        "arquivo": "src/disparos/relatorio-de-campanha.service.ts"
+      },
+      {
+        "classe": "RespostasDeCampanha",
+        "arquivo": "src/disparos/respostas-de-campanha.service.ts"
+      },
+      {
+        "classe": "SincronizacaoDaCampanha",
+        "arquivo": "src/disparos/sincronizacao-da-campanha.service.ts"
+      },
+      {
         "classe": "EmailService",
         "arquivo": "src/email/email.service.ts"
       },
@@ -353,6 +1174,54 @@
       {
         "classe": "FilaService",
         "arquivo": "src/fila/fila.service.ts"
+      },
+      {
+        "classe": "ContratosService",
+        "arquivo": "src/financeiro/contratos.service.ts"
+      },
+      {
+        "classe": "ImportacaoDeParcelasService",
+        "arquivo": "src/financeiro/importacao-de-parcelas.service.ts"
+      },
+      {
+        "classe": "IndicadoresFinanceirosService",
+        "arquivo": "src/financeiro/indicadores.service.ts"
+      },
+      {
+        "classe": "ParcelasService",
+        "arquivo": "src/financeiro/parcelas.service.ts"
+      },
+      {
+        "classe": "ReguaConfiguracaoService",
+        "arquivo": "src/financeiro/regua-configuracao.service.ts"
+      },
+      {
+        "classe": "ReguaConsultaService",
+        "arquivo": "src/financeiro/regua-consulta.service.ts"
+      },
+      {
+        "classe": "ReguaEnvioService",
+        "arquivo": "src/financeiro/regua-envio.service.ts"
+      },
+      {
+        "classe": "ReguaLigacoesService",
+        "arquivo": "src/financeiro/regua-ligacoes.service.ts"
+      },
+      {
+        "classe": "ReguaService",
+        "arquivo": "src/financeiro/regua.service.ts"
+      },
+      {
+        "classe": "RiscoDeChurnService",
+        "arquivo": "src/financeiro/risco-de-churn.service.ts"
+      },
+      {
+        "classe": "SugestaoDeContratoService",
+        "arquivo": "src/financeiro/sugestao-de-contrato.service.ts"
+      },
+      {
+        "classe": "TempoRealFinanceiro",
+        "arquivo": "src/financeiro/tempo-real-financeiro.service.ts"
       },
       {
         "classe": "DistribuicaoService",
@@ -375,6 +1244,10 @@
         "arquivo": "src/funis/negocios-consulta.service.ts"
       },
       {
+        "classe": "NegociosEmMassaService",
+        "arquivo": "src/funis/negocios-em-massa.service.ts"
+      },
+      {
         "classe": "NegociosService",
         "arquivo": "src/funis/negocios.service.ts"
       },
@@ -387,6 +1260,90 @@
         "arquivo": "src/funis/passagens.service.ts"
       },
       {
+        "classe": "ImportacaoProcessadorService",
+        "arquivo": "src/importacao/importacao-processador.service.ts"
+      },
+      {
+        "classe": "ImportacaoService",
+        "arquivo": "src/importacao/importacao.service.ts"
+      },
+      {
+        "classe": "ModelosDeImportacaoService",
+        "arquivo": "src/importacao/modelos-de-importacao.service.ts"
+      },
+      {
+        "classe": "CalculoIndicadoresService",
+        "arquivo": "src/indicadores/calculo-indicadores.service.ts"
+      },
+      {
+        "classe": "FiltrosIndicadoresService",
+        "arquivo": "src/indicadores/filtros-indicadores.service.ts"
+      },
+      {
+        "classe": "IndicadoresService",
+        "arquivo": "src/indicadores/indicadores.service.ts"
+      },
+      {
+        "classe": "PaineisIndicadoresService",
+        "arquivo": "src/indicadores/paineis-indicadores.service.ts"
+      },
+      {
+        "classe": "ConfiguracaoDeLigacoesService",
+        "arquivo": "src/ligacoes/configuracao-ligacoes.service.ts"
+      },
+      {
+        "classe": "EventosDeLigacaoService",
+        "arquivo": "src/ligacoes/eventos-de-ligacao.service.ts"
+      },
+      {
+        "classe": "GraphLigacoes",
+        "arquivo": "src/ligacoes/graph-ligacoes.ts"
+      },
+      {
+        "classe": "GravacaoService",
+        "arquivo": "src/ligacoes/gravacao/gravacao.service.ts"
+      },
+      {
+        "classe": "LeituraDaGravacaoService",
+        "arquivo": "src/ligacoes/gravacao/leitura-gravacao.service.ts"
+      },
+      {
+        "classe": "ReprocessamentoDaGravacaoService",
+        "arquivo": "src/ligacoes/gravacao/reprocessamento-gravacao.service.ts"
+      },
+      {
+        "classe": "RetencaoDeGravacoesService",
+        "arquivo": "src/ligacoes/gravacao/retencao-de-gravacoes.service.ts"
+      },
+      {
+        "classe": "SugestoesDeAtividadeService",
+        "arquivo": "src/ligacoes/gravacao/sugestoes-de-atividade.service.ts"
+      },
+      {
+        "classe": "HistoricoDeLigacoesService",
+        "arquivo": "src/ligacoes/historico-ligacoes.service.ts"
+      },
+      {
+        "classe": "LigacoesFeitasService",
+        "arquivo": "src/ligacoes/ligacoes-feitas.service.ts"
+      },
+      {
+        "classe": "LigacoesRecebidasService",
+        "arquivo": "src/ligacoes/ligacoes-recebidas.service.ts"
+      },
+      {
+        "classe": "LigacoesService",
+        "arquivo": "src/ligacoes/ligacoes.service.ts"
+      },
+      {
+        "classe": "PermissoesDeLigacaoService",
+        "arquivo": "src/ligacoes/permissoes-de-ligacao.service.ts"
+      },
+      {
+        "classe": "WebhookDeLigacoesService",
+        "arquivo": "src/ligacoes/webhook-ligacoes.service.ts"
+      },
+      {
         "classe": "LogsTecnicosService",
         "arquivo": "src/logs/logs-tecnicos.service.ts"
       },
@@ -395,24 +1352,144 @@
         "arquivo": "src/notificacoes/notificacoes.service.ts"
       },
       {
+        "classe": "OuvintesDeNotificacao",
+        "arquivo": "src/notificacoes/ouvintes-notificacao.ts"
+      },
+      {
         "classe": "PrismaService",
         "arquivo": "src/prisma/prisma.service.ts"
+      },
+      {
+        "classe": "PushService",
+        "arquivo": "src/push/push.service.ts"
+      },
+      {
+        "classe": "ServicoWebPush",
+        "arquivo": "src/push/servico-de-push.ts"
+      },
+      {
+        "classe": "AlertasDeSaudeService",
+        "arquivo": "src/saude/monitoramento/alertas-de-saude.service.ts"
+      },
+      {
+        "classe": "SaudeDoSistemaService",
+        "arquivo": "src/saude/monitoramento/saude-do-sistema.service.ts"
       },
       {
         "classe": "SaudeService",
         "arquivo": "src/saude/saude.service.ts"
       },
       {
+        "classe": "ConfiguracaoSdrService",
+        "arquivo": "src/sdr/configuracao-sdr.service.ts"
+      },
+      {
+        "classe": "ConversasSdrService",
+        "arquivo": "src/sdr/conversas-sdr.service.ts"
+      },
+      {
+        "classe": "EfeitosSdrService",
+        "arquivo": "src/sdr/efeitos-sdr.service.ts"
+      },
+      {
+        "classe": "MotorSdr",
+        "arquivo": "src/sdr/motor-sdr.service.ts"
+      },
+      {
+        "classe": "OrcamentoSdrService",
+        "arquivo": "src/sdr/orcamento-sdr.service.ts"
+      },
+      {
+        "classe": "QualificacaoSdrService",
+        "arquivo": "src/sdr/qualificacao-sdr.service.ts"
+      },
+      {
+        "classe": "SimuladorSdrService",
+        "arquivo": "src/sdr/simulador-sdr.service.ts"
+      },
+      {
+        "classe": "TransicoesSdrService",
+        "arquivo": "src/sdr/transicoes-sdr.service.ts"
+      },
+      {
         "classe": "SeedsService",
         "arquivo": "src/seeds/seeds.service.ts"
+      },
+      {
+        "classe": "SetoresService",
+        "arquivo": "src/setores/setores.service.ts"
+      },
+      {
+        "classe": "OuvinteDoBanco",
+        "arquivo": "src/tempo-real/ouvinte-do-banco.ts"
+      },
+      {
+        "classe": "TempoRealPublicador",
+        "arquivo": "src/tempo-real/tempo-real.publicador.ts"
+      },
+      {
+        "classe": "TempoRealService",
+        "arquivo": "src/tempo-real/tempo-real.service.ts"
+      },
+      {
+        "classe": "ClienteWhisper",
+        "arquivo": "src/transcricao/cliente-whisper.ts"
+      },
+      {
+        "classe": "ProcessadorFfmpeg",
+        "arquivo": "src/transcricao/processador-de-audio.ts"
+      },
+      {
+        "classe": "TranscricaoService",
+        "arquivo": "src/transcricao/transcricao.service.ts"
+      },
+      {
+        "classe": "AgenteTrescPlusService",
+        "arquivo": "src/tresc-plus/agente.service.ts"
+      },
+      {
+        "classe": "ConexaoTrescPlusService",
+        "arquivo": "src/tresc-plus/conexao.service.ts"
+      },
+      {
+        "classe": "DiscadorTrescPlusService",
+        "arquivo": "src/tresc-plus/discador.service.ts"
+      },
+      {
+        "classe": "LigacoesTrescService",
+        "arquivo": "src/tresc-plus/ligacoes-tresc.service.ts"
+      },
+      {
+        "classe": "OuvinteDeEventosTrescPlus",
+        "arquivo": "src/tresc-plus/ouvinte-eventos.service.ts"
+      },
+      {
+        "classe": "ReconciliacaoTrescPlusService",
+        "arquivo": "src/tresc-plus/reconciliacao.service.ts"
+      },
+      {
+        "classe": "VinculosTrescPlusService",
+        "arquivo": "src/tresc-plus/vinculos.service.ts"
       },
       {
         "classe": "DesligamentoService",
         "arquivo": "src/usuarios/desligamento.service.ts"
       },
       {
+        "classe": "FotoDePerfilService",
+        "arquivo": "src/usuarios/foto-de-perfil.service.ts"
+      },
+      {
         "classe": "UsuariosService",
         "arquivo": "src/usuarios/usuarios.service.ts"
+      },
+      {
+        "classe": "AplicacaoDoRecebimento",
+        "arquivo": "src/webhooks/entrada/aplicacao-do-recebimento.ts"
+      },
+      {
+        "classe": "AplicativosService",
+        "arquivo": "src/webhooks/entrada/aplicativos.service.ts"
       },
       {
         "classe": "ProcessamentoEntradaService",
@@ -427,12 +1504,44 @@
         "arquivo": "src/webhooks/entrada/webhooks-entrada.service.ts"
       },
       {
+        "classe": "ConexoesFacebookService",
+        "arquivo": "src/webhooks/facebook/conexoes-facebook.service.ts"
+      },
+      {
+        "classe": "FacebookLeadAdsService",
+        "arquivo": "src/webhooks/facebook/facebook-lead-ads.service.ts"
+      },
+      {
+        "classe": "AppsDeLoginService",
+        "arquivo": "src/webhooks/login/apps-de-login.service.ts"
+      },
+      {
+        "classe": "ConexoesAplicativoService",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.service.ts"
+      },
+      {
+        "classe": "ParseAplicativoDeLoginPipe",
+        "arquivo": "src/webhooks/login/parse-aplicativo.pipe.ts"
+      },
+      {
+        "classe": "RdStationService",
+        "arquivo": "src/webhooks/login/rd-station.service.ts"
+      },
+      {
         "classe": "EntregasService",
         "arquivo": "src/webhooks/saida/entregas.service.ts"
       },
       {
         "classe": "WebhooksSaidaService",
         "arquivo": "src/webhooks/saida/webhooks-saida.service.ts"
+      },
+      {
+        "classe": "GerenciadorDeNumeros",
+        "arquivo": "src/whatsapp/gerenciador-de-numeros.service.ts"
+      },
+      {
+        "classe": "TokenInternoGuard",
+        "arquivo": "src/whatsapp/http/token-interno.guard.ts"
       }
     ],
     "componentes": [],
@@ -459,6 +1568,384 @@
         "handler": "detalharLog",
         "controller": "AdministracaoController",
         "arquivo": "src/administracao/administracao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/arquivos",
+        "handler": "enviar",
+        "controller": "ArquivosController",
+        "arquivo": "src/arquivos/arquivos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/arquivos/:id",
+        "handler": "baixar",
+        "controller": "ArquivosController",
+        "arquivo": "src/arquivos/arquivos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/admin/configuracao",
+        "handler": "configuracaoAtual",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/assistente/admin/configuracao",
+        "handler": "configurar",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/assistente/admin/configuracao/testar",
+        "handler": "testar",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/admin/historico",
+        "handler": "listar",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/assistente/admin/historico/exportar",
+        "handler": "exportar",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/admin/temas",
+        "handler": "temas",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/admin/chamados",
+        "handler": "listarChamados",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/assistente/admin/chamados/:id/reenviar",
+        "handler": "reenviar",
+        "controller": "AssistenteAdminController",
+        "arquivo": "src/assistente/assistente-admin.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/estado",
+        "handler": "estado",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/assistente/perguntas",
+        "handler": "perguntar",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/conversas",
+        "handler": "conversas",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/conversas/:id",
+        "handler": "conversa",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/assistente/perguntas/:id/avaliacao",
+        "handler": "avaliar",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/assistente/perguntas/:id/chamado",
+        "handler": "abrirChamado",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/assistente/chamados/:id",
+        "handler": "chamado",
+        "controller": "AssistenteController",
+        "arquivo": "src/assistente/assistente.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/filas",
+        "handler": "listar",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/filas",
+        "handler": "criar",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/filas/:id",
+        "handler": "detalhar",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/atendimento/filas/:id",
+        "handler": "atualizar",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/atendimento/filas/:id",
+        "handler": "excluir",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/atendimento/filas/:id/participantes/:usuarioId",
+        "handler": "definirParticipacao",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/atendimento/filas/:id/participantes/:usuarioId",
+        "handler": "removerAjuste",
+        "controller": "FilasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/respostas-rapidas",
+        "handler": "listar",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/respostas-rapidas/variaveis",
+        "handler": "variaveis",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/respostas-rapidas",
+        "handler": "criar",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/respostas-rapidas/:id",
+        "handler": "detalhar",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/atendimento/respostas-rapidas/:id",
+        "handler": "atualizar",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/atendimento/respostas-rapidas/:id",
+        "handler": "excluir",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/respostas-rapidas/:id/aplicar",
+        "handler": "aplicar",
+        "controller": "RespostasRapidasController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/canais",
+        "handler": "listar",
+        "controller": "CanaisDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/canais/:id",
+        "handler": "detalhar",
+        "controller": "CanaisDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/atendimento/canais/:id",
+        "handler": "atualizar",
+        "controller": "CanaisDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/metricas",
+        "handler": "calcular",
+        "controller": "MetricasDoAtendimentoController",
+        "arquivo": "src/atendimento/configuracao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/conversas",
+        "handler": "listar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas",
+        "handler": "iniciar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/nao-lidas",
+        "handler": "naoLidas",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/etiquetas",
+        "handler": "etiquetas",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/atendentes",
+        "handler": "atendentes",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/conversas/:id",
+        "handler": "detalhar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/conversas/:id/templates",
+        "handler": "templates",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/atendimento/conversas/:id",
+        "handler": "atualizar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/assumir",
+        "handler": "assumir",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/transferir",
+        "handler": "transferir",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/resolver",
+        "handler": "resolver",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/reabrir",
+        "handler": "reabrir",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/lida",
+        "handler": "marcarLida",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/negocio",
+        "handler": "criarNegocio",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/conversas/:id/atribuicoes",
+        "handler": "atribuicoes",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/atendimento/conversas/:id/mensagens",
+        "handler": "listarMensagens",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/mensagens",
+        "handler": "enviar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/notas",
+        "handler": "criarNota",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/atendimento/conversas/:id/mensagens/:mensagemId/reenviar",
+        "handler": "reenviar",
+        "controller": "ConversasController",
+        "arquivo": "src/atendimento/conversas.controller.ts"
       },
       {
         "metodo": "POST",
@@ -546,8 +2033,22 @@
       },
       {
         "metodo": "POST",
+        "caminho": "/auth/entrar/dois-fatores",
+        "handler": "entrarComDoisFatores",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
         "caminho": "/auth/sair",
         "handler": "sair",
+        "controller": "AuthController",
+        "arquivo": "src/auth/auth.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/sessoes/encerrar-outras",
+        "handler": "encerrarOutrasSessoes",
         "controller": "AuthController",
         "arquivo": "src/auth/auth.controller.ts"
       },
@@ -588,6 +2089,930 @@
       },
       {
         "metodo": "GET",
+        "caminho": "/auth/dois-fatores",
+        "handler": "situacao",
+        "controller": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/dois-fatores/ativar",
+        "handler": "ativar",
+        "controller": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/dois-fatores/confirmar",
+        "handler": "confirmar",
+        "controller": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/dois-fatores/codigos",
+        "handler": "novosCodigos",
+        "controller": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/auth/dois-fatores/desativar",
+        "handler": "desativar",
+        "controller": "DoisFatoresController",
+        "arquivo": "src/auth/dois-fatores/dois-fatores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/opcoes",
+        "handler": "opcoes",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes",
+        "handler": "listar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes",
+        "handler": "criar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/catalogo",
+        "handler": "catalogo",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/modelos-prontos",
+        "handler": "modelosProntos",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/modelos-prontos/:chave",
+        "handler": "criarDeModelo",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/validar",
+        "handler": "validar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/execucoes",
+        "handler": "listarExecucoes",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/execucoes/:execucaoId",
+        "handler": "detalharExecucao",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/execucoes/:execucaoId/reexecutar",
+        "handler": "reexecutar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/execucoes/:execucaoId/cancelar",
+        "handler": "cancelar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/automacoes/:id",
+        "handler": "detalhar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/automacoes/:id",
+        "handler": "atualizar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/:id/ativar",
+        "handler": "ativar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/:id/pausar",
+        "handler": "pausar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/:id/duplicar",
+        "handler": "duplicar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/automacoes/:id/testar",
+        "handler": "testar",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/automacoes/:id",
+        "handler": "excluir",
+        "controller": "AutomacoesController",
+        "arquivo": "src/automacoes/automacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/bi/analise/estado",
+        "handler": "estado",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/bi/analise/configuracao",
+        "handler": "configurar",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/bi/analise",
+        "handler": "analisar",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/bi/analise/:id/perguntas",
+        "handler": "perguntar",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/bi/analise/historico",
+        "handler": "historico",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/bi/analise/:id",
+        "handler": "detalhe",
+        "controller": "AnaliseController",
+        "arquivo": "src/bi/analise/analise.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/bi/paineis",
+        "handler": "paineis",
+        "controller": "BiController",
+        "arquivo": "src/bi/bi.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/bi/:painel",
+        "handler": "painel",
+        "controller": "BiController",
+        "arquivo": "src/bi/bi.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/bi/:painel/exportar",
+        "handler": "exportar",
+        "controller": "BiController",
+        "arquivo": "src/bi/bi.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/email/canais",
+        "handler": "listar",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/email/canais/testar",
+        "handler": "testarNovo",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/email/canais/:id",
+        "handler": "obter",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/email/canais",
+        "handler": "criar",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/email/canais/:id",
+        "handler": "atualizar",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/email/canais/:id/testar",
+        "handler": "testar",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/email/canais/:id",
+        "handler": "excluir",
+        "controller": "EmailCanaisController",
+        "arquivo": "src/canais/email/email-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/meta/canais",
+        "handler": "listar",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/meta/canais/:id",
+        "handler": "obter",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/meta/canais",
+        "handler": "criar",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/meta/canais/:id",
+        "handler": "atualizar",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/meta/canais/:id/testar",
+        "handler": "testar",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/meta/canais/:id/token-verificacao",
+        "handler": "regenerarToken",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/meta/canais/:id",
+        "handler": "excluir",
+        "controller": "MetaCanaisController",
+        "arquivo": "src/canais/meta/meta-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/meta/webhook",
+        "handler": "verificar",
+        "controller": "WebhookMetaController",
+        "arquivo": "src/canais/meta/webhook-meta.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/meta/webhook",
+        "handler": "receber",
+        "controller": "WebhookMetaController",
+        "arquivo": "src/canais/meta/webhook-meta.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/meta/arquivos/:id",
+        "handler": "arquivo",
+        "controller": "WebhookMetaController",
+        "arquivo": "src/canais/meta/webhook-meta.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webchat/canais",
+        "handler": "listar",
+        "controller": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webchat/canais/:id",
+        "handler": "obter",
+        "controller": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webchat/canais",
+        "handler": "criar",
+        "controller": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/webchat/canais/:id",
+        "handler": "atualizar",
+        "controller": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/webchat/canais/:id",
+        "handler": "excluir",
+        "controller": "WebchatCanaisController",
+        "arquivo": "src/canais/webchat/webchat-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/webchat/widget.js",
+        "handler": "widgetJs",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/webchat/:chave/configuracao",
+        "handler": "configuracao",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/visitantes",
+        "handler": "registrar",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/sessao",
+        "handler": "sessao",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/historico",
+        "handler": "historico",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/mensagens",
+        "handler": "enviar",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/anexos",
+        "handler": "anexar",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/publico/webchat/:chave/sair",
+        "handler": "sair",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/webchat/:chave/arquivos/:id",
+        "handler": "arquivo",
+        "controller": "WebchatPublicoController",
+        "arquivo": "src/canais/webchat/webchat-publico.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp/numeros",
+        "handler": "listar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros",
+        "handler": "criar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp/numeros/:id",
+        "handler": "detalhar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/whatsapp/numeros/:id",
+        "handler": "atualizar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/whatsapp/numeros/:id",
+        "handler": "excluir",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros/:id/conectar",
+        "handler": "conectar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros/:id/desconectar",
+        "handler": "desconectar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp/numeros/:id/status",
+        "handler": "status",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros/:id/verificar",
+        "handler": "verificar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros/:id/pausar",
+        "handler": "pausar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp/numeros/:id/retomar",
+        "handler": "retomar",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp/numeros/:id/envios",
+        "handler": "envios",
+        "controller": "NumerosWhatsappController",
+        "arquivo": "src/canais/whatsapp/numeros-whatsapp.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp-oficial/canais",
+        "handler": "listar",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp-oficial/canais/:id",
+        "handler": "obter",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp-oficial/canais",
+        "handler": "criar",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/whatsapp-oficial/canais/:id",
+        "handler": "atualizar",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp-oficial/canais/:id/testar",
+        "handler": "testar",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp-oficial/canais/:id/token-verificacao",
+        "handler": "regenerarToken",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp-oficial/canais/:id/templates",
+        "handler": "templates",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/whatsapp-oficial/canais/:id/templates/sincronizar",
+        "handler": "sincronizar",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/whatsapp-oficial/canais/:id",
+        "handler": "excluir",
+        "controller": "WhatsappOficialCanaisController",
+        "arquivo": "src/canais/whatsapp-oficial/whatsapp-oficial-canais.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/canais",
+        "handler": "listarCanais",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/canais/:id",
+        "handler": "obterCanal",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/chat/canais/:id",
+        "handler": "atualizarCanal",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/arquivar",
+        "handler": "arquivar",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/desarquivar",
+        "handler": "desarquivar",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/sair",
+        "handler": "sair",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/chat/canais/:id/preferencias",
+        "handler": "definirPreferencias",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/leitura",
+        "handler": "marcarLeitura",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/canais/:id/membros",
+        "handler": "membros",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/membros",
+        "handler": "adicionarMembros",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/chat/canais/:id/membros/:usuarioId",
+        "handler": "alterarMembro",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/chat/canais/:id/membros/:usuarioId",
+        "handler": "removerMembro",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/grupos",
+        "handler": "criarGrupo",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/diretas",
+        "handler": "iniciarDireta",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/canais/:id/mensagens",
+        "handler": "listarMensagens",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chat/canais/:id/mensagens",
+        "handler": "enviar",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/mensagens/busca",
+        "handler": "buscar",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/chat/mensagens/:id",
+        "handler": "editar",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/chat/mensagens/:id",
+        "handler": "excluir",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/nao-lidas",
+        "handler": "naoLidas",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chat/pessoas",
+        "handler": "pessoas",
+        "controller": "ChatInternoController",
+        "arquivo": "src/chat-interno/chat-interno.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/opcoes",
+        "handler": "opcoes",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/passos",
+        "handler": "passos",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos",
+        "handler": "listar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos",
+        "handler": "criar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id",
+        "handler": "detalhar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/chatbot/fluxos/:id",
+        "handler": "atualizar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/chatbot/fluxos/:id/rascunho",
+        "handler": "salvarRascunho",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/validar",
+        "handler": "validar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/publicar",
+        "handler": "publicar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/ativar",
+        "handler": "ativar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/desativar",
+        "handler": "desativar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/duplicar",
+        "handler": "duplicar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/chatbot/fluxos/:id",
+        "handler": "excluir",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id/versoes",
+        "handler": "versoes",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id/versoes/:numero",
+        "handler": "versao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/versoes/:numero/restaurar",
+        "handler": "restaurar",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id/execucoes",
+        "handler": "execucoes",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id/execucoes/:execucaoId",
+        "handler": "execucao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/simulador",
+        "handler": "iniciarSimulacao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/chatbot/fluxos/:id/simulador/:execucaoId",
+        "handler": "estadoDaSimulacao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/simulador/:execucaoId/mensagens",
+        "handler": "responderNaSimulacao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/chatbot/fluxos/:id/simulador/:execucaoId/silencio",
+        "handler": "silencioNaSimulacao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/chatbot/fluxos/:id/simulador/:execucaoId",
+        "handler": "encerrarSimulacao",
+        "controller": "ChatbotController",
+        "arquivo": "src/chatbot/chatbot.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/modelos/variaveis",
+        "handler": "variaveis",
+        "controller": "ModelosController",
+        "arquivo": "src/comum/modelos/modelos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/modelos/previa",
+        "handler": "previa",
+        "controller": "ModelosController",
+        "arquivo": "src/comum/modelos/modelos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/segmentos/campos",
+        "handler": "campos",
+        "controller": "SegmentosController",
+        "arquivo": "src/comum/segmentos/segmentos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/segmentos/previa",
+        "handler": "previa",
+        "controller": "SegmentosController",
+        "arquivo": "src/comum/segmentos/segmentos.controller.ts"
+      },
+      {
+        "metodo": "GET",
         "caminho": "/contatos",
         "handler": "listar",
         "controller": "ContatosController",
@@ -625,6 +3050,13 @@
         "metodo": "POST",
         "caminho": "/contatos/:id/anonimizar",
         "handler": "anonimizar",
+        "controller": "ContatosController",
+        "arquivo": "src/contatos/contatos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/contatos/:id/dados-pessoais",
+        "handler": "dadosPessoais",
         "controller": "ContatosController",
         "arquivo": "src/contatos/contatos.controller.ts"
       },
@@ -676,6 +3108,510 @@
         "handler": "linhaDoTempo",
         "controller": "EmpresasController",
         "arquivo": "src/contatos/empresas.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/canais",
+        "handler": "canais",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/campanhas",
+        "handler": "listar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas",
+        "handler": "criar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/previa-publico",
+        "handler": "previaDoPublico",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/estimativa",
+        "handler": "estimativa",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/configuracao",
+        "handler": "obterConfiguracao",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/disparos/configuracao",
+        "handler": "atualizarConfiguracao",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/campanhas/:id",
+        "handler": "detalhar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/disparos/campanhas/:id",
+        "handler": "atualizar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/disparos/campanhas/:id",
+        "handler": "excluir",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/duplicar",
+        "handler": "duplicar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/campanhas/:id/revisao",
+        "handler": "revisar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/previa",
+        "handler": "previa",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/teste",
+        "handler": "teste",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/iniciar",
+        "handler": "iniciar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/aprovar",
+        "handler": "aprovar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/reprovar",
+        "handler": "reprovar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/pausar",
+        "handler": "pausar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/retomar",
+        "handler": "retomar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/cancelar",
+        "handler": "cancelar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/reenviar-falhas",
+        "handler": "reenviarFalhas",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/campanhas/:id/destinatarios",
+        "handler": "destinatarios",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/disparos/campanhas/:id/relatorio",
+        "handler": "gerarRelatorio",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/disparos/campanhas/:id/exportar",
+        "handler": "exportar",
+        "controller": "DisparosController",
+        "arquivo": "src/disparos/disparos.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/modelos-mensagem",
+        "handler": "listar",
+        "controller": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/modelos-mensagem",
+        "handler": "criar",
+        "controller": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/modelos-mensagem/:id",
+        "handler": "detalhar",
+        "controller": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/modelos-mensagem/:id",
+        "handler": "atualizar",
+        "controller": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/modelos-mensagem/:id",
+        "handler": "excluir",
+        "controller": "ModelosMensagemController",
+        "arquivo": "src/disparos/modelos-mensagem.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/contratos",
+        "handler": "listarContratos",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/contratos",
+        "handler": "criarContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/contratos/:id",
+        "handler": "detalharContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/financeiro/contratos/:id",
+        "handler": "atualizarContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/contratos/:id/suspender",
+        "handler": "suspenderContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/contratos/:id/reativar",
+        "handler": "reativarContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/contratos/:id/cancelar",
+        "handler": "cancelarContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/contratos/:id/parcelas",
+        "handler": "gerarParcelas",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/negocios/sem-contrato",
+        "handler": "negociosSemContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/negocios/:id/sugestao-de-contrato",
+        "handler": "sugestaoDeContrato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/parcelas",
+        "handler": "listarParcelas",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/parcelas/totais",
+        "handler": "totaisDeParcelas",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/parcelas/exportar",
+        "handler": "exportarParcelas",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/parcelas",
+        "handler": "criarParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/parcelas/:id",
+        "handler": "detalharParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/financeiro/parcelas/:id",
+        "handler": "atualizarParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/parcelas/:id/baixa",
+        "handler": "baixarParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/parcelas/:id/cancelar",
+        "handler": "cancelarParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/parcelas/:id/renegociar",
+        "handler": "renegociarParcela",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/parcelas/:id/linha-do-tempo",
+        "handler": "linhaDoTempo",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/indicadores/resumo",
+        "handler": "resumoDosIndicadores",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/indicadores/mrr",
+        "handler": "mrr",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/indicadores/inadimplencia",
+        "handler": "inadimplencia",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/indicadores/previsto-realizado",
+        "handler": "previstoRealizado",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/risco-churn",
+        "handler": "rankingDeRisco",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/risco-churn/contatos/:id",
+        "handler": "riscoDoContato",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/risco-churn/negocios/:id",
+        "handler": "riscoDoNegocio",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/configuracao",
+        "handler": "configuracaoDaRegua",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/financeiro/regua/configuracao",
+        "handler": "atualizarConfiguracao",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/pausar",
+        "handler": "pausar",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/retomar",
+        "handler": "retomar",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/etapas",
+        "handler": "etapas",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/etapas",
+        "handler": "criarEtapa",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/financeiro/regua/etapas/:id",
+        "handler": "atualizarEtapa",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/financeiro/regua/etapas/:id",
+        "handler": "removerEtapa",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/previa",
+        "handler": "previa",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/executar",
+        "handler": "executar",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/execucoes",
+        "handler": "execucoes",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/resumo",
+        "handler": "resumoDoDia",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/envios",
+        "handler": "envios",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/reenviar",
+        "handler": "reenviar",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/financeiro/regua/ligacoes",
+        "handler": "listarLigacoes",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/financeiro/regua/ligacoes/:id/resultado",
+        "handler": "resultadoDaLigacao",
+        "controller": "FinanceiroController",
+        "arquivo": "src/financeiro/financeiro.controller.ts"
       },
       {
         "metodo": "GET",
@@ -741,6 +3677,20 @@
         "arquivo": "src/funis/funis.controller.ts"
       },
       {
+        "metodo": "GET",
+        "caminho": "/funis/:id/acessos",
+        "handler": "listarAcessos",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/funis/:id/acessos",
+        "handler": "substituirAcessos",
+        "controller": "FunisController",
+        "arquivo": "src/funis/funis.controller.ts"
+      },
+      {
         "metodo": "DELETE",
         "caminho": "/funis/:id",
         "handler": "excluir",
@@ -800,6 +3750,13 @@
         "metodo": "POST",
         "caminho": "/negocios",
         "handler": "criar",
+        "controller": "NegociosController",
+        "arquivo": "src/funis/negocios.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/negocios/em-massa",
+        "handler": "acaoEmMassa",
         "controller": "NegociosController",
         "arquivo": "src/funis/negocios.controller.ts"
       },
@@ -896,6 +3853,356 @@
       },
       {
         "metodo": "GET",
+        "caminho": "/importacoes",
+        "handler": "listar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/campos",
+        "handler": "campos",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/planilha-modelo",
+        "handler": "planilhaModelo",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/modelos",
+        "handler": "listarModelos",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/importacoes/modelos",
+        "handler": "criarModelo",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/importacoes/modelos/:id",
+        "handler": "atualizarModelo",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/importacoes/modelos/:id",
+        "handler": "removerModelo",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/importacoes",
+        "handler": "criar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/:id",
+        "handler": "detalhar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/importacoes/:id",
+        "handler": "atualizar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/:id/previa",
+        "handler": "previa",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/:id/funis-da-planilha",
+        "handler": "funisDaPlanilha",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/importacoes/:id/iniciar",
+        "handler": "iniciar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/importacoes/:id/retomar",
+        "handler": "retomar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/importacoes/:id/cancelar",
+        "handler": "cancelar",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/importacoes/:id",
+        "handler": "remover",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/:id/linhas",
+        "handler": "linhas",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/importacoes/:id/relatorio",
+        "handler": "relatorio",
+        "controller": "ImportacaoController",
+        "arquivo": "src/importacao/importacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/indicadores/catalogo",
+        "handler": "catalogo",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/indicadores/paineis",
+        "handler": "listar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/indicadores/paineis",
+        "handler": "criar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/indicadores/paineis/:id",
+        "handler": "detalhar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/indicadores/paineis/:id",
+        "handler": "atualizar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/indicadores/paineis/:id/duplicar",
+        "handler": "duplicar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/indicadores/paineis/:id",
+        "handler": "excluir",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/indicadores/calcular",
+        "handler": "calcular",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/indicadores/exportar",
+        "handler": "exportar",
+        "controller": "IndicadoresController",
+        "arquivo": "src/indicadores/indicadores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/gravacao/partes/:sequencia",
+        "handler": "parte",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/gravacao/finalizar",
+        "handler": "finalizar",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/:id/transcricao",
+        "handler": "transcricao",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/:id/audio",
+        "handler": "audio",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/:id/audio/baixar",
+        "handler": "baixar",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/reprocessar",
+        "handler": "reprocessar",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/resumo/sugestoes/:sugestaoId/confirmar",
+        "handler": "confirmar",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/resumo/sugestoes/:sugestaoId/descartar",
+        "handler": "descartar",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/canais/:canalId/aviso",
+        "handler": "aviso",
+        "controller": "GravacaoController",
+        "arquivo": "src/ligacoes/gravacao/gravacao.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/configuracao-webrtc",
+        "handler": "webrtc",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/canais",
+        "handler": "canais",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/ativas",
+        "handler": "ativas",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/permissoes",
+        "handler": "permissao",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/permissoes/pedir",
+        "handler": "pedir",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes",
+        "handler": "listar",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes",
+        "handler": "ligar",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/ligacoes/:id",
+        "handler": "obter",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/atender",
+        "handler": "atender",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/recusar",
+        "handler": "recusar",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/ligacoes/:id/encerrar",
+        "handler": "encerrar",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/ligacoes/:id",
+        "handler": "anotar",
+        "controller": "LigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/whatsapp-oficial/canais/:canalId/ligacoes",
+        "handler": "obter",
+        "controller": "ConfiguracaoLigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/whatsapp-oficial/canais/:canalId/ligacoes",
+        "handler": "atualizar",
+        "controller": "ConfiguracaoLigacoesController",
+        "arquivo": "src/ligacoes/ligacoes.controller.ts"
+      },
+      {
+        "metodo": "GET",
         "caminho": "/notificacoes",
         "handler": "listar",
         "controller": "NotificacoesController",
@@ -924,10 +4231,479 @@
       },
       {
         "metodo": "GET",
+        "caminho": "/push/chave-publica",
+        "handler": "chavePublica",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/push/inscricoes",
+        "handler": "inscrever",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/push/inscricoes",
+        "handler": "inscricoes",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/push/inscricoes/:id",
+        "handler": "remover",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/push/preferencias",
+        "handler": "preferencias",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/push/preferencias",
+        "handler": "alterarPreferencias",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/push/teste",
+        "handler": "testar",
+        "controller": "PushController",
+        "arquivo": "src/push/push.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/administracao/saude-do-sistema",
+        "handler": "consultar",
+        "controller": "SaudeDoSistemaController",
+        "arquivo": "src/saude/monitoramento/saude-do-sistema.controller.ts"
+      },
+      {
+        "metodo": "GET",
         "caminho": "/saude",
         "handler": "consultar",
         "controller": "SaudeController",
         "arquivo": "src/saude/saude.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/configuracao",
+        "handler": "geral",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/sdr/configuracao",
+        "handler": "atualizar",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/canais",
+        "handler": "canais",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/sdr/canais/:canalId",
+        "handler": "modo",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/artigos",
+        "handler": "artigos",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/artigos",
+        "handler": "criarArtigo",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/sdr/artigos/:id",
+        "handler": "atualizarArtigo",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/sdr/artigos/:id",
+        "handler": "excluirArtigo",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/artigos/:id/versoes",
+        "handler": "versoes",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/artigos/:id/versoes/:numero/restaurar",
+        "handler": "restaurar",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/criterios",
+        "handler": "criterios",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/criterios",
+        "handler": "criarCriterio",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/sdr/criterios/ordem",
+        "handler": "reordenar",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/criterios/modelo-captacao",
+        "handler": "aplicarModelo",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/sdr/criterios/:id",
+        "handler": "atualizarCriterio",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/sdr/criterios/:id",
+        "handler": "excluirCriterio",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/campos-disponiveis",
+        "handler": "campos",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/uso",
+        "handler": "uso",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/decisoes",
+        "handler": "decisoes",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/simulador/turno",
+        "handler": "simular",
+        "controller": "SdrConfiguracaoController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/conversas/:id",
+        "handler": "detalhe",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/conversas/:id/assumir",
+        "handler": "assumir",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/conversas/:id/devolver",
+        "handler": "devolver",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/sugestoes/:id/aprovar",
+        "handler": "aprovar",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/sdr/sugestoes/:id/descartar",
+        "handler": "descartar",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/contatos/:id/qualificacao",
+        "handler": "doContato",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/sdr/negocios/:id/qualificacao",
+        "handler": "doNegocio",
+        "controller": "SdrConversasController",
+        "arquivo": "src/sdr/sdr.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/setores",
+        "handler": "listar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/setores",
+        "handler": "criar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/setores/:chave",
+        "handler": "detalhar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/setores/:chave",
+        "handler": "atualizar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/setores/:chave/acessos",
+        "handler": "listarAcessos",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/setores/:chave/acessos",
+        "handler": "substituirAcessos",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/setores/:chave/desativar",
+        "handler": "desativar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/setores/:chave/reativar",
+        "handler": "reativar",
+        "controller": "SetoresController",
+        "arquivo": "src/setores/setores.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/conexao",
+        "handler": "obter",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "PATCH",
+        "caminho": "/tresc-plus/conexao",
+        "handler": "atualizar",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/conexao/testar",
+        "handler": "testar",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/reconciliar",
+        "handler": "reconciliar",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/vinculos",
+        "handler": "listar",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/tresc-plus/vinculos/:usuarioId",
+        "handler": "desvincularOutro",
+        "controller": "ConexaoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/vinculo",
+        "handler": "obter",
+        "controller": "VinculoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/vinculo",
+        "handler": "vincular",
+        "controller": "VinculoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/tresc-plus/vinculo",
+        "handler": "desvincular",
+        "controller": "VinculoTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/agente",
+        "handler": "estado",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/agente/campanhas",
+        "handler": "campanhas",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/agente/entrar",
+        "handler": "entrar",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/agente/sair",
+        "handler": "sair",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/agente/pausas",
+        "handler": "pausas",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/agente/pausa",
+        "handler": "entrarEmPausa",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/tresc-plus/agente/pausa",
+        "handler": "sairDaPausa",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/ligacoes",
+        "handler": "ligar",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/ligacoes/:id/desligar",
+        "handler": "desligar",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/ligacoes/:id/qualificacoes",
+        "handler": "qualificacoesDaLigacao",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/qualificacoes",
+        "handler": "qualificacoes",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/ligacoes/:id/qualificar",
+        "handler": "qualificar",
+        "controller": "AgenteTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/campanhas",
+        "handler": "campanhas",
+        "controller": "DiscadorTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/tresc-plus/campanhas/:id/listas",
+        "handler": "listas",
+        "controller": "DiscadorTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/tresc-plus/discador/enviar",
+        "handler": "enviar",
+        "controller": "DiscadorTrescPlusController",
+        "arquivo": "src/tresc-plus/tresc-plus.controller.ts"
       },
       {
         "metodo": "GET",
@@ -951,6 +4727,20 @@
         "arquivo": "src/usuarios/desligamento.controller.ts"
       },
       {
+        "metodo": "PUT",
+        "caminho": "/usuarios/eu/foto",
+        "handler": "definir",
+        "controller": "FotoDePerfilController",
+        "arquivo": "src/usuarios/foto-de-perfil.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/usuarios/eu/foto",
+        "handler": "remover",
+        "controller": "FotoDePerfilController",
+        "arquivo": "src/usuarios/foto-de-perfil.controller.ts"
+      },
+      {
         "metodo": "GET",
         "caminho": "/usuarios",
         "handler": "listar",
@@ -961,6 +4751,13 @@
         "metodo": "GET",
         "caminho": "/usuarios/equipes",
         "handler": "equipes",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/usuarios/opcoes",
+        "handler": "opcoes",
         "controller": "UsuariosController",
         "arquivo": "src/usuarios/usuarios.controller.ts"
       },
@@ -994,6 +4791,13 @@
       },
       {
         "metodo": "POST",
+        "caminho": "/usuarios/:id/dois-fatores/redefinir",
+        "handler": "redefinirDoisFatores",
+        "controller": "UsuariosController",
+        "arquivo": "src/usuarios/usuarios.controller.ts"
+      },
+      {
+        "metodo": "POST",
         "caminho": "/usuarios/:id/convite",
         "handler": "enviarConvite",
         "controller": "UsuariosController",
@@ -1010,6 +4814,13 @@
         "metodo": "POST",
         "caminho": "/webhooks/entradas/previa",
         "handler": "previa",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/testar-credencial",
+        "handler": "testarCredencialNova",
         "controller": "WebhooksEntradaController",
         "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
       },
@@ -1031,6 +4842,55 @@
         "metodo": "GET",
         "caminho": "/webhooks/entradas/:id",
         "handler": "detalhar",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/endereco",
+        "handler": "endereco",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/testar-credencial",
+        "handler": "testarCredencial",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/buscar-campos",
+        "handler": "buscarCampos",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/campos-recebidos",
+        "handler": "camposRecebidos",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/formularios",
+        "handler": "formularios",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/entradas/:id/formularios/:formularioId/campos",
+        "handler": "camposDoFormulario",
+        "controller": "WebhooksEntradaController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/entradas/:id/sincronizar",
+        "handler": "sincronizar",
         "controller": "WebhooksEntradaController",
         "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
       },
@@ -1106,8 +4966,183 @@
       },
       {
         "metodo": "GET",
+        "caminho": "/webhooks/aplicativos",
+        "handler": "catalogo",
+        "controller": "AplicativosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/recebimentos",
+        "handler": "listar",
+        "controller": "HistoricoDeRecebimentosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/recebimentos/:id",
+        "handler": "detalhar",
+        "controller": "HistoricoDeRecebimentosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/recebimentos/:id/reprocessar",
+        "handler": "reprocessar",
+        "controller": "HistoricoDeRecebimentosController",
+        "arquivo": "src/webhooks/entrada/webhooks-entrada.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/configuracao",
+        "handler": "configuracao",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/canais",
+        "handler": "canais",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/facebook/oauth/iniciar",
+        "handler": "iniciarLogin",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/facebook/conexoes/token-de-pagina",
+        "handler": "conectarComToken",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/conexoes",
+        "handler": "listar",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/conexoes/:id",
+        "handler": "detalhar",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/webhooks/facebook/conexoes/:id",
+        "handler": "excluir",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/webhooks/facebook/conexoes/:id/atualizar-paginas",
+        "handler": "atualizarPaginas",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/conexoes/:id/paginas",
+        "handler": "paginas",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/conexoes/:id/paginas/:paginaId/formularios",
+        "handler": "formularios",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/facebook/conexoes/:id/paginas/:paginaId/formularios/:formularioId/perguntas",
+        "handler": "perguntas",
+        "controller": "FacebookController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/facebook/oauth/retorno",
+        "handler": "retorno",
+        "controller": "FacebookPublicoController",
+        "arquivo": "src/webhooks/facebook/facebook.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/configuracoes/apps-de-login",
+        "handler": "listar",
+        "controller": "AppsDeLoginController",
+        "arquivo": "src/webhooks/login/apps-de-login.controller.ts"
+      },
+      {
+        "metodo": "PUT",
+        "caminho": "/configuracoes/apps-de-login/:aplicativo",
+        "handler": "gravar",
+        "controller": "AppsDeLoginController",
+        "arquivo": "src/webhooks/login/apps-de-login.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/configuracoes/apps-de-login/:aplicativo",
+        "handler": "remover",
+        "controller": "AppsDeLoginController",
+        "arquivo": "src/webhooks/login/apps-de-login.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/conexoes-aplicativo",
+        "handler": "listar",
+        "controller": "ConexoesAplicativoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/conexoes-aplicativo/oauth/iniciar",
+        "handler": "iniciar",
+        "controller": "ConexoesAplicativoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/conexoes-aplicativo/:id",
+        "handler": "detalhar",
+        "controller": "ConexoesAplicativoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "caminho": "/conexoes-aplicativo/:id",
+        "handler": "excluir",
+        "controller": "ConexoesAplicativoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/publico/conexoes/oauth/retorno",
+        "handler": "retorno",
+        "controller": "ConexoesAplicativoPublicoController",
+        "arquivo": "src/webhooks/login/conexoes-aplicativo.controller.ts"
+      },
+      {
+        "metodo": "GET",
         "caminho": "/webhooks/saidas/eventos",
         "handler": "eventos",
+        "controller": "WebhooksSaidaController",
+        "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/webhooks/saidas/formato-clint",
+        "handler": "formatoClint",
         "controller": "WebhooksSaidaController",
         "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
       },
@@ -1180,10 +5215,129 @@
         "handler": "reenviar",
         "controller": "WebhooksSaidaController",
         "arquivo": "src/webhooks/saida/webhooks-saida.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/saude",
+        "handler": "saude",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/numeros/:id/conectar",
+        "handler": "conectar",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/numeros/:id/desconectar",
+        "handler": "desconectar",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "GET",
+        "caminho": "/numeros/:id/status",
+        "handler": "status",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/numeros/:id/verificar",
+        "handler": "verificar",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/numeros/:id/digitando",
+        "handler": "digitando",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
+      },
+      {
+        "metodo": "POST",
+        "caminho": "/simulador/receber",
+        "handler": "receberSimulada",
+        "controller": "GatewayController",
+        "arquivo": "src/whatsapp/http/gateway.controller.ts"
       }
     ],
     "rotasFront": [],
     "chamadasHttp": [
+      {
+        "metodo": "DELETE",
+        "url": "${destino.url}|${destino.email}",
+        "arquivo": "src/assistente/chamados/conector-chamados.service.ts"
+      },
+      {
+        "metodo": "DELETE",
+        "url": "${d.url}|${d.email}",
+        "arquivo": "src/assistente/chamados/conector-chamados.service.ts"
+      },
+      {
+        "metodo": "FETCH",
+        "url": "${d.url}/api/auth/login",
+        "arquivo": "src/assistente/chamados/conector-chamados.service.ts"
+      },
+      {
+        "metodo": "FETCH",
+        "url": "${d.url}/api/chamados",
+        "arquivo": "src/assistente/chamados/conector-chamados.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|conversas",
+        "arquivo": "src/bi/painel-atendimento.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|resolvidas",
+        "arquivo": "src/bi/painel-atendimento.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|novos",
+        "arquivo": "src/bi/painel-comercial.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|ganhos",
+        "arquivo": "src/bi/painel-comercial.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|perdidos",
+        "arquivo": "src/bi/painel-comercial.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${dia}|ganhos",
+        "arquivo": "src/bi/painel-comercial.service.ts"
+      },
+      {
+        "metodo": "FETCH",
+        "url": "${ultimo + 1}:*",
+        "arquivo": "src/canais/email/leitor-de-email.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${referencia.tipo}:${referencia.id}",
+        "arquivo": "src/chat-interno/montagem-chat.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "${execucao}:${tipo}",
+        "arquivo": "src/comum/passos/passos.service.ts"
+      },
+      {
+        "metodo": "GET",
+        "url": "/api/v1/bi/${painel}",
+        "arquivo": "test/bi-apoio.ts"
+      },
       {
         "metodo": "POST",
         "url": "/api/v1/negocios/${negocioId}/mover",
@@ -1205,16 +5359,40 @@
         "arquivo": "test/utils/index.ts"
       },
       {
+        "metodo": "DELETE",
+        "url": "${webhook[1]}/${webhook[2]}",
+        "arquivo": "test/utils/servicos-de-login.ts"
+      },
+      {
         "metodo": "POST",
         "url": "/api/v1/webhooks/entrada/${token}",
         "arquivo": "test/webhooks-apoio.ts"
       }
     ],
     "variaveisDeAmbiente": [
+      "ARQUIVOS_TESTE_S3_CHAVE",
+      "ARQUIVOS_TESTE_S3_ENDPOINT",
+      "ARQUIVOS_TESTE_S3_SEGREDO",
       "DATABASE_URL",
-      "DATABASE_URL_TESTE"
+      "DATABASE_URL_TESTE",
+      "EMAIL_TESTE_HOST",
+      "EMAIL_TESTE_IMAP_PORTA",
+      "EMAIL_TESTE_SMTP_PORTA",
+      "PATH"
     ],
     "testes": [
+      "src/arquivos/politica.spec.ts",
+      "src/assistente/chamados/modelo-corpo.spec.ts",
+      "src/assistente/configuracao-assistente.spec.ts",
+      "src/assistente/esquema-assistente.spec.ts",
+      "src/assistente/prompt-assistente.spec.ts",
+      "src/atendimento/distribuicao-fila.spec.ts",
+      "src/atendimento/entrada.spec.ts",
+      "src/atendimento/horario.spec.ts",
+      "src/atendimento/satisfacao.spec.ts",
+      "src/atendimento/sla.spec.ts",
+      "src/atendimento/variaveis.spec.ts",
+      "src/atendimento/visibilidade.spec.ts",
       "src/atividades/dto/transformacoes.spec.ts",
       "src/atividades/fuso-horario.spec.ts",
       "src/atividades/lembretes-atividades.spec.ts",
@@ -1222,64 +5400,227 @@
       "src/auditoria/consulta/alteracoes.spec.ts",
       "src/auditoria/consulta/auditoria-consulta.dto.spec.ts",
       "src/auditoria/consulta/consulta-comum.spec.ts",
+      "src/auth/dois-fatores/totp.spec.ts",
+      "src/auth/senhas-comuns.spec.ts",
+      "src/automacoes/acoes-validacao.spec.ts",
+      "src/automacoes/condicoes.spec.ts",
+      "src/automacoes/gatilho-config.spec.ts",
+      "src/automacoes/permissoes-automacoes.spec.ts",
+      "src/bi/analise/chamada-claude.service.spec.ts",
+      "src/bi/analise/entrada-analise.spec.ts",
+      "src/bi/analise/esquema-analise.spec.ts",
+      "src/bi/analise/links-analise.spec.ts",
+      "src/bi/cache-bi.spec.ts",
+      "src/bi/escopo-bi.spec.ts",
+      "src/bi/formatos-bi.spec.ts",
+      "src/bi/periodo.spec.ts",
+      "src/canais/comum/limitador.spec.ts",
+      "src/canais/email/interpretacao-email.spec.ts",
+      "src/canais/meta/adaptadores-meta.spec.ts",
+      "src/canais/meta/eventos-meta.spec.ts",
+      "src/canais/registro-canais.spec.ts",
+      "src/canais/webchat/botoes-da-mensagem.spec.ts",
+      "src/canais/webchat/configuracao-webchat.spec.ts",
+      "src/canais/webchat/widget.service.spec.ts",
+      "src/canais/whatsapp/contrato-gateway.spec.ts",
+      "src/canais/whatsapp/protecoes.spec.ts",
+      "src/canais/whatsapp-oficial/eventos-oficial.spec.ts",
+      "src/canais/whatsapp-oficial/formato-meta.spec.ts",
+      "src/chat-interno/regras-chat.spec.ts",
+      "src/chatbot/condicoes.spec.ts",
+      "src/chatbot/configuracao-dos-passos.spec.ts",
+      "src/chatbot/permissoes-chatbot.spec.ts",
+      "src/chatbot/respostas.spec.ts",
+      "src/chatbot/seletor-de-fluxo.spec.ts",
       "src/comum/contexto/contexto-requisicao.spec.ts",
       "src/comum/criptografia/criptografia.service.spec.ts",
       "src/comum/dados/sanitizar.spec.ts",
+      "src/comum/dados/textos.spec.ts",
       "src/comum/dominio/normalizacoes.spec.ts",
       "src/comum/dominio/papeis.spec.ts",
       "src/comum/erros/filtro-de-erros.spec.ts",
+      "src/comum/gatilhos/gatilhos.spec.ts",
+      "src/comum/http/cabecalhos-de-seguranca.spec.ts",
+      "src/comum/modelos/modelos.spec.ts",
+      "src/comum/passos/definicao.spec.ts",
+      "src/comum/segmentos/segmentos.spec.ts",
       "src/comum/validacao/validacao.spec.ts",
+      "src/config/ambiente-producao.spec.ts",
       "src/config/ambiente.spec.ts",
       "src/contatos/contatos.service.spec.ts",
       "src/contatos/deduplicacao.spec.ts",
+      "src/disparos/configuracao-disparos.spec.ts",
+      "src/disparos/ritmo.spec.ts",
       "src/documentacao.spec.ts",
+      "src/financeiro/campos-de-parcela.spec.ts",
+      "src/financeiro/datas.spec.ts",
+      "src/financeiro/permissoes-financeiro.spec.ts",
+      "src/financeiro/regua-padrao.spec.ts",
+      "src/financeiro/risco-de-churn.spec.ts",
       "src/funis/acesso-funis.spec.ts",
+      "src/funis/acessos-extras.spec.ts",
+      "src/funis/acessos-no-banco.spec.ts",
       "src/funis/metricas-calculo.spec.ts",
       "src/funis/negocio-completo.spec.ts",
+      "src/funis/negocios-em-massa.dados.spec.ts",
       "src/funis/posicao.spec.ts",
       "src/funis/rodizio.spec.ts",
+      "src/importacao/campos.spec.ts",
+      "src/importacao/dados-do-negocio.spec.ts",
+      "src/importacao/ddi.spec.ts",
+      "src/importacao/filtro-de-linhas.spec.ts",
+      "src/importacao/importacao-processador.service.spec.ts",
+      "src/importacao/leitor-planilha.spec.ts",
+      "src/importacao/negocio-da-importacao.spec.ts",
+      "src/importacao/planilha-modelo.spec.ts",
+      "src/indicadores/calculo-indicadores.spec.ts",
+      "src/indicadores/catalogo.spec.ts",
+      "src/indicadores/formulas.spec.ts",
+      "src/indicadores/periodos.spec.ts",
+      "src/indicadores/validacao-widgets.spec.ts",
+      "src/ligacoes/formato-chamadas.spec.ts",
+      "src/ligacoes/gravacao/sugestoes-de-atividade.spec.ts",
+      "src/ligacoes/maquina-de-estados.spec.ts",
+      "src/ligacoes/permissoes.spec.ts",
       "src/observabilidade.spec.ts",
+      "src/push/mapeamento.spec.ts",
       "src/saude/falha-do-banco.spec.ts",
+      "src/saude/monitoramento/avaliacao.spec.ts",
       "src/saude/saude.service.spec.ts",
+      "src/sdr/categoria-passagem.spec.ts",
+      "src/sdr/esquema-sdr.spec.ts",
+      "src/sdr/prompt-sdr.spec.ts",
+      "src/sdr/qualificacao.spec.ts",
+      "src/transcricao/cliente-whisper.spec.ts",
+      "src/transcricao/esquema-resumo.spec.ts",
+      "src/transcricao/processador-de-audio.spec.ts",
+      "src/transcricao/trechos.spec.ts",
+      "src/tresc-plus/cliente-tresc-plus.spec.ts",
+      "src/tresc-plus/erros-tresc-plus.spec.ts",
+      "src/tresc-plus/eventos.spec.ts",
+      "src/tresc-plus/hosts-permitidos.spec.ts",
+      "src/tresc-plus/ouvinte-eventos.service.spec.ts",
+      "src/tresc-plus/telefone.spec.ts",
       "src/usuarios/dominio/destinatario.spec.ts",
+      "src/usuarios/dominio/divisao-de-negocios.spec.ts",
       "src/usuarios/dominio/encaminhamento.spec.ts",
       "src/usuarios/dominio/hierarquia.spec.ts",
       "src/usuarios/dominio/visibilidade.spec.ts",
       "src/usuarios/repeticao.spec.ts",
+      "src/webhooks/aplicativos/aplicativos.spec.ts",
+      "src/webhooks/aplicativos/chamadas-http.spec.ts",
+      "src/webhooks/aplicativos/cursos.spec.ts",
+      "src/webhooks/aplicativos/formulario.spec.ts",
+      "src/webhooks/aplicativos/rd-station-api.spec.ts",
+      "src/webhooks/entrada/atualizacoes.spec.ts",
+      "src/webhooks/entrada/campos-recebidos.spec.ts",
+      "src/webhooks/entrada/mapeamento-aplicativos.spec.ts",
       "src/webhooks/entrada/mapeamento.spec.ts",
+      "src/webhooks/facebook/conexoes-facebook.service.spec.ts",
+      "src/webhooks/facebook/graph-facebook.spec.ts",
+      "src/webhooks/facebook/lead-facebook.spec.ts",
+      "src/webhooks/login/clientes-oauth.spec.ts",
+      "src/webhooks/login/estado-do-login.spec.ts",
+      "src/webhooks/login/retorno-de-login.spec.ts",
       "src/webhooks/saida/envelope.spec.ts",
       "src/webhooks/saida/envio-http.spec.ts",
+      "src/webhooks/saida/formato-clint.spec.ts",
       "src/webhooks/saida/protecao-ssrf.spec.ts",
+      "src/whatsapp/midia/conversor-de-midia.spec.ts",
+      "src/whatsapp/transporte/mensagens-baileys.spec.ts",
+      "src/whatsapp/transporte/transporte-baileys.spec.ts",
+      "src/whatsapp/transporte/transporte-simulado.spec.ts",
+      "test/assistente.e2e-spec.ts",
+      "test/atendimento-configuracao.e2e-spec.ts",
+      "test/atendimento-conversas.e2e-spec.ts",
+      "test/atendimento-entrada.e2e-spec.ts",
+      "test/atendimento-mensagens.e2e-spec.ts",
       "test/atividades-lembretes.e2e-spec.ts",
+      "test/atividades-reuniao.e2e-spec.ts",
       "test/atividades.e2e-spec.ts",
       "test/auditoria-administracao.e2e-spec.ts",
       "test/auditoria-consulta.e2e-spec.ts",
+      "test/automacoes-agenda.e2e-spec.ts",
+      "test/automacoes.e2e-spec.ts",
       "test/base-auth.e2e-spec.ts",
       "test/base-infraestrutura.e2e-spec.ts",
+      "test/bi-acesso.e2e-spec.ts",
+      "test/bi-analise.e2e-spec.ts",
+      "test/bi-atendimento.e2e-spec.ts",
+      "test/bi-comercial.e2e-spec.ts",
+      "test/bi-cs.e2e-spec.ts",
+      "test/bi-financeiro.e2e-spec.ts",
+      "test/bi-marketing.e2e-spec.ts",
+      "test/chatbot.e2e-spec.ts",
       "test/contatos-empresas.e2e-spec.ts",
       "test/contatos-linha-do-tempo.e2e-spec.ts",
       "test/contatos.e2e-spec.ts",
+      "test/cookie-seguro.e2e-spec.ts",
+      "test/disparos-respostas.e2e-spec.ts",
+      "test/disparos.e2e-spec.ts",
+      "test/dois-fatores.e2e-spec.ts",
+      "test/facebook-lead-ads.e2e-spec.ts",
+      "test/financeiro-regua.e2e-spec.ts",
+      "test/financeiro-sql.e2e-spec.ts",
+      "test/financeiro.e2e-spec.ts",
+      "test/foto-de-perfil.e2e-spec.ts",
       "test/funis-configuracao.e2e-spec.ts",
       "test/funis-distribuicao.e2e-spec.ts",
       "test/funis-metricas.e2e-spec.ts",
       "test/funis-negocios.e2e-spec.ts",
       "test/funis-passagens.e2e-spec.ts",
+      "test/funis-visibilidade.e2e-spec.ts",
+      "test/importacao.e2e-spec.ts",
+      "test/indicadores.e2e-spec.ts",
+      "test/integracao-onda-a.e2e-spec.ts",
       "test/integracao.e2e-spec.ts",
+      "test/integracoes-acesso.e2e-spec.ts",
+      "test/integracoes-aplicativos.e2e-spec.ts",
+      "test/integracoes-cursos.e2e-spec.ts",
+      "test/login-facilitado.e2e-spec.ts",
+      "test/negocios-em-massa.e2e-spec.ts",
+      "test/onda-a-arquivos-s3.e2e-spec.ts",
+      "test/onda-a-arquivos.e2e-spec.ts",
+      "test/onda-a-atendimento-base.e2e-spec.ts",
+      "test/onda-a-canais-email.e2e-spec.ts",
+      "test/onda-a-canais-meta.e2e-spec.ts",
+      "test/onda-a-canais-webchat.e2e-spec.ts",
+      "test/onda-a-chat-interno.e2e-spec.ts",
+      "test/onda-a-tempo-real.e2e-spec.ts",
+      "test/onda-a-whatsapp-gateway.e2e-spec.ts",
+      "test/onda-b-base.e2e-spec.ts",
+      "test/onda-e-gravacao.e2e-spec.ts",
+      "test/onda-e-historico.e2e-spec.ts",
+      "test/onda-e-ligacoes.e2e-spec.ts",
+      "test/onda-e-whatsapp-oficial.e2e-spec.ts",
+      "test/primeira-interacao.e2e-spec.ts",
+      "test/producao-limites.e2e-spec.ts",
+      "test/push.e2e-spec.ts",
+      "test/saude-do-sistema.e2e-spec.ts",
       "test/saude.e2e-spec.ts",
+      "test/sdr-correcoes.e2e-spec.ts",
+      "test/sdr-integracoes.e2e-spec.ts",
+      "test/sdr.e2e-spec.ts",
+      "test/setores.e2e-spec.ts",
+      "test/tresc-plus.e2e-spec.ts",
       "test/usuarios-desligamento.e2e-spec.ts",
       "test/usuarios.e2e-spec.ts",
       "test/webhooks-entrada.e2e-spec.ts",
       "test/webhooks-saida-ssrf.e2e-spec.ts",
-      "test/webhooks-saida.e2e-spec.ts"
+      "test/webhooks-saida.e2e-spec.ts",
+      "test/whatsapp-estado-autenticacao.e2e-spec.ts",
+      "test/whatsapp-gateway.e2e-spec.ts",
+      "test/whatsapp-numeros.e2e-spec.ts",
+      "test/whatsapp-processo.e2e-spec.ts"
     ],
     "git": {
       "repositorio": true,
-      "head": "8ea7e657f5fc1cf0017e9e4b60929da3275e9b06",
-      "headCurto": "8ea7e65",
-      "branch": "main",
+      "head": "ac24fb84fdde5c8ef8601e7f5ae3250f71690fd5",
+      "headCurto": "ac24fb8",
+      "branch": "dev",
       "remoto": "https://github.com/GitBRL/crmbrl-api.git",
-      "sujo": true,
-      "totalDeCommits": 3
+      "sujo": false,
+      "totalDeCommits": 86
     }
   }
 }
