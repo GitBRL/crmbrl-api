@@ -1371,7 +1371,7 @@ espelhado à mão no front.
 
 <!-- doc-updater:inicio — gerado automaticamente, nao edite a mao -->
 
-> Atualizado por `tools/doc-updater` em 21/10/2026, 16:47 a partir do commit `8ea7e65`.
+> Atualizado por `tools/doc-updater` em 17/11/2026, 15:14 a partir do commit `ac24fb8`.
 
 ### Resumo
 
@@ -1382,11 +1382,11 @@ espelhado à mão no front.
 | Framework | NestJS ^12.0.1 |
 | Papel | Back-end / API |
 | Gerenciador de pacotes | bun |
-| Arquivos versionaveis | 269 |
-| Linhas de codigo | 54.010 |
-| Arquivos de teste | 56 |
-| Branch | main |
-| Commit documentado | `8ea7e65` |
+| Arquivos versionaveis | 981 |
+| Linhas de codigo | 271.253 |
+| Arquivos de teste | 231 |
+| Branch | dev |
+| Commit documentado | `ac24fb8` |
 | Repositorio remoto | https://github.com/GitBRL/crmbrl-api.git |
 
 
@@ -1402,30 +1402,54 @@ flowchart LR
 
 | Caminho | Arquivos |
 | --- | --- |
-| `src/funis` | 30 |
-| `src/comum` | 28 |
-| `test` | 25 |
-| `src/usuarios` | 24 |
-| `src/webhooks` | 24 |
-| `src/contatos` | 22 |
-| `(raiz)` | 17 |
-| `src/atividades` | 15 |
+| `test` | 93 |
+| `src/webhooks` | 85 |
+| `src/canais` | 76 |
+| `src/comum` | 54 |
+| `src/atendimento` | 44 |
+| `src/funis` | 43 |
+| `src/bi` | 39 |
+| `src/ligacoes` | 33 |
+| `prisma/migrations` | 30 |
+| `src/usuarios` | 30 |
+| `src/financeiro` | 29 |
+| `src/disparos` | 25 |
+| `src/importacao` | 24 |
+| `src/chatbot` | 23 |
+| `src/contatos` | 23 |
+| `src/tresc-plus` | 23 |
+| `src/sdr` | 22 |
+| `(raiz)` | 21 |
+| `src/assistente` | 20 |
+| `src/auth` | 20 |
+| `src/automacoes` | 20 |
+| `src/indicadores` | 20 |
+| `src/whatsapp` | 18 |
+| `src/atividades` | 16 |
+| `test/utils` | 14 |
 | `src/auditoria` | 13 |
-| `src/auth` | 13 |
-| `test/utils` | 9 |
+| `src/chat-interno` | 13 |
+| `src/saude` | 13 |
+| `src/transcricao` | 13 |
+| `src/arquivos` | 11 |
+| `src/push` | 8 |
+| `src/tempo-real` | 8 |
 | `src` | 7 |
 | `src/administracao` | 6 |
-| `src/saude` | 6 |
-| `src/notificacoes` | 5 |
+| `src/notificacoes` | 6 |
+| `scripts` | 5 |
+| `src/setores` | 5 |
+| `src/config` | 4 |
 | `src/logs` | 4 |
-| `prisma/migrations` | 3 |
-| `src/config` | 3 |
 | `src/email` | 3 |
 | `src/eventos` | 3 |
 | `src/prisma` | 3 |
 | `src/seeds` | 3 |
+| `test/ajuda-exemplo` | 3 |
 | `src/fila` | 2 |
+| `deploy` | 1 |
 | `prisma` | 1 |
+| `test/fixtures` | 1 |
 
 
 ### Modulos
@@ -1434,24 +1458,57 @@ flowchart LR
 | --- | --- |
 | `AdministracaoModule` | `src/administracao/administracao.module.ts` |
 | `AppModule` | `src/app.module.ts` |
+| `ArquivosModule` | `src/arquivos/arquivos.module.ts` |
+| `ArquivosHttpModule` | `src/arquivos/arquivos.module.ts` |
+| `AssistenteModule` | `src/assistente/assistente.module.ts` |
+| `AtendimentoModule` | `src/atendimento/atendimento.module.ts` |
 | `AtividadesModule` | `src/atividades/atividades.module.ts` |
 | `AuditoriaModule` | `src/auditoria/auditoria.module.ts` |
 | `AuditoriaConsultaModule` | `src/auditoria/consulta/auditoria-consulta.module.ts` |
 | `AuthModule` | `src/auth/auth.module.ts` |
+| `AutomacoesModule` | `src/automacoes/automacoes.module.ts` |
+| `AnaliseModule` | `src/bi/analise/analise.module.ts` |
+| `BiModule` | `src/bi/bi.module.ts` |
+| `RegistroCanaisModule` | `src/canais/canais.module.ts` |
+| `CanaisModule` | `src/canais/canais.module.ts` |
+| `CanaisComumModule` | `src/canais/comum/canais-comum.module.ts` |
+| `EmailCanalModule` | `src/canais/email/email-canal.module.ts` |
+| `MetaModule` | `src/canais/meta/meta.module.ts` |
+| `WebchatNucleoModule` | `src/canais/webchat/webchat.module.ts` |
+| `WebchatModule` | `src/canais/webchat/webchat.module.ts` |
+| `WhatsappCanalModule` | `src/canais/whatsapp/whatsapp-canal.module.ts` |
+| `WhatsappOficialModule` | `src/canais/whatsapp-oficial/whatsapp-oficial.module.ts` |
+| `ChatInternoModule` | `src/chat-interno/chat-interno.module.ts` |
+| `ChatbotModule` | `src/chatbot/chatbot.module.ts` |
+| `AutomacaoComumModule` | `src/comum/automacao-comum.module.ts` |
 | `ComumModule` | `src/comum/comum.module.ts` |
 | `AmbienteModule` | `src/config/ambiente.module.ts` |
 | `ContatosModule` | `src/contatos/contatos.module.ts` |
+| `DisparosModule` | `src/disparos/disparos.module.ts` |
 | `EmailModule` | `src/email/email.module.ts` |
 | `EventosModule` | `src/eventos/eventos.module.ts` |
 | `FilaModule` | `src/fila/fila.module.ts` |
+| `FinanceiroModule` | `src/financeiro/financeiro.module.ts` |
 | `FunisModule` | `src/funis/funis.module.ts` |
+| `ImportacaoModule` | `src/importacao/importacao.module.ts` |
+| `IndicadoresModule` | `src/indicadores/indicadores.module.ts` |
+| `GravacaoModule` | `src/ligacoes/gravacao/gravacao.module.ts` |
+| `LigacoesModule` | `src/ligacoes/ligacoes.module.ts` |
 | `LogsModule` | `src/logs/logs.module.ts` |
 | `NotificacoesModule` | `src/notificacoes/notificacoes.module.ts` |
 | `PrismaModule` | `src/prisma/prisma.module.ts` |
+| `PushModule` | `src/push/push.module.ts` |
+| `MonitoramentoModule` | `src/saude/monitoramento/monitoramento.module.ts` |
 | `SaudeModule` | `src/saude/saude.module.ts` |
+| `SdrModule` | `src/sdr/sdr.module.ts` |
 | `SeedsModule` | `src/seeds/seeds.module.ts` |
+| `SetoresModule` | `src/setores/setores.module.ts` |
+| `TempoRealModule` | `src/tempo-real/tempo-real.module.ts` |
+| `TranscricaoModule` | `src/transcricao/transcricao.module.ts` |
+| `TrescPlusModule` | `src/tresc-plus/tresc-plus.module.ts` |
 | `UsuariosModule` | `src/usuarios/usuarios.module.ts` |
 | `WebhooksModule` | `src/webhooks/webhooks.module.ts` |
+| `GatewayWhatsappModule` | `src/whatsapp/gateway-whatsapp.module.ts` |
 
 
 ### Endpoints HTTP
@@ -1461,6 +1518,60 @@ flowchart LR
 | `GET` | `/administracao/resumo` | `AdministracaoController` | `resumo` |
 | `GET` | `/administracao/logs-tecnicos` | `AdministracaoController` | `listarLogs` |
 | `GET` | `/administracao/logs-tecnicos/:id` | `AdministracaoController` | `detalharLog` |
+| `POST` | `/arquivos` | `ArquivosController` | `enviar` |
+| `GET` | `/arquivos/:id` | `ArquivosController` | `baixar` |
+| `GET` | `/assistente/admin/configuracao` | `AssistenteAdminController` | `configuracaoAtual` |
+| `PUT` | `/assistente/admin/configuracao` | `AssistenteAdminController` | `configurar` |
+| `POST` | `/assistente/admin/configuracao/testar` | `AssistenteAdminController` | `testar` |
+| `GET` | `/assistente/admin/historico` | `AssistenteAdminController` | `listar` |
+| `POST` | `/assistente/admin/historico/exportar` | `AssistenteAdminController` | `exportar` |
+| `GET` | `/assistente/admin/temas` | `AssistenteAdminController` | `temas` |
+| `GET` | `/assistente/admin/chamados` | `AssistenteAdminController` | `listarChamados` |
+| `POST` | `/assistente/admin/chamados/:id/reenviar` | `AssistenteAdminController` | `reenviar` |
+| `GET` | `/assistente/estado` | `AssistenteController` | `estado` |
+| `POST` | `/assistente/perguntas` | `AssistenteController` | `perguntar` |
+| `GET` | `/assistente/conversas` | `AssistenteController` | `conversas` |
+| `GET` | `/assistente/conversas/:id` | `AssistenteController` | `conversa` |
+| `PUT` | `/assistente/perguntas/:id/avaliacao` | `AssistenteController` | `avaliar` |
+| `POST` | `/assistente/perguntas/:id/chamado` | `AssistenteController` | `abrirChamado` |
+| `GET` | `/assistente/chamados/:id` | `AssistenteController` | `chamado` |
+| `GET` | `/atendimento/filas` | `FilasController` | `listar` |
+| `POST` | `/atendimento/filas` | `FilasController` | `criar` |
+| `GET` | `/atendimento/filas/:id` | `FilasController` | `detalhar` |
+| `PATCH` | `/atendimento/filas/:id` | `FilasController` | `atualizar` |
+| `DELETE` | `/atendimento/filas/:id` | `FilasController` | `excluir` |
+| `PUT` | `/atendimento/filas/:id/participantes/:usuarioId` | `FilasController` | `definirParticipacao` |
+| `DELETE` | `/atendimento/filas/:id/participantes/:usuarioId` | `FilasController` | `removerAjuste` |
+| `GET` | `/atendimento/respostas-rapidas` | `RespostasRapidasController` | `listar` |
+| `GET` | `/atendimento/respostas-rapidas/variaveis` | `RespostasRapidasController` | `variaveis` |
+| `POST` | `/atendimento/respostas-rapidas` | `RespostasRapidasController` | `criar` |
+| `GET` | `/atendimento/respostas-rapidas/:id` | `RespostasRapidasController` | `detalhar` |
+| `PATCH` | `/atendimento/respostas-rapidas/:id` | `RespostasRapidasController` | `atualizar` |
+| `DELETE` | `/atendimento/respostas-rapidas/:id` | `RespostasRapidasController` | `excluir` |
+| `POST` | `/atendimento/respostas-rapidas/:id/aplicar` | `RespostasRapidasController` | `aplicar` |
+| `GET` | `/atendimento/canais` | `CanaisDoAtendimentoController` | `listar` |
+| `GET` | `/atendimento/canais/:id` | `CanaisDoAtendimentoController` | `detalhar` |
+| `PATCH` | `/atendimento/canais/:id` | `CanaisDoAtendimentoController` | `atualizar` |
+| `GET` | `/atendimento/metricas` | `MetricasDoAtendimentoController` | `calcular` |
+| `GET` | `/atendimento/conversas` | `ConversasController` | `listar` |
+| `POST` | `/atendimento/conversas` | `ConversasController` | `iniciar` |
+| `GET` | `/atendimento/nao-lidas` | `ConversasController` | `naoLidas` |
+| `GET` | `/atendimento/etiquetas` | `ConversasController` | `etiquetas` |
+| `GET` | `/atendimento/atendentes` | `ConversasController` | `atendentes` |
+| `GET` | `/atendimento/conversas/:id` | `ConversasController` | `detalhar` |
+| `GET` | `/atendimento/conversas/:id/templates` | `ConversasController` | `templates` |
+| `PATCH` | `/atendimento/conversas/:id` | `ConversasController` | `atualizar` |
+| `POST` | `/atendimento/conversas/:id/assumir` | `ConversasController` | `assumir` |
+| `POST` | `/atendimento/conversas/:id/transferir` | `ConversasController` | `transferir` |
+| `POST` | `/atendimento/conversas/:id/resolver` | `ConversasController` | `resolver` |
+| `POST` | `/atendimento/conversas/:id/reabrir` | `ConversasController` | `reabrir` |
+| `POST` | `/atendimento/conversas/:id/lida` | `ConversasController` | `marcarLida` |
+| `POST` | `/atendimento/conversas/:id/negocio` | `ConversasController` | `criarNegocio` |
+| `GET` | `/atendimento/conversas/:id/atribuicoes` | `ConversasController` | `atribuicoes` |
+| `GET` | `/atendimento/conversas/:id/mensagens` | `ConversasController` | `listarMensagens` |
+| `POST` | `/atendimento/conversas/:id/mensagens` | `ConversasController` | `enviar` |
+| `POST` | `/atendimento/conversas/:id/notas` | `ConversasController` | `criarNota` |
+| `POST` | `/atendimento/conversas/:id/mensagens/:mensagemId/reenviar` | `ConversasController` | `reenviar` |
 | `POST` | `/atividades` | `AtividadesController` | `criar` |
 | `GET` | `/atividades` | `AtividadesController` | `listar` |
 | `GET` | `/atividades/agrupadas` | `AtividadesController` | `agrupar` |
@@ -1473,18 +1584,153 @@ flowchart LR
 | `GET` | `/auditoria/filtros` | `AuditoriaConsultaController` | `filtros` |
 | `GET` | `/auditoria/:id` | `AuditoriaConsultaController` | `detalhar` |
 | `POST` | `/auth/entrar` | `AuthController` | `entrar` |
+| `POST` | `/auth/entrar/dois-fatores` | `AuthController` | `entrarComDoisFatores` |
 | `POST` | `/auth/sair` | `AuthController` | `sair` |
+| `POST` | `/auth/sessoes/encerrar-outras` | `AuthController` | `encerrarOutrasSessoes` |
 | `GET` | `/auth/eu` | `AuthController` | `eu` |
 | `POST` | `/auth/senha` | `AuthController` | `trocarSenha` |
 | `POST` | `/auth/senha/esqueci` | `AuthController` | `esqueciSenha` |
 | `POST` | `/auth/senha/token` | `AuthController` | `consultarToken` |
 | `POST` | `/auth/senha/redefinir` | `AuthController` | `redefinirSenha` |
+| `GET` | `/auth/dois-fatores` | `DoisFatoresController` | `situacao` |
+| `POST` | `/auth/dois-fatores/ativar` | `DoisFatoresController` | `ativar` |
+| `POST` | `/auth/dois-fatores/confirmar` | `DoisFatoresController` | `confirmar` |
+| `POST` | `/auth/dois-fatores/codigos` | `DoisFatoresController` | `novosCodigos` |
+| `POST` | `/auth/dois-fatores/desativar` | `DoisFatoresController` | `desativar` |
+| `GET` | `/automacoes/opcoes` | `AutomacoesController` | `opcoes` |
+| `GET` | `/automacoes` | `AutomacoesController` | `listar` |
+| `POST` | `/automacoes` | `AutomacoesController` | `criar` |
+| `GET` | `/automacoes/catalogo` | `AutomacoesController` | `catalogo` |
+| `GET` | `/automacoes/modelos-prontos` | `AutomacoesController` | `modelosProntos` |
+| `POST` | `/automacoes/modelos-prontos/:chave` | `AutomacoesController` | `criarDeModelo` |
+| `POST` | `/automacoes/validar` | `AutomacoesController` | `validar` |
+| `GET` | `/automacoes/execucoes` | `AutomacoesController` | `listarExecucoes` |
+| `GET` | `/automacoes/execucoes/:execucaoId` | `AutomacoesController` | `detalharExecucao` |
+| `POST` | `/automacoes/execucoes/:execucaoId/reexecutar` | `AutomacoesController` | `reexecutar` |
+| `POST` | `/automacoes/execucoes/:execucaoId/cancelar` | `AutomacoesController` | `cancelar` |
+| `GET` | `/automacoes/:id` | `AutomacoesController` | `detalhar` |
+| `PATCH` | `/automacoes/:id` | `AutomacoesController` | `atualizar` |
+| `POST` | `/automacoes/:id/ativar` | `AutomacoesController` | `ativar` |
+| `POST` | `/automacoes/:id/pausar` | `AutomacoesController` | `pausar` |
+| `POST` | `/automacoes/:id/duplicar` | `AutomacoesController` | `duplicar` |
+| `POST` | `/automacoes/:id/testar` | `AutomacoesController` | `testar` |
+| `DELETE` | `/automacoes/:id` | `AutomacoesController` | `excluir` |
+| `GET` | `/bi/analise/estado` | `AnaliseController` | `estado` |
+| `PUT` | `/bi/analise/configuracao` | `AnaliseController` | `configurar` |
+| `POST` | `/bi/analise` | `AnaliseController` | `analisar` |
+| `POST` | `/bi/analise/:id/perguntas` | `AnaliseController` | `perguntar` |
+| `GET` | `/bi/analise/historico` | `AnaliseController` | `historico` |
+| `GET` | `/bi/analise/:id` | `AnaliseController` | `detalhe` |
+| `GET` | `/bi/paineis` | `BiController` | `paineis` |
+| `GET` | `/bi/:painel` | `BiController` | `painel` |
+| `POST` | `/bi/:painel/exportar` | `BiController` | `exportar` |
+| `GET` | `/email/canais` | `EmailCanaisController` | `listar` |
+| `POST` | `/email/canais/testar` | `EmailCanaisController` | `testarNovo` |
+| `GET` | `/email/canais/:id` | `EmailCanaisController` | `obter` |
+| `POST` | `/email/canais` | `EmailCanaisController` | `criar` |
+| `PATCH` | `/email/canais/:id` | `EmailCanaisController` | `atualizar` |
+| `POST` | `/email/canais/:id/testar` | `EmailCanaisController` | `testar` |
+| `DELETE` | `/email/canais/:id` | `EmailCanaisController` | `excluir` |
+| `GET` | `/meta/canais` | `MetaCanaisController` | `listar` |
+| `GET` | `/meta/canais/:id` | `MetaCanaisController` | `obter` |
+| `POST` | `/meta/canais` | `MetaCanaisController` | `criar` |
+| `PATCH` | `/meta/canais/:id` | `MetaCanaisController` | `atualizar` |
+| `POST` | `/meta/canais/:id/testar` | `MetaCanaisController` | `testar` |
+| `POST` | `/meta/canais/:id/token-verificacao` | `MetaCanaisController` | `regenerarToken` |
+| `DELETE` | `/meta/canais/:id` | `MetaCanaisController` | `excluir` |
+| `GET` | `/publico/meta/webhook` | `WebhookMetaController` | `verificar` |
+| `POST` | `/publico/meta/webhook` | `WebhookMetaController` | `receber` |
+| `GET` | `/publico/meta/arquivos/:id` | `WebhookMetaController` | `arquivo` |
+| `GET` | `/webchat/canais` | `WebchatCanaisController` | `listar` |
+| `GET` | `/webchat/canais/:id` | `WebchatCanaisController` | `obter` |
+| `POST` | `/webchat/canais` | `WebchatCanaisController` | `criar` |
+| `PATCH` | `/webchat/canais/:id` | `WebchatCanaisController` | `atualizar` |
+| `DELETE` | `/webchat/canais/:id` | `WebchatCanaisController` | `excluir` |
+| `GET` | `/publico/webchat/widget.js` | `WebchatPublicoController` | `widgetJs` |
+| `GET` | `/publico/webchat/:chave/configuracao` | `WebchatPublicoController` | `configuracao` |
+| `POST` | `/publico/webchat/:chave/visitantes` | `WebchatPublicoController` | `registrar` |
+| `POST` | `/publico/webchat/:chave/sessao` | `WebchatPublicoController` | `sessao` |
+| `POST` | `/publico/webchat/:chave/historico` | `WebchatPublicoController` | `historico` |
+| `POST` | `/publico/webchat/:chave/mensagens` | `WebchatPublicoController` | `enviar` |
+| `POST` | `/publico/webchat/:chave/anexos` | `WebchatPublicoController` | `anexar` |
+| `POST` | `/publico/webchat/:chave/sair` | `WebchatPublicoController` | `sair` |
+| `GET` | `/publico/webchat/:chave/arquivos/:id` | `WebchatPublicoController` | `arquivo` |
+| `GET` | `/whatsapp/numeros` | `NumerosWhatsappController` | `listar` |
+| `POST` | `/whatsapp/numeros` | `NumerosWhatsappController` | `criar` |
+| `GET` | `/whatsapp/numeros/:id` | `NumerosWhatsappController` | `detalhar` |
+| `PATCH` | `/whatsapp/numeros/:id` | `NumerosWhatsappController` | `atualizar` |
+| `DELETE` | `/whatsapp/numeros/:id` | `NumerosWhatsappController` | `excluir` |
+| `POST` | `/whatsapp/numeros/:id/conectar` | `NumerosWhatsappController` | `conectar` |
+| `POST` | `/whatsapp/numeros/:id/desconectar` | `NumerosWhatsappController` | `desconectar` |
+| `GET` | `/whatsapp/numeros/:id/status` | `NumerosWhatsappController` | `status` |
+| `POST` | `/whatsapp/numeros/:id/verificar` | `NumerosWhatsappController` | `verificar` |
+| `POST` | `/whatsapp/numeros/:id/pausar` | `NumerosWhatsappController` | `pausar` |
+| `POST` | `/whatsapp/numeros/:id/retomar` | `NumerosWhatsappController` | `retomar` |
+| `GET` | `/whatsapp/numeros/:id/envios` | `NumerosWhatsappController` | `envios` |
+| `GET` | `/whatsapp-oficial/canais` | `WhatsappOficialCanaisController` | `listar` |
+| `GET` | `/whatsapp-oficial/canais/:id` | `WhatsappOficialCanaisController` | `obter` |
+| `POST` | `/whatsapp-oficial/canais` | `WhatsappOficialCanaisController` | `criar` |
+| `PATCH` | `/whatsapp-oficial/canais/:id` | `WhatsappOficialCanaisController` | `atualizar` |
+| `POST` | `/whatsapp-oficial/canais/:id/testar` | `WhatsappOficialCanaisController` | `testar` |
+| `POST` | `/whatsapp-oficial/canais/:id/token-verificacao` | `WhatsappOficialCanaisController` | `regenerarToken` |
+| `GET` | `/whatsapp-oficial/canais/:id/templates` | `WhatsappOficialCanaisController` | `templates` |
+| `POST` | `/whatsapp-oficial/canais/:id/templates/sincronizar` | `WhatsappOficialCanaisController` | `sincronizar` |
+| `DELETE` | `/whatsapp-oficial/canais/:id` | `WhatsappOficialCanaisController` | `excluir` |
+| `GET` | `/chat/canais` | `ChatInternoController` | `listarCanais` |
+| `GET` | `/chat/canais/:id` | `ChatInternoController` | `obterCanal` |
+| `PATCH` | `/chat/canais/:id` | `ChatInternoController` | `atualizarCanal` |
+| `POST` | `/chat/canais/:id/arquivar` | `ChatInternoController` | `arquivar` |
+| `POST` | `/chat/canais/:id/desarquivar` | `ChatInternoController` | `desarquivar` |
+| `POST` | `/chat/canais/:id/sair` | `ChatInternoController` | `sair` |
+| `PUT` | `/chat/canais/:id/preferencias` | `ChatInternoController` | `definirPreferencias` |
+| `POST` | `/chat/canais/:id/leitura` | `ChatInternoController` | `marcarLeitura` |
+| `GET` | `/chat/canais/:id/membros` | `ChatInternoController` | `membros` |
+| `POST` | `/chat/canais/:id/membros` | `ChatInternoController` | `adicionarMembros` |
+| `PATCH` | `/chat/canais/:id/membros/:usuarioId` | `ChatInternoController` | `alterarMembro` |
+| `DELETE` | `/chat/canais/:id/membros/:usuarioId` | `ChatInternoController` | `removerMembro` |
+| `POST` | `/chat/grupos` | `ChatInternoController` | `criarGrupo` |
+| `POST` | `/chat/diretas` | `ChatInternoController` | `iniciarDireta` |
+| `GET` | `/chat/canais/:id/mensagens` | `ChatInternoController` | `listarMensagens` |
+| `POST` | `/chat/canais/:id/mensagens` | `ChatInternoController` | `enviar` |
+| `GET` | `/chat/mensagens/busca` | `ChatInternoController` | `buscar` |
+| `PATCH` | `/chat/mensagens/:id` | `ChatInternoController` | `editar` |
+| `DELETE` | `/chat/mensagens/:id` | `ChatInternoController` | `excluir` |
+| `GET` | `/chat/nao-lidas` | `ChatInternoController` | `naoLidas` |
+| `GET` | `/chat/pessoas` | `ChatInternoController` | `pessoas` |
+| `GET` | `/chatbot/opcoes` | `ChatbotController` | `opcoes` |
+| `GET` | `/chatbot/passos` | `ChatbotController` | `passos` |
+| `GET` | `/chatbot/fluxos` | `ChatbotController` | `listar` |
+| `POST` | `/chatbot/fluxos` | `ChatbotController` | `criar` |
+| `GET` | `/chatbot/fluxos/:id` | `ChatbotController` | `detalhar` |
+| `PATCH` | `/chatbot/fluxos/:id` | `ChatbotController` | `atualizar` |
+| `PUT` | `/chatbot/fluxos/:id/rascunho` | `ChatbotController` | `salvarRascunho` |
+| `POST` | `/chatbot/fluxos/:id/validar` | `ChatbotController` | `validar` |
+| `POST` | `/chatbot/fluxos/:id/publicar` | `ChatbotController` | `publicar` |
+| `POST` | `/chatbot/fluxos/:id/ativar` | `ChatbotController` | `ativar` |
+| `POST` | `/chatbot/fluxos/:id/desativar` | `ChatbotController` | `desativar` |
+| `POST` | `/chatbot/fluxos/:id/duplicar` | `ChatbotController` | `duplicar` |
+| `DELETE` | `/chatbot/fluxos/:id` | `ChatbotController` | `excluir` |
+| `GET` | `/chatbot/fluxos/:id/versoes` | `ChatbotController` | `versoes` |
+| `GET` | `/chatbot/fluxos/:id/versoes/:numero` | `ChatbotController` | `versao` |
+| `POST` | `/chatbot/fluxos/:id/versoes/:numero/restaurar` | `ChatbotController` | `restaurar` |
+| `GET` | `/chatbot/fluxos/:id/execucoes` | `ChatbotController` | `execucoes` |
+| `GET` | `/chatbot/fluxos/:id/execucoes/:execucaoId` | `ChatbotController` | `execucao` |
+| `POST` | `/chatbot/fluxos/:id/simulador` | `ChatbotController` | `iniciarSimulacao` |
+| `GET` | `/chatbot/fluxos/:id/simulador/:execucaoId` | `ChatbotController` | `estadoDaSimulacao` |
+| `POST` | `/chatbot/fluxos/:id/simulador/:execucaoId/mensagens` | `ChatbotController` | `responderNaSimulacao` |
+| `POST` | `/chatbot/fluxos/:id/simulador/:execucaoId/silencio` | `ChatbotController` | `silencioNaSimulacao` |
+| `DELETE` | `/chatbot/fluxos/:id/simulador/:execucaoId` | `ChatbotController` | `encerrarSimulacao` |
+| `GET` | `/modelos/variaveis` | `ModelosController` | `variaveis` |
+| `POST` | `/modelos/previa` | `ModelosController` | `previa` |
+| `GET` | `/segmentos/campos` | `SegmentosController` | `campos` |
+| `POST` | `/segmentos/previa` | `SegmentosController` | `previa` |
 | `GET` | `/contatos` | `ContatosController` | `listar` |
 | `GET` | `/contatos/etiquetas` | `ContatosController` | `etiquetas` |
 | `POST` | `/contatos` | `ContatosController` | `criar` |
 | `GET` | `/contatos/:id` | `ContatosController` | `detalhar` |
 | `PATCH` | `/contatos/:id` | `ContatosController` | `atualizar` |
 | `POST` | `/contatos/:id/anonimizar` | `ContatosController` | `anonimizar` |
+| `GET` | `/contatos/:id/dados-pessoais` | `ContatosController` | `dadosPessoais` |
 | `GET` | `/contatos/:id/linha-do-tempo` | `ContatosController` | `linhaDoTempo` |
 | `GET` | `/empresas` | `EmpresasController` | `listar` |
 | `GET` | `/empresas/etiquetas` | `EmpresasController` | `etiquetas` |
@@ -1492,6 +1738,78 @@ flowchart LR
 | `GET` | `/empresas/:id` | `EmpresasController` | `detalhar` |
 | `PATCH` | `/empresas/:id` | `EmpresasController` | `atualizar` |
 | `GET` | `/empresas/:id/linha-do-tempo` | `EmpresasController` | `linhaDoTempo` |
+| `GET` | `/disparos/canais` | `DisparosController` | `canais` |
+| `GET` | `/disparos/campanhas` | `DisparosController` | `listar` |
+| `POST` | `/disparos/campanhas` | `DisparosController` | `criar` |
+| `POST` | `/disparos/previa-publico` | `DisparosController` | `previaDoPublico` |
+| `POST` | `/disparos/estimativa` | `DisparosController` | `estimativa` |
+| `GET` | `/disparos/configuracao` | `DisparosController` | `obterConfiguracao` |
+| `PUT` | `/disparos/configuracao` | `DisparosController` | `atualizarConfiguracao` |
+| `GET` | `/disparos/campanhas/:id` | `DisparosController` | `detalhar` |
+| `PATCH` | `/disparos/campanhas/:id` | `DisparosController` | `atualizar` |
+| `DELETE` | `/disparos/campanhas/:id` | `DisparosController` | `excluir` |
+| `POST` | `/disparos/campanhas/:id/duplicar` | `DisparosController` | `duplicar` |
+| `GET` | `/disparos/campanhas/:id/revisao` | `DisparosController` | `revisar` |
+| `POST` | `/disparos/campanhas/:id/previa` | `DisparosController` | `previa` |
+| `POST` | `/disparos/campanhas/:id/teste` | `DisparosController` | `teste` |
+| `POST` | `/disparos/campanhas/:id/iniciar` | `DisparosController` | `iniciar` |
+| `POST` | `/disparos/campanhas/:id/aprovar` | `DisparosController` | `aprovar` |
+| `POST` | `/disparos/campanhas/:id/reprovar` | `DisparosController` | `reprovar` |
+| `POST` | `/disparos/campanhas/:id/pausar` | `DisparosController` | `pausar` |
+| `POST` | `/disparos/campanhas/:id/retomar` | `DisparosController` | `retomar` |
+| `POST` | `/disparos/campanhas/:id/cancelar` | `DisparosController` | `cancelar` |
+| `POST` | `/disparos/campanhas/:id/reenviar-falhas` | `DisparosController` | `reenviarFalhas` |
+| `GET` | `/disparos/campanhas/:id/destinatarios` | `DisparosController` | `destinatarios` |
+| `GET` | `/disparos/campanhas/:id/relatorio` | `DisparosController` | `gerarRelatorio` |
+| `POST` | `/disparos/campanhas/:id/exportar` | `DisparosController` | `exportar` |
+| `GET` | `/modelos-mensagem` | `ModelosMensagemController` | `listar` |
+| `POST` | `/modelos-mensagem` | `ModelosMensagemController` | `criar` |
+| `GET` | `/modelos-mensagem/:id` | `ModelosMensagemController` | `detalhar` |
+| `PATCH` | `/modelos-mensagem/:id` | `ModelosMensagemController` | `atualizar` |
+| `DELETE` | `/modelos-mensagem/:id` | `ModelosMensagemController` | `excluir` |
+| `GET` | `/financeiro/contratos` | `FinanceiroController` | `listarContratos` |
+| `POST` | `/financeiro/contratos` | `FinanceiroController` | `criarContrato` |
+| `GET` | `/financeiro/contratos/:id` | `FinanceiroController` | `detalharContrato` |
+| `PATCH` | `/financeiro/contratos/:id` | `FinanceiroController` | `atualizarContrato` |
+| `POST` | `/financeiro/contratos/:id/suspender` | `FinanceiroController` | `suspenderContrato` |
+| `POST` | `/financeiro/contratos/:id/reativar` | `FinanceiroController` | `reativarContrato` |
+| `POST` | `/financeiro/contratos/:id/cancelar` | `FinanceiroController` | `cancelarContrato` |
+| `POST` | `/financeiro/contratos/:id/parcelas` | `FinanceiroController` | `gerarParcelas` |
+| `GET` | `/financeiro/negocios/sem-contrato` | `FinanceiroController` | `negociosSemContrato` |
+| `GET` | `/financeiro/negocios/:id/sugestao-de-contrato` | `FinanceiroController` | `sugestaoDeContrato` |
+| `GET` | `/financeiro/parcelas` | `FinanceiroController` | `listarParcelas` |
+| `GET` | `/financeiro/parcelas/totais` | `FinanceiroController` | `totaisDeParcelas` |
+| `POST` | `/financeiro/parcelas/exportar` | `FinanceiroController` | `exportarParcelas` |
+| `POST` | `/financeiro/parcelas` | `FinanceiroController` | `criarParcela` |
+| `GET` | `/financeiro/parcelas/:id` | `FinanceiroController` | `detalharParcela` |
+| `PATCH` | `/financeiro/parcelas/:id` | `FinanceiroController` | `atualizarParcela` |
+| `POST` | `/financeiro/parcelas/:id/baixa` | `FinanceiroController` | `baixarParcela` |
+| `POST` | `/financeiro/parcelas/:id/cancelar` | `FinanceiroController` | `cancelarParcela` |
+| `POST` | `/financeiro/parcelas/:id/renegociar` | `FinanceiroController` | `renegociarParcela` |
+| `GET` | `/financeiro/parcelas/:id/linha-do-tempo` | `FinanceiroController` | `linhaDoTempo` |
+| `GET` | `/financeiro/indicadores/resumo` | `FinanceiroController` | `resumoDosIndicadores` |
+| `GET` | `/financeiro/indicadores/mrr` | `FinanceiroController` | `mrr` |
+| `GET` | `/financeiro/indicadores/inadimplencia` | `FinanceiroController` | `inadimplencia` |
+| `GET` | `/financeiro/indicadores/previsto-realizado` | `FinanceiroController` | `previstoRealizado` |
+| `GET` | `/financeiro/risco-churn` | `FinanceiroController` | `rankingDeRisco` |
+| `GET` | `/financeiro/risco-churn/contatos/:id` | `FinanceiroController` | `riscoDoContato` |
+| `GET` | `/financeiro/risco-churn/negocios/:id` | `FinanceiroController` | `riscoDoNegocio` |
+| `GET` | `/financeiro/regua/configuracao` | `FinanceiroController` | `configuracaoDaRegua` |
+| `PATCH` | `/financeiro/regua/configuracao` | `FinanceiroController` | `atualizarConfiguracao` |
+| `POST` | `/financeiro/regua/pausar` | `FinanceiroController` | `pausar` |
+| `POST` | `/financeiro/regua/retomar` | `FinanceiroController` | `retomar` |
+| `GET` | `/financeiro/regua/etapas` | `FinanceiroController` | `etapas` |
+| `POST` | `/financeiro/regua/etapas` | `FinanceiroController` | `criarEtapa` |
+| `PUT` | `/financeiro/regua/etapas/:id` | `FinanceiroController` | `atualizarEtapa` |
+| `DELETE` | `/financeiro/regua/etapas/:id` | `FinanceiroController` | `removerEtapa` |
+| `POST` | `/financeiro/regua/previa` | `FinanceiroController` | `previa` |
+| `POST` | `/financeiro/regua/executar` | `FinanceiroController` | `executar` |
+| `GET` | `/financeiro/regua/execucoes` | `FinanceiroController` | `execucoes` |
+| `GET` | `/financeiro/regua/resumo` | `FinanceiroController` | `resumoDoDia` |
+| `GET` | `/financeiro/regua/envios` | `FinanceiroController` | `envios` |
+| `POST` | `/financeiro/regua/reenviar` | `FinanceiroController` | `reenviar` |
+| `GET` | `/financeiro/regua/ligacoes` | `FinanceiroController` | `listarLigacoes` |
+| `POST` | `/financeiro/regua/ligacoes/:id/resultado` | `FinanceiroController` | `resultadoDaLigacao` |
 | `GET` | `/regras-distribuicao` | `DistribuicaoController` | `listar` |
 | `GET` | `/regras-distribuicao/:area` | `DistribuicaoController` | `detalhar` |
 | `PATCH` | `/regras-distribuicao/:area` | `DistribuicaoController` | `atualizar` |
@@ -1501,6 +1819,8 @@ flowchart LR
 | `POST` | `/funis` | `FunisController` | `criar` |
 | `GET` | `/funis/:id` | `FunisController` | `detalhar` |
 | `PATCH` | `/funis/:id` | `FunisController` | `atualizar` |
+| `GET` | `/funis/:id/acessos` | `FunisController` | `listarAcessos` |
+| `PUT` | `/funis/:id/acessos` | `FunisController` | `substituirAcessos` |
 | `DELETE` | `/funis/:id` | `FunisController` | `excluir` |
 | `POST` | `/funis/:id/etapas` | `FunisController` | `criarEtapa` |
 | `POST` | `/funis/:id/etapas/reordenar` | `FunisController` | `reordenarEtapas` |
@@ -1510,6 +1830,7 @@ flowchart LR
 | `GET` | `/funis/:id/metricas` | `FunisController` | `metricasDoFunil` |
 | `GET` | `/negocios` | `NegociosController` | `listar` |
 | `POST` | `/negocios` | `NegociosController` | `criar` |
+| `POST` | `/negocios/em-massa` | `NegociosController` | `acaoEmMassa` |
 | `GET` | `/negocios/:id` | `NegociosController` | `detalhar` |
 | `PATCH` | `/negocios/:id` | `NegociosController` | `atualizar` |
 | `DELETE` | `/negocios/:id` | `NegociosController` | `excluir` |
@@ -1523,26 +1844,155 @@ flowchart LR
 | `GET` | `/passagens/:id` | `PassagensController` | `detalhar` |
 | `PATCH` | `/passagens/:id` | `PassagensController` | `atualizar` |
 | `DELETE` | `/passagens/:id` | `PassagensController` | `excluir` |
+| `GET` | `/importacoes` | `ImportacaoController` | `listar` |
+| `GET` | `/importacoes/campos` | `ImportacaoController` | `campos` |
+| `GET` | `/importacoes/planilha-modelo` | `ImportacaoController` | `planilhaModelo` |
+| `GET` | `/importacoes/modelos` | `ImportacaoController` | `listarModelos` |
+| `POST` | `/importacoes/modelos` | `ImportacaoController` | `criarModelo` |
+| `PATCH` | `/importacoes/modelos/:id` | `ImportacaoController` | `atualizarModelo` |
+| `DELETE` | `/importacoes/modelos/:id` | `ImportacaoController` | `removerModelo` |
+| `POST` | `/importacoes` | `ImportacaoController` | `criar` |
+| `GET` | `/importacoes/:id` | `ImportacaoController` | `detalhar` |
+| `PATCH` | `/importacoes/:id` | `ImportacaoController` | `atualizar` |
+| `GET` | `/importacoes/:id/previa` | `ImportacaoController` | `previa` |
+| `GET` | `/importacoes/:id/funis-da-planilha` | `ImportacaoController` | `funisDaPlanilha` |
+| `POST` | `/importacoes/:id/iniciar` | `ImportacaoController` | `iniciar` |
+| `POST` | `/importacoes/:id/retomar` | `ImportacaoController` | `retomar` |
+| `POST` | `/importacoes/:id/cancelar` | `ImportacaoController` | `cancelar` |
+| `DELETE` | `/importacoes/:id` | `ImportacaoController` | `remover` |
+| `GET` | `/importacoes/:id/linhas` | `ImportacaoController` | `linhas` |
+| `GET` | `/importacoes/:id/relatorio` | `ImportacaoController` | `relatorio` |
+| `GET` | `/indicadores/catalogo` | `IndicadoresController` | `catalogo` |
+| `GET` | `/indicadores/paineis` | `IndicadoresController` | `listar` |
+| `POST` | `/indicadores/paineis` | `IndicadoresController` | `criar` |
+| `GET` | `/indicadores/paineis/:id` | `IndicadoresController` | `detalhar` |
+| `PATCH` | `/indicadores/paineis/:id` | `IndicadoresController` | `atualizar` |
+| `POST` | `/indicadores/paineis/:id/duplicar` | `IndicadoresController` | `duplicar` |
+| `DELETE` | `/indicadores/paineis/:id` | `IndicadoresController` | `excluir` |
+| `POST` | `/indicadores/calcular` | `IndicadoresController` | `calcular` |
+| `POST` | `/indicadores/exportar` | `IndicadoresController` | `exportar` |
+| `POST` | `/ligacoes/:id/gravacao/partes/:sequencia` | `GravacaoController` | `parte` |
+| `POST` | `/ligacoes/:id/gravacao/finalizar` | `GravacaoController` | `finalizar` |
+| `GET` | `/ligacoes/:id/transcricao` | `GravacaoController` | `transcricao` |
+| `GET` | `/ligacoes/:id/audio` | `GravacaoController` | `audio` |
+| `GET` | `/ligacoes/:id/audio/baixar` | `GravacaoController` | `baixar` |
+| `POST` | `/ligacoes/:id/reprocessar` | `GravacaoController` | `reprocessar` |
+| `POST` | `/ligacoes/:id/resumo/sugestoes/:sugestaoId/confirmar` | `GravacaoController` | `confirmar` |
+| `POST` | `/ligacoes/:id/resumo/sugestoes/:sugestaoId/descartar` | `GravacaoController` | `descartar` |
+| `GET` | `/ligacoes/canais/:canalId/aviso` | `GravacaoController` | `aviso` |
+| `GET` | `/ligacoes/configuracao-webrtc` | `LigacoesController` | `webrtc` |
+| `GET` | `/ligacoes/canais` | `LigacoesController` | `canais` |
+| `GET` | `/ligacoes/ativas` | `LigacoesController` | `ativas` |
+| `GET` | `/ligacoes/permissoes` | `LigacoesController` | `permissao` |
+| `POST` | `/ligacoes/permissoes/pedir` | `LigacoesController` | `pedir` |
+| `GET` | `/ligacoes` | `LigacoesController` | `listar` |
+| `POST` | `/ligacoes` | `LigacoesController` | `ligar` |
+| `GET` | `/ligacoes/:id` | `LigacoesController` | `obter` |
+| `POST` | `/ligacoes/:id/atender` | `LigacoesController` | `atender` |
+| `POST` | `/ligacoes/:id/recusar` | `LigacoesController` | `recusar` |
+| `POST` | `/ligacoes/:id/encerrar` | `LigacoesController` | `encerrar` |
+| `PATCH` | `/ligacoes/:id` | `LigacoesController` | `anotar` |
+| `GET` | `/whatsapp-oficial/canais/:canalId/ligacoes` | `ConfiguracaoLigacoesController` | `obter` |
+| `PATCH` | `/whatsapp-oficial/canais/:canalId/ligacoes` | `ConfiguracaoLigacoesController` | `atualizar` |
 | `GET` | `/notificacoes` | `NotificacoesController` | `listar` |
 | `GET` | `/notificacoes/nao-lidas/contagem` | `NotificacoesController` | `contarNaoLidas` |
 | `POST` | `/notificacoes/marcar-todas-lidas` | `NotificacoesController` | `marcarTodasComoLidas` |
 | `POST` | `/notificacoes/:id/marcar-lida` | `NotificacoesController` | `marcarComoLida` |
+| `GET` | `/push/chave-publica` | `PushController` | `chavePublica` |
+| `POST` | `/push/inscricoes` | `PushController` | `inscrever` |
+| `GET` | `/push/inscricoes` | `PushController` | `inscricoes` |
+| `DELETE` | `/push/inscricoes/:id` | `PushController` | `remover` |
+| `GET` | `/push/preferencias` | `PushController` | `preferencias` |
+| `PUT` | `/push/preferencias` | `PushController` | `alterarPreferencias` |
+| `POST` | `/push/teste` | `PushController` | `testar` |
+| `GET` | `/administracao/saude-do-sistema` | `SaudeDoSistemaController` | `consultar` |
 | `GET` | `/saude` | `SaudeController` | `consultar` |
+| `GET` | `/sdr/configuracao` | `SdrConfiguracaoController` | `geral` |
+| `PUT` | `/sdr/configuracao` | `SdrConfiguracaoController` | `atualizar` |
+| `GET` | `/sdr/canais` | `SdrConfiguracaoController` | `canais` |
+| `PUT` | `/sdr/canais/:canalId` | `SdrConfiguracaoController` | `modo` |
+| `GET` | `/sdr/artigos` | `SdrConfiguracaoController` | `artigos` |
+| `POST` | `/sdr/artigos` | `SdrConfiguracaoController` | `criarArtigo` |
+| `PUT` | `/sdr/artigos/:id` | `SdrConfiguracaoController` | `atualizarArtigo` |
+| `DELETE` | `/sdr/artigos/:id` | `SdrConfiguracaoController` | `excluirArtigo` |
+| `GET` | `/sdr/artigos/:id/versoes` | `SdrConfiguracaoController` | `versoes` |
+| `POST` | `/sdr/artigos/:id/versoes/:numero/restaurar` | `SdrConfiguracaoController` | `restaurar` |
+| `GET` | `/sdr/criterios` | `SdrConfiguracaoController` | `criterios` |
+| `POST` | `/sdr/criterios` | `SdrConfiguracaoController` | `criarCriterio` |
+| `PUT` | `/sdr/criterios/ordem` | `SdrConfiguracaoController` | `reordenar` |
+| `POST` | `/sdr/criterios/modelo-captacao` | `SdrConfiguracaoController` | `aplicarModelo` |
+| `PUT` | `/sdr/criterios/:id` | `SdrConfiguracaoController` | `atualizarCriterio` |
+| `DELETE` | `/sdr/criterios/:id` | `SdrConfiguracaoController` | `excluirCriterio` |
+| `GET` | `/sdr/campos-disponiveis` | `SdrConfiguracaoController` | `campos` |
+| `GET` | `/sdr/uso` | `SdrConfiguracaoController` | `uso` |
+| `GET` | `/sdr/decisoes` | `SdrConfiguracaoController` | `decisoes` |
+| `POST` | `/sdr/simulador/turno` | `SdrConfiguracaoController` | `simular` |
+| `GET` | `/sdr/conversas/:id` | `SdrConversasController` | `detalhe` |
+| `POST` | `/sdr/conversas/:id/assumir` | `SdrConversasController` | `assumir` |
+| `POST` | `/sdr/conversas/:id/devolver` | `SdrConversasController` | `devolver` |
+| `POST` | `/sdr/sugestoes/:id/aprovar` | `SdrConversasController` | `aprovar` |
+| `POST` | `/sdr/sugestoes/:id/descartar` | `SdrConversasController` | `descartar` |
+| `GET` | `/sdr/contatos/:id/qualificacao` | `SdrConversasController` | `doContato` |
+| `GET` | `/sdr/negocios/:id/qualificacao` | `SdrConversasController` | `doNegocio` |
+| `GET` | `/setores` | `SetoresController` | `listar` |
+| `POST` | `/setores` | `SetoresController` | `criar` |
+| `GET` | `/setores/:chave` | `SetoresController` | `detalhar` |
+| `PATCH` | `/setores/:chave` | `SetoresController` | `atualizar` |
+| `GET` | `/setores/:chave/acessos` | `SetoresController` | `listarAcessos` |
+| `PUT` | `/setores/:chave/acessos` | `SetoresController` | `substituirAcessos` |
+| `POST` | `/setores/:chave/desativar` | `SetoresController` | `desativar` |
+| `POST` | `/setores/:chave/reativar` | `SetoresController` | `reativar` |
+| `GET` | `/tresc-plus/conexao` | `ConexaoTrescPlusController` | `obter` |
+| `PATCH` | `/tresc-plus/conexao` | `ConexaoTrescPlusController` | `atualizar` |
+| `POST` | `/tresc-plus/conexao/testar` | `ConexaoTrescPlusController` | `testar` |
+| `POST` | `/tresc-plus/reconciliar` | `ConexaoTrescPlusController` | `reconciliar` |
+| `GET` | `/tresc-plus/vinculos` | `ConexaoTrescPlusController` | `listar` |
+| `DELETE` | `/tresc-plus/vinculos/:usuarioId` | `ConexaoTrescPlusController` | `desvincularOutro` |
+| `GET` | `/tresc-plus/vinculo` | `VinculoTrescPlusController` | `obter` |
+| `POST` | `/tresc-plus/vinculo` | `VinculoTrescPlusController` | `vincular` |
+| `DELETE` | `/tresc-plus/vinculo` | `VinculoTrescPlusController` | `desvincular` |
+| `GET` | `/tresc-plus/agente` | `AgenteTrescPlusController` | `estado` |
+| `GET` | `/tresc-plus/agente/campanhas` | `AgenteTrescPlusController` | `campanhas` |
+| `POST` | `/tresc-plus/agente/entrar` | `AgenteTrescPlusController` | `entrar` |
+| `POST` | `/tresc-plus/agente/sair` | `AgenteTrescPlusController` | `sair` |
+| `GET` | `/tresc-plus/agente/pausas` | `AgenteTrescPlusController` | `pausas` |
+| `POST` | `/tresc-plus/agente/pausa` | `AgenteTrescPlusController` | `entrarEmPausa` |
+| `DELETE` | `/tresc-plus/agente/pausa` | `AgenteTrescPlusController` | `sairDaPausa` |
+| `POST` | `/tresc-plus/ligacoes` | `AgenteTrescPlusController` | `ligar` |
+| `POST` | `/tresc-plus/ligacoes/:id/desligar` | `AgenteTrescPlusController` | `desligar` |
+| `GET` | `/tresc-plus/ligacoes/:id/qualificacoes` | `AgenteTrescPlusController` | `qualificacoesDaLigacao` |
+| `GET` | `/tresc-plus/qualificacoes` | `AgenteTrescPlusController` | `qualificacoes` |
+| `POST` | `/tresc-plus/ligacoes/:id/qualificar` | `AgenteTrescPlusController` | `qualificar` |
+| `GET` | `/tresc-plus/campanhas` | `DiscadorTrescPlusController` | `campanhas` |
+| `GET` | `/tresc-plus/campanhas/:id/listas` | `DiscadorTrescPlusController` | `listas` |
+| `POST` | `/tresc-plus/discador/enviar` | `DiscadorTrescPlusController` | `enviar` |
 | `GET` | `/usuarios/:id/desligamento/previa` | `DesligamentoController` | `previa` |
 | `POST` | `/usuarios/:id/desligar` | `DesligamentoController` | `desligar` |
 | `POST` | `/usuarios/:id/reativar` | `DesligamentoController` | `reativar` |
+| `PUT` | `/usuarios/eu/foto` | `FotoDePerfilController` | `definir` |
+| `DELETE` | `/usuarios/eu/foto` | `FotoDePerfilController` | `remover` |
 | `GET` | `/usuarios` | `UsuariosController` | `listar` |
 | `GET` | `/usuarios/equipes` | `UsuariosController` | `equipes` |
+| `GET` | `/usuarios/opcoes` | `UsuariosController` | `opcoes` |
 | `GET` | `/usuarios/:id` | `UsuariosController` | `detalhar` |
 | `POST` | `/usuarios` | `UsuariosController` | `criar` |
 | `PATCH` | `/usuarios/:id` | `UsuariosController` | `atualizar` |
 | `POST` | `/usuarios/:id/senha-temporaria` | `UsuariosController` | `definirSenhaTemporaria` |
+| `POST` | `/usuarios/:id/dois-fatores/redefinir` | `UsuariosController` | `redefinirDoisFatores` |
 | `POST` | `/usuarios/:id/convite` | `UsuariosController` | `enviarConvite` |
 | `GET` | `/webhooks/entradas/modelos` | `WebhooksEntradaController` | `modelos` |
 | `POST` | `/webhooks/entradas/previa` | `WebhooksEntradaController` | `previa` |
+| `POST` | `/webhooks/entradas/testar-credencial` | `WebhooksEntradaController` | `testarCredencialNova` |
 | `GET` | `/webhooks/entradas` | `WebhooksEntradaController` | `listar` |
 | `POST` | `/webhooks/entradas` | `WebhooksEntradaController` | `criar` |
 | `GET` | `/webhooks/entradas/:id` | `WebhooksEntradaController` | `detalhar` |
+| `GET` | `/webhooks/entradas/:id/endereco` | `WebhooksEntradaController` | `endereco` |
+| `POST` | `/webhooks/entradas/:id/testar-credencial` | `WebhooksEntradaController` | `testarCredencial` |
+| `POST` | `/webhooks/entradas/:id/buscar-campos` | `WebhooksEntradaController` | `buscarCampos` |
+| `GET` | `/webhooks/entradas/:id/campos-recebidos` | `WebhooksEntradaController` | `camposRecebidos` |
+| `GET` | `/webhooks/entradas/:id/formularios` | `WebhooksEntradaController` | `formularios` |
+| `GET` | `/webhooks/entradas/:id/formularios/:formularioId/campos` | `WebhooksEntradaController` | `camposDoFormulario` |
+| `POST` | `/webhooks/entradas/:id/sincronizar` | `WebhooksEntradaController` | `sincronizar` |
 | `PATCH` | `/webhooks/entradas/:id` | `WebhooksEntradaController` | `atualizar` |
 | `DELETE` | `/webhooks/entradas/:id` | `WebhooksEntradaController` | `excluir` |
 | `POST` | `/webhooks/entradas/:id/regenerar-token` | `WebhooksEntradaController` | `regenerarToken` |
@@ -1553,7 +2003,32 @@ flowchart LR
 | `GET` | `/webhooks/entradas/:id/recebimentos/:recebimentoId` | `WebhooksEntradaController` | `detalharRecebimento` |
 | `POST` | `/webhooks/entradas/:id/recebimentos/:recebimentoId/reprocessar` | `WebhooksEntradaController` | `reprocessar` |
 | `POST` | `/webhooks/entrada/:token` | `WebhookEntradaPublicoController` | `receber` |
+| `GET` | `/webhooks/aplicativos` | `AplicativosController` | `catalogo` |
+| `GET` | `/webhooks/recebimentos` | `HistoricoDeRecebimentosController` | `listar` |
+| `GET` | `/webhooks/recebimentos/:id` | `HistoricoDeRecebimentosController` | `detalhar` |
+| `POST` | `/webhooks/recebimentos/:id/reprocessar` | `HistoricoDeRecebimentosController` | `reprocessar` |
+| `GET` | `/webhooks/facebook/configuracao` | `FacebookController` | `configuracao` |
+| `GET` | `/webhooks/facebook/canais` | `FacebookController` | `canais` |
+| `POST` | `/webhooks/facebook/oauth/iniciar` | `FacebookController` | `iniciarLogin` |
+| `POST` | `/webhooks/facebook/conexoes/token-de-pagina` | `FacebookController` | `conectarComToken` |
+| `GET` | `/webhooks/facebook/conexoes` | `FacebookController` | `listar` |
+| `GET` | `/webhooks/facebook/conexoes/:id` | `FacebookController` | `detalhar` |
+| `DELETE` | `/webhooks/facebook/conexoes/:id` | `FacebookController` | `excluir` |
+| `POST` | `/webhooks/facebook/conexoes/:id/atualizar-paginas` | `FacebookController` | `atualizarPaginas` |
+| `GET` | `/webhooks/facebook/conexoes/:id/paginas` | `FacebookController` | `paginas` |
+| `GET` | `/webhooks/facebook/conexoes/:id/paginas/:paginaId/formularios` | `FacebookController` | `formularios` |
+| `GET` | `/webhooks/facebook/conexoes/:id/paginas/:paginaId/formularios/:formularioId/perguntas` | `FacebookController` | `perguntas` |
+| `GET` | `/publico/facebook/oauth/retorno` | `FacebookPublicoController` | `retorno` |
+| `GET` | `/configuracoes/apps-de-login` | `AppsDeLoginController` | `listar` |
+| `PUT` | `/configuracoes/apps-de-login/:aplicativo` | `AppsDeLoginController` | `gravar` |
+| `DELETE` | `/configuracoes/apps-de-login/:aplicativo` | `AppsDeLoginController` | `remover` |
+| `GET` | `/conexoes-aplicativo` | `ConexoesAplicativoController` | `listar` |
+| `POST` | `/conexoes-aplicativo/oauth/iniciar` | `ConexoesAplicativoController` | `iniciar` |
+| `GET` | `/conexoes-aplicativo/:id` | `ConexoesAplicativoController` | `detalhar` |
+| `DELETE` | `/conexoes-aplicativo/:id` | `ConexoesAplicativoController` | `excluir` |
+| `GET` | `/publico/conexoes/oauth/retorno` | `ConexoesAplicativoPublicoController` | `retorno` |
 | `GET` | `/webhooks/saidas/eventos` | `WebhooksSaidaController` | `eventos` |
+| `GET` | `/webhooks/saidas/formato-clint` | `WebhooksSaidaController` | `formatoClint` |
 | `GET` | `/webhooks/saidas` | `WebhooksSaidaController` | `listar` |
 | `POST` | `/webhooks/saidas` | `WebhooksSaidaController` | `criar` |
 | `GET` | `/webhooks/saidas/:id` | `WebhooksSaidaController` | `detalhar` |
@@ -1564,6 +2039,13 @@ flowchart LR
 | `GET` | `/webhooks/saidas/:id/entregas` | `WebhooksSaidaController` | `listarEntregas` |
 | `GET` | `/webhooks/saidas/:id/entregas/:entregaId` | `WebhooksSaidaController` | `detalharEntrega` |
 | `POST` | `/webhooks/saidas/:id/entregas/:entregaId/reenviar` | `WebhooksSaidaController` | `reenviar` |
+| `GET` | `/saude` | `GatewayController` | `saude` |
+| `POST` | `/numeros/:id/conectar` | `GatewayController` | `conectar` |
+| `POST` | `/numeros/:id/desconectar` | `GatewayController` | `desconectar` |
+| `GET` | `/numeros/:id/status` | `GatewayController` | `status` |
+| `POST` | `/numeros/:id/verificar` | `GatewayController` | `verificar` |
+| `POST` | `/numeros/:id/digitando` | `GatewayController` | `digitando` |
+| `POST` | `/simulador/receber` | `GatewayController` | `receberSimulada` |
 
 
 ### Providers / servicos
@@ -1573,57 +2055,250 @@ flowchart LR
 | `LogsTecnicosConsultaService` | `src/administracao/logs-tecnicos-consulta.service.ts` |
 | `ResumoAdministracaoService` | `src/administracao/resumo-administracao.service.ts` |
 | `RetencaoService` | `src/administracao/retencao.service.ts` |
+| `ArquivosService` | `src/arquivos/arquivos.service.ts` |
+| `AssistenteService` | `src/assistente/assistente.service.ts` |
+| `BaseDeConhecimentoService` | `src/assistente/base-de-conhecimento.ts` |
+| `ChamadosAssistenteService` | `src/assistente/chamados/chamados-assistente.service.ts` |
+| `ConectorChamadosService` | `src/assistente/chamados/conector-chamados.service.ts` |
+| `ConfiguracaoAssistenteService` | `src/assistente/configuracao-assistente.service.ts` |
+| `HistoricoAssistenteService` | `src/assistente/historico-assistente.service.ts` |
+| `AcessoAtendimentoService` | `src/atendimento/acesso-atendimento.service.ts` |
+| `AtendimentoService` | `src/atendimento/atendimento.service.ts` |
+| `AvisoDeMensagem` | `src/atendimento/aviso-de-mensagem.service.ts` |
+| `CanaisDoAtendimentoService` | `src/atendimento/canais-atendimento.service.ts` |
+| `ContagensDoAtendimento` | `src/atendimento/contagens.service.ts` |
+| `ConversasService` | `src/atendimento/conversas.service.ts` |
+| `DesligamentoNoAtendimento` | `src/atendimento/desligamento-atendimento.service.ts` |
+| `DistribuicaoDaFila` | `src/atendimento/distribuicao-fila.service.ts` |
+| `EnvioDoAtendimento` | `src/atendimento/envio.service.ts` |
+| `FilasService` | `src/atendimento/filas.service.ts` |
+| `GanchosDoAtendimento` | `src/atendimento/ganchos-do-atendimento.ts` |
+| `MensagensService` | `src/atendimento/mensagens.service.ts` |
+| `MetricasDoAtendimentoService` | `src/atendimento/metricas-atendimento.service.ts` |
+| `MotorDoAtendimento` | `src/atendimento/motor-do-atendimento.service.ts` |
+| `RespostasRapidasService` | `src/atendimento/respostas-rapidas.service.ts` |
+| `SlaDoAtendimento` | `src/atendimento/sla.service.ts` |
 | `AtividadesService` | `src/atividades/atividades.service.ts` |
 | `LembretesAtividadesService` | `src/atividades/lembretes-atividades.service.ts` |
 | `AuditoriaService` | `src/auditoria/auditoria.service.ts` |
 | `AuditoriaConsultaService` | `src/auditoria/consulta/auditoria-consulta.service.ts` |
 | `ParseIdSequencialPipe` | `src/auditoria/consulta/parse-id-sequencial.pipe.ts` |
 | `AuthService` | `src/auth/auth.service.ts` |
+| `DoisFatoresService` | `src/auth/dois-fatores/dois-fatores.service.ts` |
 | `ForcaBrutaService` | `src/auth/forca-bruta.service.ts` |
 | `OrigemGuard` | `src/auth/guards/origem.guard.ts` |
 | `PapeisGuard` | `src/auth/guards/papeis.guard.ts` |
 | `SessaoGuard` | `src/auth/guards/sessao.guard.ts` |
 | `SenhasService` | `src/auth/senhas.service.ts` |
 | `SessoesService` | `src/auth/sessoes.service.ts` |
+| `AcoesDeAutomacao` | `src/automacoes/acoes-de-automacao.service.ts` |
+| `AgendasDeAutomacao` | `src/automacoes/agendas-de-automacao.service.ts` |
+| `AutomacoesService` | `src/automacoes/automacoes.service.ts` |
+| `EnvioDeMensagemDaAutomacao` | `src/automacoes/envio-de-mensagem-da-automacao.service.ts` |
+| `ExecucoesDeAutomacao` | `src/automacoes/execucoes-de-automacao.service.ts` |
+| `GatilhosDeAutomacao` | `src/automacoes/gatilhos-de-automacao.service.ts` |
+| `IniciadorDeExecucao` | `src/automacoes/iniciador-de-execucao.service.ts` |
+| `AnaliseService` | `src/bi/analise/analise.service.ts` |
+| `ChamadaClaudeService` | `src/bi/analise/chamada-claude.service.ts` |
+| `BiService` | `src/bi/bi.service.ts` |
+| `ExportacaoBiService` | `src/bi/exportacao-bi.service.ts` |
+| `FiltrosBiService` | `src/bi/filtros-bi.service.ts` |
+| `PainelAtendimentoService` | `src/bi/painel-atendimento.service.ts` |
+| `PainelComercialService` | `src/bi/painel-comercial.service.ts` |
+| `PainelCsService` | `src/bi/painel-cs.service.ts` |
+| `PainelFinanceiroService` | `src/bi/painel-financeiro.service.ts` |
+| `PainelMarketingService` | `src/bi/painel-marketing.service.ts` |
+| `PainelSdrService` | `src/bi/painel-sdr.service.ts` |
+| `ArquivosPublicos` | `src/canais/comum/arquivos-publicos.ts` |
+| `ConfiguracaoDeCanais` | `src/canais/comum/configuracao-de-canais.service.ts` |
+| `LimitadorDeRequisicoes` | `src/canais/comum/limitador.ts` |
+| `SegredosDoCanal` | `src/canais/comum/segredos-do-canal.ts` |
+| `AdaptadorEmail` | `src/canais/email/adaptador-email.ts` |
+| `EmailCanaisService` | `src/canais/email/email-canais.service.ts` |
+| `LeitorDeEmail` | `src/canais/email/leitor-de-email.service.ts` |
+| `AdaptadorMeta` | `src/canais/meta/adaptadores-meta.ts` |
+| `AdaptadorInstagram` | `src/canais/meta/adaptadores-meta.ts` |
+| `AdaptadorMessenger` | `src/canais/meta/adaptadores-meta.ts` |
+| `GraphApi` | `src/canais/meta/graph-api.ts` |
+| `MetaCanaisService` | `src/canais/meta/meta-canais.service.ts` |
+| `WebhookMetaService` | `src/canais/meta/webhook-meta.service.ts` |
+| `RegistroCanais` | `src/canais/registro-canais.ts` |
+| `AcessoDoWidgetGuard` | `src/canais/webchat/acesso-do-widget.ts` |
+| `AdaptadorWebchat` | `src/canais/webchat/adaptador-webchat.ts` |
+| `WebchatCanaisService` | `src/canais/webchat/webchat-canais.service.ts` |
+| `WebchatTempoReal` | `src/canais/webchat/webchat-tempo-real.ts` |
+| `WebchatService` | `src/canais/webchat/webchat.service.ts` |
+| `WidgetDoSite` | `src/canais/webchat/widget.service.ts` |
+| `AdaptadorWhatsapp` | `src/canais/whatsapp/adaptador-whatsapp.ts` |
+| `ClienteGatewayWhatsapp` | `src/canais/whatsapp/cliente-gateway.ts` |
+| `DigitandoWhatsappService` | `src/canais/whatsapp/digitando-whatsapp.service.ts` |
+| `EventosWhatsappService` | `src/canais/whatsapp/eventos-whatsapp.service.ts` |
+| `NumerosWhatsappService` | `src/canais/whatsapp/numeros-whatsapp.service.ts` |
+| `AdaptadorWhatsappOficial` | `src/canais/whatsapp-oficial/adaptador-whatsapp-oficial.ts` |
+| `EntradaWhatsappOficialService` | `src/canais/whatsapp-oficial/entrada-whatsapp-oficial.service.ts` |
+| `GraphWhatsappOficial` | `src/canais/whatsapp-oficial/graph-whatsapp-oficial.ts` |
+| `TemplatesOficiaisService` | `src/canais/whatsapp-oficial/templates-oficiais.service.ts` |
+| `WebhookWhatsappOficialService` | `src/canais/whatsapp-oficial/webhook-whatsapp-oficial.service.ts` |
+| `WhatsappOficialCanaisService` | `src/canais/whatsapp-oficial/whatsapp-oficial-canais.service.ts` |
+| `AcessoChatService` | `src/chat-interno/acesso-chat.service.ts` |
+| `CanaisChatService` | `src/chat-interno/canais-chat.service.ts` |
+| `MensagensChatService` | `src/chat-interno/mensagens-chat.service.ts` |
+| `MontagemChatService` | `src/chat-interno/montagem-chat.service.ts` |
+| `PublicacaoChatService` | `src/chat-interno/publicacao-chat.service.ts` |
+| `SincronizacaoChatService` | `src/chat-interno/sincronizacao-chat.service.ts` |
+| `TempoRealChatService` | `src/chat-interno/tempo-real-chat.service.ts` |
+| `AcessoChatbot` | `src/chatbot/acesso-chatbot.service.ts` |
+| `AcoesDoBot` | `src/chatbot/acoes-do-bot.service.ts` |
+| `EntradaDoBot` | `src/chatbot/entrada-do-bot.service.ts` |
+| `FluxosChatbotService` | `src/chatbot/fluxos.service.ts` |
+| `MensagensDoBot` | `src/chatbot/mensagens-do-bot.service.ts` |
+| `PassosDoChatbot` | `src/chatbot/passos-do-chatbot.service.ts` |
+| `SimuladorDoChatbot` | `src/chatbot/simulador.service.ts` |
+| `TransferenciaDoBot` | `src/chatbot/transferencia-do-bot.service.ts` |
 | `CriptografiaService` | `src/comum/criptografia/criptografia.service.ts` |
+| `GatilhosService` | `src/comum/gatilhos/gatilhos.service.ts` |
+| `ModelosService` | `src/comum/modelos/modelos.service.ts` |
+| `PassosService` | `src/comum/passos/passos.service.ts` |
+| `SegmentosService` | `src/comum/segmentos/segmentos.service.ts` |
 | `ParseIdPipe` | `src/comum/validacao/parse-id.pipe.ts` |
 | `ContatosService` | `src/contatos/contatos.service.ts` |
 | `EmpresasService` | `src/contatos/empresas.service.ts` |
 | `LinhaDoTempoService` | `src/contatos/linha-do-tempo.service.ts` |
 | `PermissoesContatosService` | `src/contatos/permissoes-contatos.service.ts` |
+| `AcessoDisparos` | `src/disparos/acesso-disparos.service.ts` |
+| `AgendadorDeEnvio` | `src/disparos/agendador-de-envio.service.ts` |
+| `CampanhasService` | `src/disparos/campanhas.service.ts` |
+| `CanaisDaCampanha` | `src/disparos/canais-da-campanha.service.ts` |
+| `CicloDaCampanha` | `src/disparos/ciclo-da-campanha.service.ts` |
+| `ConfiguracaoDisparosService` | `src/disparos/configuracao-disparos.service.ts` |
+| `EntregaDeCampanha` | `src/disparos/entrega-de-campanha.service.ts` |
+| `EnvioDeCampanha` | `src/disparos/envio-de-campanha.service.ts` |
+| `ModelosMensagemService` | `src/disparos/modelos-mensagem.service.ts` |
+| `ProgressoDaCampanha` | `src/disparos/progresso-da-campanha.service.ts` |
+| `PublicoDaCampanha` | `src/disparos/publico.service.ts` |
+| `RelatorioDeCampanha` | `src/disparos/relatorio-de-campanha.service.ts` |
+| `RespostasDeCampanha` | `src/disparos/respostas-de-campanha.service.ts` |
+| `SincronizacaoDaCampanha` | `src/disparos/sincronizacao-da-campanha.service.ts` |
 | `EmailService` | `src/email/email.service.ts` |
 | `EventosDominioService` | `src/eventos/eventos-dominio.service.ts` |
 | `FilaService` | `src/fila/fila.service.ts` |
+| `ContratosService` | `src/financeiro/contratos.service.ts` |
+| `ImportacaoDeParcelasService` | `src/financeiro/importacao-de-parcelas.service.ts` |
+| `IndicadoresFinanceirosService` | `src/financeiro/indicadores.service.ts` |
+| `ParcelasService` | `src/financeiro/parcelas.service.ts` |
+| `ReguaConfiguracaoService` | `src/financeiro/regua-configuracao.service.ts` |
+| `ReguaConsultaService` | `src/financeiro/regua-consulta.service.ts` |
+| `ReguaEnvioService` | `src/financeiro/regua-envio.service.ts` |
+| `ReguaLigacoesService` | `src/financeiro/regua-ligacoes.service.ts` |
+| `ReguaService` | `src/financeiro/regua.service.ts` |
+| `RiscoDeChurnService` | `src/financeiro/risco-de-churn.service.ts` |
+| `SugestaoDeContratoService` | `src/financeiro/sugestao-de-contrato.service.ts` |
+| `TempoRealFinanceiro` | `src/financeiro/tempo-real-financeiro.service.ts` |
 | `DistribuicaoService` | `src/funis/distribuicao.service.ts` |
 | `FunisService` | `src/funis/funis.service.ts` |
 | `MetricasService` | `src/funis/metricas.service.ts` |
 | `MotorDeNegociosService` | `src/funis/motor-de-negocios.service.ts` |
 | `NegociosConsultaService` | `src/funis/negocios-consulta.service.ts` |
+| `NegociosEmMassaService` | `src/funis/negocios-em-massa.service.ts` |
 | `NegociosService` | `src/funis/negocios.service.ts` |
 | `ParseAreaPipe` | `src/funis/parse-area.pipe.ts` |
 | `PassagensService` | `src/funis/passagens.service.ts` |
+| `ImportacaoProcessadorService` | `src/importacao/importacao-processador.service.ts` |
+| `ImportacaoService` | `src/importacao/importacao.service.ts` |
+| `ModelosDeImportacaoService` | `src/importacao/modelos-de-importacao.service.ts` |
+| `CalculoIndicadoresService` | `src/indicadores/calculo-indicadores.service.ts` |
+| `FiltrosIndicadoresService` | `src/indicadores/filtros-indicadores.service.ts` |
+| `IndicadoresService` | `src/indicadores/indicadores.service.ts` |
+| `PaineisIndicadoresService` | `src/indicadores/paineis-indicadores.service.ts` |
+| `ConfiguracaoDeLigacoesService` | `src/ligacoes/configuracao-ligacoes.service.ts` |
+| `EventosDeLigacaoService` | `src/ligacoes/eventos-de-ligacao.service.ts` |
+| `GraphLigacoes` | `src/ligacoes/graph-ligacoes.ts` |
+| `GravacaoService` | `src/ligacoes/gravacao/gravacao.service.ts` |
+| `LeituraDaGravacaoService` | `src/ligacoes/gravacao/leitura-gravacao.service.ts` |
+| `ReprocessamentoDaGravacaoService` | `src/ligacoes/gravacao/reprocessamento-gravacao.service.ts` |
+| `RetencaoDeGravacoesService` | `src/ligacoes/gravacao/retencao-de-gravacoes.service.ts` |
+| `SugestoesDeAtividadeService` | `src/ligacoes/gravacao/sugestoes-de-atividade.service.ts` |
+| `HistoricoDeLigacoesService` | `src/ligacoes/historico-ligacoes.service.ts` |
+| `LigacoesFeitasService` | `src/ligacoes/ligacoes-feitas.service.ts` |
+| `LigacoesRecebidasService` | `src/ligacoes/ligacoes-recebidas.service.ts` |
+| `LigacoesService` | `src/ligacoes/ligacoes.service.ts` |
+| `PermissoesDeLigacaoService` | `src/ligacoes/permissoes-de-ligacao.service.ts` |
+| `WebhookDeLigacoesService` | `src/ligacoes/webhook-ligacoes.service.ts` |
 | `LogsTecnicosService` | `src/logs/logs-tecnicos.service.ts` |
 | `NotificacoesService` | `src/notificacoes/notificacoes.service.ts` |
+| `OuvintesDeNotificacao` | `src/notificacoes/ouvintes-notificacao.ts` |
 | `PrismaService` | `src/prisma/prisma.service.ts` |
+| `PushService` | `src/push/push.service.ts` |
+| `ServicoWebPush` | `src/push/servico-de-push.ts` |
+| `AlertasDeSaudeService` | `src/saude/monitoramento/alertas-de-saude.service.ts` |
+| `SaudeDoSistemaService` | `src/saude/monitoramento/saude-do-sistema.service.ts` |
 | `SaudeService` | `src/saude/saude.service.ts` |
+| `ConfiguracaoSdrService` | `src/sdr/configuracao-sdr.service.ts` |
+| `ConversasSdrService` | `src/sdr/conversas-sdr.service.ts` |
+| `EfeitosSdrService` | `src/sdr/efeitos-sdr.service.ts` |
+| `MotorSdr` | `src/sdr/motor-sdr.service.ts` |
+| `OrcamentoSdrService` | `src/sdr/orcamento-sdr.service.ts` |
+| `QualificacaoSdrService` | `src/sdr/qualificacao-sdr.service.ts` |
+| `SimuladorSdrService` | `src/sdr/simulador-sdr.service.ts` |
+| `TransicoesSdrService` | `src/sdr/transicoes-sdr.service.ts` |
 | `SeedsService` | `src/seeds/seeds.service.ts` |
+| `SetoresService` | `src/setores/setores.service.ts` |
+| `OuvinteDoBanco` | `src/tempo-real/ouvinte-do-banco.ts` |
+| `TempoRealPublicador` | `src/tempo-real/tempo-real.publicador.ts` |
+| `TempoRealService` | `src/tempo-real/tempo-real.service.ts` |
+| `ClienteWhisper` | `src/transcricao/cliente-whisper.ts` |
+| `ProcessadorFfmpeg` | `src/transcricao/processador-de-audio.ts` |
+| `TranscricaoService` | `src/transcricao/transcricao.service.ts` |
+| `AgenteTrescPlusService` | `src/tresc-plus/agente.service.ts` |
+| `ConexaoTrescPlusService` | `src/tresc-plus/conexao.service.ts` |
+| `DiscadorTrescPlusService` | `src/tresc-plus/discador.service.ts` |
+| `LigacoesTrescService` | `src/tresc-plus/ligacoes-tresc.service.ts` |
+| `OuvinteDeEventosTrescPlus` | `src/tresc-plus/ouvinte-eventos.service.ts` |
+| `ReconciliacaoTrescPlusService` | `src/tresc-plus/reconciliacao.service.ts` |
+| `VinculosTrescPlusService` | `src/tresc-plus/vinculos.service.ts` |
 | `DesligamentoService` | `src/usuarios/desligamento.service.ts` |
+| `FotoDePerfilService` | `src/usuarios/foto-de-perfil.service.ts` |
 | `UsuariosService` | `src/usuarios/usuarios.service.ts` |
+| `AplicacaoDoRecebimento` | `src/webhooks/entrada/aplicacao-do-recebimento.ts` |
+| `AplicativosService` | `src/webhooks/entrada/aplicativos.service.ts` |
 | `ProcessamentoEntradaService` | `src/webhooks/entrada/processamento-entrada.service.ts` |
 | `RecebimentosService` | `src/webhooks/entrada/recebimentos.service.ts` |
 | `WebhooksEntradaService` | `src/webhooks/entrada/webhooks-entrada.service.ts` |
+| `ConexoesFacebookService` | `src/webhooks/facebook/conexoes-facebook.service.ts` |
+| `FacebookLeadAdsService` | `src/webhooks/facebook/facebook-lead-ads.service.ts` |
+| `AppsDeLoginService` | `src/webhooks/login/apps-de-login.service.ts` |
+| `ConexoesAplicativoService` | `src/webhooks/login/conexoes-aplicativo.service.ts` |
+| `ParseAplicativoDeLoginPipe` | `src/webhooks/login/parse-aplicativo.pipe.ts` |
+| `RdStationService` | `src/webhooks/login/rd-station.service.ts` |
 | `EntregasService` | `src/webhooks/saida/entregas.service.ts` |
 | `WebhooksSaidaService` | `src/webhooks/saida/webhooks-saida.service.ts` |
+| `GerenciadorDeNumeros` | `src/whatsapp/gerenciador-de-numeros.service.ts` |
+| `TokenInternoGuard` | `src/whatsapp/http/token-interno.guard.ts` |
 
 
 ### Chamadas HTTP saindo deste projeto
 
 | Metodo | URL | Arquivo |
 | --- | --- | --- |
+| `DELETE` | `${destino.url}|${destino.email}` | `src/assistente/chamados/conector-chamados.service.ts` |
+| `DELETE` | `${d.url}|${d.email}` | `src/assistente/chamados/conector-chamados.service.ts` |
+| `FETCH` | `${d.url}/api/auth/login` | `src/assistente/chamados/conector-chamados.service.ts` |
+| `FETCH` | `${d.url}/api/chamados` | `src/assistente/chamados/conector-chamados.service.ts` |
+| `GET` | `${dia}|conversas` | `src/bi/painel-atendimento.service.ts` |
+| `GET` | `${dia}|resolvidas` | `src/bi/painel-atendimento.service.ts` |
+| `GET` | `${dia}|novos` | `src/bi/painel-comercial.service.ts` |
+| `GET` | `${dia}|ganhos` | `src/bi/painel-comercial.service.ts` |
+| `GET` | `${dia}|perdidos` | `src/bi/painel-comercial.service.ts` |
+| `GET` | `${dia}|ganhos` | `src/bi/painel-comercial.service.ts` |
+| `FETCH` | `${ultimo + 1}:*` | `src/canais/email/leitor-de-email.service.ts` |
+| `GET` | `${referencia.tipo}:${referencia.id}` | `src/chat-interno/montagem-chat.service.ts` |
+| `GET` | `${execucao}:${tipo}` | `src/comum/passos/passos.service.ts` |
+| `GET` | `/api/v1/bi/${painel}` | `test/bi-apoio.ts` |
 | `POST` | `/api/v1/negocios/${negocioId}/mover` | `test/funis-apoio.ts` |
 | `POST` | `/api/v1/negocios` | `test/utils/clientes.ts` |
 | `POST` | `/api/v1/auth/entrar` | `test/utils/clientes.ts` |
 | `POST` | `/api/v1/contatos` | `test/utils/index.ts` |
+| `DELETE` | `${webhook[1]}/${webhook[2]}` | `test/utils/servicos-de-login.ts` |
 | `POST` | `/api/v1/webhooks/entrada/${token}` | `test/webhooks-apoio.ts` |
 
 
@@ -1640,6 +2315,7 @@ flowchart LR
 | `bun run start:dev` | `nest start --watch` |
 | `bun run start:debug` | `nest start --debug --watch` |
 | `bun run start:prod` | `node dist/main` |
+| `bun run start:whatsapp` | `node dist/whatsapp/main` |
 | `bun run prisma:gerar` | `prisma generate` |
 | `bun run prisma:migrar` | `prisma migrate dev` |
 | `bun run postprisma:migrar` | `prisma generate` |
@@ -1657,32 +2333,51 @@ flowchart LR
 
 ### Variaveis de ambiente usadas no codigo
 
+- `ARQUIVOS_TESTE_S3_CHAVE`
+- `ARQUIVOS_TESTE_S3_ENDPOINT`
+- `ARQUIVOS_TESTE_S3_SEGREDO`
 - `DATABASE_URL`
 - `DATABASE_URL_TESTE`
+- `EMAIL_TESTE_HOST`
+- `EMAIL_TESTE_IMAP_PORTA`
+- `EMAIL_TESTE_SMTP_PORTA`
+- `PATH`
 
 
 ### Dependencias de producao
 
 | Pacote | Versao |
 | --- | --- |
+| `@anthropic-ai/sdk` | ^1.3.0 |
+| `@aws-sdk/client-s3` | 3.1145.0 |
 | `@nestjs/common` | ^12.0.1 |
 | `@nestjs/core` | ^12.0.1 |
 | `@nestjs/observe` | ^0.3.0 |
 | `@nestjs/platform-express` | ^12.0.1 |
+| `@nestjs/platform-socket.io` | ^12.2.0 |
 | `@nestjs/swagger` | ^12.0.2 |
+| `@nestjs/websockets` | ^12.2.0 |
 | `@prisma/adapter-pg` | 7.10.1 |
 | `@prisma/client` | 7.10.1 |
+| `baileys` | 7.0.0-rc14 |
 | `class-transformer` | ^0.5.1 |
 | `class-validator` | ^0.15.1 |
+| `exceljs` | ^4.4.0 |
+| `imapflow` | 2.2.11 |
+| `mailparser` | 3.9.37 |
 | `nodemailer` | ^10.1.7 |
 | `pg` | ^8.23.1 |
 | `pg-boss` | 12.35.1 |
 | `prisma` | 7.10.1 |
+| `qrcode` | ^1.5.4 |
 | `reflect-metadata` | ^0.2.2 |
 | `rxjs` | ^7.8.1 |
+| `socket.io` | 4.8.4 |
+| `socket.io-client` | 4.8.4 |
+| `web-push` | ^3.6.7 |
 
 
-<details><summary>Dependencias de desenvolvimento (19)</summary>
+<details><summary>Dependencias de desenvolvimento (23)</summary>
 
 | Pacote | Versao |
 | --- | --- |
@@ -1692,8 +2387,12 @@ flowchart LR
 | `@nestjs/testing` | ^12.0.1 |
 | `@types/express` | ^5.0.0 |
 | `@types/jest` | ^30.0.0 |
+| `@types/mailparser` | ^3.9.0 |
+| `@types/multer` | ^2.1.0 |
 | `@types/node` | ^24.0.0 |
+| `@types/qrcode` | ^1.5.6 |
 | `@types/supertest` | ^7.0.0 |
+| `@types/web-push` | ^3.6.4 |
 | `jest` | ^30.0.0 |
 | `oxlint` | ^1.58.0 |
 | `oxlint-tsgolint` | ^7.0.2001 |
